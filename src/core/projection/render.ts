@@ -321,9 +321,11 @@ function renderLine(
       : p.parts.taskGap;
   // Defensive: only rewrite a line whose pieces reassemble exactly.
   if (glyph === undefined || head + p.taskText + suffix !== lineText) return null;
+  // ST-1: an unowned glyph ([>], [?], …) is the user's local presentation:
+  // never overwritten, as no intent was ever sent for it.
   const owned = statusOfGlyph(glyph);
   const glyphAfter =
-    OWNED_STATUS.has(task.status) && owned !== task.status
+    owned !== null && OWNED_STATUS.has(task.status) && owned !== task.status
       ? (glyphOfStatus(task.status) as string)
       : glyph;
   const bracket = head.indexOf("[");
