@@ -7,6 +7,14 @@ reference format. It owns Markdown scanning, the projection engine,
 CodeMirror integration, commands, the Resource Explorer, plugin settings,
 and editor conflict presentation.
 
+## Scope
+
+The plugin implements the OpenLFCP MVP 0.1 product slice on
+sdk-ts: sharing Tasks between vaults over the MVP 0.1 subset of
+LFCP-WIRE-01 at `mvp-0.1-baseline.6`, not every deferred WIRE-01 feature
+(see `.github: docs/release/deferred-wire-01-features.md` (in [openlfcp/.github](https://github.com/openlfcp/.github))). Desktop only is
+tested; mobile is not.
+
 ## Documents
 
 - [docs/OBSIDIAN-ARCHITECTURE-01.md](docs/OBSIDIAN-ARCHITECTURE-01.md): architecture of the Obsidian adapter.
