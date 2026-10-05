@@ -7,6 +7,11 @@ reference format. It owns Markdown scanning, the projection engine,
 CodeMirror integration, commands, the Resource Explorer, plugin settings,
 and editor conflict presentation.
 
+## Documents
+
+- [docs/OBSIDIAN-ARCHITECTURE-01.md](docs/OBSIDIAN-ARCHITECTURE-01.md): architecture of the Obsidian adapter.
+- The Markdown ref grammar it implements is normative and lives in `spec: integration/MARKDOWN-REFS-01.md`.
+
 ## Status
 
 Repository scaffold only. The plugin bootstrap is LFCP-058.
