@@ -79,12 +79,10 @@ Then one line per check: `A1 PASS`, `C2 FAIL <non-secret diagnostic>`, or
 4. Close the note, delete nothing, and reopen the vault. Expected: the
    projection index rebuilds. Edits to the shared task are still sent, and
    remote changes still render into it.
-5. Check the secret store holds the identity:
-   - macOS: Keychain;
-   - Windows: Credential Manager;
-   - Linux: the libsecret store.
-
-   Only check that entries named `openlfcp-…` exist. Do not reveal them.
+5. Check that the identity survives in Obsidian's secret storage
+   (`app.secretStorage`). After a restart, Settings still shows the same
+   "Ready" identity, and the collaboration still writes. Do not inspect or
+   export the stored values. Where the OS keeps them is Obsidian's concern.
 
 ## C. WebSocket
 
