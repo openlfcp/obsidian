@@ -21,7 +21,10 @@ import {
 } from "@openlfcp/shared-objects";
 import { scanRefs } from "../refs";
 import { joinLines, splitLines } from "../refs/lines";
+import type { ObjectRef } from "../refs/object-ref";
 import type { MarkdownProjectionRef } from "../refs/scanner";
+import { formatRefComment } from "../refs/serializer";
+import { suspectReassociation } from "./reassociation";
 import {
   DATE_FIELD_EMOJI,
   type DateField,
@@ -42,7 +45,9 @@ export type RenderIssueCode =
   /** A shared tag that is not an Obsidian tag: not written (and never removed by an edit). */
   | "TAG_NOT_RENDERABLE"
   /** A G-EP7 rebuild changed what the line shows (e.g. done back to todo). */
-  | "STATE_REGRESSED";
+  | "STATE_REGRESSED"
+  /** ST-2: the ref seems to sit under the wrong Task; the line is left until it is repaired. */
+  | "REF_REASSOCIATION_SUSPECTED";
 
 export interface RenderIssue {
   readonly code: RenderIssueCode;
@@ -264,6 +269,13 @@ export function renderNote(
       leave("OBJECT_DELETED", "The shared Task was deleted; the line is kept.");
       continue;
     }
+    if (suspectReassociation(p, scan.tasks, task.title) !== null) {
+      leave(
+        "REF_REASSOCIATION_SUSPECTED",
+        "The ref seems to sit under another Task; nothing is rendered until it is repaired.",
+      );
+      continue;
+    }
     const conflicts = SCALAR_FIELDS.filter((f) => view.fields[f].conflicted);
     const line = lines[p.taskLine] as { text: string; eol: string };
     const next = renderLine(
@@ -318,4 +330,35 @@ function renderLine(
   const nextHead = `${head.slice(0, bracket + 1)}${glyphAfter}${head.slice(bracket + 2)}`;
   const text = renderTaskText(p.taskText, task, issues);
   return { line: nextHead + text + suffix, text, glyphBefore: glyph, glyphAfter };
+}
+
+export interface NewTaskLineOptions {
+  readonly placement: "inline" | "child";
+  readonly ref: ObjectRef;
+  /** Leading whitespace of the Task line (default none). */
+  readonly indent?: string;
+  /** The list marker (default "-"). */
+  readonly marker?: string;
+  /** The line ending of every written line (default "\n"). */
+  readonly eol?: string;
+}
+
+/**
+ * A new projection unit for a Shared Task, as the renderer would write it
+ * (LFCP-065 "Insert shared object"): the Task line with its glyph and owned
+ * fields, and the canonical ref comment inline or on a child line indented
+ * to the Task's content column. Ends with `eol`. Scanning it gives back the
+ * same binding, and it represents the Task exactly (no intents).
+ */
+export function renderNewTaskLine(task: Task, o: NewTaskLineOptions): string {
+  const indent = o.indent ?? "";
+  const marker = o.marker ?? "-";
+  const eol = o.eol ?? "\n";
+  const glyph = glyphOfStatus(task.status) ?? " ";
+  const text = renderTaskText("", task, []).trimStart();
+  const line = `${indent}${marker} [${glyph}] ${text}`;
+  const comment = formatRefComment(o.ref);
+  return o.placement === "inline"
+    ? `${line} ${comment}${eol}`
+    : `${line}${eol}${indent}${" ".repeat(marker.length + 1)}${comment}${eol}`;
 }

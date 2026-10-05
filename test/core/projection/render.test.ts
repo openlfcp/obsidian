@@ -16,7 +16,11 @@ import {
   type Task,
 } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
-import { type RenderTarget, renderNote } from "../../../src/core/projection/render";
+import {
+  type RenderTarget,
+  renderNewTaskLine,
+  renderNote,
+} from "../../../src/core/projection/render";
 import { parseTaskText } from "../../../src/core/projection/task-text";
 
 const R = resourceId(new Uint8Array(32).fill(3));
@@ -176,10 +180,42 @@ describe("renderNote (LFCP-062)", () => {
     expect(renderNote(note, () => undefined)).toMatchObject({ changed: false, projections: [] });
   });
 
+  it("never renders into a Task the ref slid under (ST-2)", () => {
+    const r = replica();
+    apply(r, complete(task(r)).intent);
+    const note = `- [ ] Prepare API contract\n- [ ] \n  <!-- lfcp-ref: ${REF} -->\n`;
+    const out = renderNote(note, lookup(r));
+    expect(out).toMatchObject({ changed: false, text: note });
+    expect(out.projections[0]?.issues.map((i) => i.code)).toEqual(["REF_REASSOCIATION_SUSPECTED"]);
+  });
+
   it("reports a G-EP7 regression it renders (item 3)", () => {
     const r = replica();
     const out = renderNote(child("[x] Prepare API contract"), lookup(r, { regressed: true }));
     expect(out.text).toBe(child("[ ] Prepare API contract"));
     expect(out.projections[0]?.issues.map((i) => i.code)).toEqual(["STATE_REGRESSED"]);
+  });
+
+  it("renders a new projection unit that scans back to the same binding and represents the Task (renderNewTaskLine)", () => {
+    const r = replica("Ship it", { tags: ["web"], due: "2026-10-10", priority: "high" });
+    apply(r, complete(task(r), "2026-10-04").intent);
+    const ref = { resourceId: R, objectType: "task", objectId: ID } as const;
+    for (const placement of ["inline", "child"] as const)
+      for (const eol of ["\n", "\r\n"]) {
+        const unit = renderNewTaskLine(task(r), {
+          placement,
+          ref,
+          indent: "  ",
+          marker: "1.",
+          eol,
+        });
+        expect(unit.endsWith(eol)).toBe(true);
+        const out = renderNote(unit, lookup(r));
+        expect(out.changed).toBe(false);
+        expect(out.projections.map((p) => p.key)).toEqual([KEY]);
+      }
+    expect(renderNewTaskLine(task(r), { placement: "child", ref })).toBe(
+      `- [x] Ship it #web ⏫ 📅 2026-10-10 ✅ 2026-10-04\n  <!-- lfcp-ref: ${REF} -->\n`,
+    );
   });
 });
