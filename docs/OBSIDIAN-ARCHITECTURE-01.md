@@ -1260,25 +1260,26 @@ The generic SDK MUST depend on the storage interface, not on Obsidian APIs.
 
 # 34. Obsidian storage adapter
 
-Recommended plugin data area:
+Plugin state MUST NOT live under the vault's `.obsidian/` folder. That
+folder syncs with the vault (Obsidian Sync, iCloud, Git of `.obsidian`), and a
+copy of a Principal's keys, its sequence counters or its outbound queue on a
+second device would reuse sequences and leak keys. The Principal, its private
+keys, the Resource DEKs and the SDK storage stay on the device:
 
-```text
-<vault>/
-└── .obsidian/
-    └── plugins/
-        └── openlfcp/
-            ├── data.json
-            └── lfcp/
-                ├── control/
-                ├── data/
-                ├── snapshots/
-                ├── replicas/
-                └── indexes/
-```
+| State | Where |
+| --- | --- |
+| Control Records, Data Units, Key Packages, Snapshots, outbound queue, sequence counters, profile checkpoints, Resource rows | IndexedDB, one database per install of the plugin in a vault |
+| Principal private keys, Resource DEKs | the device-level `app.secretStorage` |
+| Install marker (install ID, Principal, sequence high-water marks) | `app.secretStorage`, checked against the database at startup; a mismatch locks writing |
+| Install ID of the vault on this device | vault-scoped local storage |
+| Non-secret preferences (ref placement, default server) | `data.json` under `.obsidian/plugins/openlfcp/`; nothing else |
 
-Exact layout is implementation-specific.
+`data.json` holds no identity, key, DEK, sequence or LFCP object. A vault
+synced or copied to another device carries none of the LFCP state; the plugin
+there starts a new install with its own Principal.
 
-Sensitive key material SHOULD be encrypted at rest where the runtime and platform make this practical.
+The details, including the install marker and eviction handling, are in
+[`architecture/local-state.md`](architecture/local-state.md).
 
 Secrets MUST NOT be embedded into Markdown.
 
