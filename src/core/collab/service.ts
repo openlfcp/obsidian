@@ -256,15 +256,22 @@ export class Collaboration {
     return { resourceId, hosting: await this.host(resourceId) };
   }
 
-  /** Waits until `client` is READY, or the timeout; false when it did not get there. */
+  /**
+   * Waits until `client` is READY: false as soon as a connection attempt
+   * fails (offline), or at the timeout. Already disconnected between
+   * reconnect attempts counts as offline.
+   */
   async #ready(client: SyncClient): Promise<boolean> {
     if (client.connectionState === "READY") return true;
+    if (client.connectionState === "DISCONNECTED") return false;
     let done: (ok: boolean) => void = () => undefined;
     const ready = new Promise<boolean>((r) => {
       done = r;
     });
     const off = client.on((e) => {
-      if (e.type === "connection" && e.state === "READY") done(true);
+      if (e.type !== "connection") return;
+      if (e.state === "READY") done(true);
+      else if (e.state === "DISCONNECTED") done(false);
     });
     void this.#o.sleep(this.#o.connectTimeoutMs).then(() => done(false));
     try {
@@ -358,11 +365,13 @@ export class Collaboration {
     });
     try {
       const open = await this.#runtime.openResource(R);
-      if (open.url !== null) c.session(open.url).flush();
-      const confirmed = await Promise.race([
-        acked,
-        this.#o.sleep(this.#o.ackTimeoutMs).then(() => false),
-      ]);
+      const client = open.url === null ? null : c.session(open.url);
+      // Offline: queued, and sent when the session is back; no point waiting for ACKs.
+      const online = client !== null && (await this.#ready(client));
+      if (online) client.flush();
+      const confirmed =
+        online &&
+        (await Promise.race([acked, this.#o.sleep(this.#o.ackTimeoutMs).then(() => false)]));
       return { link: created.link, preset, claimLimit: DEFAULT_CLAIM_LIMIT, confirmed };
     } finally {
       off();
