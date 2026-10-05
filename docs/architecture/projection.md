@@ -123,3 +123,27 @@ note writes nothing.
 
 The new projection unit for "Insert shared object" (LFCP-065) comes from
 `renderNewTaskLine`.
+
+## Golden fixtures (LFCP-063)
+
+`test/fixtures/golden/` holds language-neutral cases: notes before, one
+event, and the exact notes after, plus intents, diagnostics and conflicts.
+Its README documents the format for other editor clients. The runner
+(`test/core/projection/golden.test.ts`):
+
+- runs every case with LF and with CRLF;
+- checks idempotency;
+- prints a unified diff on a mismatch.
+
+## Minimal-diff writes (LFCP-064)
+
+| Acceptance | How it holds | Proof |
+| --- | --- | --- |
+| Smallest safe semantic range | The renderer rewrites only owned pieces. A changed date or priority replaces only its value or emoji inside the existing token; a title change replaces the title span; tags keep their order and place (added ones follow the last kept tag) | `minimal-diff.test.ts` asserts the exact changed span for each |
+| Line endings | Only Task line texts change; every line keeps its ending; the final newline (present or not) is kept | minimal-diff 8/9, golden suite in CRLF |
+| Unrelated tokens | Unowned tokens, the block ID and unrecognized text keep their bytes | minimal-diff 4, golden `unknown-suffix-preserved` |
+| Surrounding Markdown, no whole-file reformat | `vault.process` gets a string equal to the old one outside the changed span | minimal-diff 10–12, golden `private-surrounding-text` |
+| Placement and ref bytes | The inline comment stays the last element, the child ref line is not touched | minimal-diff 5–7, golden inline/child cases |
+| Unicode | Pieces are cut on token boundaries of JavaScript strings; no surrogate is split | minimal-diff 2 |
+| Stale-write protection | The writer compares the note at write time with what it read and returns `deferred: "changed"` instead of writing | `writer.test.ts` race test |
+| Golden suite green | — | `golden.test.ts` |
