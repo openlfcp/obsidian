@@ -8,13 +8,12 @@
 
 import {
   loadControlChain,
-  queueControlRecord,
+  queueKeyEpoch,
   queueKeyPackage,
   resourceSyncState,
 } from "@openlfcp/client";
 import { type PrincipalId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
-import { exportSecretKeyBytes, sha256 } from "@openlfcp/crypto";
-import { dekSecretRef, type EpochRow } from "@openlfcp/storage";
+import { sha256 } from "@openlfcp/crypto";
 import { rotateEpoch, sealKeyPackage } from "@openlfcp/wire";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type E2EServer, serverBinary, startServer } from "../support/e2e-server";
@@ -203,9 +202,8 @@ describe.skipIf(!live)("restart recovery (LFCP-067)", () => {
       reason: 1n,
       finalFrontier: have,
     });
-    const ref = dekSecretRef(R, rotation.epoch);
-    await ctx.secrets.put(ref, exportSecretKeyBytes(rotation.dek));
-    await queueControlRecord(ctx.storage, rotation.bytes);
+    // The creator keeps its DEK (queueKeyEpoch): no Key Package for itself.
+    await queueKeyEpoch(ctx.storage, ctx.secrets, rotation);
     const kp = await sealKeyPackage({
       resourceId: R,
       epoch: rotation.epoch,
@@ -217,12 +215,13 @@ describe.skipIf(!live)("restart recovery (LFCP-067)", () => {
     await queueKeyPackage(ctx.storage, kp.bytes);
     await A.runtime.openResource(R);
     ctx.session(server.url).flush();
-    await until("the rotation on A", async () => {
+    await until("the rotation on A, with its DEK", async () => {
       const c = await loadControlChain(ctx.storage, R);
-      return c?.kind === "linear" && c.state.epoch.epoch === 1n ? true : undefined;
+      const row = (await ctx.storage.control.epochs(R)).find((e) => e.epoch === 1n);
+      return c?.kind === "linear" && c.state.epoch.epoch === 1n && row?.dekRef != null
+        ? true
+        : undefined;
     });
-    const row = (await ctx.storage.control.epochs(R)).find((e) => e.epoch === 1n) as EpochRow;
-    await ctx.storage.commit([{ op: "put-epoch", resourceId: R, epoch: { ...row, dekRef: ref } }]);
     await until("A's queue drained", async () =>
       (await A.runtime.storage?.outbound.list(R))?.length === 0 ? true : undefined,
     );

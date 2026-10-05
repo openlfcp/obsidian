@@ -35,6 +35,7 @@ import {
   latestAcceptedOwnUnit,
   loadControlChain,
   queueControlRecord,
+  queueKeyEpoch,
   queueKeyPackage,
   resourceSyncState,
   type SyncEvent,
@@ -233,7 +234,9 @@ async function revokeAndRotate(options: {
     reason: options.reason,
     finalFrontier,
   });
-  await queueControlRecord(c.storage, rotation.bytes);
+  // The creator keeps its DEK (queueKeyEpoch): it never needs a Key
+  // Package for a key it made.
+  await queueKeyEpoch(c.storage, c.secrets, rotation);
   for (const reader of options.readers) {
     const recipient = state.principals.get(toHex(me(reader).principalId)) ?? me(reader);
     const kp = await sealKeyPackage({
