@@ -46,7 +46,8 @@ describe("plugin", () => {
     expect(host.settingTabs).toHaveLength(1);
     const tab = host.settingTabs[0] as mock.PluginSettingTab;
     tab.display();
-    const [placement, server] = tab.containerEl.settings;
+    const named = (name: string) => tab.containerEl.settings.find((x) => x.name === name);
+    const [placement, server] = [named("Ref placement"), named("Default server")];
     expect(placement?.name).toBe("Ref placement");
     expect([...(placement?.dropdown?.options.keys() ?? [])]).toEqual(["child-line", "inline"]);
     expect(placement?.dropdown?.value).toBe("child-line");
@@ -63,7 +64,8 @@ describe("plugin", () => {
     expect(host.stored).toEqual({ refPlacement: "inline", defaultServer: "wss://a.example/ws" });
 
     // Redisplaying does not duplicate controls.
+    const count = tab.containerEl.settings.length;
     tab.display();
-    expect(tab.containerEl.settings).toHaveLength(2);
+    expect(tab.containerEl.settings).toHaveLength(count);
   });
 });

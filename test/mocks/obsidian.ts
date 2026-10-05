@@ -8,7 +8,62 @@ export interface Command {
   callback?: () => unknown;
 }
 
-export class App {}
+/** A registered event handler (Obsidian's EventRef). */
+export interface EventRef {
+  readonly name: string;
+  readonly callback: (...args: unknown[]) => unknown;
+}
+
+export interface TAbstractFile {
+  path: string;
+}
+
+/** The vault's event source: tests trigger events by name. */
+export class Vault {
+  readonly handlers: EventRef[] = [];
+  on(name: string, callback: (...args: unknown[]) => unknown): EventRef {
+    const ref = { name, callback };
+    this.handlers.push(ref);
+    return ref;
+  }
+  offref(ref: EventRef): void {
+    const i = this.handlers.indexOf(ref);
+    if (i >= 0) this.handlers.splice(i, 1);
+  }
+  trigger(name: string, ...args: unknown[]): void {
+    for (const h of this.handlers.filter((x) => x.name === name)) h.callback(...args);
+  }
+}
+
+/** Obsidian's SecretStorage: lowercase alphanumeric IDs with dashes; no delete. */
+export class SecretStorage {
+  readonly values = new Map<string, string>();
+  setSecret(id: string, secret: string): void {
+    if (!/^[a-z0-9-]+$/.test(id)) throw new Error(`invalid secret ID ${id}`);
+    this.values.set(id, secret);
+  }
+  getSecret(id: string): string | null {
+    return this.values.get(id) ?? null;
+  }
+  listSecrets(): string[] {
+    return [...this.values.keys()];
+  }
+}
+
+export class App {
+  readonly vault = new Vault();
+  /** Device-level, shared by every vault (as in Obsidian). */
+  secretStorage = new SecretStorage();
+  /** Vault-scoped localStorage. */
+  readonly local = new Map<string, unknown>();
+  loadLocalStorage(key: string): unknown {
+    return this.local.get(key) ?? null;
+  }
+  saveLocalStorage(key: string, data: unknown): void {
+    if (data === null) this.local.delete(key);
+    else this.local.set(key, structuredClone(data));
+  }
+}
 
 export interface PluginManifest {
   id: string;
@@ -37,7 +92,22 @@ export class Plugin {
     readonly manifest: PluginManifest,
   ) {}
 
+  /** Event refs registered for unload (detached by unload()). */
+  readonly events: EventRef[] = [];
+
   async onload(): Promise<void> {}
+
+  onunload(): void {}
+
+  registerEvent(ref: EventRef): void {
+    this.events.push(ref);
+  }
+
+  /** What Obsidian does on disable: detach registered events, then onunload. */
+  unload(): void {
+    for (const ref of this.events.splice(0)) (this.app as App).vault.offref(ref);
+    this.onunload();
+  }
 
   onExternalSettingsChange?(): unknown;
 
@@ -114,11 +184,25 @@ export class TextComponent {
   }
 }
 
+export class ButtonComponent {
+  text = "";
+  onClickHandler: () => unknown = () => undefined;
+  setButtonText(text: string): this {
+    this.text = text;
+    return this;
+  }
+  onClick(handler: () => unknown): this {
+    this.onClickHandler = handler;
+    return this;
+  }
+}
+
 export class Setting {
   name = "";
   desc = "";
   dropdown?: DropdownComponent;
   text?: TextComponent;
+  button?: ButtonComponent;
 
   constructor(container: ContainerEl) {
     container.settings.push(this);
@@ -134,6 +218,11 @@ export class Setting {
   addDropdown(build: (dropdown: DropdownComponent) => unknown): this {
     this.dropdown = new DropdownComponent();
     build(this.dropdown);
+    return this;
+  }
+  addButton(build: (button: ButtonComponent) => unknown): this {
+    this.button = new ButtonComponent();
+    build(this.button);
     return this;
   }
   addText(build: (text: TextComponent) => unknown): this {
