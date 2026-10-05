@@ -49,3 +49,29 @@ a gate cannot pass by skipping it.
 
 Failure messages name the vault, note and step. They never include keys or
 invitation links.
+
+## Restart recovery (LFCP-067)
+
+`test/e2e/restart.test.ts` restarts vaults on the same harness.
+`vault.restart("clean" | "crash")` (or `shutdown(kind)` then `boot()`)
+builds a new plugin instance from fresh modules (`vi.resetModules`) over the
+same persisted state: vault files, `secretStorage`, local storage and
+IndexedDB.
+- **Clean:** the plugin is disabled first.
+- **Crash:** the instance just dies. Its sockets, timers, lock and vault
+  handlers go away; nothing is stopped or flushed.
+- **Mid-write crash:** `vault.hangUnitCommits = true` makes the commit that
+  stores a Data Unit hang, which simulates a crash between applying an
+  intent and queueing its unit.
+
+| Case | Proof |
+| --- | --- |
+| Clean restart | Same Principal and install, no false lock, identical state, first sync sends nothing |
+| Crash with a queued offline change | Same unit ID and bytes after the restart; applied once; sequences unique and increasing |
+| Crash after reserving a sequence | That sequence is lost (a gap), never reused; the edit is sent once after the restart |
+| Key Epoch rotated while down | The queued epoch-0 change is cut off and re-applied as a new unit in epoch 1 (G-EP5); the next write works (§9, baseline.6) |
+| Notes changed while off | The edit is sent once, a moved note is only reindexed, a removed ref stays removed, lost bases send nothing |
+
+Limit: fake-indexeddb lives in the test process, so these restarts don't
+cross a real process boundary. The SDK's child-process crash tests
+(sdk-ts LFCP-038, SQLite) cover that layer.
