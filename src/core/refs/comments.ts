@@ -65,13 +65,22 @@ export function codeSpans(text: string): Array<[number, number]> {
 }
 
 /**
- * PROVISIONAL (MR-A2): a recognized comment is any HTML comment whose
- * content, after leading spaces or tabs, starts with `lfcp-ref`. It is
- * well-formed only as `<!-- lfcp-ref:` + spaces/tabs + the object
- * reference + spaces/tabs + `-->`; one space on each side is canonical,
- * more is tolerated and flagged, anything else is MALFORMED_LFCP_REF.
+ * MR-A2, normative since baseline.5 (§6): the comment is `<!--`, spaces or
+ * tabs, the literal `lfcp-ref:`, spaces or tabs, the object reference,
+ * spaces or tabs, `-->`. One space at each separator is canonical; more is
+ * accepted and flagged non-canonical. A recognized comment of any other
+ * shape (for example `<!--lfcp-ref:` or `lfcp-ref :`) is MALFORMED_LFCP_REF.
  */
-const SHAPE = /^<!-- lfcp-ref:([ \t]+)(\S+)([ \t]+)-->$/;
+const SHAPE = /^<!--([ \t]+)lfcp-ref:([ \t]+)(\S+)([ \t]+)-->$/;
+
+/**
+ * Whether an HTML comment is an `lfcp-ref` comment, well-formed or not: its
+ * content contains `lfcp-ref:` (§6), or starts with `lfcp-ref` after spaces
+ * or tabs (MR-A2: so `<!-- lfcp-ref : … -->` is reported as malformed, not
+ * silently ignored).
+ */
+const isRefComment = (content: string): boolean =>
+  content.includes("lfcp-ref:") || /^[ \t]*lfcp-ref/.test(content);
 
 /**
  * The `lfcp-ref` comments of one line, outside inline code spans and
@@ -100,7 +109,7 @@ export function findRefComments(text: string): LineComments {
     if (close < 0) return done(true);
     const end = close + 3;
     const comment = text.slice(start, end);
-    if (/^[ \t]*lfcp-ref/.test(comment.slice(4, -3))) refs.push(describe(comment, start, end));
+    if (isRefComment(comment.slice(4, -3))) refs.push(describe(comment, start, end));
     from = end;
   }
 }
@@ -118,8 +127,8 @@ function describe(text: string, start: number, end: number): RefComment {
       canonical: false,
     };
   }
-  const rawRef = shape[2] as string;
-  const canonical = shape[1] === " " && shape[3] === " ";
+  const rawRef = shape[3] as string;
+  const canonical = shape[1] === " " && shape[2] === " " && shape[4] === " ";
   const parsed = parseObjectRef(rawRef);
   return parsed.ok
     ? { start, end, text, rawRef, ref: parsed.ref, error: undefined, canonical }

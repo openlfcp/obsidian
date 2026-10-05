@@ -15,6 +15,22 @@
         "start": 24,
         "end": 135
       }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-9f24-8f933f2a91c0",
+      "placement": "inline",
+      "taskLine": 4,
+      "refLine": 4,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-9f24-8f933f2a91c0",
+      "canonical": false,
+      "taskText": "Extra space after the opener",
+      "comment": {
+        "line": 4,
+        "start": 35,
+        "end": 147
+      }
     }
   ],
   "diagnostics": [
@@ -35,6 +51,12 @@
       "line": 3,
       "start": 29,
       "end": 140
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 5,
+      "start": 25,
+      "end": 139
     }
   ],
   "tasks": [
@@ -57,6 +79,16 @@
       "line": 3,
       "binding": "blocked",
       "taskText": "Space before the colon"
+    },
+    {
+      "line": 4,
+      "binding": "bound",
+      "taskText": "Extra space after the opener"
+    },
+    {
+      "line": 5,
+      "binding": "blocked",
+      "taskText": "Ref text not first"
     }
   ]
 }
