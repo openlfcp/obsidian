@@ -35,6 +35,7 @@ import { dekCommitment, exportSecretKeyBytes, generateResourceDEK } from "@openl
 import {
   checkChange,
   initializeAutomerge,
+  type ObjectChange,
   PROFILE_ID,
   type ReplicaIntent,
   SharedObjectsDataProfile,
@@ -158,6 +159,7 @@ export class LfcpRuntime {
   readonly #listeners = new Set<(e: SyncEvent) => void>();
   #stopped = false;
   #writes: Promise<void> = Promise.resolve();
+  readonly #objectListeners = new Set<(resource: ResourceId, change: ObjectChange) => void>();
 
   private constructor(env: RuntimeEnv, install: Install, lock: HeldLock | null) {
     this.#env = env;
@@ -210,6 +212,24 @@ export class LfcpRuntime {
   /** This vault's LFCP storage (public objects and local state; never secrets), or null while unavailable. */
   get storage(): LfcpStorage | null {
     return this.#stopped ? null : this.#install.storage;
+  }
+
+  /**
+   * Shared Object changes of every local profile: remote merges and G-EP7
+   * rebuilds (origin "rebuild") as the profile reports them, and this
+   * runtime's own writes (origin "local") once they are durable.
+   */
+  onObjectChanged(listener: (resource: ResourceId, change: ObjectChange) => void): () => void {
+    this.#objectListeners.add(listener);
+    return () => this.#objectListeners.delete(listener);
+  }
+
+  #emitObject(resource: ResourceId, change: ObjectChange): void {
+    for (const l of this.#objectListeners) l(resource, change);
+  }
+
+  #watch(resource: ResourceId, profile: SharedObjectsDataProfile): void {
+    profile.onObjectChanged((c) => this.#emitObject(resource, c));
   }
 
   /** Session events of every pooled client. */
@@ -346,6 +366,7 @@ export class LfcpRuntime {
       applier: null,
     };
     this.#opened.set(key, opened);
+    this.#watch(resource, profile);
     return opened;
   }
 
@@ -402,6 +423,7 @@ export class LfcpRuntime {
       () => [local.checkpointer.write()],
     );
     if (local.url !== null) this.#pool.get(local.url)?.client.flush();
+    for (const o of change.objects) this.#emitObject(resource, o);
     return created.unitId;
   }
 
@@ -473,6 +495,7 @@ export class LfcpRuntime {
       applier: null,
     };
     this.#opened.set(toHex(R), opened);
+    this.#watch(R, profile);
     await createQueuedDataUnit(
       storage,
       {
@@ -566,6 +589,7 @@ export class LfcpRuntime {
     this.#lock?.release();
     this.#lock = null;
     this.#listeners.clear();
+    this.#objectListeners.clear();
   }
 
   /**
