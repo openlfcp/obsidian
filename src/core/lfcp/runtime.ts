@@ -458,7 +458,9 @@ export class LfcpRuntime {
   /** Discards re-applied units' outbound items once the queue has blocked them (stale-epoch). */
   async #discardStale(): Promise<void> {
     const storage = this.storage;
-    if (storage === null || this.#outbound === null) return;
+    if (storage === null) return;
+    // Discarding touches only storage: any queue instance will do.
+    this.#outbound ??= new OutboundQueue({ storage });
     for (const unitHex of [...this.#staleToDiscard]) {
       const item = await storage.outbound.get(hash32(fromHex(unitHex)));
       if (item === undefined) this.#staleToDiscard.delete(unitHex);
@@ -621,14 +623,18 @@ export class LfcpRuntime {
     if (pooled !== undefined) return pooled;
     const i = this.#install;
     if (i.kind !== "ready") throw new Error("OpenLFCP is not ready");
-    this.#outbound ??= new OutboundQueue({ storage: i.storage });
+    // One outbound queue per session: a queue holds its server's READY
+    // limits and the messages in flight on that connection, and a lost
+    // connection retries only its own (a shared queue applied one server's
+    // limits to another and retried other sessions' items, racing their
+    // ACKs). The items themselves are in storage, per Resource.
     const client = new SyncClient({
       url,
       signer: i.principal.signer,
       agreement: i.principal.agreement,
       storage: i.storage,
       secrets: i.secrets,
-      outbound: this.#outbound,
+      outbound: new OutboundQueue({ storage: i.storage }),
       now: () => this.#env.timers.now(),
       ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
     });
