@@ -30,13 +30,15 @@ and editor conflict presentation.
   See [docs/architecture/local-state.md](docs/architecture/local-state.md).
 - Vault-level change events (`src/core/vault`), collected for projection
   scanning whatever made them (LFCP-059).
-- Markdown → Shared Object projection (LFCP-061, `src/core/projection`):
-  edits to bound Tasks (title, status, due, scheduled, completion date,
-  priority) become Shared Objects intents through the SDK. See
-  [docs/architecture/projection.md](docs/architecture/projection.md).
+- Markdown ↔ Shared Object projection (LFCP-061, LFCP-062,
+  `src/core/projection`): edits to bound Tasks (title, status, due,
+  scheduled, completion date, priority, tags) become Shared Objects intents
+  through the SDK, and shared changes are rendered back into every note that
+  projects them. Conflicts show in the status bar and the editor, never in
+  the text. See [docs/architecture/projection.md](docs/architecture/projection.md).
 
 Nothing is shared from the UI yet: sharing, creating and joining arrive with
-LFCP-065, and Shared Object → Markdown with LFCP-062.
+LFCP-065.
 
 ## Layout
 
