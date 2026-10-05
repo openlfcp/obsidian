@@ -1,7 +1,9 @@
-// The openlfcp reference server for live tests (LFCP-065): the binary of
-// the sibling checkout ($LFCP_SERVER_BIN, default
-// ../server/target/debug/lfcp-server; build it with `cargo build` in
-// ../server). Started on a free loopback port with its own state
+// The openlfcp reference server for live tests (LFCP-065), as a prebuilt
+// binary; this helper never builds. Where it looks, in order:
+// $LFCP_SERVER_BIN; the shared live-test target directory
+// ($LFCP_SERVER_TARGET_DIR, default <tmp>/openlfcp-sdk-ts-server-target,
+// the one sdk-ts and the LFCP-066 harness build into); then
+// ../server/target. Started on a free loopback port with its own state
 // directory. Without a binary the live tests are skipped, unless
 // LFCP_REQUIRE_LIVE=1, which makes that an error.
 
@@ -11,9 +13,17 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const BIN =
-  process.env.LFCP_SERVER_BIN ??
-  resolve(import.meta.dirname, "../../../server/target/debug/lfcp-server");
+const EXE = process.platform === "win32" ? "lfcp-server.exe" : "lfcp-server";
+const CANDIDATES = [
+  process.env.LFCP_SERVER_BIN,
+  join(
+    process.env.LFCP_SERVER_TARGET_DIR ?? join(tmpdir(), "openlfcp-sdk-ts-server-target"),
+    "debug",
+    EXE,
+  ),
+  resolve(import.meta.dirname, "../../../server/target/debug", EXE),
+].filter((p): p is string => p !== undefined);
+const BIN = CANDIDATES.find((p) => existsSync(p)) ?? (CANDIDATES[0] as string);
 
 export interface LiveServer {
   readonly url: string;
@@ -23,7 +33,7 @@ export interface LiveServer {
 /** Why live tests cannot run here, or null when they can. */
 export function liveSkipReason(): string | null {
   if (existsSync(BIN)) return null;
-  const why = `no server binary at ${BIN} (cargo build in ../server, or set LFCP_SERVER_BIN)`;
+  const why = `no server binary in ${CANDIDATES.join(", ")} (build ../server into the shared target, or set LFCP_SERVER_BIN)`;
   if (process.env.LFCP_REQUIRE_LIVE === "1")
     throw new Error(`LFCP_REQUIRE_LIVE=1 but the live tests would skip: ${why}`);
   return why;
