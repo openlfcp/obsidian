@@ -1,17 +1,27 @@
 {
-  "projections": [],
-  "diagnostics": [
+  "projections": [
     {
-      "code": "RESOURCE_ID_INVALID",
-      "line": 1,
-      "start": 2,
-      "end": 47
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 0,
+      "refLine": 1,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Prepare API contract 📅 2026-10-10",
+      "comment": {
+        "line": 1,
+        "start": 2,
+        "end": 112
+      }
     }
   ],
+  "diagnostics": [],
   "tasks": [
     {
       "line": 0,
-      "binding": "blocked",
+      "binding": "bound",
       "taskText": "Prepare API contract 📅 2026-10-10"
     }
   ]

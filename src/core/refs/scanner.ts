@@ -18,7 +18,7 @@ import type { ObjectRef } from "./object-ref";
 /** §26: where the ref sits. */
 export type Placement = "inline" | "child";
 
-/** §27 codes, plus this adapter's own. */
+/** §27 codes, plus this adapter's own (the last two). */
 export type RefDiagnosticCode =
   | "MALFORMED_LFCP_REF"
   | "DUPLICATE_LFCP_REF"
@@ -26,7 +26,7 @@ export type RefDiagnosticCode =
   | "OBJECT_TYPE_MISMATCH"
   | "OBJECT_ID_INVALID"
   | "RESOURCE_ID_INVALID"
-  /** A well-formed object type this adapter does not project (README). */
+  /** A well-formed object type this adapter does not project (§9, §27). */
   | "OBJECT_TYPE_UNSUPPORTED"
   /** An inline comment followed by more text on the Task line (§11, §13.1 rule 4). */
   | "LFCP_REF_NOT_AT_LINE_END"
@@ -266,7 +266,7 @@ export function scanRefs(markdown: string): ScanResult {
     if (k.kind !== "task" || !task) return;
     const text = lines[i]?.text ?? "";
 
-    // §13.2 and PROVISIONAL (MR-A3): the unbroken run of ref-only lines
+    // §13.2 and MR-A3, normative since baseline.5: the unbroken run of ref-only lines
     // directly under the Task, with compatible indentation (README: from
     // the content column up to content column + 3), is the Task's unit.
     const children: Array<{ line: number; comment: RefComment }> = [];
@@ -291,7 +291,7 @@ export function scanRefs(markdown: string): ScanResult {
       return;
     }
     if (unit.length > 1) {
-      // §13.1 "exactly one", §14, PROVISIONAL (MR-A4): every ref of the unit
+      // §13.1 "exactly one", §14, MR-A4, normative since baseline.5: every ref of the unit
       // is a duplicate; malformed ones also get their own code. Nothing is
       // bound and nothing is chosen.
       for (const { line, comment } of unit) {
@@ -315,7 +315,7 @@ export function scanRefs(markdown: string): ScanResult {
       return;
     }
     if (!SUPPORTED_TYPES.includes(comment.ref.objectType)) {
-      // PROVISIONAL (MR-A1): a well-formed type other than `task` is parsed
+      // MR-A1, normative since baseline.5 (§9): a well-formed type other than `task` is parsed
       // but not projected.
       diagnose("OBJECT_TYPE_UNSUPPORTED", line, comment);
       blocked();

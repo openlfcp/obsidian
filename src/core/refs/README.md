@@ -1,7 +1,7 @@
 # `src/core/refs`: `lfcp-ref` markers
 
 This module implements `spec: integration/MARKDOWN-REFS-01.md` at the spec
-pin in `spec.lock` (`mvp-0.1-baseline.3`). It is pure TypeScript with no
+pin in `spec.lock` (`mvp-0.1-baseline.5`). It is pure TypeScript with no
 Obsidian or Node dependency, so a VS Code or other Markdown adapter can reuse
 it unchanged. LFCP-060 was done before LFCP-059 on purpose: the parser
 needs no SDK. Its token validators (`tokens.ts`) delegate to
@@ -41,23 +41,29 @@ fixtures still checks them.
   without the inline comment) and `parts`, from which `emitUnit` re-emits
   the projection unit byte for byte in its original placement (§19).
 - Diagnostics: the §27 codes `MALFORMED_LFCP_REF`, `DUPLICATE_LFCP_REF`,
-  `ORPHAN_LFCP_REF`, `OBJECT_ID_INVALID`, `RESOURCE_ID_INVALID`, and
-  `OBJECT_TYPE_MISMATCH` (from `checkObjectType`, since it needs the Shared
-  Object), plus three editor codes: `OBJECT_TYPE_UNSUPPORTED`,
-  `LFCP_REF_NOT_AT_LINE_END`, `LFCP_REF_UNSUPPORTED_CONTEXT`.
+  `ORPHAN_LFCP_REF`, `OBJECT_TYPE_UNSUPPORTED`, `OBJECT_ID_INVALID`,
+  `RESOURCE_ID_INVALID`, and `OBJECT_TYPE_MISMATCH` (from
+  `checkObjectType`, since it needs the Shared Object), plus two editor
+  codes: `LFCP_REF_NOT_AT_LINE_END`, `LFCP_REF_UNSUPPORTED_CONTEXT`.
 
-## Provisional readings (decided by the orchestrator, pending the project owner)
+## Readings MR-A1 to MR-A4 (normative since baseline.5)
+
+These began as provisional readings of baseline.3 and are the specification's
+text since `mvp-0.1-baseline.5` (§6, §9, §13.2, §14, §16; acceptance cases
+18–21).
 
 - **MR-A1** (§9, §15): an object type token is `task` or a reverse-domain
   name per SHARED-OBJECTS-PROFILE-01 §18. Anything else is
   `MALFORMED_LFCP_REF`. A well-formed type other than `task` is parsed but
   not projected: `OBJECT_TYPE_UNSUPPORTED`, Task blocked.
-- **MR-A2** (§6): the comment is `<!-- lfcp-ref:` + spaces/tabs + the object
-  reference + spaces/tabs + `-->`. One space on each side is canonical;
-  more is tolerated (`canonical: false`). Anything else, such as
-  `<!--lfcp-ref:`, `lfcp-ref :` or no space after the colon, is
-  `MALFORMED_LFCP_REF`. A comment is *recognized* as an `lfcp-ref` comment
-  when its content starts with `lfcp-ref` after spaces or tabs.
+- **MR-A2** (§6): the comment is `<!--` + spaces/tabs + `lfcp-ref:` +
+  spaces/tabs + the object reference + spaces/tabs + `-->`. One space at
+  each separator is canonical; more is accepted (`canonical: false`).
+  Anything else, such as `<!--lfcp-ref:`, `lfcp-ref :` or no space after the
+  colon, is `MALFORMED_LFCP_REF`. A comment is *recognized* as an
+  `lfcp-ref` comment when its content contains `lfcp-ref:` (§6) or starts
+  with `lfcp-ref` after spaces or tabs (so `lfcp-ref :` is reported, not
+  ignored).
 - **MR-A3** (§13.2, §14): the unbroken run of ref-only lines directly under
   a Task is that Task's unit. Two or more refs in a unit (child, inline, or
   both) are `DUPLICATE_LFCP_REF`; a ref separated from the Task by any other

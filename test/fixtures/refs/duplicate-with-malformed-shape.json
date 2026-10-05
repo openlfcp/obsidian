@@ -11,7 +11,13 @@
       "code": "DUPLICATE_LFCP_REF",
       "line": 2,
       "start": 2,
-      "end": 112
+      "end": 111
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 2,
+      "start": 2,
+      "end": 111
     }
   ],
   "tasks": [

@@ -5,25 +5,13 @@
       "code": "DUPLICATE_LFCP_REF",
       "line": 0,
       "start": 27,
-      "end": 64
-    },
-    {
-      "code": "RESOURCE_ID_INVALID",
-      "line": 0,
-      "start": 27,
-      "end": 64
+      "end": 137
     },
     {
       "code": "DUPLICATE_LFCP_REF",
       "line": 1,
       "start": 2,
-      "end": 39
-    },
-    {
-      "code": "RESOURCE_ID_INVALID",
-      "line": 1,
-      "start": 2,
-      "end": 39
+      "end": 112
     }
   ],
   "tasks": [

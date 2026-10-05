@@ -135,6 +135,49 @@ describe("MR§29 LFCP-060 acceptance contract", () => {
     expect(DEFAULT_SETTINGS.refPlacement).toBe("child-line");
     expect(only(attachRef("- [ ] Task\n", 0, REF)).placement).toBe("child");
   });
+
+  // Cases 18-21 were added in baseline.5 (MR-A1 to MR-A4 made normative).
+  it("18. accepts extra whitespace at each separator of the ref comment (§6)", () => {
+    const scan = scanRefs(fixture("spacing"));
+    expect(scan.projections.map((p) => [p.taskLine, p.canonical])).toEqual([
+      [0, false],
+      [4, false],
+    ]);
+    expect(codes(fixture("spacing"))).toEqual(Array(4).fill("MALFORMED_LFCP_REF"));
+  });
+
+  it("19. reports a well-formed unsupported type as OBJECT_TYPE_UNSUPPORTED, not malformed", () => {
+    const scan = scanRefs(fixture("object-types"));
+    expect(scan.diagnostics[0]?.code).toBe("OBJECT_TYPE_UNSUPPORTED");
+    expect(scan.diagnostics.slice(1).every((d) => d.code === "MALFORMED_LFCP_REF")).toBe(true);
+    expect(scan.projections).toEqual([]);
+  });
+
+  it("20. reports a ref separated from its Task by a blank or other line as an orphan", () => {
+    const scan = scanRefs(fixture("orphans"));
+    expect(scan.diagnostics.filter((d) => d.code === "ORPHAN_LFCP_REF").length).toBeGreaterThan(1);
+    expect(scan.projections).toEqual([]);
+  });
+
+  it("21. reports DUPLICATE and the malformed ref's own code, and binds nothing", () => {
+    for (const [name, own] of [
+      ["duplicate-with-malformed-shape", "MALFORMED_LFCP_REF"],
+      ["duplicate-with-malformed", "RESOURCE_ID_INVALID"],
+    ] as const) {
+      const scan = scanRefs(fixture(name));
+      const got = scan.diagnostics.map((d) => d.code);
+      expect(
+        got.filter((c) => c === "DUPLICATE_LFCP_REF"),
+        name,
+      ).toHaveLength(2);
+      expect(got, name).toContain(own);
+      expect(scan.projections, name).toEqual([]);
+      expect(
+        scan.tasks.map((t) => t.binding),
+        name,
+      ).toEqual(["blocked"]);
+    }
+  });
 });
 
 describe("beyond §29", () => {

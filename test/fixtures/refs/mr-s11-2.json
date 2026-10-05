@@ -5,13 +5,7 @@
       "code": "LFCP_REF_NOT_AT_LINE_END",
       "line": 0,
       "start": 27,
-      "end": 49
-    },
-    {
-      "code": "MALFORMED_LFCP_REF",
-      "line": 0,
-      "start": 27,
-      "end": 49
+      "end": 137
     }
   ],
   "tasks": [

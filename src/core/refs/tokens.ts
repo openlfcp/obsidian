@@ -33,10 +33,10 @@ export function decodeResourceId(token: string): Uint8Array | undefined {
 export const isObjectId = (text: string): boolean => isCoreObjectId(text);
 
 /**
- * PROVISIONAL (MR-A1): an object type token is `task` or a reverse-domain
- * name as SHARED-OBJECTS-PROFILE-01 §18 defines it (at least two labels of
- * lowercase letters and digits with inner hyphens). §9 leaves the grammar
- * open; types are case-sensitive.
+ * MR-A1, normative since baseline.5 (§9): an object type token is `task` or a
+ * reverse-domain name as SHARED-OBJECTS-PROFILE-01 §18 defines it (at least
+ * two labels of lowercase letters and digits with inner hyphens); types are
+ * case-sensitive.
  */
 export function isObjectType(text: string): boolean {
   return (

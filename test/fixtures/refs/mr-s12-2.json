@@ -1,5 +1,33 @@
 {
-  "projections": [],
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 1,
+      "refLine": 2,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Nested task",
+      "comment": {
+        "line": 2,
+        "start": 6,
+        "end": 116
+      }
+    }
+  ],
   "diagnostics": [],
-  "tasks": []
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "local",
+      "taskText": "Parent task"
+    },
+    {
+      "line": 1,
+      "binding": "bound",
+      "taskText": "Nested task"
+    }
+  ]
 }
