@@ -14,17 +14,35 @@ and editor conflict presentation.
 
 ## Status
 
-Repository scaffold only. The plugin bootstrap is LFCP-058.
+Plugin bootstrap (LFCP-058): the plugin loads, registers its commands as
+stubs and has a settings tab with placeholder fields. Nothing is shared yet.
+
+## Layout
+
+| Path | What it is |
+| --- | --- |
+| `manifest.json`, `versions.json` | Obsidian community-plugin manifest (id `openlfcp`) and its app-version map |
+| `src/main.ts` | Entry point; bundled into `main.js` by `scripts/build.mjs` (esbuild) |
+| `src/obsidian/` | The thin Obsidian adapter: plugin lifecycle, commands, settings tab. The only code that imports `obsidian` |
+| `src/core/` | Obsidian-free modules, reusable by other editor adapters |
+| `test/` | Vitest unit tests; `test/mocks/obsidian.ts` stands in for the Obsidian API |
+
+`obsidian` is a devDependency for types only: the app provides it at
+runtime. The plugin does not reimplement any LFCP protocol logic; it will
+use the TypeScript SDK (LFCP-059).
 
 ## Build from a clean checkout
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run build
+pnpm run build       # typecheck src and bundle main.js
+pnpm run lint        # Biome
+pnpm run typecheck   # src and tests
 pnpm test
 ```
 
-Requires Node.js 24 or later and pnpm 10.
+Requires Node.js 24 or later and pnpm 10. To try the plugin in Obsidian,
+see [docs/devel/testing/load-in-clean-vault.md](docs/devel/testing/load-in-clean-vault.md).
 
 ## License
 

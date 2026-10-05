@@ -20,4 +20,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+      - run: pnpm run lint
+      - run: pnpm run typecheck
       - run: pnpm test
+      - name: Build leaves the tree clean
+        run: test -z "$(git status --porcelain)"

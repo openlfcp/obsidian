@@ -1,0 +1,10 @@
+{
+  "id": "openlfcp",
+  "name": "OpenLFCP",
+  "version": "0.0.0",
+  "minAppVersion": "1.13.1",
+  "description": "Share tasks between vaults as OpenLFCP Shared Objects, without uploading your notes.",
+  "author": "OpenLFCP",
+  "authorUrl": "https://github.com/openlfcp",
+  "isDesktopOnly": false
+}

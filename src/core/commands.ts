@@ -1,0 +1,32 @@
+// The plugin's commands (OBSIDIAN-ARCHITECTURE-01 §50), independent of
+// Obsidian so another editor adapter can register the same set.
+//
+// LFCP-058 registers every command as a stub; LFCP-065 gives them
+// handlers. The set is LFCP-065's product UI list; names follow §50
+// ("LFCP: …") where it has the command. Obsidian prefixes the plugin name
+// in its palette, so the names here omit "LFCP:".
+
+/** A command an editor adapter registers. */
+export interface CommandSpec {
+  /** Stable command ID, unique within the plugin. */
+  readonly id: string;
+  /** The palette name. */
+  readonly name: string;
+  /** The backlog task that implements it. */
+  readonly implementedBy: string;
+}
+
+export const COMMANDS: readonly CommandSpec[] = [
+  { id: "share-task-under-cursor", name: "Share task under cursor", implementedBy: "LFCP-065" },
+  { id: "insert-shared-object", name: "Insert shared object", implementedBy: "LFCP-065" },
+  { id: "create-collaboration", name: "Create collaboration", implementedBy: "LFCP-065" },
+  { id: "join-collaboration", name: "Join collaboration", implementedBy: "LFCP-065" },
+  { id: "invite-collaborator", name: "Invite collaborator", implementedBy: "LFCP-065" },
+  { id: "resource-status", name: "Resource status", implementedBy: "LFCP-065" },
+  { id: "detach-shared-task", name: "Detach shared task", implementedBy: "LFCP-065" },
+];
+
+/** The message a stub command shows. */
+export function notImplementedMessage(command: CommandSpec): string {
+  return `OpenLFCP: "${command.name}" is not implemented yet.`;
+}

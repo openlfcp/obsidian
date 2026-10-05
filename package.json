@@ -10,7 +10,25 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "echo \"obsidian: nothing to build yet (plugin bootstrap is LFCP-058)\"",
-    "test": "node --test"
+    "build": "tsc --noEmit -p tsconfig.json && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check .",
+    "test": "vitest run",
+    "format": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@codemirror/state": "6.5.0",
+    "@codemirror/view": "6.38.6",
+    "@types/node": "^24.19.1",
+    "esbuild": "^0.28.2",
+    "obsidian": "1.13.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
