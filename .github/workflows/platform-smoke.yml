@@ -122,6 +122,11 @@ jobs:
       - name: Tests, live ones included
         working-directory: obsidian
         run: pnpm exec vitest run --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/vitest.json"
+      # LFCP-071: the security/privacy vertical slice is a RELEASE GATE. It also ran above;
+      # this named step makes its result visible on its own (LFCP_REQUIRE_LIVE=1: no skip).
+      - name: Security/privacy vertical slice (LFCP-071, release gate)
+        working-directory: obsidian
+        run: pnpm run test:security
       - name: Result record
         if: always()
         working-directory: obsidian

@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check . && node scripts/check-boundaries.mjs && node scripts/check-boundaries.mjs --self-test",
     "test": "vitest run",
+    "test:security": "vitest run test/e2e/security-vertical-slice.test.ts",
     "format": "biome check --write ."
   },
   "dependencies": {
