@@ -232,6 +232,19 @@ export class LfcpRuntime {
     profile.onObjectChanged((c) => this.#emitObject(resource, c));
   }
 
+  /**
+   * Small local, device-only state of the plugin (e.g. projection bases),
+   * kept in this install's database next to the LFCP state. Never secrets.
+   */
+  readonly localState = {
+    get: async (key: string): Promise<unknown> =>
+      this.#stopped ? undefined : this.#install.storage?.meta.get(`plugin:${key}`),
+    put: async (key: string, value: unknown): Promise<void> => {
+      if (this.#stopped) return;
+      await this.#install.storage?.meta.put(`plugin:${key}`, value);
+    },
+  };
+
   /** Session events of every pooled client. */
   on(listener: (e: SyncEvent) => void): () => void {
     this.#listeners.add(listener);
