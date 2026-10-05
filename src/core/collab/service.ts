@@ -1,0 +1,563 @@
+// The collaboration flows behind the LFCP-065 commands. Obsidian-free: the
+// adapter supplies prompts and note I/O; this module calls the SDK's flows
+// and the plugin runtime, and implements no protocol itself.
+//
+// - Create: runtime.createResource (Resource ID, epoch-0 DEK, Genesis, the
+//   Shared Objects root, the registry row), then RESOURCE_HOST on the
+//   coordinator through the pooled SyncClient. Offline, the Resource is
+//   fully usable locally and hosting stays pending until "host" succeeds.
+// - Invite: @openlfcp/client createInvitation (a CAPABILITY_GRANT with an
+//   explicit claim_limit and the Invitation Principal's Key Package,
+//   queued for the coordinator), then sent on the Resource's session.
+// - Join: @openlfcp/client acceptInvitation (§73), then the registry row
+//   and the Resource's session.
+// - Status: what the stored, signed Control state and the local
+//   Shared Objects state say, never key material.
+//
+// Secrets: an invitation link is a bearer key. It is returned as the SDK's
+// InvitationLink (redacted when printed or serialized) and never logged,
+// stored, put in a notice or an error.
+
+import {
+  type AcceptedInvitation,
+  acceptInvitation,
+  createInvitation,
+  dekResolver,
+  type InvitationLink,
+  loadControlChain,
+  type SyncClient,
+  type SyncEvent,
+} from "@openlfcp/client";
+import {
+  type DataUnitId,
+  type ObjectId,
+  type ResourceId,
+  toBase64url,
+  toHex,
+} from "@openlfcp/core";
+import {
+  PROFILE_ID,
+  type ReplicaIntent,
+  resolveFieldConflict,
+  SCALAR_FIELDS,
+  type ScalarField,
+  type SharedObjectsDataProfile,
+  type Task,
+} from "@openlfcp/shared-objects";
+import { principalKeySecretRef } from "@openlfcp/storage";
+import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
+import type {
+  CollaborationContext,
+  OpenResource,
+  RegistryEntry,
+  RuntimeStatus,
+} from "../lfcp/runtime";
+import type { TaskState } from "../refs/scanner";
+import { planShare } from "./markdown";
+import { codeOf, plainCode } from "./messages";
+import { DEFAULT_CLAIM_LIMIT, INVITE_PRESETS, type InvitePreset } from "./presets";
+
+/** What the flows need from the plugin runtime (LfcpRuntime implements it). */
+export interface CollabRuntime {
+  readonly status: RuntimeStatus;
+  registry(): Promise<RegistryEntry[]>;
+  createResource(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+  }): Promise<ResourceId>;
+  openResource(resource: ResourceId): Promise<OpenResource>;
+  hasResource(resource: ResourceId): Promise<boolean>;
+  profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
+  writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null>;
+  on(listener: (e: SyncEvent) => void): () => void;
+  collaborationContext(): CollaborationContext | null;
+  readonly localState: {
+    get(key: string): Promise<unknown>;
+    put(key: string, value: unknown): Promise<void>;
+  };
+}
+
+export interface CollabOptions {
+  /** How long to wait for a session to become READY before reporting "offline" (ms). */
+  readonly connectTimeoutMs?: number;
+  /** How long an invitation waits for the coordinator's ACKs (ms). */
+  readonly ackTimeoutMs?: number;
+  /** How long a join may take (ms). */
+  readonly joinTimeoutMs?: number;
+  /** A timer (default setTimeout). */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/** Why something needs the network and could not get it, or was refused. */
+export type HostOutcome =
+  | { readonly kind: "hosted"; readonly durability: bigint }
+  | { readonly kind: "pending"; readonly reason: string }
+  | { readonly kind: "refused"; readonly code: string; readonly message: string };
+
+export interface CreatedCollaboration {
+  readonly resourceId: ResourceId;
+  readonly hosting: HostOutcome;
+}
+
+export interface Invitation {
+  /** The bearer link: show it to the user only, never log or store it. */
+  readonly link: InvitationLink;
+  readonly preset: InvitePreset;
+  readonly claimLimit: bigint;
+  /** Whether the coordinator acknowledged the grant and its Key Package: the link works now. */
+  readonly confirmed: boolean;
+}
+
+/** Join stages, in order (LFCP-065); none carries a secret. */
+export type JoinStage =
+  | "connecting"
+  | "validating invitation"
+  | "claiming capability"
+  | "retrieving key"
+  | "synchronizing";
+
+export type JoinOutcome =
+  | {
+      readonly kind: "joined";
+      readonly resourceId: ResourceId;
+      /** Ability names the claim granted. */
+      readonly abilities: readonly string[];
+    }
+  | { readonly kind: "already-member"; readonly resourceId: ResourceId }
+  | { readonly kind: "refused"; readonly code: string; readonly message: string }
+  | { readonly kind: "unavailable"; readonly message: string };
+
+export interface Participant {
+  /** Public Principal ID, shortened for display. */
+  readonly id: string;
+  readonly you: boolean;
+  readonly owner: boolean;
+  readonly abilities: readonly string[];
+  /** For an Invitation Principal: claims used of the limit. */
+  readonly invitation?: { readonly used: string; readonly limit: string };
+}
+
+export interface ConflictSummary {
+  readonly objectId: string;
+  readonly title: string;
+  readonly fields: readonly ScalarField[];
+}
+
+/** The Resource status view (LFCP-065): non-secret fields only. */
+export interface ResourceStatus {
+  readonly localName: string | null;
+  readonly resourceId: string;
+  readonly profile: string;
+  readonly state: RegistryEntry["state"];
+  /** True when the Control Chain has forked: everything security-sensitive is blocked. */
+  readonly blocked: boolean;
+  readonly phase: string;
+  readonly hosting: "hosted" | "pending" | "unknown";
+  readonly controlHead: string | null;
+  readonly controlSeq: string | null;
+  readonly dataEpoch: string | null;
+  readonly coordinator: string | null;
+  readonly endpoints: readonly string[];
+  readonly participants: readonly Participant[];
+  readonly pendingOutbound: number;
+  readonly conflicts: readonly ConflictSummary[];
+}
+
+export interface TaskChoice {
+  readonly objectId: ObjectId;
+  readonly title: string;
+  readonly status: string;
+}
+
+export interface ConflictView {
+  readonly field: ScalarField;
+  /** Every concurrent value, sorted; the user picks one (or clears a date). */
+  readonly values: readonly (string | null)[];
+}
+
+/** An LFCP refusal or local precondition, with its §62 or SDK code. */
+export class CollabError extends Error {
+  constructor(
+    readonly code: string,
+    message: string = plainCode(code),
+  ) {
+    super(message);
+    this.name = "CollabError";
+  }
+}
+
+const SHORT = 8;
+const short = (hex: string): string => hex.slice(0, SHORT);
+const hostingKey = (R: ResourceId): string => `collab-hosting:${toHex(R)}`;
+const WS_URL = /^wss?:\/\/[^\s/]+/i;
+
+export class Collaboration {
+  readonly #runtime: CollabRuntime;
+  readonly #o: Required<Omit<CollabOptions, "sleep">> & { sleep: (ms: number) => Promise<void> };
+
+  constructor(runtime: CollabRuntime, options: CollabOptions = {}) {
+    this.#runtime = runtime;
+    this.#o = {
+      connectTimeoutMs: options.connectTimeoutMs ?? 10_000,
+      ackTimeoutMs: options.ackTimeoutMs ?? 15_000,
+      joinTimeoutMs: options.joinTimeoutMs ?? 30_000,
+      sleep: options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+    };
+  }
+
+  #context(): CollaborationContext {
+    const c = this.#runtime.collaborationContext();
+    if (c === null) {
+      const s = this.#runtime.status;
+      throw new CollabError(
+        "NOT_READY",
+        s.kind === "locked"
+          ? `OpenLFCP cannot write on this device: ${s.message}`
+          : "OpenLFCP is not ready yet.",
+      );
+    }
+    return c;
+  }
+
+  async #entry(R: ResourceId): Promise<RegistryEntry> {
+    const key = toHex(R);
+    const e = (await this.#runtime.registry()).find((x) => toHex(x.resourceId) === key);
+    if (e === undefined)
+      throw new CollabError("UNKNOWN_RESOURCE", "This collaboration is not on this device.");
+    return e;
+  }
+
+  /** The known collaborations, for pickers. */
+  async list(): Promise<RegistryEntry[]> {
+    return this.#runtime.registry();
+  }
+
+  /** "Create collaboration": a new Resource owned by this vault's identity, hosted when online. */
+  async create(options: {
+    readonly name: string;
+    readonly server: string;
+  }): Promise<CreatedCollaboration> {
+    const name = options.name.trim();
+    const server = options.server.trim();
+    if (name === "") throw new CollabError("UNSUPPORTED_VALUE", "Give the collaboration a name.");
+    if (!WS_URL.test(server))
+      throw new CollabError(
+        "UNSUPPORTED_VALUE",
+        "The server must be a WebSocket URL (wss://… or, for local testing, ws://…).",
+      );
+    this.#context();
+    const resourceId = await this.#runtime.createResource({
+      name,
+      endpoints: [server],
+      coordinatorUrl: server,
+    });
+    await this.#runtime.localState.put(hostingKey(resourceId), "pending");
+    return { resourceId, hosting: await this.host(resourceId) };
+  }
+
+  /** Waits until `client` is READY, or the timeout; false when it did not get there. */
+  async #ready(client: SyncClient): Promise<boolean> {
+    if (client.connectionState === "READY") return true;
+    let done: (ok: boolean) => void = () => undefined;
+    const ready = new Promise<boolean>((r) => {
+      done = r;
+    });
+    const off = client.on((e) => {
+      if (e.type === "connection" && e.state === "READY") done(true);
+    });
+    void this.#o.sleep(this.#o.connectTimeoutMs).then(() => done(false));
+    try {
+      return await ready;
+    } finally {
+      off();
+    }
+  }
+
+  /**
+   * RESOURCE_HOST (§39) of a Resource this vault created, on its
+   * coordinator, then its session. Pending while the server is unreachable;
+   * the local Resource works meanwhile.
+   */
+  async host(R: ResourceId): Promise<HostOutcome> {
+    const c = this.#context();
+    const chain = await loadControlChain(c.storage, R);
+    if (chain?.kind !== "linear") throw new CollabError("CONTROL_CONFLICT");
+    const genesis = chain.records[0]?.signed.bytes;
+    if (genesis === undefined) throw new CollabError("MISSING_DEPENDENCY");
+    const url = chain.state.route.coordinatorUrl;
+    const client = c.session(url);
+    if (!(await this.#ready(client)))
+      return {
+        kind: "pending",
+        reason: `The server ${url} is not reachable now. The collaboration works on this device; host it later from "Resource status".`,
+      };
+    try {
+      const durability = await client.host(genesis);
+      await this.#runtime.localState.put(hostingKey(R), "hosted");
+      await this.#runtime.openResource(R);
+      return { kind: "hosted", durability };
+    } catch (e) {
+      const code = /NACK (\w+)/.exec(e instanceof Error ? e.message : "")?.[1];
+      if (code === undefined)
+        return {
+          kind: "pending",
+          reason: "The server did not answer the hosting request in time.",
+        };
+      return { kind: "refused", code, message: plainCode(code) };
+    }
+  }
+
+  /** "Invite collaborator": a one-time invitation with a preset's abilities. */
+  async invite(R: ResourceId, preset: InvitePreset): Promise<Invitation> {
+    const entry = await this.#entry(R);
+    if (entry.state === "control_conflict") throw new CollabError("CONTROL_CONFLICT");
+    const c = this.#context();
+    const chain = await loadControlChain(c.storage, R);
+    if (chain?.kind !== "linear") throw new CollabError("CONTROL_CONFLICT");
+    const epoch = chain.state.epoch.epoch;
+    const dek = await dekResolver(c.storage, c.secrets, R)(epoch);
+    if (dek === undefined)
+      throw new CollabError(
+        "KEY_PACKAGE_UNAVAILABLE",
+        "This device does not hold the collaboration's current key yet.",
+      );
+    const endpoints = [...chain.state.route.endpoints]
+      .sort((a, b) => (a.priority < b.priority ? -1 : a.priority > b.priority ? 1 : 0))
+      .map((e) => e.url);
+    let created: Awaited<ReturnType<typeof createInvitation>>;
+    try {
+      created = await createInvitation({
+        storage: c.storage,
+        resourceId: R,
+        inviter: c.principal.signer,
+        dek,
+        endpoints,
+        abilities: INVITE_PRESETS[preset].abilities,
+        claimLimit: DEFAULT_CLAIM_LIMIT,
+      });
+    } catch (e) {
+      const code = codeOf(e);
+      throw code === "AUTHORIZATION_FAILED"
+        ? new CollabError(
+            code,
+            "You are not allowed to invite collaborators to this collaboration.",
+          )
+        : e;
+    }
+    // Send the queued grant and Key Package; the link works once both are ACKed.
+    const wanted = new Set([toHex(created.grantId), toHex(created.keyPackageId)]);
+    let resolve: () => void = () => undefined;
+    const acked = new Promise<boolean>((r) => {
+      resolve = () => r(true);
+    });
+    const off = this.#runtime.on((e) => {
+      if (e.type !== "ack") return;
+      for (const id of e.outcome.acked) wanted.delete(toHex(id));
+      if (wanted.size === 0) resolve();
+    });
+    try {
+      const open = await this.#runtime.openResource(R);
+      if (open.url !== null) c.session(open.url).flush();
+      const confirmed = await Promise.race([
+        acked,
+        this.#o.sleep(this.#o.ackTimeoutMs).then(() => false),
+      ]);
+      return { link: created.link, preset, claimLimit: DEFAULT_CLAIM_LIMIT, confirmed };
+    } finally {
+      off();
+    }
+  }
+
+  /** "Join collaboration": claim a bearer invitation (§73) as this vault's identity. */
+  async join(
+    uri: string,
+    options: { readonly name: string; readonly onStage?: (stage: JoinStage) => void },
+  ): Promise<JoinOutcome> {
+    const stage = options.onStage ?? (() => undefined);
+    const c = this.#context();
+    stage("connecting");
+    stage("validating invitation");
+    const R = parseInviteUri(uri.trim()).resourceId;
+    if (await this.#runtime.hasResource(R)) return { kind: "already-member", resourceId: R };
+    stage("claiming capability");
+    const accepted: AcceptedInvitation = await acceptInvitation({
+      link: uri.trim(),
+      claimant: { signer: c.principal.signer, agreement: c.principal.agreement },
+      storage: c.storage,
+      secrets: c.secrets,
+      now: c.now,
+      ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
+      timeout: this.#o.sleep(this.#o.joinTimeoutMs),
+    });
+    if (accepted.kind === "refused")
+      return { kind: "refused", code: accepted.code, message: plainCode(accepted.code) };
+    if (accepted.kind === "unavailable")
+      return {
+        kind: "unavailable",
+        message: `The collaboration's server could not complete the join (${accepted.reason}). Joining needs a connection; try again when online.`,
+      };
+    stage("retrieving key");
+    const chain = await loadControlChain(c.storage, R);
+    if (chain?.kind !== "linear") throw new CollabError("INVALID_CONTROL_CHAIN");
+    if (chain.state.dataProfile !== PROFILE_ID)
+      throw new CollabError(
+        "PROFILE_UNSUPPORTED",
+        "This collaboration does not use Shared Objects.",
+      );
+    const id = c.principal.id;
+    const r = await c.storage.commit([
+      {
+        op: "put-resource",
+        row: {
+          resourceId: R,
+          dataProfile: chain.state.dataProfile,
+          localPrincipal: {
+            principalId: id,
+            signingKeyRef: principalKeySecretRef(id, "signing"),
+            agreementKeyRef: principalKeySecretRef(id, "agreement"),
+          },
+          labels: {
+            name: options.name.trim() === "" ? "Shared collaboration" : options.name.trim(),
+          },
+        },
+      },
+    ]);
+    if (!r.ok) throw new CollabError("UNSUPPORTED_VALUE", "The collaboration could not be stored.");
+    await this.#runtime.localState.put(hostingKey(R), "hosted");
+    stage("synchronizing");
+    await this.#runtime.openResource(R);
+    return {
+      kind: "joined",
+      resourceId: R,
+      abilities: accepted.abilities.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`),
+    };
+  }
+
+  /** "Resource status": the non-secret state of a collaboration. */
+  async status(R: ResourceId): Promise<ResourceStatus> {
+    const entry = await this.#entry(R);
+    const c = this.#context();
+    const chain = await loadControlChain(c.storage, R);
+    const state = chain?.kind === "linear" ? chain.state : null;
+    const me = toHex(c.principal.id);
+    const participants: Participant[] = [];
+    if (state !== null) {
+      const subjects = new Map<string, Participant>();
+      const ownerId = toHex(state.owner.principalId);
+      const add = (hex: string, extra: Partial<Participant> = {}) => {
+        const abilities = abilitiesOf(
+          state,
+          state.principals.get(hex)?.principalId ?? state.owner.principalId,
+        );
+        subjects.set(hex, {
+          id: short(hex),
+          you: hex === me,
+          owner: hex === ownerId,
+          abilities:
+            hex === ownerId ? ["owner"] : abilities.map((a) => ABILITY_NAMES.get(a) ?? String(a)),
+          ...extra,
+        });
+      };
+      add(ownerId);
+      for (const g of state.grants.values()) {
+        if (g.revokedBy !== null) continue;
+        const hex = toHex(g.subject);
+        if (subjects.has(hex)) continue;
+        const holds = abilitiesOf(state, g.subject).map((a) => ABILITY_NAMES.get(a) ?? String(a));
+        subjects.set(hex, {
+          id: short(hex),
+          you: hex === me,
+          owner: false,
+          abilities: holds,
+          ...(g.claimLimit === null
+            ? {}
+            : { invitation: { used: String(g.claimsUsed), limit: String(g.claimLimit) } }),
+        });
+      }
+      participants.push(...subjects.values());
+    }
+    let conflicts: ConflictSummary[] = [];
+    try {
+      const replica = (await this.#runtime.profileOf(R)).replica;
+      conflicts = Object.entries(replica.conflicts()).map(([objectId, fields]) => ({
+        objectId,
+        title: replica.task(objectId)?.fields.title.values.join(" / ") ?? objectId,
+        fields: Object.keys(fields).filter((f): f is ScalarField =>
+          (SCALAR_FIELDS as readonly string[]).includes(f),
+        ),
+      }));
+    } catch {
+      conflicts = [];
+    }
+    const hosting = await this.#runtime.localState.get(hostingKey(R));
+    return {
+      localName: entry.localName,
+      resourceId: toBase64url(R),
+      profile: entry.profile,
+      state: entry.state,
+      blocked: entry.state === "control_conflict",
+      phase: (this.#runtime as { phase?(r: ResourceId): string }).phase?.(R) ?? "CLOSED",
+      hosting: hosting === "hosted" || hosting === "pending" ? hosting : "unknown",
+      controlHead: entry.lastKnownControlHead,
+      controlSeq: state === null ? null : String(state.seq),
+      dataEpoch: state === null ? null : String(state.epoch.epoch),
+      coordinator: state?.route.coordinatorUrl ?? null,
+      endpoints: entry.routes,
+      participants,
+      pendingOutbound: (await c.storage.outbound.list(R)).length,
+      conflicts,
+    };
+  }
+
+  /** "Share task under cursor": task.create (and a completion date) for a local Task. */
+  async share(
+    R: ResourceId,
+    task: TaskState,
+  ): Promise<{ readonly objectId: ObjectId; readonly warnings: readonly string[] }> {
+    const entry = await this.#entry(R);
+    if (entry.state === "control_conflict") throw new CollabError("CONTROL_CONFLICT");
+    const c = this.#context();
+    const plan = planShare(task, c.principal.id);
+    for (const intent of plan.intents) await this.#runtime.writeIntent(R, intent);
+    return { objectId: plan.objectId, warnings: plan.warnings };
+  }
+
+  /** The live, valid Tasks of a collaboration, for "Insert shared object". */
+  async tasks(R: ResourceId): Promise<TaskChoice[]> {
+    const replica = (await this.#runtime.profileOf(R)).replica;
+    const out: TaskChoice[] = [];
+    for (const id of replica.objectIds()) {
+      const view = replica.task(id);
+      const task = view?.task;
+      if (view?.status !== "ready" || task === undefined || task.lifecycle === "deleted") continue;
+      out.push({ objectId: id as ObjectId, title: task.title, status: task.status });
+    }
+    return out.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /** A shared Task's current state (its visible values), if it is a valid Task. */
+  async profileTask(R: ResourceId, objectId: string): Promise<Task | undefined> {
+    return (await this.#runtime.profileOf(R)).replica.task(objectId)?.task;
+  }
+
+  /** The conflicted fields of a shared Task and their competing values (conflict UI hook). */
+  async conflicts(R: ResourceId, objectId: string): Promise<ConflictView[]> {
+    const view = (await this.#runtime.profileOf(R)).replica.task(objectId);
+    if (view === undefined) return [];
+    return SCALAR_FIELDS.filter((f) => view.fields[f].conflicted).map((field) => ({
+      field,
+      values: view.fields[field].values.map((v) => (typeof v === "string" ? v : null)),
+    }));
+  }
+
+  /** Resolves a conflicted field with the chosen value: task.resolve_field_conflict (§69). */
+  async resolve(
+    R: ResourceId,
+    objectId: string,
+    field: ScalarField,
+    value: string | null,
+  ): Promise<DataUnitId | null> {
+    return this.#runtime.writeIntent(R, resolveFieldConflict(objectId as ObjectId, field, value));
+  }
+}

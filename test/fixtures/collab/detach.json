@@ -1,0 +1,89 @@
+{
+  "description": "LFCP-065 detach fixtures: the note before, the 0-based Task line detached, and the exact note after. Only the ref's bytes go (MARKDOWN-REFS-01 §18; inline: the comment and its single separator; child: the ref line with its line ending).",
+  "cases": [
+    {
+      "id": "child-lf",
+      "note": "the MARKDOWN-REFS-01 §18 example, child line, LF",
+      "before": "- [x] Prepare API contract\n  <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\n- [ ] Next\n",
+      "line": 0,
+      "after": "- [x] Prepare API contract\n- [ ] Next\n"
+    },
+    {
+      "id": "child-crlf",
+      "note": "child line, CRLF kept on every other line",
+      "before": "Intro\r\n- [x] Prepare API contract\r\n  <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\r\n- [ ] Next\r\n",
+      "line": 1,
+      "after": "Intro\r\n- [x] Prepare API contract\r\n- [ ] Next\r\n"
+    },
+    {
+      "id": "child-cr",
+      "note": "child line, old Mac CR endings",
+      "before": "- [ ] A\r  <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\r- [ ] B\r",
+      "line": 0,
+      "after": "- [ ] A\r- [ ] B\r"
+    },
+    {
+      "id": "child-last-no-eol",
+      "note": "child ref as the last line without an ending: the ending before it goes",
+      "before": "- [x] Prepare API contract\n  <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->",
+      "line": 0,
+      "after": "- [x] Prepare API contract"
+    },
+    {
+      "id": "child-nested-tab",
+      "note": "nested Task indented with a tab",
+      "before": "- [ ] Parent\n\t- [/] Child task\n\t  <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\n\t- [ ] Sibling\n",
+      "line": 1,
+      "after": "- [ ] Parent\n\t- [/] Child task\n\t- [ ] Sibling\n"
+    },
+    {
+      "id": "child-trailing-ws",
+      "note": "child ref line with trailing spaces: the whole line goes",
+      "before": "- [ ] A 📅 2026-10-15\n  <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->   \n\nText\n",
+      "line": 0,
+      "after": "- [ ] A 📅 2026-10-15\n\nText\n"
+    },
+    {
+      "id": "inline-lf",
+      "note": "the §18 inline example",
+      "before": "- [x] Prepare API contract <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\n",
+      "line": 0,
+      "after": "- [x] Prepare API contract\n"
+    },
+    {
+      "id": "inline-two-spaces",
+      "note": "inline with two spaces before the comment: only one separator goes",
+      "before": "- [ ] A  <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\n",
+      "line": 0,
+      "after": "- [ ] A \n"
+    },
+    {
+      "id": "inline-tab-separator",
+      "note": "inline separated by a tab: the tab is the separator",
+      "before": "- [ ] A\t<!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\r\n",
+      "line": 0,
+      "after": "- [ ] A\r\n"
+    },
+    {
+      "id": "inline-trailing-ws",
+      "note": "inline with trailing whitespace after the comment: kept",
+      "before": "- [ ] A <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->  \r\n- [ ] B\r\n",
+      "line": 0,
+      "after": "- [ ] A  \r\n- [ ] B\r\n"
+    },
+    {
+      "id": "inline-metadata",
+      "note": "inline after Tasks metadata: the metadata stays",
+      "before": "- [ ] A ⏫ 📅 2026-10-15 ^blk <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->\n",
+      "line": 0,
+      "after": "- [ ] A ⏫ 📅 2026-10-15 ^blk\n"
+    },
+    {
+      "id": "inline-no-eol",
+      "note": "inline on the last line without an ending",
+      "before": "Text\n- [x] Done <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->",
+      "line": 1,
+      "after": "Text\n- [x] Done"
+    }
+  ]
+}
