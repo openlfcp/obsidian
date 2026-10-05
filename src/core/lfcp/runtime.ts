@@ -40,13 +40,19 @@ import {
   SharedObjectsDataProfile,
   SharedObjectsReplica,
 } from "@openlfcp/shared-objects";
-import { dekSecretRef, type LfcpStorage, principalKeySecretRef } from "@openlfcp/storage";
+import {
+  dekSecretRef,
+  type LfcpStorage,
+  principalKeySecretRef,
+  type SecretStore,
+} from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import {
   createInstall,
   type Install,
   type InstallEnv,
   LOCK_MESSAGES,
+  type LocalPrincipal,
   type LockReason,
   openInstall,
 } from "./install";
@@ -101,6 +107,20 @@ export interface RegistryEntry {
   /** Hex of the stored, validated Control Head. */
   readonly lastKnownControlHead: string | null;
   readonly state: RegistryState;
+}
+
+/**
+ * What the collaboration flows (LFCP-065: hosting, invitations, joining)
+ * hand to the SDK. Never shown in the UI.
+ */
+export interface CollaborationContext {
+  readonly storage: LfcpStorage;
+  readonly secrets: SecretStore;
+  readonly principal: LocalPrincipal;
+  readonly now: () => number;
+  readonly webSocket?: WebSocketFactory;
+  /** The pooled session for an endpoint (started on first use). */
+  session(url: string): SyncClient;
 }
 
 /** An opened Resource: its Shared Objects state and session phase. */
@@ -501,6 +521,20 @@ export class LfcpRuntime {
       this.#errors.set(toHex(e.resourceId), e.code);
     }
     for (const l of this.#listeners) l(e);
+  }
+
+  /** The SDK inputs of the collaboration flows (LFCP-065), or null unless ready. */
+  collaborationContext(): CollaborationContext | null {
+    const i = this.#install;
+    if (this.#stopped || i.kind !== "ready") return null;
+    return {
+      storage: i.storage,
+      secrets: i.secrets,
+      principal: i.principal,
+      now: () => this.#env.timers.now(),
+      ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
+      session: (url) => this.#session(url).client,
+    };
   }
 
   /** The session phase of an opened Resource ("CLOSED" when not open). */
