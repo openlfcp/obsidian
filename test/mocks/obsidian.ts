@@ -71,11 +71,21 @@ export class SecretStorage {
 
 /** An open editor on a note: its buffer may differ from the file (unsaved changes). */
 export class MarkdownView {
+  /** The cursor's 0-based line (LFCP-065 commands act on it). */
+  cursorLine = 0;
+  /** How many times save() ran. */
+  saves = 0;
   constructor(
     public file: TFile | null,
     public buffer: string,
   ) {}
-  readonly editor = { getValue: () => this.buffer };
+  readonly editor = {
+    getValue: () => this.buffer,
+    getCursor: () => ({ line: this.cursorLine, ch: 0 }),
+  };
+  async save(): Promise<void> {
+    this.saves += 1;
+  }
 }
 
 export class Workspace {
@@ -84,6 +94,11 @@ export class Workspace {
   readonly views: MarkdownView[] = [];
   getActiveFile(): TFile | null {
     return this.active;
+  }
+  /** The focused editor view (LFCP-065). */
+  activeView: MarkdownView | null = null;
+  getActiveViewOfType<T>(type: new (...args: never[]) => T): T | null {
+    return this.activeView instanceof type ? (this.activeView as T) : null;
   }
   getLeavesOfType(type: string): { view: MarkdownView }[] {
     return type === "markdown" ? this.views.map((view) => ({ view })) : [];
@@ -122,8 +137,122 @@ export interface PluginManifest {
 export const notices: string[] = [];
 
 export class Notice {
-  constructor(message: string) {
+  constructor(message: string, _timeout?: number) {
     notices.push(message);
+  }
+  setMessage(message: string): this {
+    notices.push(message);
+    return this;
+  }
+  hide(): void {}
+}
+
+/** A DOM element as the plugin's modals use it (createEl, text, inputs, clicks). */
+export class FakeElement {
+  text = "";
+  value = "";
+  type = "";
+  placeholder = "";
+  cls = "";
+  readOnly = false;
+  readonly children: FakeElement[] = [];
+  readonly listeners = new Map<string, ((event?: unknown) => unknown)[]>();
+  constructor(readonly tag: string) {}
+  createEl(
+    tag: string,
+    o: { text?: string; cls?: string; type?: string; placeholder?: string; value?: string } = {},
+  ): FakeElement {
+    const el = new FakeElement(tag);
+    el.text = o.text ?? "";
+    el.cls = o.cls ?? "";
+    el.type = o.type ?? "";
+    el.placeholder = o.placeholder ?? "";
+    el.value = o.value ?? "";
+    this.children.push(el);
+    return el;
+  }
+  createDiv(o: { text?: string; cls?: string } = {}): FakeElement {
+    return this.createEl("div", o);
+  }
+  createSpan(o: { text?: string; cls?: string } = {}): FakeElement {
+    return this.createEl("span", o);
+  }
+  empty(): void {
+    this.children.length = 0;
+    this.text = "";
+  }
+  setText(text: string): void {
+    this.text = text;
+  }
+  addClass(cls: string): void {
+    this.cls = `${this.cls} ${cls}`.trim();
+  }
+  addEventListener(type: string, fn: (event?: unknown) => unknown): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
+  }
+  trigger(type: string, event?: unknown): void {
+    for (const fn of this.listeners.get(type) ?? []) fn(event);
+  }
+  click(): void {
+    this.trigger("click");
+  }
+  focus(): void {}
+  select(): void {}
+  /** Every text in the subtree, as a reader of the rendered view would see it (input values included). */
+  get textContent(): string {
+    return [this.text, this.value, ...this.children.map((c) => c.textContent)]
+      .filter((t) => t !== "")
+      .join("\n");
+  }
+  /** Descendants matching `tag`, in document order. */
+  findAll(tag: string): FakeElement[] {
+    return this.children.flatMap((c) => [...(c.tag === tag ? [c] : []), ...c.findAll(tag)]);
+  }
+}
+
+/** Every modal opened, oldest first. */
+export const modals: Modal[] = [];
+
+export class Modal {
+  readonly contentEl = new FakeElement("div");
+  readonly titleEl = new FakeElement("div");
+  isOpen = false;
+  constructor(readonly app: App) {}
+  open(): void {
+    this.isOpen = true;
+    modals.push(this);
+    void this.onOpen();
+  }
+  close(): void {
+    if (!this.isOpen) return;
+    this.isOpen = false;
+    this.onClose();
+  }
+  onOpen(): Promise<void> | void {}
+  onClose(): void {}
+}
+
+export abstract class SuggestModal<T> extends Modal {
+  readonly inputEl = new FakeElement("input");
+  placeholder = "";
+  setPlaceholder(placeholder: string): void {
+    this.placeholder = placeholder;
+  }
+  abstract getSuggestions(query: string): T[] | Promise<T[]>;
+  abstract renderSuggestion(value: T, el: FakeElement): void;
+  abstract onChooseSuggestion(item: T, evt: unknown): void;
+  /** What a user picking the suggestion does: Obsidian closes the modal first, then reports the choice. */
+  async pick(match: (rendered: string) => boolean): Promise<void> {
+    for (const item of await this.getSuggestions("")) {
+      const el = new FakeElement("div");
+      this.renderSuggestion(item, el);
+      if (match(el.textContent)) {
+        this.close();
+        this.onChooseSuggestion(item, {});
+        return;
+      }
+    }
+    throw new Error("no matching suggestion");
   }
 }
 
