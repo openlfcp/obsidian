@@ -247,7 +247,29 @@ export class LfcpRuntime {
       if (this.#stopped) return;
       await this.#install.storage?.meta.put(`plugin:${key}`, value);
     },
+    /**
+     * Read-modify-write of one key, one at a time per key: `change` sees
+     * the value the previous update left, so concurrent updates never lose
+     * each other's changes. The install lock makes this runtime the only
+     * writer. Every read-modify-write of a key goes through here.
+     */
+    update: (key: string, change: (value: unknown) => unknown): Promise<void> => {
+      const run = async () => {
+        await this.localState.put(key, change(await this.localState.get(key)));
+      };
+      const done = (this.#updates.get(key) ?? Promise.resolve()).then(run, run);
+      const tail = done.then(
+        () => undefined,
+        () => undefined,
+      );
+      this.#updates.set(key, tail);
+      void tail.then(() => {
+        if (this.#updates.get(key) === tail) this.#updates.delete(key);
+      });
+      return done;
+    },
   };
+  readonly #updates = new Map<string, Promise<void>>();
 
   /** Session events of every pooled client. */
   on(listener: (e: SyncEvent) => void): () => void {
@@ -395,11 +417,11 @@ export class LfcpRuntime {
    */
   async #rememberOwnUnit(resource: ResourceId, unit: DataUnitId, objects: readonly string[]) {
     if (objects.length === 0) return;
-    const key = `own-units:${toHex(resource)}`;
-    const map = { ...((await this.localState.get(key)) ?? {}) } as Record<string, string[]>;
-    map[toHex(unit)] = [...objects];
-    const entries = Object.entries(map);
-    await this.localState.put(key, Object.fromEntries(entries.slice(-1000)));
+    await this.localState.update(`own-units:${toHex(resource)}`, (value) => {
+      const map = { ...((value ?? {}) as Record<string, string[]>) };
+      map[toHex(unit)] = [...objects];
+      return Object.fromEntries(Object.entries(map).slice(-1000));
+    });
   }
 
   /**
@@ -412,18 +434,23 @@ export class LfcpRuntime {
     const storage = this.storage;
     if (storage === null) return [];
     const key = `own-units:${toHex(resource)}`;
-    const map = { ...((await this.localState.get(key)) ?? {}) } as Record<string, string[]>;
+    const map = ((await this.localState.get(key)) ?? {}) as Record<string, string[]>;
     const objects = new Set<string>();
-    let changed = false;
+    const cut: string[] = [];
     for (const [unitHex, ids] of Object.entries(map)) {
       const unitId = dataUnitId(fromHex(unitHex));
       if ((await storage.dataUnits.get(unitId))?.status !== "quarantined") continue;
       for (const id of ids) objects.add(id);
-      delete map[unitHex];
-      changed = true;
+      cut.push(unitHex);
       this.#staleToDiscard.add(unitHex);
     }
-    if (changed) await this.localState.put(key, map);
+    // Removes only the cut units: units remembered meanwhile stay.
+    if (cut.length > 0)
+      await this.localState.update(key, (value) => {
+        const now = { ...((value ?? {}) as Record<string, string[]>) };
+        for (const unitHex of cut) delete now[unitHex];
+        return now;
+      });
     await this.#discardStale();
     return [...objects].sort();
   }

@@ -3,6 +3,7 @@
 
 import { saveControlChain } from "@openlfcp/client";
 import {
+  type DataUnitId,
   dataEpoch,
   generateResourceId,
   hash32,
@@ -210,6 +211,48 @@ describe("LfcpRuntime (LFCP-059)", () => {
     const again = await start(device, local);
     expect((await again.storage?.outbound.list(R))?.length).toBe(2);
     expect((await again.profileOf(R)).replica.task(TASK)?.task?.title).toBe("Draft");
+  });
+
+  it("keeps own units remembered while a Key Epoch cut is being collected (no lost update)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    const storage = r.storage as LfcpStorage;
+    const status = r.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    const first = createTask({ id: TASK, title: "Draft", createdBy: status.principalId });
+    const cutUnit = (await r.writeIntent(R, first.intent)) as DataUnitId;
+    // A Key Epoch cut that unit off (G-EP7).
+    await storage.commit([
+      { op: "set-data-unit-status", unitId: cutUnit, status: "quarantined", detail: "STALE" },
+    ]);
+    // cutOwnObjects reads the map, then checks each unit's status: pause it there.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const get = storage.dataUnits.get.bind(storage.dataUnits);
+    storage.dataUnits.get = async (id) => {
+      await gate;
+      return get(id);
+    };
+    const cutting = r.cutOwnObjects(R);
+    await sleep(10);
+    storage.dataUnits.get = get;
+    // Meanwhile another own unit is written and remembered.
+    const second = createTask({
+      id: "017f22e2-79b0-7cc3-98c4-dc0c0c07399f" as ObjectId,
+      title: "Second",
+      createdBy: status.principalId,
+    });
+    const kept = (await r.writeIntent(R, second.intent)) as DataUnitId;
+    release();
+    expect(await cutting).toEqual([TASK]);
+    const map = (await r.localState.get(`own-units:${toHex(R)}`)) as Record<string, string[]>;
+    expect(Object.keys(map)).toEqual([toHex(kept)]);
+    // The cut unit is reported once.
+    expect(await r.cutOwnObjects(R)).toEqual([]);
   });
 
   it("locks, offers a new Principal, and refuses to open Resources while locked", async () => {
