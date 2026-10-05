@@ -169,7 +169,9 @@ describe("linear Task suffix parser (security review H3, M9)", () => {
   });
 
   const N = 100_000;
-  const budgetMs = 50;
+  // Generous for a loaded CI machine (a full run measured up to ~60 ms for
+  // 50k emoji); the replaced regexes took seconds on inputs a tenth this size.
+  const budgetMs = 250;
   const cases: [string, string][] = [
     ["spaces only", " ".repeat(N)],
     ["text then spaces then a recurrence", `x${" ".repeat(N)}🔁 every week`],
