@@ -1,0 +1,390 @@
+[
+  {
+    "name": "glyph space reopens a done Task",
+    "shared": {
+      "title": "Prepare API contract",
+      "status": "done"
+    },
+    "markdown": "- [ ] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.reopen"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "glyph x completes",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [x] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.complete"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "glyph X completes",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [X] Prepare API contract <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.complete"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "glyph slash sets in_progress",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [/] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_status",
+        "status": "in_progress"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "glyph dash cancels",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [-] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.cancel"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "glyph > is not owned",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [>] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "STATUS_NOT_OWNED"
+    ]
+  },
+  {
+    "name": "glyph ? is not owned",
+    "shared": {
+      "title": "Prepare API contract",
+      "status": "in_progress"
+    },
+    "markdown": "- [?] Prepare API contract <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "STATUS_NOT_OWNED"
+    ]
+  },
+  {
+    "name": "an extension status is not owned",
+    "shared": {
+      "title": "Prepare API contract",
+      "status": "x/com.example/blocked"
+    },
+    "markdown": "- [x] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "STATUS_NOT_OWNED"
+    ]
+  },
+  {
+    "name": "child-ref title edit",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare the API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_title",
+        "title": "Prepare the API contract"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "inline-ref title edit",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare the API contract <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_title",
+        "title": "Prepare the API contract"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "metadata and block id are not title",
+    "shared": {
+      "title": "Prepare API contract",
+      "due": "2026-10-10",
+      "scheduled": "2026-10-08",
+      "priority": "highest"
+    },
+    "markdown": "- [ ] Prepare API contract 🔺 ⏳ 2026-10-08 📅 2026-10-10 ^abc-1\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": []
+  },
+  {
+    "name": "due changed",
+    "shared": {
+      "title": "Prepare API contract",
+      "due": "2026-10-10"
+    },
+    "markdown": "- [ ] Prepare API contract 📅 2026-10-12\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_due",
+        "date": "2026-10-12"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "due removed",
+    "shared": {
+      "title": "Prepare API contract",
+      "due": "2026-10-10"
+    },
+    "markdown": "- [ ] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.clear_due"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "scheduled added",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract ⏳ 2026-10-08 <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_scheduled",
+        "date": "2026-10-08"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "impossible due date is refused",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract 📅 2026-02-30\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "FIELD_INVALID"
+    ]
+  },
+  {
+    "name": "priority emoji",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract 🔺\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_priority",
+        "priority": "highest"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "priority removed is normal",
+    "shared": {
+      "title": "Prepare API contract",
+      "priority": "low"
+    },
+    "markdown": "- [ ] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_priority",
+        "priority": "normal"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "medium priority is not owned",
+    "shared": {
+      "title": "Prepare API contract",
+      "priority": "high"
+    },
+    "markdown": "- [ ] Prepare API contract 🔼\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": []
+  },
+  {
+    "name": "completion date round-trips without an intent",
+    "shared": {
+      "title": "Prepare API contract",
+      "status": "done",
+      "completion_date": "2026-10-01"
+    },
+    "markdown": "- [x] Prepare API contract ✅ 2026-10-01\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": []
+  },
+  {
+    "name": "completing with a date",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [x] Prepare API contract ✅ 2026-10-02\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.complete",
+        "completionDate": "2026-10-02"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "changing the completion date",
+    "shared": {
+      "title": "Prepare API contract",
+      "status": "done",
+      "completion_date": "2026-10-01"
+    },
+    "markdown": "- [x] Prepare API contract ✅ 2026-10-03 <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.complete",
+        "completionDate": "2026-10-03"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "two different completion dates are ambiguous",
+    "shared": {
+      "title": "Prepare API contract",
+      "status": "done",
+      "completion_date": "2026-10-01"
+    },
+    "markdown": "- [x] Prepare API contract ✅ 2026-10-01 ✅ 2026-10-03\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "FIELD_AMBIGUOUS"
+    ]
+  },
+  {
+    "name": "completion date on an open Task is ignored",
+    "shared": {
+      "title": "Prepare API contract",
+      "status": "done",
+      "completion_date": "2026-10-01"
+    },
+    "markdown": "- [ ] Prepare API contract ✅ 2026-10-01\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.reopen"
+      }
+    ],
+    "diagnostics": [
+      "COMPLETION_IGNORED"
+    ]
+  },
+  {
+    "name": "recurrence stays local with a warning",
+    "shared": {
+      "title": "Prepare API contract",
+      "due": "2026-10-10"
+    },
+    "markdown": "- [ ] Prepare API contract 🔁 every week 📅 2026-10-10\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "RECURRENCE_NOT_SYNCED"
+    ]
+  },
+  {
+    "name": "wikilinks in a title are sent with a warning",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract for [[Client X]]\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_title",
+        "title": "Prepare API contract for [[Client X]]"
+      }
+    ],
+    "diagnostics": [
+      "TITLE_WIKILINK"
+    ]
+  },
+  {
+    "name": "unowned suffix stays local",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract ➕ 2026-09-30 🛫 2026-10-01\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": []
+  },
+  {
+    "name": "trailing tags stay in the title",
+    "shared": {
+      "title": "Prepare API contract #backend"
+    },
+    "markdown": "- [ ] Prepare API contract 📅 2026-10-10 #backend\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_due",
+        "date": "2026-10-10"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "a new Task between a Task and its child ref",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract\n- [ ] \n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "REF_REASSOCIATION_SUSPECTED"
+    ]
+  },
+  {
+    "name": "a typed new Task between a Task and its child ref",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract\n- [ ] Call Bob\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": [
+      "REF_REASSOCIATION_SUSPECTED"
+    ]
+  },
+  {
+    "name": "unrelated Markdown and local Tasks produce nothing",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "# Notes\n\n- [x] Buy milk\n- [ ] Prepare API contract\n  <!-- lfcp-ref: {{ref}} -->\nSome prose.\n",
+    "intents": [],
+    "diagnostics": []
+  }
+]

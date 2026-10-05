@@ -329,6 +329,12 @@ export class LfcpRuntime {
     return opened;
   }
 
+  /** Whether this vault stores the Resource (and can therefore project it). */
+  async hasResource(resource: ResourceId): Promise<boolean> {
+    const storage = this.storage;
+    return storage !== null && (await storage.resources.get(resource)) !== undefined;
+  }
+
   /** The Shared Objects state of a stored Resource, without opening a session. */
   async profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile> {
     return (await this.#local(resource)).profile;
