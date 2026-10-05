@@ -51,6 +51,12 @@ tested; mobile is not.
   and resolving a shared conflict. See
   [docs/architecture/collaboration.md](docs/architecture/collaboration.md).
 
+## Demo
+
+[docs/demos/two-vault-demo.md](docs/demos/two-vault-demo.md) walks through
+the canonical two-vault demo in real Obsidian. `node scripts/demo-vaults.mjs`
+prepares the vaults and the server config outside this repository.
+
 ## Layout
 
 | Path | What it is |
