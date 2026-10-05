@@ -11,7 +11,13 @@ import { scanRefs } from "../refs";
 import type { MarkdownProjectionRef } from "../refs/scanner";
 import type { VaultChange } from "../vault/changes";
 import type { MutationGuard } from "./guard";
-import { type FieldIssue, type Plan, type ProjectionDiagnosticCode, planIntents } from "./intents";
+import {
+  type FieldIssue,
+  type Plan,
+  type ProjectionDiagnosticCode,
+  planIntents,
+  type Represented,
+} from "./intents";
 import { type MoveRefRepair, suspectReassociation } from "./reassociation";
 import { parseTaskText, statusOfGlyph } from "./task-text";
 
@@ -74,15 +80,84 @@ export class ProjectionEngine {
   readonly #guard: MutationGuard;
   /** path → object keys projected there at the last scan (reconstructable from Markdown). */
   readonly #index = new Map<string, Set<string>>();
+  /** path → object key → what the Markdown represented at the last sync (the three-way base). */
+  readonly #bases = new Map<string, Map<string, Represented>>();
+  readonly #store: BaseStore | undefined;
 
-  constructor(host: () => ProjectionHost | null, guard: MutationGuard) {
+  constructor(host: () => ProjectionHost | null, guard: MutationGuard, store?: BaseStore) {
     this.#host = host;
     this.#guard = guard;
+    this.#store = store;
+  }
+
+  async #basesOf(path: string): Promise<Map<string, Represented>> {
+    let bases = this.#bases.get(path);
+    if (bases === undefined) {
+      const stored = (await this.#store?.load(path)) ?? {};
+      bases = new Map(Object.entries(stored));
+      this.#bases.set(path, bases);
+    }
+    return bases;
+  }
+
+  async #saveBases(path: string): Promise<void> {
+    const bases = this.#bases.get(path);
+    await this.#store?.save(
+      path,
+      bases === undefined || bases.size === 0 ? null : Object.fromEntries(bases),
+    );
+  }
+
+  /**
+   * Records what `text` shows as the index and the bases, without sending
+   * anything: for the plugin's own writes (a guard echo does this too).
+   */
+  async reindex(path: string, text: string): Promise<void> {
+    const scan = scanRefs(text);
+    this.#index.set(path, new Set(scan.projections.map(objectKey)));
+    const bases = new Map<string, Represented>();
+    for (const p of scan.projections) {
+      const key = objectKey(p);
+      if (!bases.has(key)) bases.set(key, represent(p, scan));
+    }
+    this.#bases.set(path, bases);
+    await this.#saveBases(path);
   }
 
   /** Object keys projected in `path` at the last scan. */
   indexed(path: string): readonly string[] {
     return [...(this.#index.get(path) ?? [])].sort();
+  }
+
+  /** Paths whose last scan projected the object `key` (`<resource>#<object id>`). */
+  pathsOf(key: string): string[] {
+    return [...this.#index]
+      .filter(([, keys]) => keys.has(key))
+      .map(([path]) => path)
+      .sort();
+  }
+
+  /** A deleted note leaves the index; no LFCP operation. */
+  forgetPath(path: string): void {
+    this.#index.delete(path);
+    this.#bases.delete(path);
+    void this.#store?.save(path, null);
+    this.#guard.forget(path);
+  }
+
+  /** Object identity is independent of the path (§23): only the index moves. */
+  renamePath(oldPath: string, newPath: string): void {
+    const keys = this.#index.get(oldPath);
+    this.#index.delete(oldPath);
+    if (keys !== undefined) this.#index.set(newPath, keys);
+    const bases = this.#bases.get(oldPath);
+    this.#bases.delete(oldPath);
+    if (bases !== undefined) {
+      this.#bases.set(newPath, bases);
+      void this.#store?.save(oldPath, null);
+      void this.#saveBases(newPath);
+    }
+    this.#guard.rename(oldPath, newPath);
   }
 
   /** Vault changes (whatever made them): rescans changed Markdown files. */
@@ -93,18 +168,10 @@ export class ProjectionEngine {
     const out: FileOutcome[] = [];
     for (const change of changes) {
       if (change.kind === "delete") {
-        // No LFCP operation: a deleted file only leaves the local index.
-        this.#index.delete(change.path);
-        this.#guard.forget(change.path);
+        this.forgetPath(change.path);
         continue;
       }
-      if (change.kind === "rename") {
-        // Object identity is independent of the path (§23): only the index moves.
-        const keys = this.#index.get(change.oldPath);
-        this.#index.delete(change.oldPath);
-        if (keys !== undefined) this.#index.set(change.path, keys);
-        this.#guard.rename(change.oldPath, change.path);
-      }
+      if (change.kind === "rename") this.renamePath(change.oldPath, change.path);
       const text = await read(change.path);
       if (text !== null) out.push(await this.processFile(change.path, text));
     }
@@ -113,12 +180,16 @@ export class ProjectionEngine {
 
   /** One file's current content: intents for its bound Tasks, and diagnostics. */
   async processFile(path: string, text: string): Promise<FileOutcome> {
-    if (this.#guard.consume(path, text))
+    if (this.#guard.consume(path, text)) {
+      await this.reindex(path, text);
       return { path, skipped: "echo", sent: [], diagnostics: [] };
+    }
     const host = this.#host();
     if (host === null) return { path, skipped: "not-ready", sent: [], diagnostics: [] };
 
     const scan = scanRefs(text);
+    const bases = await this.#basesOf(path);
+    const nextBases = new Map<string, Represented>();
     const diagnostics: ProjectionDiagnostic[] = [];
     const sent: SentIntent[] = [];
     const note = (
@@ -176,7 +247,9 @@ export class ProjectionEngine {
       }
       const profile = await host.profileOf(R);
       const view = profile.replica.task(first.objectId);
-      const plans: { p: MarkdownProjectionRef; plan: Plan }[] = [];
+      const key = objectKey(first);
+      const base = bases.get(key);
+      const plans: { p: MarkdownProjectionRef; plan: Plan; represented: Represented }[] = [];
       for (const p of projections) {
         const sharedTitle = view?.task?.title;
         const repair =
@@ -190,17 +263,15 @@ export class ProjectionEngine {
           );
           continue;
         }
-        const glyph = scan.tasks.find((t) => t.task.line === p.taskLine)?.task.status ?? " ";
-        const plan = planIntents(
-          { status: statusOfGlyph(glyph), text: parseTaskText(p.taskText) },
-          view,
-        );
+        const represented = represent(p, scan);
+        const plan = planIntents(represented, view, base);
         for (const i of plan.issues) note(p, i.code, i.message, fieldOf(i));
-        plans.push({ p, plan });
+        plans.push({ p, plan, represented });
       }
       const edits = plans.filter((x) => x.plan.intents.length > 0);
       const distinct = new Set(edits.map((x) => JSON.stringify(x.plan.intents)));
       if (distinct.size > 1) {
+        if (base !== undefined) nextBases.set(key, base); // still edits next time
         for (const { p } of edits)
           note(
             p,
@@ -210,20 +281,43 @@ export class ProjectionEngine {
         continue;
       }
       const chosen = edits[0];
-      if (chosen === undefined) continue;
-      for (const intent of chosen.plan.intents) {
+      // The base becomes what the note shows now; a failed write keeps the old one (retried).
+      const shown = (chosen ?? plans[0])?.represented ?? base;
+      let failed = false;
+      for (const intent of chosen?.plan.intents ?? []) {
         try {
           await host.writeIntent(R, intent);
           sent.push({ resource: toBase64url(R), objectId: first.objectId, intent });
         } catch (e) {
-          note(chosen.p, "WRITE_FAILED", e instanceof Error ? e.message : String(e));
+          note(
+            (chosen as (typeof plans)[number]).p,
+            "WRITE_FAILED",
+            e instanceof Error ? e.message : String(e),
+          );
+          failed = true;
           break;
         }
       }
+      const kept = failed ? base : shown;
+      if (kept !== undefined) nextBases.set(key, kept);
     }
+    this.#bases.set(path, nextBases);
+    await this.#saveBases(path);
     return { path, sent, diagnostics };
   }
 }
 
 const fieldOf = (i: FieldIssue): { field?: string } =>
   i.field === undefined ? {} : { field: i.field };
+
+/** Persists the three-way bases per note (local state, never synced; reconstructable). */
+export interface BaseStore {
+  load(path: string): Promise<Record<string, Represented> | undefined>;
+  save(path: string, bases: Record<string, Represented> | null): Promise<void>;
+}
+
+/** What a projection's Task line represents (glyph status and parsed text). */
+function represent(p: MarkdownProjectionRef, scan: ReturnType<typeof scanRefs>): Represented {
+  const glyph = scan.tasks.find((t) => t.task.line === p.taskLine)?.task.status ?? " ";
+  return { status: statusOfGlyph(glyph), text: parseTaskText(p.taskText) };
+}

@@ -115,7 +115,11 @@ export function lineWarnings(text: ParsedTaskText): FieldIssue[] {
 }
 
 /** The intents that make `view` match what the Markdown represents. */
-export function planIntents(represented: Represented, view: TaskView | undefined): Plan {
+export function planIntents(
+  represented: Represented,
+  view: TaskView | undefined,
+  base?: Represented,
+): Plan {
   const issues: FieldIssue[] = lineWarnings(represented.text);
   const none = (code: ProjectionDiagnosticCode, message: string): Plan => ({
     intents: [],
@@ -189,16 +193,41 @@ export function planIntents(represented: Represented, view: TaskView | undefined
     }
   };
   const { text } = represented;
+  // Three-way (LFCP-062): a field is a user edit only when the Markdown
+  // differs from what it showed at the last sync (`base`). Fields the user
+  // did not touch are rendered from the shared state instead, so a stale
+  // note never sends old values back. Without a base (first sight) every
+  // field counts as written by the user, as in LFCP-061.
+  const tagsOf = (r: Represented) =>
+    [...r.text.tags]
+      .map((t) => t.normalize("NFC"))
+      .sort()
+      .join(" ");
+  const edited = (
+    field: "title" | "status" | "due" | "scheduled" | "completion" | "priority" | "tags",
+  ): boolean => {
+    if (base === undefined) return true;
+    switch (field) {
+      case "status":
+        return base.status !== represented.status;
+      case "tags":
+        return tagsOf(base) !== tagsOf(represented);
+      default:
+        return base.text[field] !== text[field];
+    }
+  };
 
   // Title.
-  if (!conflicted("title") && text.title !== task.title)
+  if (edited("title") && !conflicted("title") && text.title !== task.title)
     add("title", () => setTitle(task, text.title));
 
   // Status and completion date (ST-1, ST-5).
   const target = represented.status;
   const extension = task.status.startsWith("x/");
   let statusSent = false;
-  if (target === null || extension) {
+  if (!edited("status")) {
+    // untouched: rendered from the shared state
+  } else if (target === null || extension) {
     issues.push(
       issue(
         "STATUS_NOT_OWNED",
@@ -217,11 +246,12 @@ export function planIntents(represented: Represented, view: TaskView | undefined
     add("status", () => statusChange(task, target, date));
   }
   const done = target === "done" && !extension;
-  if (text.completion !== null && !done)
+  if (text.completion !== null && !done && (edited("completion") || edited("status")))
     issues.push(
       issue("COMPLETION_IGNORED", "✅ is only shared on a done Task.", "completion_date"),
     );
   if (
+    edited("completion") &&
     done &&
     !statusSent &&
     task.status === "done" &&
@@ -237,13 +267,18 @@ export function planIntents(represented: Represented, view: TaskView | undefined
     ["due", text.due, setDue, clearDue],
     ["scheduled", text.scheduled, setScheduled, clearScheduled],
   ] as const) {
-    if (ambiguous(field) || conflicted(field)) continue;
+    if (!edited(field) || ambiguous(field) || conflicted(field)) continue;
     if (value === (task[field] ?? null)) continue;
     add(field, () => (value === null ? clear(task) : set(task, value)));
   }
 
   // Priority (🔼 and extension priorities are not owned).
-  if (!ambiguous("priority") && text.priority !== "unowned" && !task.priority.startsWith("x/")) {
+  if (
+    edited("priority") &&
+    !ambiguous("priority") &&
+    text.priority !== "unowned" &&
+    !task.priority.startsWith("x/")
+  ) {
     const priority = text.priority;
     if (!conflicted("priority") && priority !== task.priority)
       add("priority", () => setPriority(task, priority));
@@ -251,11 +286,19 @@ export function planIntents(represented: Represented, view: TaskView | undefined
 
   // Tags (ruling a): the trailing run is the tag set. Shared tags that cannot
   // be written as Obsidian tags are not represented, so never removed here.
+  // With a base, only the tags the user added or removed since then count.
   const markdownTags = new Set(represented.text.tags.map((t) => t.normalize("NFC")));
+  const baseTags =
+    base === undefined ? undefined : new Set(base.text.tags.map((t) => t.normalize("NFC")));
   for (const tag of markdownTags)
-    if (task.tags[tag] !== true) add("title", () => addTag(task, tag), "tags");
+    if (task.tags[tag] !== true && baseTags?.has(tag) !== true)
+      add("title", () => addTag(task, tag), "tags");
   for (const tag of Object.keys(task.tags))
-    if (isObsidianTag(tag) && !markdownTags.has(tag))
+    if (
+      isObsidianTag(tag) &&
+      !markdownTags.has(tag) &&
+      (baseTags === undefined || baseTags.has(tag))
+    )
       add("title", () => removeTag(task, tag), "tags");
 
   if (legacy && intents.length > 0) {

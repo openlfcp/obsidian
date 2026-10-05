@@ -207,16 +207,17 @@ describe("projection engine (LFCP-061)", () => {
     const id = await shared({ title: "Guarded" });
     const guard = new MutationGuard();
     const e = new ProjectionEngine(() => runtime, guard);
-    const written = `- [x] Guarded edit\n  <!-- lfcp-ref: ${refOf(id)} -->\n`;
+    const written = `- [ ] Guarded\n  <!-- lfcp-ref: ${refOf(id)} -->\n`;
     guard.expect("g.md", written);
     expect(await e.processFile("g.md", written)).toMatchObject({ skipped: "echo", sent: [] });
     expect(guard.pending).toBe(0);
-    // The same content again is a real edit now (the echo was consumed).
-    expect(sentIntents(await e.processFile("g.md", written)).length).toBe(2);
+    expect(e.indexed("g.md")).toEqual([`${toBase64url(R)}#${id}`]); // the echo reindexes
+    // A repeated event with the same content is not an edit either.
+    expect(sentIntents(await e.processFile("g.md", written))).toEqual([]);
     // An expectation for other content does not hide a user edit.
     guard.expect("g.md", "something else");
-    expect(sentIntents(await e.processFile("g.md", written.replace("[x]", "[ ]")))).toMatchObject([
-      { intent: "task.reopen" },
+    expect(sentIntents(await e.processFile("g.md", written.replace("[ ]", "[x]")))).toMatchObject([
+      { intent: "task.complete" },
     ]);
   });
 
