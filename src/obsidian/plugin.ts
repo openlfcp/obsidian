@@ -152,6 +152,11 @@ export default class OpenLfcpPlugin extends Plugin {
       }
       this.runtime = runtime;
       this.#watchObjects(runtime);
+      // Pending changes go out and remote ones come in without waiting for a
+      // command: every stored Resource is opened (one pooled session per server).
+      if (runtime.status.kind === "ready")
+        for (const entry of await runtime.registry())
+          void runtime.openResource(entry.resourceId).catch(() => undefined);
       this.app.workspace.onLayoutReady(() => this.#enqueue(() => this.reconcile()));
       return runtime;
     } catch (e) {
