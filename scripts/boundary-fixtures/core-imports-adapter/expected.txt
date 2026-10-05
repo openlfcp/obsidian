@@ -1,0 +1,1 @@
+src/core/value.ts:1 adapter-import: ../obsidian/plugin reaches into src/obsidian/

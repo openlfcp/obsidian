@@ -1,0 +1,2 @@
+src/core/value.ts:1 node-import: node:fs in src/
+src/obsidian/plugin.ts:1 node-import: path in src/

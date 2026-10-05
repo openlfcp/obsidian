@@ -1,0 +1,1 @@
+test/core/value.test.ts:1 obsidian: import of obsidian

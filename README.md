@@ -26,6 +26,7 @@ stubs and has a settings tab with placeholder fields. Nothing is shared yet.
 | `src/obsidian/` | The thin Obsidian adapter: plugin lifecycle, commands, settings tab. The only code that imports `obsidian` |
 | `src/core/` | Obsidian-free modules, reusable by other editor adapters |
 | `test/` | Vitest unit tests; `test/mocks/obsidian.ts` stands in for the Obsidian API |
+| `scripts/check-boundaries.mjs` | Fails if code outside the adapter imports `obsidian`, reaches into `src/obsidian/`, or uses Node in `src/` |
 
 `obsidian` is a devDependency for types only: the app provides it at
 runtime. The plugin does not reimplement any LFCP protocol logic; it will
@@ -36,7 +37,7 @@ use the TypeScript SDK (LFCP-059).
 ```sh
 pnpm install --frozen-lockfile
 pnpm run build       # typecheck src and bundle main.js
-pnpm run lint        # Biome
+pnpm run lint        # Biome and the boundary check (with its self-test)
 pnpm run typecheck   # src and tests
 pnpm test
 ```

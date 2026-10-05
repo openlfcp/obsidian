@@ -1,0 +1,2 @@
+src/core/value.ts:1 obsidian: import of obsidian
+src/core/value.ts:2 obsidian: import of obsidian

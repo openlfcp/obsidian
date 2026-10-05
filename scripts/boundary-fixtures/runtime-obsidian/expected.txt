@@ -1,0 +1,1 @@
+package.json:1 runtime-obsidian: obsidian is a dependency, not a devDependency
