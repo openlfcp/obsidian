@@ -96,7 +96,8 @@ export async function startLiveServer(): Promise<LiveServer> {
         child.kill();
         await exited;
       }
-      rmSync(dir, { recursive: true, force: true });
+      // Windows may hold the database files for a moment after the process exits.
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
 }

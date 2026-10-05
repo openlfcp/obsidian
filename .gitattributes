@@ -1,2 +1,5 @@
+# Text files are LF in the repository and in every checkout, Windows
+# included (biome checks LF; the plugin writes notes with their own endings).
+* text=auto eol=lf
 # Golden fixtures are compared byte for byte (line endings included).
 test/fixtures/** -text

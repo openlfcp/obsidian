@@ -14,7 +14,7 @@ const DIRS = ["src/core/collab", "src/obsidian/ui"];
 const files = DIRS.flatMap((d) =>
   readdirSync(join(ROOT, d))
     .filter((f) => f.endsWith(".ts"))
-    .map((f) => join(d, f)),
+    .map((f) => `${d}/${f}`),
 );
 
 /** Every name imported from a module, per module. */
