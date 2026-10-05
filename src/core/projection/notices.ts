@@ -4,6 +4,7 @@
 
 import type { FileOutcome, ProjectionDiagnostic } from "./engine";
 import type { MoveRefRepair } from "./reassociation";
+import type { RenderedProjection } from "./render";
 
 const ANNOUNCED: Partial<
   Record<ProjectionDiagnostic["code"], (d: ProjectionDiagnostic) => string>
@@ -43,6 +44,30 @@ export class ProjectionNotices {
       if (!out.includes(text)) out.push(text);
     }
     return out;
+  }
+
+  /** Messages for a render (LFCP-062): regressions and new conflicts, once each. */
+  renderMessages(path: string, rendered: readonly RenderedProjection[]): string[] {
+    const out: string[] = [];
+    for (const p of rendered) {
+      for (const i of p.issues)
+        if (i.code === "STATE_REGRESSED" && this.#once(`${path}\u0000${p.key}\u0000${i.code}`))
+          out.push(`OpenLFCP: ${i.message}`);
+      if (
+        p.conflicts.length > 0 &&
+        this.#once(`${p.key}\u0000conflict\u0000${p.conflicts.join(",")}`)
+      )
+        out.push(
+          `OpenLFCP: a shared task has concurrent values in ${p.conflicts.join(", ")}. The note shows one of them.`,
+        );
+    }
+    return out;
+  }
+
+  #once(key: string): boolean {
+    if (this.#announced.has(key)) return false;
+    this.#announced.add(key);
+    return true;
   }
 
   /** Repairs offered for a note, last line first (so applying them in order keeps line numbers valid). */
