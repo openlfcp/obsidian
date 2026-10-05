@@ -147,3 +147,18 @@ Its README documents the format for other editor clients. The runner
 | Unicode | Pieces are cut on token boundaries of JavaScript strings; no surrogate is split | minimal-diff 2 |
 | Stale-write protection | The writer compares the note at write time with what it read and returns `deferred: "changed"` instead of writing | `writer.test.ts` race test |
 | Golden suite green | — | `golden.test.ts` |
+
+## Untrusted text is parsed in linear time
+
+Shared titles are written by collaborators: they are rendered into the line
+and read again, so a crafted title must not stall an editor (security
+review H3, M9). The Task suffix parser (`task-text.ts`), the wikilink check,
+code spans and the comment scan are hand-written linear scans, not
+backtracking regexes. Their results equal those of the regexes they
+replaced: the old implementations live in the tests and agree on random
+inputs. `test/core/security/redos.test.ts` times every function that
+applies patterns to Markdown or remote text on 100k-character adversarial
+inputs.
+
+Titles are therefore not truncated when rendered: with linear parsing, a
+long title costs time proportional to its length.
