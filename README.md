@@ -19,8 +19,20 @@ and editor conflict presentation.
 - `lfcp-ref` markers (LFCP-060, done before LFCP-059 on purpose): parsing,
   diagnostics and serialization per MARKDOWN-REFS-01, in
   [`src/core/refs`](src/core/refs/README.md).
+- The TypeScript SDK in the plugin (LFCP-059), in `src/core/lfcp`:
+  - a per-vault install with its own identity and an install marker that
+    locks writing on any copied, wiped or rolled-back state;
+  - IndexedDB storage and `app.secretStorage` secrets;
+  - one sync session per server, opened on demand;
+  - the local Resource registry;
+  - start and stop with the plugin (never blocked on the network).
 
-Nothing is shared yet.
+  See [docs/architecture/local-state.md](docs/architecture/local-state.md).
+- Vault-level change events (`src/core/vault`), collected for projection
+  scanning whatever made them (LFCP-059).
+
+Nothing is shared from the UI yet: creating, joining and projecting arrive
+with LFCP-061 onward.
 
 ## Layout
 
@@ -30,23 +42,37 @@ Nothing is shared yet.
 | `src/main.ts` | Entry point; bundled into `main.js` by `scripts/build.mjs` (esbuild) |
 | `src/obsidian/` | The thin Obsidian adapter: plugin lifecycle, commands, settings tab. The only code that imports `obsidian` |
 | `src/core/` | Obsidian-free modules, reusable by other editor adapters |
+| `src/core/lfcp/` | The LFCP runtime over the SDK: install and marker, secret slots, sessions, registry |
+| `src/core/vault/` | Vault-level file change hub |
 | `test/` | Vitest unit tests; `test/mocks/obsidian.ts` stands in for the Obsidian API; `test/fixtures/refs/` holds golden `lfcp-ref` fixtures |
+| `sdk-ts.lock` | The `openlfcp/sdk-ts` commit CI builds next to this repository for the `link:` dependencies |
 | `spec.lock` | The `openlfcp/spec` tag and commit the tests read MARKDOWN-REFS-01 and spec fixtures from (`$LFCP_SPEC_DIR`, or `../spec`) |
 | `scripts/check-boundaries.mjs` | Fails if code outside the adapter imports `obsidian`, reaches into `src/obsidian/`, or uses Node in `src/` |
 
 `obsidian` is a devDependency for types only: the app provides it at
-runtime. The plugin does not reimplement any LFCP protocol logic; it will
-use the TypeScript SDK (LFCP-059).
+runtime. The plugin does not reimplement any LFCP protocol logic: it uses
+the TypeScript SDK (`@openlfcp/*`, linked from `../sdk-ts`). The boundary
+check also refuses Automerge, `@noble`, HPKE, CBOR and COSE libraries,
+`@openlfcp/wire/cbor` and the Node-only `@openlfcp/storage-node` in `src/`,
+and keeps `fake-indexeddb` test-only.
 
 ## Build from a clean checkout
 
+The `@openlfcp/*` packages are `link:` dependencies on a sibling `sdk-ts`
+checkout (`../sdk-ts`), which must be installed and built first. CI uses the
+commit pinned in `sdk-ts.lock`.
+
 ```sh
+(cd ../sdk-ts && pnpm install --frozen-lockfile && pnpm build)
 pnpm install --frozen-lockfile
 pnpm run build       # typecheck src and bundle main.js
 pnpm run lint        # Biome and the boundary check (with its self-test)
 pnpm run typecheck   # src and tests
 pnpm test
 ```
+
+`main.js` is about 5.4 MB, almost all of it Automerge's wasm as base64 (the
+community-plugin format ships one script; see the local-state note).
 
 Requires Node.js 24 or later and pnpm 10. To try the plugin in Obsidian,
 see [docs/devel/testing/load-in-clean-vault.md](docs/devel/testing/load-in-clean-vault.md).
