@@ -17,7 +17,9 @@
 
 import { toBase64url } from "@openlfcp/core";
 import { MarkdownView, Notice, Plugin, type TAbstractFile, type TFile } from "obsidian";
-import { COMMANDS, notImplementedMessage } from "../core/commands";
+import { CollabCommands, type Prompter } from "../core/collab/commands";
+import { Collaboration } from "../core/collab/service";
+import { COMMANDS } from "../core/commands";
 import { LfcpRuntime, type RuntimeEnv } from "../core/lfcp/runtime";
 import { ConflictRegistry } from "../core/projection/conflicts";
 import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
@@ -30,6 +32,7 @@ import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
 import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
 import { OpenLfcpSettingTab } from "./settings-tab";
+import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
 
 export default class OpenLfcpPlugin extends Plugin {
   override settings: Settings = normalizeSettings(undefined);
@@ -63,14 +66,29 @@ export default class OpenLfcpPlugin extends Plugin {
 
   override async onload(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
+    // LFCP-065: the product commands, over the collaboration flows.
+    const ui = new CollabCommands({
+      collab: () => this.#collaboration(),
+      prompter: this.createPrompter(),
+      notes: new ObsidianNotes(this.app),
+      guard: this.guard,
+      placement: () => this.settings.refPlacement,
+      defaultServer: () => this.settings.defaultServer,
+    });
+    const handlers: Readonly<Record<string, () => Promise<void>>> = {
+      "share-task-under-cursor": () => ui.shareTaskUnderCursor(),
+      "insert-shared-object": () => ui.insertSharedObject(),
+      "create-collaboration": () => ui.createCollaboration(),
+      "join-collaboration": () => ui.joinCollaboration(),
+      "invite-collaborator": () => ui.inviteCollaborator(),
+      "resource-status": () => ui.resourceStatus(),
+      "detach-shared-task": () => ui.detachSharedTask(),
+      "resolve-shared-conflict": () => ui.resolveConflictUnderCursor(),
+    };
     for (const command of COMMANDS) {
-      this.addCommand({
-        id: command.id,
-        name: command.name,
-        callback: () => {
-          new Notice(notImplementedMessage(command));
-        },
-      });
+      const run = handlers[command.id];
+      if (run === undefined) throw new Error(`no handler for ${command.id}`);
+      this.addCommand({ id: command.id, name: command.name, callback: () => void run() });
     }
     this.addCommand({
       id: "repair-moved-ref",
@@ -90,6 +108,22 @@ export default class OpenLfcpPlugin extends Plugin {
     this.#unloaded = true;
     this.changes.close();
     void this.stopRuntime();
+  }
+
+  /** The dialogs of the LFCP-065 commands (tests replace them). */
+  protected createPrompter(): Prompter {
+    return new ObsidianPrompter(this.app);
+  }
+
+  #collab: { runtime: LfcpRuntime; flows: Collaboration } | null = null;
+
+  /** The collaboration flows of the running runtime, or null before it started. */
+  #collaboration(): Collaboration | null {
+    const runtime = this.runtime;
+    if (runtime === null) return null;
+    if (this.#collab?.runtime !== runtime)
+      this.#collab = { runtime, flows: new Collaboration(runtime) };
+    return this.#collab.flows;
   }
 
   /** The environment the runtime runs in (tests replace it). */

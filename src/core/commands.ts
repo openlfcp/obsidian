@@ -1,10 +1,10 @@
 // The plugin's commands (OBSIDIAN-ARCHITECTURE-01 §50), independent of
 // Obsidian so another editor adapter can register the same set.
 //
-// LFCP-058 registers every command as a stub; LFCP-065 gives them
-// handlers. The set is LFCP-065's product UI list; names follow §50
-// ("LFCP: …") where it has the command. Obsidian prefixes the plugin name
-// in its palette, so the names here omit "LFCP:".
+// The set is LFCP-065's product UI list plus its conflict hook; the
+// handlers are src/core/collab/commands.ts. Names follow §50 ("LFCP: …")
+// where it has the command. Obsidian prefixes the plugin name in its
+// palette, so the names here omit "LFCP:".
 
 /** A command an editor adapter registers. */
 export interface CommandSpec {
@@ -24,9 +24,9 @@ export const COMMANDS: readonly CommandSpec[] = [
   { id: "invite-collaborator", name: "Invite collaborator", implementedBy: "LFCP-065" },
   { id: "resource-status", name: "Resource status", implementedBy: "LFCP-065" },
   { id: "detach-shared-task", name: "Detach shared task", implementedBy: "LFCP-065" },
+  {
+    id: "resolve-shared-conflict",
+    name: "Resolve shared task conflict",
+    implementedBy: "LFCP-065",
+  },
 ];
-
-/** The message a stub command shows. */
-export function notImplementedMessage(command: CommandSpec): string {
-  return `OpenLFCP: "${command.name}" is not implemented yet.`;
-}
