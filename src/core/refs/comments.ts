@@ -38,8 +38,9 @@ export function obsidianComments(
   spans: Array<[number, number]>,
 ): { ranges: Array<[number, number]>; opens: boolean } {
   const marks: number[] = [];
+  const inSpan = within(spans);
   for (let at = text.indexOf("%%"); at >= 0; at = text.indexOf("%%", at + 2)) {
-    if (!spans.some(([s, e]) => at >= s && at < e)) marks.push(at);
+    if (!inSpan(at)) marks.push(at);
   }
   const ranges: Array<[number, number]> = [];
   for (let i = 0; i + 1 < marks.length; i += 2)
@@ -53,15 +54,45 @@ export function codeSpans(text: string): Array<[number, number]> {
   const spans: Array<[number, number]> = [];
   const runs: Array<[number, number]> = [];
   for (const m of text.matchAll(/`+/g)) runs.push([m.index, m[0].length]);
+  // The next run of the same length after each run, found in one pass from
+  // the right (a forward search per unmatched run was quadratic).
+  const next = new Array<number>(runs.length).fill(-1);
+  const latest = new Map<number, number>();
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const length = (runs[i] as [number, number])[1];
+    next[i] = latest.get(length) ?? -1;
+    latest.set(length, i);
+  }
   for (let i = 0; i < runs.length; i++) {
-    const [open, length] = runs[i] as [number, number];
-    const close = runs.findIndex((r, j) => j > i && r[1] === length);
+    const close = next[i] as number;
     if (close < 0) continue;
+    const [open, length] = runs[i] as [number, number];
     const [closeAt] = runs[close] as [number, number];
     spans.push([open, closeAt + length]);
     i = close;
   }
   return spans;
+}
+
+/**
+ * Membership in a set of [start, end) ranges in O(log n) per query (ranges
+ * may overlap): sorted by start, with the running maximum of their ends.
+ */
+export function within(ranges: readonly (readonly [number, number])[]): (at: number) => boolean {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+  const starts = sorted.map((r) => r[0]);
+  const maxEnd: number[] = [];
+  for (const [, e] of sorted) maxEnd.push(Math.max(e, maxEnd.at(-1) ?? -Infinity));
+  return (at) => {
+    let lo = 0;
+    let hi = starts.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if ((starts[mid] as number) <= at) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo > 0 && (maxEnd[lo - 1] as number) > at;
+  };
 }
 
 /**
@@ -89,8 +120,7 @@ const isRefComment = (content: string): boolean =>
 export function findRefComments(text: string): LineComments {
   const spans = codeSpans(text);
   const obsidian = obsidianComments(text, spans);
-  const literal = [...spans, ...obsidian.ranges];
-  const inLiteral = (at: number) => literal.some(([s, e]) => at >= s && at < e);
+  const inLiteral = within([...spans, ...obsidian.ranges]);
   const refs: RefComment[] = [];
   const done = (opensComment: boolean) => ({
     refs,
