@@ -13,12 +13,14 @@
 //   collision) or is deleted produces none, with a diagnostic.
 
 import {
+  addTag,
   cancel,
   clearDue,
   clearScheduled,
   complete,
   ProfileError,
   type ReplicaIntent,
+  removeTag,
   reopen,
   type ScalarField,
   setDue,
@@ -31,7 +33,7 @@ import {
   type TaskStatus,
   type TaskView,
 } from "@openlfcp/shared-objects";
-import type { ParsedTaskText } from "./task-text";
+import { isObsidianTag, type ParsedTaskText } from "./task-text";
 
 export type ProjectionDiagnosticCode =
   /** The bound object is not a valid Task: nothing is sent (item 10). */
@@ -61,7 +63,9 @@ export type ProjectionDiagnosticCode =
   /** The same object's projections in one file disagree: nothing is sent for the field. */
   | "PROJECTIONS_DISAGREE"
   /** A child ref seems to have slid under a new Task (ST-2): nothing is sent; repair offered. */
-  | "REF_REASSOCIATION_SUSPECTED";
+  | "REF_REASSOCIATION_SUSPECTED"
+  /** A Task shared under LFCP-061 with tags in its title was migrated with a user edit (ruling a). */
+  | "LEGACY_TAGS_MIGRATED";
 
 export interface FieldIssue {
   readonly code: ProjectionDiagnosticCode;
@@ -126,9 +130,28 @@ export function planIntents(represented: Represented, view: TaskView | undefined
       "OBJECT_PROFILE_INVALID",
       `The shared Task is not valid (${view.problems.map((p) => p.diagnostic).join(", ")}); nothing is sent.`,
     );
-  const task = view.task;
-  if (task.lifecycle === "deleted")
+  const shared = view.task;
+  if (shared.lifecycle === "deleted")
     return none("OBJECT_DELETED", "The shared Task was deleted; nothing is sent.");
+  // Ruling (a): a Task shared under LFCP-061 kept its trailing tags in the
+  // title. While the shared title still ends with the Markdown's tag run, the
+  // object is compared as if already migrated, and the migration (title
+  // without the run, the run as tags) is sent only with a real user edit.
+  const runText = represented.text.tags.map((t) => `#${t}`).join(" ");
+  const legacy =
+    represented.text.tags.length > 0 &&
+    !view.fields.title.conflicted &&
+    shared.title === `${represented.text.title} ${runText}`;
+  const task: Task = legacy
+    ? {
+        ...shared,
+        title: represented.text.title,
+        tags: {
+          ...shared.tags,
+          ...Object.fromEntries(represented.text.tags.map((t) => [t.normalize("NFC"), true])),
+        },
+      }
+    : shared;
 
   const intents: ReplicaIntent[] = [];
   const conflicted = (field: ScalarField): boolean => {
@@ -147,7 +170,11 @@ export function planIntents(represented: Represented, view: TaskView | undefined
     issues.push(issue("FIELD_AMBIGUOUS", `${field} is written twice with different values.`));
   const ambiguous = (field: ParsedTaskText["ambiguous"][number]): boolean =>
     represented.text.ambiguous.includes(field);
-  const add = (field: ScalarField, build: () => TaskChange): void => {
+  const add = (
+    field: ScalarField,
+    build: () => TaskChange,
+    reported: FieldIssue["field"] = field,
+  ): void => {
     try {
       intents.push(build().intent);
     } catch (e) {
@@ -155,8 +182,8 @@ export function planIntents(represented: Represented, view: TaskView | undefined
       issues.push(
         issue(
           "FIELD_INVALID",
-          `${field}: ${e.problems.map((p) => p.diagnostic).join(", ")}`,
-          field,
+          `${reported}: ${e.problems.map((p) => p.diagnostic).join(", ")}`,
+          reported,
         ),
       );
     }
@@ -222,6 +249,33 @@ export function planIntents(represented: Represented, view: TaskView | undefined
       add("priority", () => setPriority(task, priority));
   }
 
+  // Tags (ruling a): the trailing run is the tag set. Shared tags that cannot
+  // be written as Obsidian tags are not represented, so never removed here.
+  const markdownTags = new Set(represented.text.tags.map((t) => t.normalize("NFC")));
+  for (const tag of markdownTags)
+    if (task.tags[tag] !== true) add("title", () => addTag(task, tag), "tags");
+  for (const tag of Object.keys(task.tags))
+    if (isObsidianTag(tag) && !markdownTags.has(tag))
+      add("title", () => removeTag(task, tag), "tags");
+
+  if (legacy && intents.length > 0) {
+    const migration: ReplicaIntent[] = [setTitle(shared, represented.text.title).intent];
+    for (const tag of markdownTags)
+      if (shared.tags[tag] !== true) migration.push(addTag(shared, tag).intent);
+    // The migration's own tag adds replace the plan's (same tags).
+    const rest = intents.filter(
+      (i) =>
+        !(i.intent === "task.add_tag" && markdownTags.has(i.tag)) && i.intent !== "task.set_title",
+    );
+    issues.push(
+      issue(
+        "LEGACY_TAGS_MIGRATED",
+        "The title's trailing tags are now shared as the task's tags.",
+        "tags",
+      ),
+    );
+    return { intents: [...migration, ...rest], issues, comparable: true };
+  }
   return { intents, issues, comparable: true };
 }
 

@@ -38,6 +38,7 @@ interface Case {
     readonly scheduled?: string;
     readonly priority?: TaskPriority;
     readonly completion_date?: string;
+    readonly tags?: readonly string[];
   };
   readonly markdown: string;
   readonly intents: readonly Record<string, unknown>[];

@@ -343,17 +343,107 @@
     "diagnostics": []
   },
   {
-    "name": "trailing tags stay in the title",
+    "name": "legacy: a title shared with trailing tags migrates with a user edit",
     "shared": {
       "title": "Prepare API contract #backend"
     },
     "markdown": "- [ ] Prepare API contract 📅 2026-10-10 #backend\n  <!-- lfcp-ref: {{ref}} -->\n",
     "intents": [
       {
+        "intent": "task.set_title",
+        "title": "Prepare API contract"
+      },
+      {
+        "intent": "task.add_tag",
+        "tag": "backend"
+      },
+      {
         "intent": "task.set_due",
         "date": "2026-10-10"
       }
     ],
+    "diagnostics": [
+      "LEGACY_TAGS_MIGRATED"
+    ]
+  },
+  {
+    "name": "legacy: no user edit, no migration",
+    "shared": {
+      "title": "Prepare API contract #backend #api"
+    },
+    "markdown": "- [ ] Prepare API contract #backend #api\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": []
+  },
+  {
+    "name": "trailing tags are the tag set",
+    "shared": {
+      "title": "Prepare API contract"
+    },
+    "markdown": "- [ ] Prepare API contract #backend #api 📅 2026-10-10\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.set_due",
+        "date": "2026-10-10"
+      },
+      {
+        "intent": "task.add_tag",
+        "tag": "backend"
+      },
+      {
+        "intent": "task.add_tag",
+        "tag": "api"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "a removed tag is removed",
+    "shared": {
+      "title": "Prepare API contract",
+      "tags": [
+        "backend",
+        "api"
+      ]
+    },
+    "markdown": "- [ ] Prepare API contract #api <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [
+      {
+        "intent": "task.remove_tag",
+        "tag": "backend"
+      }
+    ],
+    "diagnostics": []
+  },
+  {
+    "name": "a tag inside the text is title text",
+    "shared": {
+      "title": "Fix #login flow"
+    },
+    "markdown": "- [ ] Fix #login flow\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": []
+  },
+  {
+    "name": "#123 is not a tag",
+    "shared": {
+      "title": "Close issue #123"
+    },
+    "markdown": "- [ ] Close issue #123\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
+    "diagnostics": []
+  },
+  {
+    "name": "shared tags that are not Obsidian tags are kept",
+    "shared": {
+      "title": "Prepare API contract",
+      "tags": [
+        "two words",
+        "api"
+      ]
+    },
+    "markdown": "- [ ] Prepare API contract #api\n  <!-- lfcp-ref: {{ref}} -->\n",
+    "intents": [],
     "diagnostics": []
   },
   {

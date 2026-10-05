@@ -7,8 +7,9 @@
 // scheduled ⏳, completion date ✅ (ST-5), priority 🔺 ⏫ 🔽 ⏬ (absent:
 // normal). Kept local and never sent: start 🛫, created ➕, cancelled ❌,
 // medium priority 🔼 (no profile equivalent), recurrence 🔁 (ST-5: not
-// synced), the ^block-id. Tags stay part of the title text in 061: the
-// Markdown cannot tell a tag meant as Task metadata from one in the prose.
+// synced), the ^block-id. Tags (ruling a, LFCP-062): the trailing contiguous
+// run of valid Obsidian tags is the Task's tag set and not part of the
+// title; a #tag inside the text is title text.
 
 import type { TaskPriority, TaskStatus } from "@openlfcp/shared-objects";
 
@@ -61,7 +62,7 @@ export const PRIORITY_EMOJI: Readonly<Partial<Record<TaskPriority, string>>> = {
   lowest: "⏬",
 };
 
-type DateField = "due" | "scheduled" | "completion" | "start" | "created" | "cancelled";
+export type DateField = "due" | "scheduled" | "completion" | "start" | "created" | "cancelled";
 const DATE_EMOJI: Readonly<Record<string, DateField>> = {
   "📅": "due",
   "⏳": "scheduled",
@@ -70,10 +71,45 @@ const DATE_EMOJI: Readonly<Record<string, DateField>> = {
   "➕": "created",
   "❌": "cancelled",
 };
+/** The emoji LFCP-062 writes for an owned date field. */
+export const DATE_FIELD_EMOJI: Readonly<Record<"due" | "scheduled" | "completion", string>> = {
+  due: "📅",
+  scheduled: "⏳",
+  completion: "✅",
+};
+
+/** One recognized piece of a Task's suffix, with its exact text (leading whitespace included). */
+export type Segment =
+  | { readonly kind: "block"; readonly value: string; readonly raw: string }
+  | {
+      readonly kind: "date";
+      readonly field: DateField;
+      readonly value: string;
+      readonly raw: string;
+    }
+  | {
+      readonly kind: "priority";
+      readonly value: TaskPriority | "unowned";
+      readonly raw: string;
+    }
+  | { readonly kind: "recurrence"; readonly value: string; readonly raw: string }
+  /** A tag of the trailing run, without "#". */
+  | { readonly kind: "tag"; readonly value: string; readonly raw: string };
+
+export interface SegmentedTaskText {
+  /** The description: everything before the first suffix segment. */
+  readonly description: string;
+  /** The suffix segments in document order. */
+  readonly segments: readonly Segment[];
+  /** Whitespace after the last segment (or after the description). */
+  readonly trailing: string;
+}
 
 export interface ParsedTaskText {
-  /** The title: the text without the suffix metadata and the ^block-id (item 6). */
+  /** The title: the description without the suffix metadata, the tag run and the ^block-id (item 6). */
   readonly title: string;
+  /** The trailing tag run (ruling a), without "#", in document order. */
+  readonly tags: readonly string[];
   readonly due: string | null;
   readonly scheduled: string | null;
   /** ✅ date (ST-5). */
@@ -89,63 +125,80 @@ export interface ParsedTaskText {
   readonly wikilinks: boolean;
 }
 
-const VS16 = "️?";
-const BLOCK_ID = /(^|\s+)\^([A-Za-z0-9-]+)$/;
-const TRAILING_TAG = /(^|\s+)(#[^\s#]+)$/;
+const VS16 = "\uFE0F?";
+const BLOCK_ID = /(?:^|\s+)\^([A-Za-z0-9-]+)$/;
 const DATE = new RegExp(`\\s*(📅|⏳|✅|🛫|➕|❌)${VS16}\\s*(\\d{4}-\\d{2}-\\d{2})$`, "u");
 const PRIORITY = new RegExp(`\\s*(🔺|⏫|🔼|🔽|⏬)${VS16}$`, "u");
 const RECURRENCE = new RegExp(`\\s*🔁${VS16}\\s*([a-zA-Z0-9, !]+?)\\s*$`, "u");
+/** Obsidian's tag grammar: letters, digits, _, - and /, with at least one non-digit (#123 is no tag). */
+const TAG = /(?:^|\s+)#([\p{L}\p{N}_/-]+)$/u;
+export const isObsidianTag = (tag: string): boolean =>
+  /^[\p{L}\p{N}_/-]+$/u.test(tag) && /[^\p{N}]/u.test(tag);
 
 /**
- * Reads a Task's text (after the checkbox, without the inline ref) from the
- * end, the way Obsidian Tasks reads its suffix: block ID, dates, priority,
- * recurrence and trailing tags in any order. Trailing tags stay in the
- * title; everything else recognized is metadata.
+ * Splits a Task's text (after the checkbox, without the inline ref) the way
+ * Obsidian Tasks reads its suffix, from the end: block ID, dates, priority,
+ * recurrence and the trailing run of tags, in any order. The description is
+ * what is left. Segments keep their exact text, so a renderer can rewrite
+ * owned ones and leave the rest byte for byte.
  */
-export function parseTaskText(text: string): ParsedTaskText {
-  let rest = text.trimEnd();
-  let blockId: string | null = null;
-  const tags: string[] = [];
-  const dates = new Map<DateField, Set<string>>();
-  const priorities = new Set<TaskPriority | "unowned">();
-  let recurrence: string | null = null;
+export function segmentTaskText(text: string): SegmentedTaskText {
+  const end = text.trimEnd();
+  const trailing = text.slice(end.length);
+  let rest = end;
+  const segments: Segment[] = [];
+  let block = false;
   for (;;) {
+    const cut = (m: RegExpExecArray, segment: Segment) => {
+      segments.unshift(segment);
+      rest = rest.slice(0, m.index);
+    };
     let m = BLOCK_ID.exec(rest);
-    if (m !== null && blockId === null) {
-      blockId = m[2] as string;
-      rest = rest.slice(0, m.index).trimEnd();
+    if (m !== null && !block) {
+      block = true;
+      cut(m, { kind: "block", value: m[1] as string, raw: m[0] });
       continue;
     }
     m = DATE.exec(rest);
     if (m !== null) {
-      const field = DATE_EMOJI[m[1] as string] as DateField;
-      const seen = dates.get(field) ?? new Set<string>();
-      seen.add(m[2] as string);
-      dates.set(field, seen);
-      rest = rest.slice(0, m.index).trimEnd();
+      cut(m, {
+        kind: "date",
+        field: DATE_EMOJI[m[1] as string] as DateField,
+        value: m[2] as string,
+        raw: m[0],
+      });
       continue;
     }
     m = PRIORITY.exec(rest);
     if (m !== null) {
-      priorities.add(PRIORITIES[m[1] as string] ?? "unowned");
-      rest = rest.slice(0, m.index).trimEnd();
+      cut(m, { kind: "priority", value: PRIORITIES[m[1] as string] ?? "unowned", raw: m[0] });
       continue;
     }
     m = RECURRENCE.exec(rest);
-    if (m !== null && recurrence === null) {
-      recurrence = (m[1] as string).trim();
-      rest = rest.slice(0, m.index).trimEnd();
+    if (m !== null && !segments.some((x) => x.kind === "recurrence")) {
+      cut(m, { kind: "recurrence", value: (m[1] as string).trim(), raw: m[0] });
       continue;
     }
-    m = TRAILING_TAG.exec(rest);
-    if (m !== null && m.index > 0) {
-      tags.unshift(m[2] as string);
-      rest = rest.slice(0, m.index).trimEnd();
+    m = TAG.exec(rest);
+    if (m !== null && m.index > 0 && isObsidianTag(m[1] as string)) {
+      cut(m, { kind: "tag", value: m[1] as string, raw: m[0] });
       continue;
     }
     break;
   }
-  const title = [rest.trim(), ...tags].filter((x) => x !== "").join(" ");
+  return { description: rest, segments, trailing };
+}
+
+/** What a Task's text represents (LFCP-061, tags per ruling a). */
+export function parseTaskText(text: string): ParsedTaskText {
+  const { description, segments } = segmentTaskText(text);
+  const title = description.trim();
+  const dates = new Map<DateField, Set<string>>();
+  const priorities = new Set<TaskPriority | "unowned">();
+  for (const x of segments) {
+    if (x.kind === "date") dates.set(x.field, (dates.get(x.field) ?? new Set()).add(x.value));
+    if (x.kind === "priority") priorities.add(x.value);
+  }
   const ambiguous: ParsedTaskText["ambiguous"][number][] = [];
   const one = (field: "due" | "scheduled" | "completion"): string | null => {
     const values = dates.get(field);
@@ -163,14 +216,17 @@ export function parseTaskText(text: string): ParsedTaskText {
       : priorities.size > 1
         ? "unowned"
         : ([...priorities][0] as TaskPriority | "unowned");
+  const recurrence = segments.find((x) => x.kind === "recurrence");
+  const block = segments.find((x) => x.kind === "block");
   return {
     title,
+    tags: segments.filter((x) => x.kind === "tag").map((x) => x.value),
     due: one("due"),
     scheduled: one("scheduled"),
     completion: one("completion"),
     priority,
-    recurrence,
-    blockId,
+    recurrence: recurrence?.value ?? null,
+    blockId: block?.value ?? null,
     ambiguous,
     wikilinks: /\[\[[^\]]+\]\]/.test(title),
   };

@@ -4,7 +4,7 @@
 projection tasks (LFCP-063). Each case:
 
 - `shared`: the Shared Task before the edit (`title`, and optionally
-  `status`, `due`, `scheduled`, `priority`, `completion_date`);
+  `status`, `due`, `scheduled`, `priority`, `completion_date`, `tags`);
 - `markdown`: the file after the edit, with LF line endings, where `{{ref}}`
   stands for the object reference (`lfcp1:<resource>#task:<object>`) of
   that Task. Runners also check the same text with CRLF line endings;

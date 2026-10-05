@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   glyphOfStatus,
   parseTaskText,
+  segmentTaskText,
   statusOfGlyph,
 } from "../../../src/core/projection/task-text";
 
@@ -20,12 +21,33 @@ describe("parseTaskText (LFCP-061)", () => {
     expect(parseTaskText("Adjacent📅 2026-10-10").title).toBe("Adjacent");
   });
 
-  it("keeps trailing tags in the title and recognizes metadata before them", () => {
+  it("takes the trailing run of Obsidian tags as tags, not title (ruling a)", () => {
     expect(parseTaskText("Fix login 📅 2026-10-10 #backend #urgent")).toMatchObject({
-      title: "Fix login #backend #urgent",
+      title: "Fix login",
+      tags: ["backend", "urgent"],
       due: "2026-10-10",
     });
+    expect(parseTaskText("Fix login #backend 📅 2026-10-10")).toMatchObject({
+      title: "Fix login",
+      tags: ["backend"],
+    });
+    expect(parseTaskText("Fix #login flow")).toMatchObject({ title: "Fix #login flow", tags: [] });
+    expect(parseTaskText("Close issue #123")).toMatchObject({
+      title: "Close issue #123",
+      tags: [],
+    });
+    expect(parseTaskText("Ship #v2/beta #ä_b-c")).toMatchObject({
+      title: "Ship",
+      tags: ["v2/beta", "ä_b-c"],
+    });
     expect(parseTaskText("#solo").title).toBe("#solo");
+  });
+
+  it("keeps every segment's exact text", () => {
+    const text = "Do it  #a 🔼  📅\uFE0F 2026-10-10 🛫 2026-10-01 ^blk  ";
+    const s = segmentTaskText(text);
+    expect(s.description + s.segments.map((x) => x.raw).join("") + s.trailing).toBe(text);
+    expect(s.segments.map((x) => x.kind)).toEqual(["tag", "priority", "date", "date", "block"]);
   });
 
   it("does not take a mid-title date or emoji as metadata", () => {

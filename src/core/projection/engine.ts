@@ -61,6 +61,7 @@ const INFO = new Set<EngineDiagnosticCode>([
   "STATUS_NOT_OWNED",
   "COMPLETION_IGNORED",
   "PROJECTION_DETACHED",
+  "LEGACY_TAGS_MIGRATED",
 ]);
 const severity = (code: EngineDiagnosticCode): ProjectionDiagnostic["severity"] =>
   code === "WRITE_FAILED" ? "error" : INFO.has(code) ? "info" : "warning";
