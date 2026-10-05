@@ -16,12 +16,22 @@
     "test": "vitest run",
     "format": "biome check --write ."
   },
+  "dependencies": {
+    "@openlfcp/client": "link:../sdk-ts/packages/client",
+    "@openlfcp/core": "link:../sdk-ts/packages/core",
+    "@openlfcp/crypto": "link:../sdk-ts/packages/crypto",
+    "@openlfcp/shared-objects": "link:../sdk-ts/packages/shared-objects",
+    "@openlfcp/storage": "link:../sdk-ts/packages/storage",
+    "@openlfcp/storage-idb": "link:../sdk-ts/packages/storage-idb",
+    "@openlfcp/wire": "link:../sdk-ts/packages/wire"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "6.38.6",
     "@types/node": "^24.19.1",
     "esbuild": "^0.28.2",
+    "fake-indexeddb": "6.2.5",
     "obsidian": "1.13.1",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"

@@ -7,6 +7,28 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@openlfcp/client':
+        specifier: link:../sdk-ts/packages/client
+        version: link:../sdk-ts/packages/client
+      '@openlfcp/core':
+        specifier: link:../sdk-ts/packages/core
+        version: link:../sdk-ts/packages/core
+      '@openlfcp/crypto':
+        specifier: link:../sdk-ts/packages/crypto
+        version: link:../sdk-ts/packages/crypto
+      '@openlfcp/shared-objects':
+        specifier: link:../sdk-ts/packages/shared-objects
+        version: link:../sdk-ts/packages/shared-objects
+      '@openlfcp/storage':
+        specifier: link:../sdk-ts/packages/storage
+        version: link:../sdk-ts/packages/storage
+      '@openlfcp/storage-idb':
+        specifier: link:../sdk-ts/packages/storage-idb
+        version: link:../sdk-ts/packages/storage-idb
+      '@openlfcp/wire':
+        specifier: link:../sdk-ts/packages/wire
+        version: link:../sdk-ts/packages/wire
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.15
@@ -23,6 +45,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      fake-indexeddb:
+        specifier: 6.2.5
+        version: 6.2.5
       obsidian:
         specifier: 1.13.1
         version: 1.13.1(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)
@@ -430,6 +455,10 @@ packages:
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
+
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -940,6 +969,8 @@ snapshots:
       '@types/estree': 1.0.9
 
   expect-type@1.4.0: {}
+
+  fake-indexeddb@6.2.5: {}
 
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
