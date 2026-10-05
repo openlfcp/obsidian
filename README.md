@@ -14,8 +14,8 @@ and editor conflict presentation.
 
 ## Status
 
-- Plugin bootstrap (LFCP-058): the plugin loads, registers its commands as
-  stubs and has a settings tab with placeholder fields.
+- Plugin bootstrap (LFCP-058): the plugin loads, registers its commands and
+  has a settings tab.
 - `lfcp-ref` markers (LFCP-060, done before LFCP-059 on purpose): parsing,
   diagnostics and serialization per MARKDOWN-REFS-01, in
   [`src/core/refs`](src/core/refs/README.md).
@@ -37,8 +37,11 @@ and editor conflict presentation.
   projects them. Conflicts show in the status bar and the editor, never in
   the text. See [docs/architecture/projection.md](docs/architecture/projection.md).
 
-Nothing is shared from the UI yet: sharing, creating and joining arrive with
-LFCP-065.
+- Collaboration commands (LFCP-065, `src/core/collab`, `src/obsidian/ui`):
+  create, join, share the task under the cursor, insert a shared task,
+  invite (Read or Read + Write, one-time links), Resource status, detach,
+  and resolving a shared conflict. See
+  [docs/architecture/collaboration.md](docs/architecture/collaboration.md).
 
 ## Layout
 
