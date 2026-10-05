@@ -7,11 +7,11 @@
 
 import "fake-indexeddb/auto";
 import type { InvitationLink, WebSocketFactory, WebSocketLike } from "@openlfcp/client";
+import { vi } from "vitest";
 import type { ResourceStatus } from "../../src/core/collab";
 import type { Prompter } from "../../src/core/collab/commands";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
-import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
-import OpenLfcpPlugin from "../../src/obsidian/plugin";
+import type OpenLfcpPlugin from "../../src/obsidian/plugin";
 import * as mock from "../mocks/obsidian";
 
 /** A frame on the wire, as this vault sent or received it. */
@@ -44,6 +44,11 @@ class Network {
   set offline(value: boolean) {
     this.#offline = value;
     if (value) for (const s of [...this.#open]) s.close(4000, "offline (test)");
+  }
+
+  /** Closes every live socket (the process holding them died); the network itself stays as it is. */
+  dropAll(): void {
+    for (const s of [...this.#open]) s.close(4001, "process died (test)");
   }
 
   readonly factory: WebSocketFactory = (url, protocols) => {
@@ -178,19 +183,6 @@ export class ScriptedPrompter implements Prompter {
   }
 }
 
-const manifest = { id: "openlfcp", name: "OpenLFCP", version: "0.0.0" };
-
-class E2EPlugin extends OpenLfcpPlugin {
-  network!: Network;
-  scripted!: ScriptedPrompter;
-  protected override runtimeEnv(): RuntimeEnv {
-    return { ...obsidianRuntimeEnv(this.app), webSocket: this.network.factory, tickMs: 20 };
-  }
-  protected override createPrompter(): Prompter {
-    return this.scripted;
-  }
-}
-
 export async function until<T>(
   what: string,
   f: () => T | undefined | Promise<T | undefined>,
@@ -205,43 +197,180 @@ export async function until<T>(
   }
 }
 
-/** A vault: notes, commands and the plugin's state, for one user on one device. */
+type Modules = {
+  readonly plugin: typeof import("../../src/obsidian/plugin");
+  readonly mock: typeof import("../mocks/obsidian");
+  readonly env: typeof import("../../src/obsidian/lfcp-env");
+};
+
+/** The plugin's modules; `fresh` drops every module instance first (no singleton survives a restart). */
+async function load(fresh: boolean): Promise<Modules> {
+  if (fresh) vi.resetModules();
+  const [plugin, mockModule, env] = await Promise.all([
+    import("../../src/obsidian/plugin"),
+    import("../mocks/obsidian"),
+    import("../../src/obsidian/lfcp-env"),
+  ]);
+  return { plugin, mock: mockModule, env };
+}
+
+const manifest = { id: "openlfcp", name: "OpenLFCP", version: "0.0.0" };
+
+/** What one running plugin instance holds that a dead process would lose. */
+class Instance {
+  readonly intervals = new Set<ReturnType<typeof setInterval>>();
+  readonly locks = new Set<() => void>();
+}
+
+/**
+ * A vault: notes, commands and the plugin's state, for one user on one
+ * device. Its persisted state (vault files, secretStorage, vault-scoped
+ * local storage, the IndexedDB install) outlives restart().
+ */
 export class E2EVault {
   readonly app = new mock.App();
   readonly network = new Network();
   readonly prompter = new ScriptedPrompter();
-  readonly plugin: E2EPlugin;
-  readonly host: mock.Plugin;
+  /** Commits that store a new Data Unit hang forever while set (a crash between apply and queue). */
+  hangUnitCommits = false;
+  readonly #heldLocks = new Set<string>();
+  #mods!: Modules;
+  #instance = new Instance();
+  #plugin!: OpenLfcpPlugin;
 
-  private constructor(readonly name: string) {
-    this.plugin = new E2EPlugin(this.app as never, manifest as never);
-    // Set before onload: the runtime and the commands read them from there.
-    this.plugin.network = this.network;
-    this.plugin.scripted = this.prompter;
-    this.host = this.plugin as unknown as mock.Plugin;
-  }
+  private constructor(readonly name: string) {}
 
   static async open(name: string): Promise<E2EVault> {
     const v = new E2EVault(name);
-    await v.plugin.onload();
-    const runtime = await v.plugin.whenRuntimeStarted();
-    if (runtime === null || runtime.status.kind !== "ready")
-      throw new Error(`${name}: the runtime did not start (${v.plugin.runtimeError})`);
+    await v.#start(false);
     return v;
   }
 
+  async #start(fresh: boolean): Promise<void> {
+    this.#mods = await load(fresh);
+    this.#instance = new Instance();
+    const self = this;
+    const instance = this.#instance;
+    const Base = this.#mods.plugin.default;
+    const env = this.#mods.env;
+    class Plugin extends Base {
+      protected override runtimeEnv(): RuntimeEnv {
+        return self.#env(env.obsidianRuntimeEnv(this.app), instance);
+      }
+      protected override createPrompter(): Prompter {
+        return self.prompter;
+      }
+    }
+    this.#plugin = new Plugin(this.app as never, manifest as never);
+    await this.#plugin.onload();
+    await this.#plugin.whenRuntimeStarted();
+  }
+
+  #env(base: RuntimeEnv, instance: Instance): RuntimeEnv {
+    return {
+      ...base,
+      webSocket: this.network.factory,
+      tickMs: 20,
+      timers: {
+        setInterval: (fn, ms) => {
+          const h = setInterval(fn, ms);
+          instance.intervals.add(h);
+          return h;
+        },
+        clearInterval: (h) => {
+          clearInterval(h as ReturnType<typeof setInterval>);
+          instance.intervals.delete(h as ReturnType<typeof setInterval>);
+        },
+        now: () => Date.now(),
+      },
+      // The device's writer lock; a dead process releases it.
+      acquireLock: async (lockName) => {
+        if (this.#heldLocks.has(lockName)) return null;
+        this.#heldLocks.add(lockName);
+        const release = () => {
+          this.#heldLocks.delete(lockName);
+          instance.locks.delete(release);
+        };
+        instance.locks.add(release);
+        return { release };
+      },
+      openStorage: async (dbName, onReserved) => {
+        const storage = await base.openStorage(dbName, onReserved);
+        const hangs = (writes: readonly { op: string }[]) =>
+          this.hangUnitCommits && writes.some((w) => w.op === "put-data-unit");
+        return {
+          control: storage.control,
+          dataUnits: storage.dataUnits,
+          keyPackages: storage.keyPackages,
+          snapshots: storage.snapshots,
+          resources: storage.resources,
+          outbound: storage.outbound,
+          profileState: storage.profileState,
+          syncState: storage.syncState,
+          meta: storage.meta,
+          actorSequences: storage.actorSequences,
+          snapshotSequences: storage.snapshotSequences,
+          counters: () => storage.counters(),
+          close: () => storage.close(),
+          commit: (writes) =>
+            hangs(writes) ? new Promise(() => undefined) : storage.commit(writes),
+        };
+      },
+    };
+  }
+
+  /**
+   * A new plugin instance over the same persisted state, from fresh module
+   * instances. "clean": the plugin is disabled first (onunload, runtime
+   * stop). "crash": the instance just dies: its sockets, timers, lock and
+   * vault event handlers go away, nothing is stopped or flushed.
+   */
+  async restart(kind: "clean" | "crash"): Promise<void> {
+    await this.shutdown(kind);
+    await this.boot();
+  }
+
+  /** Stops ("clean") or kills ("crash") the running instance; the persisted state stays. */
+  async shutdown(kind: "clean" | "crash"): Promise<void> {
+    if (kind === "clean") await this.close();
+    else this.#die();
+  }
+
+  /** Starts a new plugin instance from fresh modules over the persisted state. */
+  async boot(): Promise<void> {
+    await this.#start(true);
+  }
+
+  #die(): void {
+    const host = this.host;
+    for (const ref of host.events.splice(0)) this.app.vault.offref(ref as never);
+    this.#plugin.changes.close();
+    for (const h of this.#instance.intervals) clearInterval(h);
+    this.#instance.intervals.clear();
+    for (const release of [...this.#instance.locks]) release();
+    this.network.dropAll();
+  }
+
+  get plugin(): OpenLfcpPlugin {
+    return this.#plugin;
+  }
+
+  get host(): mock.Plugin {
+    return this.#plugin as unknown as mock.Plugin;
+  }
+
   get runtime() {
-    const r = this.plugin.runtime;
-    if (r === null) throw new Error(`${this.name}: no runtime`);
+    const r = this.#plugin.runtime;
+    if (r === null) throw new Error(`${this.name}: no runtime (${this.#plugin.runtimeError})`);
     return r;
   }
 
   /** Waits until queued projection work is done. */
   async settle(): Promise<void> {
     for (let i = 0; i < 4; i++) {
-      this.plugin.changes.flush();
+      this.#plugin.changes.flush();
       await Promise.resolve();
-      await this.plugin.lastProjection;
+      await this.#plugin.lastProjection;
     }
   }
 
@@ -269,9 +398,10 @@ export class E2EVault {
     const text = this.read(path);
     const line = text.split(/\r?\n/).findIndex((l) => l.includes(contains));
     if (line < 0) throw new Error(`${this.name}/${path}: no line with "${contains}"`);
-    const view = new mock.MarkdownView({ path }, text);
+    // The current module instance's class (the plugin checks instanceof against it).
+    const view = new this.#mods.mock.MarkdownView({ path }, text);
     view.cursorLine = line;
-    this.app.workspace.activeView = view;
+    this.app.workspace.activeView = view as never;
   }
 
   /** Runs a command palette command with scripted answers; resolves on its final notice. */
@@ -301,6 +431,6 @@ export class E2EVault {
 
   async close(): Promise<void> {
     this.host.unload();
-    await this.plugin.stopRuntime();
+    await this.#plugin.stopRuntime();
   }
 }
