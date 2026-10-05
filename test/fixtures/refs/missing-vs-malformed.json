@@ -1,0 +1,45 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "inline",
+      "taskLine": 3,
+      "refLine": 3,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Shared task",
+      "comment": {
+        "line": 3,
+        "start": 18,
+        "end": 128
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 2,
+      "start": 2,
+      "end": 30
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "local",
+      "taskText": "Local task"
+    },
+    {
+      "line": 1,
+      "binding": "blocked",
+      "taskText": "Malformed task"
+    },
+    {
+      "line": 3,
+      "binding": "bound",
+      "taskText": "Shared task"
+    }
+  ]
+}

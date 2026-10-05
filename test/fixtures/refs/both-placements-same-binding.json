@@ -1,0 +1,49 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "inline",
+      "taskLine": 2,
+      "refLine": 2,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Prepare API contract",
+      "comment": {
+        "line": 2,
+        "start": 27,
+        "end": 137
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 6,
+      "refLine": 7,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Prepare API contract",
+      "comment": {
+        "line": 7,
+        "start": 2,
+        "end": 112
+      }
+    }
+  ],
+  "diagnostics": [],
+  "tasks": [
+    {
+      "line": 2,
+      "binding": "bound",
+      "taskText": "Prepare API contract"
+    },
+    {
+      "line": 6,
+      "binding": "bound",
+      "taskText": "Prepare API contract"
+    }
+  ]
+}

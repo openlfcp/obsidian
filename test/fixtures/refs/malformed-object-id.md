@@ -1,0 +1,3 @@
+- [ ] UUIDv4 <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-4c42-b85a-fc843e2f40ad -->
+- [ ] Uppercase <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019A2F85-7B31-7C42-B85A-FC843E2F40AD -->
+- [ ] Bad variant <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-c85a-fc843e2f40ad -->

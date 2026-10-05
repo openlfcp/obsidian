@@ -1,0 +1,62 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "RESOURCE_ID_INVALID",
+      "line": 0,
+      "start": 13,
+      "end": 124
+    },
+    {
+      "code": "RESOURCE_ID_INVALID",
+      "line": 1,
+      "start": 20,
+      "end": 130
+    },
+    {
+      "code": "RESOURCE_ID_INVALID",
+      "line": 2,
+      "start": 23,
+      "end": 131
+    },
+    {
+      "code": "RESOURCE_ID_INVALID",
+      "line": 3,
+      "start": 25,
+      "end": 135
+    },
+    {
+      "code": "RESOURCE_ID_INVALID",
+      "line": 4,
+      "start": 18,
+      "end": 88
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "blocked",
+      "taskText": "Padded"
+    },
+    {
+      "line": 1,
+      "binding": "blocked",
+      "taskText": "Bad character"
+    },
+    {
+      "line": 2,
+      "binding": "blocked",
+      "taskText": "Thirty-one bytes"
+    },
+    {
+      "line": 3,
+      "binding": "blocked",
+      "taskText": "Non-canonical bits"
+    },
+    {
+      "line": 4,
+      "binding": "blocked",
+      "taskText": "Placeholder"
+    }
+  ]
+}

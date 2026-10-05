@@ -1,0 +1,11 @@
+{
+  "projections": [],
+  "diagnostics": [],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "local",
+      "taskText": "Prepare API contract"
+    }
+  ]
+}

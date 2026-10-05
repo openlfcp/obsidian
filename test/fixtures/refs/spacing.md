@@ -1,0 +1,4 @@
+- [ ] Tolerated spacing <!-- lfcp-ref:	lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad  -->
+- [ ] No space after the colon <!-- lfcp-ref:lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-a43c-4b693e77d36b -->
+- [ ] No space after the opener <!--lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-a43c-4b693e77d36b -->
+- [ ] Space before the colon <!-- lfcp-ref : lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-a43c-4b693e77d36b -->

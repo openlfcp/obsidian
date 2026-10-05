@@ -1,0 +1,40 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "OBJECT_ID_INVALID",
+      "line": 0,
+      "start": 13,
+      "end": 123
+    },
+    {
+      "code": "OBJECT_ID_INVALID",
+      "line": 1,
+      "start": 16,
+      "end": 126
+    },
+    {
+      "code": "OBJECT_ID_INVALID",
+      "line": 2,
+      "start": 18,
+      "end": 128
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "blocked",
+      "taskText": "UUIDv4"
+    },
+    {
+      "line": 1,
+      "binding": "blocked",
+      "taskText": "Uppercase"
+    },
+    {
+      "line": 2,
+      "binding": "blocked",
+      "taskText": "Bad variant"
+    }
+  ]
+}

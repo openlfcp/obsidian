@@ -1,0 +1,58 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 2,
+      "start": 0,
+      "end": 110
+    },
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 6,
+      "start": 2,
+      "end": 112
+    },
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 8,
+      "start": 6,
+      "end": 116
+    },
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 10,
+      "start": 2,
+      "end": 112
+    },
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 11,
+      "start": 29,
+      "end": 139
+    },
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 13,
+      "start": 0,
+      "end": 110
+    }
+  ],
+  "tasks": [
+    {
+      "line": 4,
+      "binding": "local",
+      "taskText": "Separated by a blank line"
+    },
+    {
+      "line": 7,
+      "binding": "local",
+      "taskText": "Child with extra text"
+    },
+    {
+      "line": 12,
+      "binding": "local",
+      "taskText": "Under-indented child"
+    }
+  ]
+}

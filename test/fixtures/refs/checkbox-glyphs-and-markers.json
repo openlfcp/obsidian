@@ -1,0 +1,133 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 0,
+      "refLine": 1,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Glyph ' ' marker -",
+      "comment": {
+        "line": 1,
+        "start": 2,
+        "end": 112
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 2,
+      "refLine": 3,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Glyph 'x' marker *",
+      "comment": {
+        "line": 3,
+        "start": 2,
+        "end": 112
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 4,
+      "refLine": 5,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Glyph 'X' marker +",
+      "comment": {
+        "line": 5,
+        "start": 2,
+        "end": 112
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 6,
+      "refLine": 7,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Glyph '/' marker -",
+      "comment": {
+        "line": 7,
+        "start": 2,
+        "end": 112
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 8,
+      "refLine": 9,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Glyph '-' marker -",
+      "comment": {
+        "line": 9,
+        "start": 2,
+        "end": 112
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 10,
+      "refLine": 11,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Glyph '>' marker -",
+      "comment": {
+        "line": 11,
+        "start": 2,
+        "end": 112
+      }
+    }
+  ],
+  "diagnostics": [],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "bound",
+      "taskText": "Glyph ' ' marker -"
+    },
+    {
+      "line": 2,
+      "binding": "bound",
+      "taskText": "Glyph 'x' marker *"
+    },
+    {
+      "line": 4,
+      "binding": "bound",
+      "taskText": "Glyph 'X' marker +"
+    },
+    {
+      "line": 6,
+      "binding": "bound",
+      "taskText": "Glyph '/' marker -"
+    },
+    {
+      "line": 8,
+      "binding": "bound",
+      "taskText": "Glyph '-' marker -"
+    },
+    {
+      "line": 10,
+      "binding": "bound",
+      "taskText": "Glyph '>' marker -"
+    }
+  ]
+}

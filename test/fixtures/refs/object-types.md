@@ -1,0 +1,3 @@
+- [ ] Namespaced type <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#org.example.poll:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->
+- [ ] Uppercase type <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#Task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->
+- [ ] Type with a space <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#ta sk:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->

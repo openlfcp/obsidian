@@ -1,0 +1,70 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 0,
+      "refLine": 1,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Ordered task",
+      "comment": {
+        "line": 1,
+        "start": 3,
+        "end": 113
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-a43c-4b693e77d36b",
+      "placement": "inline",
+      "taskLine": 2,
+      "refLine": 2,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-a43c-4b693e77d36b",
+      "canonical": true,
+      "taskText": "Paren-ordered task",
+      "comment": {
+        "line": 2,
+        "start": 26,
+        "end": 136
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-9f24-8f933f2a91c0",
+      "placement": "child",
+      "taskLine": 3,
+      "refLine": 4,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-9f24-8f933f2a91c0",
+      "canonical": true,
+      "taskText": "Two-digit marker",
+      "comment": {
+        "line": 4,
+        "start": 4,
+        "end": 114
+      }
+    }
+  ],
+  "diagnostics": [],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "bound",
+      "taskText": "Ordered task"
+    },
+    {
+      "line": 2,
+      "binding": "bound",
+      "taskText": "Paren-ordered task"
+    },
+    {
+      "line": 3,
+      "binding": "bound",
+      "taskText": "Two-digit marker"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-a43c-4b693e77d36b",
+      "placement": "child",
+      "taskLine": 15,
+      "refLine": 16,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-a43c-4b693e77d36b",
+      "canonical": true,
+      "taskText": "Real task after the literal contexts",
+      "comment": {
+        "line": 16,
+        "start": 2,
+        "end": 112
+      }
+    }
+  ],
+  "diagnostics": [],
+  "tasks": [
+    {
+      "line": 3,
+      "binding": "local",
+      "taskText": "Ref in a code span `<!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->`"
+    },
+    {
+      "line": 4,
+      "binding": "local",
+      "taskText": "Ref in an Obsidian comment %% <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad --> %%"
+    },
+    {
+      "line": 15,
+      "binding": "bound",
+      "taskText": "Real task after the literal contexts"
+    }
+  ]
+}

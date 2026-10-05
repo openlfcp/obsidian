@@ -1,0 +1,28 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 9,
+      "refLine": 10,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Real task",
+      "comment": {
+        "line": 10,
+        "start": 2,
+        "end": 112
+      }
+    }
+  ],
+  "diagnostics": [],
+  "tasks": [
+    {
+      "line": 9,
+      "binding": "bound",
+      "taskText": "Real task"
+    }
+  ]
+}

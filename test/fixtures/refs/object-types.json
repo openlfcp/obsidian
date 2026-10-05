@@ -1,0 +1,40 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "OBJECT_TYPE_UNSUPPORTED",
+      "line": 0,
+      "start": 22,
+      "end": 144
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 1,
+      "start": 21,
+      "end": 131
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 2,
+      "start": 24,
+      "end": 135
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "blocked",
+      "taskText": "Namespaced type"
+    },
+    {
+      "line": 1,
+      "binding": "blocked",
+      "taskText": "Uppercase type"
+    },
+    {
+      "line": 2,
+      "binding": "blocked",
+      "taskText": "Type with a space"
+    }
+  ]
+}

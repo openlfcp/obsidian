@@ -1,0 +1,29 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "LFCP_REF_NOT_AT_LINE_END",
+      "line": 0,
+      "start": 29,
+      "end": 139
+    },
+    {
+      "code": "LFCP_REF_NOT_AT_LINE_END",
+      "line": 1,
+      "start": 29,
+      "end": 139
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "blocked",
+      "taskText": "Block id after the ref"
+    },
+    {
+      "line": 1,
+      "binding": "blocked",
+      "taskText": "Due date after the ref"
+    }
+  ]
+}

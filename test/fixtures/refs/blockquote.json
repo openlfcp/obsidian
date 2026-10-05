@@ -1,0 +1,18 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "LFCP_REF_UNSUPPORTED_CONTEXT",
+      "line": 0,
+      "start": 20,
+      "end": 130
+    },
+    {
+      "code": "LFCP_REF_UNSUPPORTED_CONTEXT",
+      "line": 2,
+      "start": 4,
+      "end": 114
+    }
+  ],
+  "tasks": []
+}

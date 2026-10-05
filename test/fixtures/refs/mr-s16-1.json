@@ -1,0 +1,18 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 2,
+      "start": 0,
+      "end": 37
+    },
+    {
+      "code": "RESOURCE_ID_INVALID",
+      "line": 2,
+      "start": 0,
+      "end": 37
+    }
+  ],
+  "tasks": []
+}

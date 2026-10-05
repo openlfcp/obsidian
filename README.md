@@ -14,8 +14,13 @@ and editor conflict presentation.
 
 ## Status
 
-Plugin bootstrap (LFCP-058): the plugin loads, registers its commands as
-stubs and has a settings tab with placeholder fields. Nothing is shared yet.
+- Plugin bootstrap (LFCP-058): the plugin loads, registers its commands as
+  stubs and has a settings tab with placeholder fields.
+- `lfcp-ref` markers (LFCP-060, done before LFCP-059 on purpose): parsing,
+  diagnostics and serialization per MARKDOWN-REFS-01, in
+  [`src/core/refs`](src/core/refs/README.md).
+
+Nothing is shared yet.
 
 ## Layout
 
@@ -25,7 +30,8 @@ stubs and has a settings tab with placeholder fields. Nothing is shared yet.
 | `src/main.ts` | Entry point; bundled into `main.js` by `scripts/build.mjs` (esbuild) |
 | `src/obsidian/` | The thin Obsidian adapter: plugin lifecycle, commands, settings tab. The only code that imports `obsidian` |
 | `src/core/` | Obsidian-free modules, reusable by other editor adapters |
-| `test/` | Vitest unit tests; `test/mocks/obsidian.ts` stands in for the Obsidian API |
+| `test/` | Vitest unit tests; `test/mocks/obsidian.ts` stands in for the Obsidian API; `test/fixtures/refs/` holds golden `lfcp-ref` fixtures |
+| `spec.lock` | The `openlfcp/spec` tag and commit the tests read MARKDOWN-REFS-01 and spec fixtures from (`$LFCP_SPEC_DIR`, or `../spec`) |
 | `scripts/check-boundaries.mjs` | Fails if code outside the adapter imports `obsidian`, reaches into `src/obsidian/`, or uses Node in `src/` |
 
 `obsidian` is a devDependency for types only: the app provides it at

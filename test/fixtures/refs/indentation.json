@@ -1,0 +1,61 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 0,
+      "refLine": 1,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Child at content column + 3",
+      "comment": {
+        "line": 1,
+        "start": 5,
+        "end": 115
+      }
+    },
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "child",
+      "taskLine": 4,
+      "refLine": 5,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": true,
+      "taskText": "Nested with spaces",
+      "comment": {
+        "line": 5,
+        "start": 4,
+        "end": 114
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "ORPHAN_LFCP_REF",
+      "line": 3,
+      "start": 6,
+      "end": 116
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "bound",
+      "taskText": "Child at content column + 3"
+    },
+    {
+      "line": 2,
+      "binding": "local",
+      "taskText": "Child at content column + 4 is code in the item"
+    },
+    {
+      "line": 4,
+      "binding": "bound",
+      "taskText": "Nested with spaces"
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | [OBSIDIAN-ARCHITECTURE-01.md](OBSIDIAN-ARCHITECTURE-01.md) | everyone | Architecture of the Obsidian adapter |
 | [devel/testing/load-in-clean-vault.md](devel/testing/load-in-clean-vault.md) | developers | Manual check: load the built plugin in a clean vault |
+| [../src/core/refs/README.md](../src/core/refs/README.md) | developers | The `lfcp-ref` parser: output contract, provisional readings, adapter choices |
 
 The Markdown ref grammar is normative and lives in
 `spec: integration/MARKDOWN-REFS-01.md`.

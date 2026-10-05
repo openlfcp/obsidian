@@ -1,0 +1,5 @@
+- [ ] Padded <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE=#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->
+- [ ] Bad character <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj!loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->
+- [ ] Thirty-one bytes <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8w#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->
+- [ ] Non-canonical bits <!-- lfcp-ref: lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkF#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->
+- [ ] Placeholder <!-- lfcp-ref: lfcp1:AAA#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad -->

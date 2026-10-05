@@ -1,0 +1,18 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "RESOURCE_ID_INVALID",
+      "line": 0,
+      "start": 41,
+      "end": 86
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "blocked",
+      "taskText": "Prepare API contract 📅 2026-10-10"
+    }
+  ]
+}

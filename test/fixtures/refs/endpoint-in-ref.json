@@ -1,0 +1,40 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 0,
+      "start": 29,
+      "end": 114
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 1,
+      "start": 23,
+      "end": 91
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 2,
+      "start": 20,
+      "end": 136
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "blocked",
+      "taskText": "Server URL as identity"
+    },
+    {
+      "line": 1,
+      "binding": "blocked",
+      "taskText": "Missing fragment"
+    },
+    {
+      "line": 2,
+      "binding": "blocked",
+      "taskText": "Extra content"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "projections": [
+    {
+      "resource": "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE",
+      "objectType": "task",
+      "objectId": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "placement": "inline",
+      "taskLine": 0,
+      "refLine": 0,
+      "rawRef": "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "canonical": false,
+      "taskText": "Tolerated spacing",
+      "comment": {
+        "line": 0,
+        "start": 24,
+        "end": 135
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 1,
+      "start": 31,
+      "end": 140
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 2,
+      "start": 32,
+      "end": 141
+    },
+    {
+      "code": "MALFORMED_LFCP_REF",
+      "line": 3,
+      "start": 29,
+      "end": 140
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "bound",
+      "taskText": "Tolerated spacing"
+    },
+    {
+      "line": 1,
+      "binding": "blocked",
+      "taskText": "No space after the colon"
+    },
+    {
+      "line": 2,
+      "binding": "blocked",
+      "taskText": "No space after the opener"
+    },
+    {
+      "line": 3,
+      "binding": "blocked",
+      "taskText": "Space before the colon"
+    }
+  ]
+}

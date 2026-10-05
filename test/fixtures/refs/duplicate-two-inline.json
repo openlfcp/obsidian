@@ -1,0 +1,24 @@
+{
+  "projections": [],
+  "diagnostics": [
+    {
+      "code": "DUPLICATE_LFCP_REF",
+      "line": 0,
+      "start": 27,
+      "end": 137
+    },
+    {
+      "code": "DUPLICATE_LFCP_REF",
+      "line": 0,
+      "start": 138,
+      "end": 248
+    }
+  ],
+  "tasks": [
+    {
+      "line": 0,
+      "binding": "blocked",
+      "taskText": "Prepare API contract"
+    }
+  ]
+}
