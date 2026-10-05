@@ -19,6 +19,9 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+// `--outfile <path>` builds elsewhere (tests inspect a bundle without touching main.js).
+const at = process.argv.indexOf("--outfile");
+const outfile = at >= 0 ? process.argv[at + 1] : "main.js";
 
 /** Exactly `@automerge/automerge` -> its `/slim` entry; subpaths are untouched. */
 const automergeSlim = {
@@ -37,7 +40,7 @@ const automergeSlim = {
 await build({
   absWorkingDir: root,
   entryPoints: ["src/main.ts"],
-  outfile: "main.js",
+  outfile,
   bundle: true,
   format: "cjs",
   platform: "browser",
