@@ -4,7 +4,13 @@
 
 import "fake-indexeddb/auto";
 import { toBase64url, toHex } from "@openlfcp/core";
-import { createTask } from "@openlfcp/shared-objects";
+import {
+  complete,
+  createTask,
+  SharedObjectsReplica,
+  setDue,
+  type Task,
+} from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import type { VaultChange } from "../../src/core/vault/changes";
@@ -188,5 +194,97 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(await task()).toMatchObject({ title: "Plan with [[Secret]]", status: "done" });
     host.unload();
     await plugin.stopRuntime();
+  });
+
+  describe("Shared Object → Markdown in the plugin (LFCP-062)", () => {
+    const url = "wss://offline.example.invalid/v1/ws";
+    const id = "019a2f85-7b31-7c42-b85a-fc843e2f40ad";
+    const settle = async (plugin: OpenLfcpPlugin) => {
+      for (let i = 0; i < 3; i++) {
+        await Promise.resolve();
+        await plugin.lastProjection;
+      }
+    };
+    async function withTask(app = new mock.App()) {
+      const loaded = await load(app);
+      await ready(loaded.plugin);
+      const runtime = loaded.plugin.runtime as NonNullable<typeof loaded.plugin.runtime>;
+      const R = await runtime.createResource({ name: "P", endpoints: [url], coordinatorUrl: url });
+      const status = runtime.status;
+      if (status.kind !== "ready") throw new Error("not ready");
+      await runtime.writeIntent(
+        R,
+        createTask({ id: id as never, title: "Plan", createdBy: status.principalId }).intent,
+      );
+      const ref = `lfcp1:${toBase64url(R)}#task:${id}`;
+      const unit = (g: string) => `- [${g}] Plan\n  <!-- lfcp-ref: ${ref} -->\n`;
+      app.vault.files.set("n.md", `# Private\n\n${unit(" ")}\nTail.`);
+      app.vault.trigger("create", { path: "n.md" });
+      loaded.plugin.changes.flush();
+      await settle(loaded.plugin);
+      const task = async () => (await runtime.profileOf(R)).replica.task(id)?.task as never;
+      return { ...loaded, runtime, R, ref, unit, task };
+    }
+
+    it("re-renders notes when the shared object changes, through the guard", async () => {
+      const { plugin, host, app, runtime, R, unit, task } = await withTask();
+      await runtime.writeIntent(R, complete(await task()).intent);
+      await settle(plugin);
+      expect(app.vault.files.get("n.md")).toBe(`# Private\n\n${unit("x")}\nTail.`);
+      // The write's own vault event is skipped; nothing goes back.
+      app.vault.trigger("modify", { path: "n.md" });
+      plugin.changes.flush();
+      await settle(plugin);
+      expect(((await task()) as { status: string }).status).toBe("done");
+      host.unload();
+      await plugin.stopRuntime();
+    });
+
+    it("defers a note open with unsaved changes, and reconciles it at the next start", async () => {
+      const app = new mock.App();
+      const first = await withTask(app);
+      app.workspace.views.push(new mock.MarkdownView({ path: "n.md" }, "unsaved typing"));
+      await first.runtime.writeIntent(first.R, complete(await first.task()).intent);
+      await settle(first.plugin);
+      expect(app.vault.files.get("n.md")).toBe(`# Private\n\n${first.unit(" ")}\nTail.`);
+      expect(first.plugin.writer.deferred.has("n.md")).toBe(true);
+      first.host.unload();
+      await first.plugin.stopRuntime();
+      app.workspace.views.length = 0; // closed without saving the typing
+      // Next start: the note is stale (it still shows [ ] as at its last sync), so the
+      // shared completion is rendered, not reverted.
+      const second = await load(app);
+      await ready(second.plugin);
+      await settle(second.plugin);
+      expect(app.vault.files.get("n.md")).toBe(`# Private\n\n${first.unit("x")}\nTail.`);
+      const runtime = second.plugin.runtime as NonNullable<typeof second.plugin.runtime>;
+      expect((await runtime.profileOf(first.R)).replica.task(id)?.task?.status).toBe("done");
+      second.host.unload();
+      await second.plugin.stopRuntime();
+    });
+
+    it("shows conflicts in the status bar and an editor decoration, never in the note", async () => {
+      const { plugin, host, app, runtime, R } = await withTask();
+      const profile = await runtime.profileOf(R);
+      const other = SharedObjectsReplica.fromChanges(profile.replica.changes(), {
+        resource: R,
+        principal: new Uint8Array(32).fill(9) as never,
+      }).replica;
+      const theirs = other.apply(setDue(other.task(id)?.task as Task, "2026-11-01").intent);
+      await runtime.writeIntent(
+        R,
+        setDue(profile.replica.task(id)?.task as Task, "2026-11-02").intent,
+      );
+      profile.replica.receiveChange(theirs?.change as Uint8Array);
+      app.vault.trigger("modify", { path: "n.md" });
+      plugin.changes.flush();
+      await settle(plugin);
+      expect(host.statusBar[0]?.text).toBe("OpenLFCP: 1 shared task has a conflict");
+      expect(plugin.conflicts.marks("n.md")).toMatchObject([{ fields: ["due"] }]);
+      expect(host.editorExtensions).toHaveLength(1);
+      expect(app.vault.files.get("n.md")).not.toMatch(/<{7}|={7}|>{7}|conflict/i);
+      host.unload();
+      await plugin.stopRuntime();
+    });
   });
 });

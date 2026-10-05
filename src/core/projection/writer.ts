@@ -23,8 +23,8 @@ export interface NoteIO {
   read(path: string): Promise<string | null>;
   /** Atomically rewrites a note: `fn` gets the current content and returns the new one. */
   rewrite(path: string, fn: (data: string) => string): Promise<void>;
-  /** The note is open in an editor with changes not saved yet. */
-  isBeingEdited(path: string): boolean;
+  /** The note is open in an editor whose content differs from `onDisk` (changes not saved yet). */
+  isBeingEdited(path: string, onDisk: string): boolean;
 }
 
 export interface NoteOutcome {
@@ -96,14 +96,14 @@ export class ProjectionWriter {
   async syncNote(path: string, regressed: ReadonlySet<string> = new Set()): Promise<NoteOutcome> {
     const host = this.#host();
     if (host === null) return { path, rendered: [], wrote: false };
-    if (this.#io.isBeingEdited(path)) {
-      this.deferred.add(path);
-      return { path, rendered: [], wrote: false, deferred: "editing" };
-    }
     const text = await this.#io.read(path);
     if (text === null) {
       this.#engine.forgetPath(path);
       return { path, rendered: [], wrote: false };
+    }
+    if (this.#io.isBeingEdited(path, text)) {
+      this.deferred.add(path);
+      return { path, rendered: [], wrote: false, deferred: "editing" };
     }
     this.deferred.delete(path);
     const projection = await this.#engine.processFile(path, text);

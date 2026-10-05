@@ -1,0 +1,4 @@
+/* OpenLFCP: a bound Task whose shared fields have concurrent values (LFCP-062). */
+.openlfcp-conflict {
+  box-shadow: inset 3px 0 0 var(--text-warning);
+}

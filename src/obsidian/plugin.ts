@@ -7,16 +7,27 @@
 // only: Automerge, the install, the writer lock; never the network), so
 // loading never waits on a server. onunload stops every session and timer
 // and closes the local state; pending outbound objects stay stored.
+//
+// Projection (LFCP-061/062): vault changes and Shared Object changes go
+// through one serialized ProjectionWriter: a note's Markdown edits are sent
+// first, then its bound Tasks are rendered from the shared state. Notes open
+// in an editor with unsaved changes are never written (deferred to their
+// next save). Conflicts show in the status bar and as an editor line
+// decoration, never in the text.
 
-import { Notice, Plugin, type TAbstractFile } from "obsidian";
+import { toBase64url } from "@openlfcp/core";
+import { MarkdownView, Notice, Plugin, type TAbstractFile, type TFile } from "obsidian";
 import { COMMANDS, notImplementedMessage } from "../core/commands";
 import { LfcpRuntime, type RuntimeEnv } from "../core/lfcp/runtime";
-import { ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
+import { ConflictRegistry } from "../core/projection/conflicts";
+import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
 import { MutationGuard } from "../core/projection/guard";
 import { ProjectionNotices } from "../core/projection/notices";
 import { applyRepair } from "../core/projection/reassociation";
+import { type NoteIO, type NoteOutcome, ProjectionWriter } from "../core/projection/writer";
 import { normalizeSettings, type Settings } from "../core/settings";
-import { VaultChangeHub } from "../core/vault/changes";
+import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
+import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
 import { OpenLfcpSettingTab } from "./settings-tab";
 
@@ -30,8 +41,17 @@ export default class OpenLfcpPlugin extends Plugin {
   /** The plugin's own Markdown writes, skipped as echoes (path + content hash). */
   readonly guard = new MutationGuard();
   /** Markdown → Shared Object projection (LFCP-061), while the runtime can write. */
-  readonly projection = new ProjectionEngine(() => this.#projectionHost(), this.guard);
+  readonly projection = new ProjectionEngine(
+    () => this.#projectionHost(),
+    this.guard,
+    this.#baseStore(),
+  );
+  /** Notes ↔ Shared Objects (LFCP-062). */
+  readonly writer = new ProjectionWriter(this.projection, this.guard, this.#noteIO(), () =>
+    this.#projectionHost(),
+  );
   readonly notices = new ProjectionNotices();
+  readonly conflicts = new ConflictRegistry();
   /** The last projection pass (for tests and diagnostics). */
   lastProjection: Promise<unknown> = Promise.resolve();
   /** The LFCP runtime once started (null before, after unload, or if it failed). */
@@ -59,9 +79,10 @@ export default class OpenLfcpPlugin extends Plugin {
     });
     this.addSettingTab(new OpenLfcpSettingTab(this.app, this));
     this.#listenToVault();
-    this.changes.subscribe((batch) => {
-      this.lastProjection = this.lastProjection.then(() => this.#project(batch));
-    });
+    this.changes.subscribe((batch) => this.#enqueue(() => this.#onVaultChanges(batch)));
+    const bar = this.addStatusBarItem();
+    this.conflicts.onChange(() => bar.setText(this.conflicts.summary()));
+    this.registerEditorExtension(conflictDecorations(this.conflicts));
     this.#starting = this.#startRuntime();
   }
 
@@ -96,6 +117,8 @@ export default class OpenLfcpPlugin extends Plugin {
         return null;
       }
       this.runtime = runtime;
+      this.#watchObjects(runtime);
+      this.app.workspace.onLayoutReady(() => this.#enqueue(() => this.reconcile()));
       return runtime;
     } catch (e) {
       this.runtimeError = e instanceof Error ? e.message : String(e);
@@ -108,19 +131,102 @@ export default class OpenLfcpPlugin extends Plugin {
     return r !== null && r.status.kind === "ready" ? r : null;
   }
 
-  async #project(batch: Parameters<ProjectionEngine["handleChanges"]>[0]): Promise<void> {
-    for (const c of batch) if (c.kind === "rename") this.notices.rename(c.oldPath, c.path);
-    try {
-      const outcomes = await this.projection.handleChanges(batch, async (path) => {
-        const file = this.app.vault.getFileByPath(path);
-        return file === null ? null : this.app.vault.read(file);
-      });
-      for (const o of outcomes) for (const m of this.notices.messages(o)) new Notice(m);
-    } catch (e) {
+  /** Serializes all projection work (vault changes, object changes, reconcile). */
+  #enqueue(job: () => Promise<void>): void {
+    this.lastProjection = this.lastProjection.then(job).catch((e: unknown) => {
       new Notice(
         `OpenLFCP: a note could not be processed (${e instanceof Error ? e.message : String(e)}).`,
       );
+    });
+  }
+
+  async #onVaultChanges(batch: readonly VaultChange[]): Promise<void> {
+    for (const c of batch) {
+      if (c.kind === "rename") {
+        this.notices.rename(c.oldPath, c.path);
+        this.conflicts.rename(c.oldPath, c.path);
+      }
+      if (c.kind === "delete") this.conflicts.forget(c.path);
     }
+    this.#report(await this.writer.handleChanges(batch));
+  }
+
+  /** Shared Object changes (local writes, remote merges, G-EP7 rebuilds) re-render their notes. */
+  #watchObjects(runtime: LfcpRuntime): void {
+    let keys = new Set<string>();
+    let regressed = new Set<string>();
+    let scheduled = false;
+    runtime.onObjectChanged((resource, change) => {
+      const key = `${toBase64url(resource)}#${change.objectId}`;
+      keys.add(key);
+      if (change.origin === "rebuild") regressed.add(key);
+      if (scheduled) return;
+      scheduled = true;
+      queueMicrotask(() => {
+        const [k, r] = [keys, regressed];
+        keys = new Set();
+        regressed = new Set();
+        scheduled = false;
+        this.#enqueue(async () => this.#report(await this.writer.objectsChanged(k, r)));
+      });
+    });
+  }
+
+  /**
+   * Startup reconciliation (§46): notes that contain refs are synced one by
+   * one (their edits sent, their bound Tasks rendered field by field); notes
+   * without refs are not touched.
+   */
+  async reconcile(): Promise<void> {
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const text = await this.app.vault.read(file);
+      if (text.includes("lfcp-ref")) this.#report([await this.writer.syncNote(file.path)]);
+    }
+  }
+
+  #report(outcomes: readonly NoteOutcome[]): void {
+    for (const o of outcomes) {
+      if (o.projection !== undefined)
+        for (const m of this.notices.messages(o.projection)) new Notice(m);
+      if (o.deferred === undefined) this.conflicts.update(o.path, o.rendered);
+      for (const m of this.notices.renderMessages(o.path, o.rendered)) new Notice(m);
+    }
+  }
+
+  #noteIO(): NoteIO {
+    const file = (path: string): TFile | null => this.app.vault.getFileByPath(path);
+    return {
+      read: async (path) => {
+        const f = file(path);
+        return f === null ? null : this.app.vault.read(f);
+      },
+      rewrite: async (path, fn) => {
+        const f = file(path);
+        if (f !== null) await this.app.vault.process(f, fn);
+      },
+      isBeingEdited: (path, onDisk) =>
+        this.app.workspace
+          .getLeavesOfType("markdown")
+          .some(
+            (leaf) =>
+              leaf.view instanceof MarkdownView &&
+              leaf.view.file?.path === path &&
+              leaf.view.editor.getValue() !== onDisk,
+          ),
+    };
+  }
+
+  /** Projection bases persist in the install's local state (never in the vault). */
+  #baseStore(): BaseStore {
+    return {
+      load: async (path) =>
+        ((await this.runtime?.localState.get(`base:${path}`)) ?? undefined) as
+          | Record<string, never>
+          | undefined,
+      save: async (path, bases) => {
+        await this.runtime?.localState.put(`base:${path}`, bases);
+      },
+    };
   }
 
   /** ST-2: moves suspected re-associated refs of the active note back under their Task. */

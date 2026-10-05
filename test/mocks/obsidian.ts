@@ -24,6 +24,9 @@ export interface TFile extends TAbstractFile {}
 export class Vault {
   readonly handlers: EventRef[] = [];
   readonly files = new Map<string, string>();
+  getMarkdownFiles(): TFile[] {
+    return [...this.files.keys()].filter((p) => p.endsWith(".md")).map((path) => ({ path }));
+  }
   getFileByPath(path: string): TFile | null {
     return this.files.has(path) ? { path } : null;
   }
@@ -66,12 +69,32 @@ export class SecretStorage {
   }
 }
 
+/** An open editor on a note: its buffer may differ from the file (unsaved changes). */
+export class MarkdownView {
+  constructor(
+    public file: TFile | null,
+    public buffer: string,
+  ) {}
+  readonly editor = { getValue: () => this.buffer };
+}
+
 export class Workspace {
   active: TFile | null = null;
+  /** Open Markdown editors. */
+  readonly views: MarkdownView[] = [];
   getActiveFile(): TFile | null {
     return this.active;
   }
+  getLeavesOfType(type: string): { view: MarkdownView }[] {
+    return type === "markdown" ? this.views.map((view) => ({ view })) : [];
+  }
+  onLayoutReady(callback: () => unknown): void {
+    callback();
+  }
 }
+
+/** Stands in for Obsidian's editor state field (the conflict decoration reads it). */
+export const editorInfoField = {};
 
 export class App {
   readonly vault = new Vault();
@@ -125,6 +148,24 @@ export class Plugin {
 
   registerEvent(ref: EventRef): void {
     this.events.push(ref);
+  }
+
+  /** Status bar items, with their current text. */
+  readonly statusBar: { text: string; setText(t: string): void }[] = [];
+  addStatusBarItem(): { text: string; setText(t: string): void } {
+    const item = {
+      text: "",
+      setText(t: string) {
+        item.text = t;
+      },
+    };
+    this.statusBar.push(item);
+    return item;
+  }
+
+  readonly editorExtensions: unknown[] = [];
+  registerEditorExtension(extension: unknown): void {
+    this.editorExtensions.push(extension);
   }
 
   /** What Obsidian does on disable: detach registered events, then onunload. */
