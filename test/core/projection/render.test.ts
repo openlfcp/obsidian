@@ -75,7 +75,7 @@ describe("renderNote (LFCP-062)", () => {
     );
     const out = renderNote(before, lookup(r));
     expect(out.text).toBe(
-      child("[ ] Prepare the API ⏫ 🔁 every week 🛫 2026-10-01 📅 2026-10-12 ^blk"),
+      child("[ ] Prepare the API ⏫ 🔁 every week 🛫 2026-10-01 📅\uFE0F 2026-10-12 ^blk"),
     );
   });
 
@@ -119,7 +119,7 @@ describe("renderNote (LFCP-062)", () => {
     expect(renderNote(child("[X] Prepare API contract"), lookup(r)).changed).toBe(false);
   });
 
-  it("writes tags as one sorted trailing run, keeps the user's order for the same set, skips non-Obsidian tags", () => {
+  it("writes a new tag run sorted, keeps the user's order and appends added tags, skips non-Obsidian tags", () => {
     const r = replica("Plan", { tags: ["web", "api", "two words"], due: "2026-10-10" });
     const out = renderNote(child("[ ] Plan 📅 2026-10-10"), lookup(r));
     expect(out.text).toBe(child("[ ] Plan #api #web 📅 2026-10-10"));
@@ -127,7 +127,7 @@ describe("renderNote (LFCP-062)", () => {
     expect(renderNote(child("[ ] Plan #web #api 📅 2026-10-10"), lookup(r)).changed).toBe(false);
     apply(r, addTag(task(r), "ops").intent);
     expect(renderNote(child("[ ] Plan #web #api 📅 2026-10-10"), lookup(r)).text).toBe(
-      child("[ ] Plan #api #ops #web 📅 2026-10-10"),
+      child("[ ] Plan #web #api #ops 📅 2026-10-10"),
     );
   });
 

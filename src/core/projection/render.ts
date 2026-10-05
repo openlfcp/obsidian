@@ -114,13 +114,23 @@ function setPieces(
   wanted: Segment | null,
   same: (s: Segment) => boolean,
   rank: number,
+  retarget?: (existing: Segment) => Segment,
 ): void {
   const found = segments.map((s, i) => [s, i] as const).filter(([s]) => match(s));
   if (wanted === null) {
     for (const [, i] of [...found].reverse()) segments.splice(i, 1);
     return;
   }
-  if (found.length === 1 && same((found[0] as readonly [Segment, number])[0])) return;
+  if (found.length === 1) {
+    const [existing, at] = found[0] as readonly [Segment, number];
+    if (same(existing)) return;
+    // LFCP-064: change only the value inside the existing token (its spacing
+    // and emoji variant stay), the smallest safe range.
+    if (retarget !== undefined) {
+      segments[at] = retarget(existing);
+      return;
+    }
+  }
   const first = found[0]?.[1];
   for (const [, i] of [...found].reverse()) segments.splice(i, 1);
   insertAt(segments, [wanted], rank, first);
@@ -132,6 +142,12 @@ const date = (field: DateField, value: string): Segment => ({
   value,
   raw: ` ${DATE_FIELD_EMOJI[field as "due" | "scheduled" | "completion"]} ${value}`,
 });
+
+/** `text` with the last occurrence of `from` replaced by `to`. */
+const replaceLast = (text: string, from: string, to: string): string => {
+  const at = text.lastIndexOf(from);
+  return at < 0 ? text : text.slice(0, at) + to + text.slice(at + from.length);
+};
 
 const OWNED_STATUS = new Set(["todo", "done", "in_progress", "cancelled"]);
 
@@ -163,13 +179,21 @@ export function renderTaskText(text: string, task: Task, issues: RenderIssue[]):
       new Set(current).size === current.length &&
       renderable.every((t) => current.includes(t));
     if (!sameSet) {
-      for (let i = segments.length - 1; i >= 0; i--)
-        if ((segments[i] as Segment).kind === "tag") segments.splice(i, 1);
-      insertAt(
-        segments,
-        renderable.map((t): Segment => ({ kind: "tag", value: t, raw: ` #${t}` })),
-        RANK.tag as number,
-      );
+      // LFCP-064: the user's tags stay where and as they are; removed ones
+      // go, duplicates collapse, new ones (sorted) follow the last kept tag.
+      const seen = new Set<string>();
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i] as Segment;
+        if (seg.kind !== "tag") continue;
+        const t = seg.value.normalize("NFC");
+        if (!renderable.includes(t) || seen.has(t)) segments.splice(i--, 1);
+        else seen.add(t);
+      }
+      const added = renderable
+        .filter((t) => !seen.has(t))
+        .map((t): Segment => ({ kind: "tag", value: t, raw: ` #${t}` }));
+      const lastTag = segments.map((x) => x.kind).lastIndexOf("tag");
+      insertAt(segments, added, RANK.tag as number, lastTag < 0 ? undefined : lastTag + 1);
     }
   }
 
@@ -192,6 +216,11 @@ export function renderTaskText(text: string, task: Task, issues: RenderIssue[]):
         { kind: "priority", value: task.priority, raw: ` ${emoji}` },
         (s) => s.kind === "priority" && s.value === task.priority,
         RANK.priority as number,
+        (s) => ({
+          kind: "priority",
+          value: task.priority,
+          raw: s.raw.replace(/🔺|⏫|🔼|🔽|⏬/u, emoji),
+        }),
       );
     }
   }
@@ -210,6 +239,10 @@ export function renderTaskText(text: string, task: Task, issues: RenderIssue[]):
       value === null ? null : date(field, value),
       (s) => s.kind === "date" && s.value === value,
       RANK[field] as number,
+      (s) =>
+        s.kind === "date" && value !== null
+          ? { ...s, value, raw: replaceLast(s.raw, s.value, value) }
+          : (date(field, value as string) as Segment),
     );
 
   return nextDescription + segments.map((s) => s.raw).join("") + trailing;
