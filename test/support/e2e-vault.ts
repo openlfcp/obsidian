@@ -183,6 +183,24 @@ export class ScriptedPrompter implements Prompter {
   }
 }
 
+/**
+ * With LFCP_E2E_NARRATE=1 the harness narrates what each vault does (a
+ * reference transcript of the demo storyline); invitation links are never
+ * printed.
+ */
+const NARRATE = process.env.LFCP_E2E_NARRATE === "1";
+const shown = (a: Answer): string =>
+  typeof a === "string"
+    ? a.startsWith("lfcp://join/")
+      ? "[the invitation link]"
+      : JSON.stringify(a)
+    : a === null
+      ? "(cancel)"
+      : "(choice)";
+export function narrate(line: string): void {
+  if (NARRATE) console.log(line);
+}
+
 export async function until<T>(
   what: string,
   f: () => T | undefined | Promise<T | undefined>,
@@ -390,6 +408,7 @@ export class E2EVault {
   async editLine(path: string, from: string, to: string): Promise<void> {
     const text = this.read(path);
     if (!text.includes(from)) throw new Error(`${this.name}/${path} has no "${from}"`);
+    narrate(`[${this.name}] edits ${path}: "${from}" → "${to}"`);
     await this.write(path, text.replace(from, to));
   }
 
@@ -413,6 +432,9 @@ export class E2EVault {
     const command = this.host.commands.find((c) => c.id === id);
     if (command === undefined) throw new Error(`no command ${id}`);
     this.prompter.script(answers);
+    narrate(
+      `[${this.name}] runs "${command.name}"${answers.length > 0 ? ` and answers ${answers.map(shown).join(", ")}` : ""}`,
+    );
     const notices = this.prompter.notices.length;
     const invitations = this.prompter.invitations.length;
     command.callback?.();
@@ -426,7 +448,11 @@ export class E2EVault {
     await this.settle();
     if (this.prompter.pending > 0)
       throw new Error(`${id}: ${this.prompter.pending} answers unused`);
-    return this.prompter.notices.at(-1) ?? "";
+    const notice = this.prompter.notices.at(-1) ?? "";
+    narrate(
+      `[${this.name}]   ↳ ${this.prompter.invitations.length > invitations ? "an invitation link is shown (a secret)" : notice}`,
+    );
+    return notice;
   }
 
   async close(): Promise<void> {
