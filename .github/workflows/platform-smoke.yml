@@ -1,0 +1,139 @@
+# LFCP-068: the automated part of the desktop platform smoke matrix.
+#
+# On macOS, Windows and Linux: the plugin builds, lints, typechecks and
+# passes its tests, including the live tests against the reference server
+# built on that OS (LFCP_REQUIRE_LIVE=1: they may not skip). Each OS uploads
+# a short result record (scripts/smoke-report.mjs). The desktop Obsidian
+# part is the manual checklist in docs/devel/testing/platform-smoke.md.
+#
+# Pins: spec.lock (tag), sdk-ts.lock and server.lock (commits); sdk-rs at
+# the server's own sdk-rs.lock.
+
+name: Platform smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      LFCP_REQUIRE_LIVE: "1"
+      LFCP_SERVER_TARGET_DIR: ${{ github.workspace }}/server-target
+    steps:
+      # Byte-exact fixtures and LF sources: never convert line endings.
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          path: obsidian
+
+      - id: pins
+        working-directory: obsidian
+        run: |
+          {
+            echo "spec=$(jq -er .tag spec.lock)"
+            echo "sdk_ts=$(jq -er .commit sdk-ts.lock)"
+            echo "server=$(jq -er .commit server.lock)"
+          } >> "$GITHUB_OUTPUT"
+
+      # Full history with tags: the tests check the tag still resolves to the commit in spec.lock.
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/spec
+          ref: refs/tags/${{ steps.pins.outputs.spec }}
+          path: spec
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/sdk-ts
+          ref: ${{ steps.pins.outputs.sdk_ts }}
+          path: sdk-ts
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/server
+          ref: ${{ steps.pins.outputs.server }}
+          path: server
+      - id: sdk-rs
+        working-directory: server
+        run: echo "commit=$(jq -er .commit sdk-rs.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/sdk-rs
+          ref: ${{ steps.sdk-rs.outputs.commit }}
+          path: sdk-rs
+
+      # The reference server, built on this OS (rusqlite is bundled).
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ${{ env.LFCP_SERVER_TARGET_DIR }}
+          key: server-${{ runner.os }}-${{ hashFiles('server/Cargo.lock') }}
+          restore-keys: server-${{ runner.os }}-
+      - name: Build the reference server
+        working-directory: server
+        env:
+          CARGO_TARGET_DIR: ${{ env.LFCP_SERVER_TARGET_DIR }}
+        run: |
+          cargo build --locked
+          exe=lfcp-server
+          if [ "$RUNNER_OS" = "Windows" ]; then exe=lfcp-server.exe; fi
+          echo "LFCP_SERVER_BIN=$LFCP_SERVER_TARGET_DIR/debug/$exe" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: obsidian/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            obsidian/pnpm-lock.yaml
+            sdk-ts/pnpm-lock.yaml
+      - name: Build the linked SDK
+        working-directory: sdk-ts
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Build, lint and typecheck the plugin
+        working-directory: obsidian
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+          pnpm run lint
+          pnpm run typecheck
+      - name: Tests, live ones included
+        working-directory: obsidian
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/vitest.json"
+      - name: Result record
+        if: always()
+        working-directory: obsidian
+        env:
+          LFCP_SERVER_COMMIT: ${{ steps.pins.outputs.server }}
+          LFCP_SDK_TS_COMMIT: ${{ steps.pins.outputs.sdk_ts }}
+        run: node scripts/smoke-report.mjs "$RUNNER_TEMP/vitest.json" "$RUNNER_TEMP/platform-smoke-${{ runner.os }}.md"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-smoke-${{ runner.os }}
+          path: ${{ runner.temp }}/platform-smoke-${{ runner.os }}.md
+      - name: Build leaves the tree clean
+        working-directory: obsidian
+        run: test -z "$(git status --porcelain)"
