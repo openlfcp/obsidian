@@ -30,9 +30,13 @@ and editor conflict presentation.
   See [docs/architecture/local-state.md](docs/architecture/local-state.md).
 - Vault-level change events (`src/core/vault`), collected for projection
   scanning whatever made them (LFCP-059).
+- Markdown → Shared Object projection (LFCP-061, `src/core/projection`):
+  edits to bound Tasks (title, status, due, scheduled, completion date,
+  priority) become Shared Objects intents through the SDK. See
+  [docs/architecture/projection.md](docs/architecture/projection.md).
 
-Nothing is shared from the UI yet: creating, joining and projecting arrive
-with LFCP-061 onward.
+Nothing is shared from the UI yet: sharing, creating and joining arrive with
+LFCP-065, and Shared Object → Markdown with LFCP-062.
 
 ## Layout
 
@@ -44,6 +48,7 @@ with LFCP-061 onward.
 | `src/core/` | Obsidian-free modules, reusable by other editor adapters |
 | `src/core/lfcp/` | The LFCP runtime over the SDK: install and marker, secret slots, sessions, registry |
 | `src/core/vault/` | Vault-level file change hub |
+| `src/core/projection/` | Markdown → Shared Object projection, the mutation guard |
 | `test/` | Vitest unit tests; `test/mocks/obsidian.ts` stands in for the Obsidian API; `test/fixtures/refs/` holds golden `lfcp-ref` fixtures |
 | `sdk-ts.lock` | The `openlfcp/sdk-ts` commit CI builds next to this repository for the `link:` dependencies |
 | `spec.lock` | The `openlfcp/spec` tag and commit the tests read MARKDOWN-REFS-01 and spec fixtures from (`$LFCP_SPEC_DIR`, or `../spec`) |
