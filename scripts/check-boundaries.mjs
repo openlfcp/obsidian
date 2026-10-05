@@ -13,6 +13,13 @@
 //   node-import        a node:* or Node built-in import in src/ (the plugin
 //                      also runs on Obsidian mobile, which has no Node)
 //   node-global        a Node-only global (process, Buffer, ...) in src/
+//   protocol-import    an import in src/ of a library the SDK owns:
+//                      @automerge/*, @noble/*, hpke, @panva/hpke-noble, a
+//                      CBOR or COSE library, or @openlfcp/wire/cbor (LFCP-059:
+//                      the plugin uses the SDK and re-implements no protocol)
+//   protocol-dependency  one of those libraries in package.json dependencies
+//   node-only-sdk      @openlfcp/storage-node (Node only) in src/ or dependencies
+//   test-only          fake-indexeddb imported from src/, or as a runtime dependency
 //
 //   node scripts/check-boundaries.mjs              check this repository
 //   node scripts/check-boundaries.mjs --root DIR   check another tree
@@ -42,6 +49,14 @@ const NODE_BUILTINS = new Set(builtinModules.filter((m) => !m.startsWith("_")));
 const SOURCE = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 
 const isObsidian = (spec) => spec === "obsidian" || spec.startsWith("obsidian/");
+const isProtocolLib = (spec) =>
+  /^@automerge\//.test(spec) ||
+  /^@noble\//.test(spec) ||
+  /^(hpke|@panva\/hpke-noble)($|\/)/.test(spec) ||
+  /^(@[^/]+\/)?(cbor|cose)[^/]*($|\/)/.test(spec) ||
+  spec === "@openlfcp/wire/cbor";
+const isNodeOnlySdk = (spec) => /^@openlfcp\/storage-node($|\/)/.test(spec);
+const isTestOnly = (spec) => /^fake-indexeddb($|\/)/.test(spec);
 const isNodeBuiltin = (spec) => spec.startsWith("node:") || NODE_BUILTINS.has(spec.split("/")[0]);
 
 function walk(dir) {
@@ -125,6 +140,11 @@ export function check(root) {
           `package.json:1 runtime-obsidian: ${dep} is a dependency, not a devDependency`,
         );
       }
+      if (isProtocolLib(dep))
+        problems.push(`package.json:1 protocol-dependency: ${dep} (use the SDK)`);
+      if (isNodeOnlySdk(dep)) problems.push(`package.json:1 node-only-sdk: ${dep}`);
+      if (isTestOnly(dep))
+        problems.push(`package.json:1 test-only: ${dep} is a dependency, not a devDependency`);
     }
   }
 
@@ -137,6 +157,10 @@ export function check(root) {
       const where = `${path}:${ln}`;
       if (isObsidian(spec) && !inAdapter) problems.push(`${where} obsidian: import of ${spec}`);
       if (inSrc && isNodeBuiltin(spec)) problems.push(`${where} node-import: ${spec} in src/`);
+      if (inSrc && isProtocolLib(spec))
+        problems.push(`${where} protocol-import: ${spec} in src/ (use the SDK)`);
+      if (inSrc && isNodeOnlySdk(spec)) problems.push(`${where} node-only-sdk: ${spec} in src/`);
+      if (inSrc && isTestOnly(spec)) problems.push(`${where} test-only: ${spec} in src/`);
       if (inSrc && !inAdapter && path !== ENTRY && spec.startsWith(".")) {
         const target = posix.normalize(posix.join(posix.dirname(path), spec));
         if (target === "src/obsidian" || target.startsWith("src/obsidian/")) {

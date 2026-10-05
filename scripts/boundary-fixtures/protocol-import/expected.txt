@@ -1,0 +1,7 @@
+src/x.ts:1 protocol-import: @automerge/automerge/slim in src/ (use the SDK)
+src/x.ts:2 protocol-import: @noble/hashes/sha2 in src/ (use the SDK)
+src/x.ts:3 protocol-import: @openlfcp/wire/cbor in src/ (use the SDK)
+src/x.ts:4 protocol-import: cbor-x in src/ (use the SDK)
+src/x.ts:5 protocol-import: cose-js in src/ (use the SDK)
+src/x.ts:6 protocol-import: hpke in src/ (use the SDK)
+src/x.ts:7 node-only-sdk: @openlfcp/storage-node in src/

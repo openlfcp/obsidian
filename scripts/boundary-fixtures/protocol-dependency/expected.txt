@@ -1,0 +1,3 @@
+package.json:1 protocol-dependency: @automerge/automerge (use the SDK)
+package.json:1 node-only-sdk: @openlfcp/storage-node
+package.json:1 test-only: fake-indexeddb is a dependency, not a devDependency

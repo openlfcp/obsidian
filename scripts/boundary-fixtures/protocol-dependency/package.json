@@ -1,0 +1,9 @@
+{
+  "name": "x",
+  "dependencies": {
+    "@automerge/automerge": "3.5.0",
+    "@openlfcp/storage-node": "link:../sdk-ts/packages/storage-node",
+    "fake-indexeddb": "6.2.5"
+  },
+  "devDependencies": { "obsidian": "1.13.1" }
+}

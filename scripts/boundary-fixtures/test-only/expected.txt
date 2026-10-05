@@ -1,0 +1,1 @@
+src/a.ts:1 test-only: fake-indexeddb/auto in src/
