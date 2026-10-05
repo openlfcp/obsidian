@@ -1,6 +1,5 @@
-// The local token validators, and a differential check against the spec's
-// own fixtures at spec.lock, so they cannot drift before LFCP-059 replaces
-// them with @openlfcp/core.
+// The token validators (over @openlfcp/core since LFCP-059), and a
+// differential check against the spec's own fixtures at spec.lock.
 
 import { describe, expect, it } from "vitest";
 import {

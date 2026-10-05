@@ -4,13 +4,13 @@ This module implements `spec: integration/MARKDOWN-REFS-01.md` at the spec
 pin in `spec.lock` (`mvp-0.1-baseline.3`). It is pure TypeScript with no
 Obsidian or Node dependency, so a VS Code or other Markdown adapter can reuse
 it unchanged. LFCP-060 was done before LFCP-059 on purpose: the parser
-needs no SDK. Its small token validators (`tokens.ts`) duplicate
-`@openlfcp/core` until LFCP-059 replaces them; a differential test against
-the spec's own fixtures keeps them honest until then.
+needs no SDK. Its token validators (`tokens.ts`) delegate to
+`@openlfcp/core` since LFCP-059; a differential test against the spec's own
+fixtures still checks them.
 
 | File | Purpose |
 | --- | --- |
-| `tokens.ts` | base64url, Resource ID, Object ID and object type validators (§8–§10) |
+| `tokens.ts` | base64url, Resource ID and Object ID validators over `@openlfcp/core`, and the object type check (§8–§10) |
 | `object-ref.ts` | `lfcp1:<resource>#<type>:<object-id>` parsing and formatting (§7) |
 | `comments.ts` | recognizing `lfcp-ref` comments on a line (§6) |
 | `lines.ts` | physical lines with their line endings |
