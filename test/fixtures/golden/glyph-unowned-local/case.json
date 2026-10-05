@@ -1,0 +1,30 @@
+{
+  "description": "An unowned glyph sends nothing and is kept, also when the shared status changes later (ST-1).",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "edit",
+    "file": "note.md",
+    "then": {
+      "type": "remote",
+      "set": {
+        "A": {
+          "title": "Prepare the API contract"
+        }
+      }
+    }
+  },
+  "expect": {
+    "intents": [],
+    "diagnostics": [
+      {
+        "file": "note.md",
+        "code": "STATUS_NOT_OWNED"
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "description": "Only the Task line changes; everything around it, including a ref inside a code fence and a missing final newline, stays byte-identical.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "done",
+        "title": "Prepare the API contract"
+      }
+    }
+  },
+  "expect": {}
+}

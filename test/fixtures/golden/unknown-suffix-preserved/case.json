@@ -1,0 +1,19 @@
+{
+  "description": "Unowned tokens stay in place; a new owned token goes where Obsidian Tasks puts it.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Water plants (see notes)"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "done",
+        "due": "2026-10-12"
+      }
+    }
+  },
+  "expect": {}
+}

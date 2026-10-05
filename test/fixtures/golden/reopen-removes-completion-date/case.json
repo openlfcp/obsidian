@@ -1,0 +1,20 @@
+{
+  "description": "A remote reopen removes ✅ and unticks the box.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract",
+      "status": "done",
+      "completion_date": "2026-10-01"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "todo"
+      }
+    }
+  },
+  "expect": {}
+}

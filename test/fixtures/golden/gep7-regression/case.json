@@ -1,0 +1,26 @@
+{
+  "description": "A Key Epoch cutoff withdraws a completion: the note shows the older state, reported, with no echo intents.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "withdraw",
+    "object": "A",
+    "applied": {
+      "status": "done",
+      "completion_date": "2026-10-05"
+    }
+  },
+  "expect": {
+    "intents": [],
+    "diagnostics": [
+      {
+        "file": "note.md",
+        "code": "STATE_REGRESSED"
+      }
+    ]
+  }
+}

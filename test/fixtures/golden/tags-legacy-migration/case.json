@@ -1,0 +1,38 @@
+{
+  "description": "A Task shared with tags in its title migrates with the user's next edit (ruling a).",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Plan #backend"
+    }
+  },
+  "event": {
+    "type": "edit",
+    "file": "note.md"
+  },
+  "expect": {
+    "intents": [
+      {
+        "object": "A",
+        "intent": "task.set_title",
+        "title": "Plan"
+      },
+      {
+        "object": "A",
+        "intent": "task.add_tag",
+        "tag": "backend"
+      },
+      {
+        "object": "A",
+        "intent": "task.set_due",
+        "date": "2026-10-10"
+      }
+    ],
+    "diagnostics": [
+      {
+        "file": "note.md",
+        "code": "LEGACY_TAGS_MIGRATED"
+      }
+    ]
+  }
+}

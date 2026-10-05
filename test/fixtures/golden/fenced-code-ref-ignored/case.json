@@ -1,0 +1,20 @@
+{
+  "description": "A ref inside a code fence is an example, not a projection.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "done"
+      }
+    }
+  },
+  "expect": {
+    "intents": []
+  }
+}

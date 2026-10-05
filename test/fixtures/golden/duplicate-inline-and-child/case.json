@@ -1,0 +1,25 @@
+{
+  "description": "Inline plus child ref, even identical: diagnostic, nothing rewritten.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "done"
+      }
+    }
+  },
+  "expect": {
+    "diagnostics": [
+      {
+        "file": "note.md",
+        "code": "DUPLICATE_LFCP_REF"
+      }
+    ]
+  }
+}

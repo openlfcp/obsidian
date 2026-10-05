@@ -1,0 +1,4 @@
+- [ ] a <!-- lfcp-ref: {{A}} -->
+- [ ] b <!-- lfcp-ref: {{B}} -->
+- [ ] c <!-- lfcp-ref: {{C}} -->
+- [x] d <!-- lfcp-ref: {{D}} -->

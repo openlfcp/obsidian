@@ -1,0 +1,2 @@
+- [ ] Prepare API contract
+- [ ] Prepare API contract 📅 2026-10-10

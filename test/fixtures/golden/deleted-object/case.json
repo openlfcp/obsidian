@@ -1,0 +1,23 @@
+{
+  "description": "A deleted Shared Task keeps its Markdown; a diagnostic says why nothing changes.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "delete": [
+      "A"
+    ]
+  },
+  "expect": {
+    "diagnostics": [
+      {
+        "file": "note.md",
+        "code": "OBJECT_DELETED"
+      }
+    ]
+  }
+}

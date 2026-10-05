@@ -1,0 +1,36 @@
+{
+  "description": "Concurrent statuses: the visible one is shown, the conflict is reported, no marker is written.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "concurrent",
+    "object": "A",
+    "local": {
+      "status": "in_progress"
+    },
+    "remote": {
+      "status": "cancelled"
+    }
+  },
+  "expect": {
+    "conflicts": [
+      {
+        "file": "note.md",
+        "object": "A",
+        "fields": [
+          "status"
+        ]
+      }
+    ]
+  },
+  "alternatives": {
+    "note.md": [
+      "- [/] Prepare API contract\n  <!-- lfcp-ref: {{A}} -->\n",
+      "- [-] Prepare API contract\n  <!-- lfcp-ref: {{A}} -->\n"
+    ]
+  }
+}

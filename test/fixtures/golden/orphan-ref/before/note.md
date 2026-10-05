@@ -1,0 +1,3 @@
+Paragraph.
+
+<!-- lfcp-ref: {{A}} -->

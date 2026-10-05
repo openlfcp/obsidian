@@ -1,0 +1,22 @@
+{
+  "description": "Enter after a shared Task slides its child ref under a new Task: nothing is sent or rendered (ST-2).",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "edit",
+    "file": "note.md"
+  },
+  "expect": {
+    "intents": [],
+    "diagnostics": [
+      {
+        "file": "note.md",
+        "code": "REF_REASSOCIATION_SUSPECTED"
+      }
+    ]
+  }
+}

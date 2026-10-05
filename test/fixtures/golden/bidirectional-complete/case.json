@@ -1,0 +1,21 @@
+{
+  "description": "Ticking a bound Task sends task.complete; the note stays as typed.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "edit",
+    "file": "note.md"
+  },
+  "expect": {
+    "intents": [
+      {
+        "object": "A",
+        "intent": "task.complete"
+      }
+    ]
+  }
+}

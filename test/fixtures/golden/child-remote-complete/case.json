@@ -1,0 +1,18 @@
+{
+  "description": "A remote completion changes only the checkbox; the child ref line stays as it is.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "done"
+      }
+    }
+  },
+  "expect": {}
+}

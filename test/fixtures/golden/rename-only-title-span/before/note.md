@@ -1,0 +1,1 @@
+- [ ] Ship v2 #web #release ⏫ 📅 2026-11-01 <!-- lfcp-ref: {{A}} -->

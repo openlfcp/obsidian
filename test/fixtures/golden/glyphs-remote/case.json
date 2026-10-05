@@ -1,0 +1,40 @@
+{
+  "description": "Every owned status renders its ST-1 glyph.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "a"
+    },
+    "B": {
+      "id": "019a2f85-7b31-7c42-9f24-8f933f2a91c0",
+      "title": "b"
+    },
+    "C": {
+      "id": "019a2f85-7b31-7c42-a43c-4b693e77d36b",
+      "title": "c"
+    },
+    "D": {
+      "id": "019a2f85-7b31-7c42-8d10-1c0d7a4f0e04",
+      "title": "d",
+      "status": "done"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "done"
+      },
+      "B": {
+        "status": "in_progress"
+      },
+      "C": {
+        "status": "cancelled"
+      },
+      "D": {
+        "status": "todo"
+      }
+    }
+  },
+  "expect": {}
+}

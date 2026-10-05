@@ -1,0 +1,17 @@
+{
+  "description": "Moving a note changes nothing shared and writes nothing.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "move",
+    "from": "a.md",
+    "to": "b.md"
+  },
+  "expect": {
+    "intents": []
+  }
+}

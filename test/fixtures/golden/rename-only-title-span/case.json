@@ -1,0 +1,24 @@
+{
+  "description": "A rename changes only the title span: priority, tags, due and the inline ref stay.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Ship v2",
+      "priority": "high",
+      "tags": [
+        "release",
+        "web"
+      ],
+      "due": "2026-11-01"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "title": "Ship version 2 ✨"
+      }
+    }
+  },
+  "expect": {}
+}

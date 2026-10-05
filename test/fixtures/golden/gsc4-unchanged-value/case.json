@@ -1,0 +1,20 @@
+{
+  "description": "A remote write of an unchanged value (G-SC4) does not touch the note.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract",
+      "due": "2026-10-10"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "title": "Prepare API contract",
+        "due": "2026-10-10"
+      }
+    }
+  },
+  "expect": {}
+}

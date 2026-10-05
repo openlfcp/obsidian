@@ -1,0 +1,19 @@
+{
+  "description": "A remote completion with a date writes ✅ once.",
+  "objects": {
+    "A": {
+      "id": "019a2f85-7b31-7c42-b85a-fc843e2f40ad",
+      "title": "Prepare API contract"
+    }
+  },
+  "event": {
+    "type": "remote",
+    "set": {
+      "A": {
+        "status": "done",
+        "completion_date": "2026-10-03"
+      }
+    }
+  },
+  "expect": {}
+}
