@@ -2,7 +2,14 @@
 // durable pending state, the Resource registry.
 
 import { saveControlChain } from "@openlfcp/client";
-import { dataEpoch, generateResourceId, hash32, type ResourceId, toHex } from "@openlfcp/core";
+import {
+  dataEpoch,
+  generateResourceId,
+  hash32,
+  type ObjectId,
+  type ResourceId,
+  toHex,
+} from "@openlfcp/core";
 import {
   dekCommitment,
   generateAgreementKeyPair,
@@ -10,7 +17,7 @@ import {
   generateSigningKeyPair,
   sha256,
 } from "@openlfcp/crypto";
-import { PROFILE_ID } from "@openlfcp/shared-objects";
+import { createTask, PROFILE_ID } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import {
   principalDescriptorFromKeys,
@@ -24,6 +31,7 @@ import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { Device, deleteDatabase, FakeLocal } from "../../support/lfcp-env";
 
 const URL = "wss://offline.example.invalid/v1/ws";
+const TASK = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f" as ObjectId;
 const running: LfcpRuntime[] = [];
 afterEach(async () => {
   for (const r of running.splice(0)) await r.stop();
@@ -180,6 +188,28 @@ describe("LfcpRuntime (LFCP-059)", () => {
     expect(after?.lastKnownControlHead).toBe(head);
     const { storage: s2 } = { storage: again.storage as LfcpStorage };
     expect(toHex((await s2.control.head(R))?.head as Uint8Array)).toBe(head);
+  });
+
+  it("writes intents through the real SDK path: change, Data Unit, queued, kept across restart", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    const storage = r.storage as LfcpStorage;
+    const status = r.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    const profile = await r.profileOf(R);
+    const { intent } = createTask({ id: TASK, title: "Draft", createdBy: status.principalId });
+    const unit = await r.writeIntent(R, intent);
+    expect(unit).not.toBeNull();
+    const queued = await storage.outbound.list(R);
+    expect(queued.map((q) => q.kind)).toEqual(["data-unit", "data-unit"]); // initial document + Task
+    expect(toHex(queued[1]?.itemId as Uint8Array)).toBe(toHex(unit as Uint8Array));
+    expect(profile.replica.task(TASK)?.task?.title).toBe("Draft");
+    await r.stop();
+    const again = await start(device, local);
+    expect((await again.storage?.outbound.list(R))?.length).toBe(2);
+    expect((await again.profileOf(R)).replica.task(TASK)?.task?.title).toBe("Draft");
   });
 
   it("locks, offers a new Principal, and refuses to open Resources while locked", async () => {

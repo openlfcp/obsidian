@@ -10,23 +10,38 @@
 // in storage and survive it.
 
 import {
+  createQueuedDataUnit,
   DataUnitApplier,
   dekResolver,
+  loadControlChain,
   OutboundQueue,
   ProfileCheckpointer,
   type ResourcePhase,
   SyncClient,
   type SyncEvent,
+  saveControlChain,
   startSyncDriver,
   type WebSocketFactory,
 } from "@openlfcp/client";
-import { type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
 import {
+  type DataUnitId,
+  dataEpoch,
+  generateResourceId,
+  type PrincipalId,
+  type ResourceId,
+  toHex,
+} from "@openlfcp/core";
+import { dekCommitment, exportSecretKeyBytes, generateResourceDEK } from "@openlfcp/crypto";
+import {
+  checkChange,
   initializeAutomerge,
+  PROFILE_ID,
+  type ReplicaIntent,
   SharedObjectsDataProfile,
   SharedObjectsReplica,
 } from "@openlfcp/shared-objects";
-import type { LfcpStorage } from "@openlfcp/storage";
+import { dekSecretRef, type LfcpStorage, principalKeySecretRef } from "@openlfcp/storage";
+import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import {
   createInstall,
   type Install,
@@ -92,7 +107,8 @@ export interface RegistryEntry {
 export interface OpenResource {
   readonly resourceId: ResourceId;
   readonly profile: SharedObjectsDataProfile;
-  readonly url: string;
+  /** The endpoint of its session (null: local only so far). */
+  readonly url: string | null;
 }
 
 interface Pooled {
@@ -101,8 +117,13 @@ interface Pooled {
   readonly unsubscribe: () => void;
 }
 
-interface Opened extends OpenResource {
+interface Opened {
+  readonly resourceId: ResourceId;
+  readonly profile: SharedObjectsDataProfile;
+  url: string | null;
   readonly checkpointer: ProfileCheckpointer;
+  /** Set once a session serves the Resource. */
+  applier: DataUnitApplier | null;
 }
 
 export class LfcpRuntime {
@@ -116,6 +137,7 @@ export class LfcpRuntime {
   readonly #errors = new Map<string, string>();
   readonly #listeners = new Set<(e: SyncEvent) => void>();
   #stopped = false;
+  #writes: Promise<void> = Promise.resolve();
 
   private constructor(env: RuntimeEnv, install: Install, lock: HeldLock | null) {
     this.#env = env;
@@ -240,26 +262,16 @@ export class LfcpRuntime {
    * the background.
    */
   async openResource(resource: ResourceId): Promise<OpenResource> {
-    const key = toHex(resource);
-    const existing = this.#opened.get(key);
-    if (existing !== undefined) return existing;
-    const i = this.#install;
-    if (this.#stopped || i.kind !== "ready") throw new Error("OpenLFCP is not ready");
-    const { storage, secrets, principal } = i;
-    if ((await storage.resources.get(resource)) === undefined) throw new Error("unknown Resource");
-    const route = await storage.resources.route(resource);
+    const local = await this.#local(resource);
+    if (local.applier !== null) return local;
+    const i = this.#ready();
+    const route = await i.storage.resources.route(resource);
     const url = route?.coordinatorUrl;
     if (url === undefined) throw new Error("no known route for this Resource");
-
-    const options = { resource, principal: principal.id };
-    const checkpoint = await storage.profileState.checkpoint(resource);
-    const profile =
-      checkpoint === undefined
-        ? new SharedObjectsDataProfile(SharedObjectsReplica.empty(options))
-        : SharedObjectsDataProfile.restore(checkpoint, options);
+    const profile = local.profile;
     const applier = new DataUnitApplier({
-      storage,
-      dek: dekResolver(storage, secrets, resource),
+      storage: i.storage,
+      dek: dekResolver(i.storage, i.secrets, resource),
       handlers: [
         {
           dataProfile: profile.dataProfile,
@@ -271,21 +283,184 @@ export class LfcpRuntime {
         },
       ],
     });
-    const checkpointer = new ProfileCheckpointer(storage, profile, { minIntervalMs: 2000 });
     const { client } = this.#session(url);
     client.open({
       resourceId: resource,
       applier,
-      checkpointer,
+      checkpointer: local.checkpointer,
       snapshot: {
         codec: profile.snapshotCodec(),
         load: (s) => void profile.loadSnapshot(s as Uint8Array),
         current: () => profile.snapshotState(),
       },
     });
-    const opened: Opened = { resourceId: resource, profile, url, checkpointer };
+    local.applier = applier;
+    local.url = url;
+    return local;
+  }
+
+  #ready(): Extract<Install, { kind: "ready" }> {
+    const i = this.#install;
+    if (this.#stopped || i.kind !== "ready") throw new Error("OpenLFCP is not ready");
+    return i;
+  }
+
+  /** A stored Resource's Shared Objects state, local only (no session). */
+  async #local(resource: ResourceId): Promise<Opened> {
+    const key = toHex(resource);
+    const existing = this.#opened.get(key);
+    if (existing !== undefined) return existing;
+    const { storage, principal } = this.#ready();
+    if ((await storage.resources.get(resource)) === undefined) throw new Error("unknown Resource");
+    const options = { resource, principal: principal.id };
+    const checkpoint = await storage.profileState.checkpoint(resource);
+    const profile =
+      checkpoint === undefined
+        ? new SharedObjectsDataProfile(SharedObjectsReplica.empty(options))
+        : SharedObjectsDataProfile.restore(checkpoint, options);
+    const opened: Opened = {
+      resourceId: resource,
+      profile,
+      url: null,
+      checkpointer: new ProfileCheckpointer(storage, profile, { minIntervalMs: 2000 }),
+      applier: null,
+    };
     this.#opened.set(key, opened);
     return opened;
+  }
+
+  /** The Shared Objects state of a stored Resource, without opening a session. */
+  async profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile> {
+    return (await this.#local(resource)).profile;
+  }
+
+  /**
+   * Applies one Shared Objects intent locally and queues it as this
+   * Principal's next Data Unit (§59 intent → Automerge change → encrypted,
+   * signed unit), committed with its outbound entry and the profile
+   * checkpoint in one batch. Writes are serialized. An intent that sets an
+   * unchanged value still writes a real op (G-SC4), so callers send only
+   * intended changes; null when the profile produced no change. Sent when a
+   * session for the Resource is open.
+   */
+  writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null> {
+    const run = this.#writes.then(() => this.#write(resource, intent));
+    this.#writes = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  async #write(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null> {
+    const { storage, secrets, principal } = this.#ready();
+    const local = await this.#local(resource);
+    const chain = await loadControlChain(storage, resource);
+    if (chain?.kind !== "linear") throw new Error("this Resource's Control Chain is not usable");
+    const dek = await dekResolver(storage, secrets, resource)(chain.state.epoch.epoch);
+    if (dek === undefined) throw new Error("no key for this Resource's current Data Epoch yet");
+    const profile = local.profile;
+    const change = profile.replica.apply(intent);
+    if (change === null) return null;
+    const created = await createQueuedDataUnit(
+      storage,
+      {
+        view: chain,
+        controlHead: chain.state.head,
+        actor: principal.signer,
+        dek,
+        profile: profile.codecFor({ resourceId: resource, actor: principal.id }),
+        value: checkChange(change.change),
+        onCreated: (c, value) => profile.recordLocal(c.unitId, value),
+      },
+      () => [local.checkpointer.write()],
+    );
+    if (local.url !== null) this.#pool.get(local.url)?.client.flush();
+    return created.unitId;
+  }
+
+  /**
+   * A new Resource owned by this vault's identity (§15): a fresh Resource ID
+   * and epoch-0 DEK (into the secret store first), the Genesis, the Resource
+   * row and the profile's initial document as the first Data Unit. Local
+   * only: hosting it on a server is a separate step (LFCP-065).
+   */
+  async createResource(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+  }): Promise<ResourceId> {
+    const { storage, secrets, principal } = this.#ready();
+    const R = generateResourceId();
+    const dek = generateResourceDEK();
+    const epoch0 = dataEpoch(0n);
+    const genesis = signControlRecord(
+      { resourceId: R, controlSeq: 0n, prevControlId: null },
+      {
+        type: "GENESIS",
+        dataProfile: PROFILE_ID,
+        owner: principal.signer.descriptor,
+        dekCommitment: dekCommitment(R, epoch0, dek),
+        endpoints: options.endpoints.map((url, n) => ({ url, priority: BigInt(n) })),
+        coordinatorUrl: options.coordinatorUrl,
+      },
+      principal.signer,
+    );
+    const chain = validateControlChain([genesis.bytes]);
+    if (chain.kind !== "linear") throw new Error("the Genesis does not validate");
+    const ref = dekSecretRef(R, epoch0);
+    await secrets.put(ref, exportSecretKeyBytes(dek));
+    const saved = await saveControlChain(storage, chain, null);
+    if (!saved.ok) throw new Error("the Resource was not stored");
+    const epochs = await storage.control.epochs(R);
+    const r = await storage.commit([
+      ...epochs.map((e) => ({
+        op: "put-epoch" as const,
+        resourceId: R,
+        epoch: { ...e, dekRef: ref },
+      })),
+      {
+        op: "put-resource",
+        row: {
+          resourceId: R,
+          dataProfile: PROFILE_ID,
+          localPrincipal: {
+            principalId: principal.id,
+            signingKeyRef: principalKeySecretRef(principal.id, "signing"),
+            agreementKeyRef: principalKeySecretRef(principal.id, "agreement"),
+          },
+          labels: { name: options.name },
+        },
+      },
+    ]);
+    if (!r.ok) throw new Error("the Resource was not stored");
+    const { replica, change } = SharedObjectsReplica.create({
+      resource: R,
+      principal: principal.id,
+    });
+    const profile = new SharedObjectsDataProfile(replica);
+    const opened: Opened = {
+      resourceId: R,
+      profile,
+      url: null,
+      checkpointer: new ProfileCheckpointer(storage, profile, { minIntervalMs: 2000 }),
+      applier: null,
+    };
+    this.#opened.set(toHex(R), opened);
+    await createQueuedDataUnit(
+      storage,
+      {
+        view: chain,
+        controlHead: chain.state.head,
+        actor: principal.signer,
+        dek,
+        profile: profile.codecFor({ resourceId: R, actor: principal.id }),
+        value: checkChange(change.change),
+        onCreated: (c, value) => profile.recordLocal(c.unitId, value),
+      },
+      () => [opened.checkpointer.write()],
+    );
+    return R;
   }
 
   #session(url: string): Pooled {
