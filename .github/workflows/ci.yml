@@ -11,13 +11,33 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: obsidian
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: obsidian
+      # Tests read MARKDOWN-REFS-01 and spec fixtures from a spec checkout
+      # next to this repository (../spec) at the tag pinned in spec.lock.
+      - id: spec-lock
+        run: echo "tag=$(jq -er .tag spec.lock)" >> "$GITHUB_OUTPUT"
+      # Full history with tags, so the tests can check that the tag still
+      # resolves to the commit in spec.lock.
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/spec
+          ref: refs/tags/${{ steps.spec-lock.outputs.tag }}
+          path: spec
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: obsidian/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: obsidian/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm run lint
