@@ -265,8 +265,6 @@ describe("LFCP-065 commands", () => {
     expect(s.prompter.progressLines).toEqual([
       "Joining collaboration",
       "Connecting to the collaboration's server…",
-      "Checking the invitation…",
-      "Claiming access…",
     ]);
     expect(s.prompter.notices.at(-1)).toMatch(/^OpenLFCP: could not join\. .*needs a connection/);
     const secret = link.slice(link.indexOf("#secret=") + 8);

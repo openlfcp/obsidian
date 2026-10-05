@@ -83,8 +83,8 @@ export interface CommandEnv {
 const STAGE_TEXT: Readonly<Record<JoinStage, string>> = {
   connecting: "Connecting to the collaboration's server…",
   "validating invitation": "Checking the invitation…",
-  "claiming capability": "Claiming access…",
   "retrieving key": "Receiving the collaboration's key…",
+  "claiming capability": "Claiming access…",
   synchronizing: "Synchronizing…",
 };
 

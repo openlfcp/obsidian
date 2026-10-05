@@ -83,11 +83,12 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
       onStage: (s) => stages.push(s),
     });
     expect(joined).toMatchObject({ kind: "joined", abilities: ["data/read", "data/write"] });
+    // §73's order, as the SDK reports it: the key comes before the claim.
     expect(stages).toEqual([
       "connecting",
       "validating invitation",
-      "claiming capability",
       "retrieving key",
+      "claiming capability",
       "synchronizing",
     ]);
     const seen = await until(

@@ -132,7 +132,8 @@ describe("Join collaboration (LFCP-065)", () => {
     const stages: string[] = [];
     const outcome = await collab.join(link, { name: "Joined", onStage: (s) => stages.push(s) });
     expect(outcome.kind).toBe("unavailable");
-    expect(stages).toEqual(["connecting", "validating invitation", "claiming capability"]);
+    // The SDK reports each §73 step as it starts; offline, the first one fails.
+    expect(stages).toEqual(["connecting"]);
     const everything = [JSON.stringify(outcome), ...logged, ...stages].join("\n");
     expect(everything).not.toContain(secret.slice(1));
     expect(everything).not.toContain("lfcp://join");

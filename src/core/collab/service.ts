@@ -20,6 +20,7 @@
 
 import {
   type AcceptedInvitation,
+  type AcceptInvitationStage,
   acceptInvitation,
   createInvitation,
   dekResolver,
@@ -71,6 +72,8 @@ export interface CollabRuntime {
   profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
   writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null>;
   on(listener: (e: SyncEvent) => void): () => void;
+  /** The session phase of a Resource ("CLOSED" when not open). */
+  phase(resource: ResourceId): string;
   collaborationContext(): CollaborationContext | null;
   readonly localState: {
     get(key: string): Promise<unknown>;
@@ -109,13 +112,26 @@ export interface Invitation {
   readonly confirmed: boolean;
 }
 
-/** Join stages, in order (LFCP-065); none carries a secret. */
+/**
+ * Join stages in §73's order (LFCP-065): the first four as the SDK's
+ * acceptInvitation reports them (the key is retrieved before the claim; a
+ * claim refreshed after CONTROL_HEAD_MISMATCH is reported again), then
+ * synchronizing while the Resource's session comes up. None carries a
+ * secret.
+ */
 export type JoinStage =
   | "connecting"
   | "validating invitation"
-  | "claiming capability"
   | "retrieving key"
+  | "claiming capability"
   | "synchronizing";
+
+const SDK_STAGE: Readonly<Record<AcceptInvitationStage, JoinStage>> = {
+  connecting: "connecting",
+  "validating-invitation": "validating invitation",
+  "retrieving-key": "retrieving key",
+  "claiming-capability": "claiming capability",
+};
 
 export type JoinOutcome =
   | {
@@ -385,12 +401,10 @@ export class Collaboration {
   ): Promise<JoinOutcome> {
     const stage = options.onStage ?? (() => undefined);
     const c = this.#context();
-    stage("connecting");
-    stage("validating invitation");
     const R = parseInviteUri(uri.trim()).resourceId;
     if (await this.#runtime.hasResource(R)) return { kind: "already-member", resourceId: R };
-    stage("claiming capability");
     const accepted: AcceptedInvitation = await acceptInvitation({
+      onProgress: (p) => stage(SDK_STAGE[p.stage]),
       link: uri.trim(),
       claimant: { signer: c.principal.signer, agreement: c.principal.agreement },
       storage: c.storage,
@@ -406,7 +420,6 @@ export class Collaboration {
         kind: "unavailable",
         message: `The collaboration's server could not complete the join (${accepted.reason}). Joining needs a connection; try again when online.`,
       };
-    stage("retrieving key");
     const chain = await loadControlChain(c.storage, R);
     if (chain?.kind !== "linear") throw new CollabError("INVALID_CONTROL_CHAIN");
     if (chain.state.dataProfile !== PROFILE_ID)
@@ -436,6 +449,10 @@ export class Collaboration {
     await this.#runtime.localState.put(hostingKey(R), "hosted");
     stage("synchronizing");
     await this.#runtime.openResource(R);
+    // Until the session is live, or the connect timeout: joined either way.
+    const until = this.#o.connectTimeoutMs;
+    for (let waited = 0; this.#runtime.phase(R) !== "LIVE" && waited < until; waited += 50)
+      await this.#o.sleep(50);
     return {
       kind: "joined",
       resourceId: R,
@@ -506,7 +523,7 @@ export class Collaboration {
       profile: entry.profile,
       state: entry.state,
       blocked: entry.state === "control_conflict",
-      phase: (this.#runtime as { phase?(r: ResourceId): string }).phase?.(R) ?? "CLOSED",
+      phase: this.#runtime.phase(R),
       hosting: hosting === "hosted" || hosting === "pending" ? hosting : "unknown",
       controlHead: entry.lastKnownControlHead,
       controlSeq: state === null ? null : String(state.seq),
