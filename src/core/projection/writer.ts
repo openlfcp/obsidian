@@ -92,6 +92,15 @@ export class ProjectionWriter {
     return out;
   }
 
+  /**
+   * G-EP5: own changes a Key Epoch cut off are re-applied from the notes
+   * that show them: their bases are forgotten, so the next pass sends each
+   * projection's Markdown as a new intent in the current epoch.
+   */
+  async reapply(keys: ReadonlySet<string>): Promise<void> {
+    for (const k of keys) await this.#engine.forgetBase(k);
+  }
+
   /** One note: the intents pass, then the render. */
   async syncNote(path: string, regressed: ReadonlySet<string> = new Set()): Promise<NoteOutcome> {
     const host = this.#host();
@@ -108,8 +117,16 @@ export class ProjectionWriter {
     this.deferred.delete(path);
     const projection = await this.#engine.processFile(path, text);
 
+    // A projection whose edit could not be sent keeps the user's text: it is
+    // not rendered over until the edit is sent.
+    const unsent = new Set(
+      projection.diagnostics
+        .filter((d) => d.code === "WRITE_FAILED")
+        .map((d) => `${d.resource}#${d.objectId}`),
+    );
     const targets = new Map<string, RenderTarget>();
     for (const key of this.#engine.indexed(path)) {
+      if (unsent.has(key)) continue;
       const [r, id] = key.split("#") as [string, string];
       const R = asResourceId(fromBase64url(r));
       if (!(await host.hasResource(R))) continue; // reported by the intents pass; never rewritten

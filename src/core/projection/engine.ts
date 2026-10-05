@@ -137,6 +137,18 @@ export class ProjectionEngine {
       .sort();
   }
 
+  /**
+   * Forgets the base of `key` in every note, so the next pass treats each
+   * projection's Markdown as the user's intent (G-EP5: re-applying an own
+   * change a Key Epoch cut off).
+   */
+  async forgetBase(key: string): Promise<void> {
+    for (const path of this.pathsOf(key)) {
+      const bases = await this.#basesOf(path);
+      if (bases.delete(key)) await this.#saveBases(path);
+    }
+  }
+
   /** A deleted note leaves the index; no LFCP operation. */
   forgetPath(path: string): void {
     this.#index.delete(path);

@@ -15,7 +15,7 @@
 // next save). Conflicts show in the status bar and as an editor line
 // decoration, never in the text.
 
-import { toBase64url } from "@openlfcp/core";
+import { type ResourceId, toBase64url } from "@openlfcp/core";
 import { MarkdownView, Notice, Plugin, type TAbstractFile, type TFile } from "obsidian";
 import { CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
@@ -185,24 +185,56 @@ export default class OpenLfcpPlugin extends Plugin {
     this.#report(await this.writer.handleChanges(batch));
   }
 
-  /** Shared Object changes (local writes, remote merges, G-EP7 rebuilds) re-render their notes. */
+  /** Objects whose edits could not be sent (e.g. no key yet for a new epoch): retried when LIVE. */
+  readonly #unsent = new Set<string>();
+
+  /**
+   * Shared Object changes (local writes, remote merges, G-EP7 rebuilds)
+   * re-render their notes. After a rebuild, own changes a Key Epoch cut off
+   * are first re-applied from the notes (G-EP5), not rendered away.
+   */
   #watchObjects(runtime: LfcpRuntime): void {
     let keys = new Set<string>();
     let regressed = new Set<string>();
+    let rebuilt = new Map<string, ResourceId>();
     let scheduled = false;
-    runtime.onObjectChanged((resource, change) => {
-      const key = `${toBase64url(resource)}#${change.objectId}`;
-      keys.add(key);
-      if (change.origin === "rebuild") regressed.add(key);
+    const schedule = () => {
       if (scheduled) return;
       scheduled = true;
       queueMicrotask(() => {
-        const [k, r] = [keys, regressed];
+        const [k, r, b] = [keys, regressed, rebuilt];
         keys = new Set();
         regressed = new Set();
+        rebuilt = new Map();
         scheduled = false;
-        this.#enqueue(async () => this.#report(await this.writer.objectsChanged(k, r)));
+        this.#enqueue(async () => {
+          const reapply = new Set<string>();
+          for (const [prefix, R] of b)
+            for (const id of await runtime.cutOwnObjects(R)) reapply.add(`${prefix}#${id}`);
+          await this.writer.reapply(reapply);
+          for (const key of reapply) {
+            k.add(key);
+            r.delete(key);
+          }
+          this.#report(await this.writer.objectsChanged(k, r));
+        });
       });
+    };
+    runtime.onObjectChanged((resource, change) => {
+      const prefix = toBase64url(resource);
+      const key = `${prefix}#${change.objectId}`;
+      keys.add(key);
+      if (change.origin === "rebuild") {
+        regressed.add(key);
+        rebuilt.set(prefix, resource);
+      }
+      schedule();
+    });
+    runtime.on((e) => {
+      if (e.type !== "resource-state" || e.state !== "LIVE" || this.#unsent.size === 0) return;
+      for (const key of this.#unsent) keys.add(key);
+      this.#unsent.clear();
+      schedule();
     });
   }
 
@@ -220,6 +252,8 @@ export default class OpenLfcpPlugin extends Plugin {
 
   #report(outcomes: readonly NoteOutcome[]): void {
     for (const o of outcomes) {
+      for (const d of o.projection?.diagnostics ?? [])
+        if (d.code === "WRITE_FAILED") this.#unsent.add(`${d.resource}#${d.objectId}`);
       if (o.projection !== undefined)
         for (const m of this.notices.messages(o.projection)) new Notice(m);
       if (o.deferred === undefined) this.conflicts.update(o.path, o.rendered);

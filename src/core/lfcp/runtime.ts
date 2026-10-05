@@ -26,7 +26,10 @@ import {
 import {
   type DataUnitId,
   dataEpoch,
+  dataUnitId,
+  fromHex,
   generateResourceId,
+  hash32,
   type PrincipalId,
   type ResourceId,
   toHex,
@@ -159,6 +162,7 @@ export class LfcpRuntime {
   readonly #listeners = new Set<(e: SyncEvent) => void>();
   #stopped = false;
   #writes: Promise<void> = Promise.resolve();
+  readonly #staleToDiscard = new Set<string>();
   readonly #objectListeners = new Set<(resource: ResourceId, change: ObjectChange) => void>();
 
   private constructor(env: RuntimeEnv, install: Install, lock: HeldLock | null) {
@@ -383,6 +387,61 @@ export class LfcpRuntime {
     return opened;
   }
 
+  /**
+   * G-EP5 support: which objects each of this Principal's own units changed,
+   * per Resource (device-local state, kept for the latest 1000 units). Not
+   * atomic with the unit's commit: a crash in between only means that unit
+   * cannot be re-applied automatically if a Key Epoch later cuts it off.
+   */
+  async #rememberOwnUnit(resource: ResourceId, unit: DataUnitId, objects: readonly string[]) {
+    if (objects.length === 0) return;
+    const key = `own-units:${toHex(resource)}`;
+    const map = { ...((await this.localState.get(key)) ?? {}) } as Record<string, string[]>;
+    map[toHex(unit)] = [...objects];
+    const entries = Object.entries(map);
+    await this.localState.put(key, Object.fromEntries(entries.slice(-1000)));
+  }
+
+  /**
+   * The objects of this Principal's own units that a Key Epoch cut off
+   * (G-EP7: quarantined, no longer in the shared state). The caller re-applies
+   * those intents as new units in the current epoch (G-EP5). Each cut unit is
+   * reported once; its stale outbound item is discarded once it is blocked.
+   */
+  async cutOwnObjects(resource: ResourceId): Promise<string[]> {
+    const storage = this.storage;
+    if (storage === null) return [];
+    const key = `own-units:${toHex(resource)}`;
+    const map = { ...((await this.localState.get(key)) ?? {}) } as Record<string, string[]>;
+    const objects = new Set<string>();
+    let changed = false;
+    for (const [unitHex, ids] of Object.entries(map)) {
+      const unitId = dataUnitId(fromHex(unitHex));
+      if ((await storage.dataUnits.get(unitId))?.status !== "quarantined") continue;
+      for (const id of ids) objects.add(id);
+      delete map[unitHex];
+      changed = true;
+      this.#staleToDiscard.add(unitHex);
+    }
+    if (changed) await this.localState.put(key, map);
+    await this.#discardStale();
+    return [...objects].sort();
+  }
+
+  /** Discards re-applied units' outbound items once the queue has blocked them (stale-epoch). */
+  async #discardStale(): Promise<void> {
+    const storage = this.storage;
+    if (storage === null || this.#outbound === null) return;
+    for (const unitHex of [...this.#staleToDiscard]) {
+      const item = await storage.outbound.get(hash32(fromHex(unitHex)));
+      if (item === undefined) this.#staleToDiscard.delete(unitHex);
+      else if (item.blocked !== null) {
+        await this.#outbound.discard(item.itemId);
+        this.#staleToDiscard.delete(unitHex);
+      }
+    }
+  }
+
   /** Whether this vault stores the Resource (and can therefore project it). */
   async hasResource(resource: ResourceId): Promise<boolean> {
     const storage = this.storage;
@@ -436,6 +495,11 @@ export class LfcpRuntime {
       () => [local.checkpointer.write()],
     );
     if (local.url !== null) this.#pool.get(local.url)?.client.flush();
+    await this.#rememberOwnUnit(
+      resource,
+      created.unitId,
+      change.objects.map((o) => o.objectId),
+    );
     for (const o of change.objects) this.#emitObject(resource, o);
     return created.unitId;
   }
@@ -553,6 +617,8 @@ export class LfcpRuntime {
     if (e.type === "resource-state") {
       this.#phases.set(toHex(e.resourceId), e.state);
       if (e.state === "LIVE") this.#errors.delete(toHex(e.resourceId));
+    } else if (e.type === "epoch-reconciled" && e.outbound.length > 0) {
+      void this.#discardStale().catch(() => undefined);
     } else if (e.type === "error" && e.resourceId !== undefined) {
       this.#errors.set(toHex(e.resourceId), e.code);
     }
