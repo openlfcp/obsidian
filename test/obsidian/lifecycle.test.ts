@@ -3,7 +3,8 @@
 // are the mock's, IndexedDB is fake-indexeddb, the network is offline.
 
 import "fake-indexeddb/auto";
-import { toHex } from "@openlfcp/core";
+import { toBase64url, toHex } from "@openlfcp/core";
+import { createTask } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import type { VaultChange } from "../../src/core/vault/changes";
@@ -135,6 +136,56 @@ describe("plugin lifecycle (LFCP-059)", () => {
     const identity = tab.containerEl.settings.find((s) => s.name === "Identity on this device");
     expect(identity?.desc).toMatch(/^Ready\./);
     expect(identity?.desc).not.toContain(toHex(status.principalId));
+    host.unload();
+    await plugin.stopRuntime();
+  });
+
+  it("projects vault edits of bound Tasks into the shared object, and offers the ST-2 repair (LFCP-061)", async () => {
+    const { plugin, host, app } = await load();
+    await ready(plugin);
+    const runtime = plugin.runtime as NonNullable<typeof plugin.runtime>;
+    const url = "wss://offline.example.invalid/v1/ws";
+    const R = await runtime.createResource({ name: "P", endpoints: [url], coordinatorUrl: url });
+    const status = runtime.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    const id = "019a2f85-7b31-7c42-b85a-fc843e2f40ad";
+    await runtime.writeIntent(
+      R,
+      createTask({ id: id as never, title: "Plan", createdBy: status.principalId }).intent,
+    );
+    const ref = `lfcp1:${toBase64url(R)}#task:${id}`;
+    const edit = async (text: string) => {
+      app.vault.files.set("n.md", text);
+      app.vault.trigger("modify", { path: "n.md" });
+      plugin.changes.flush();
+      await plugin.lastProjection;
+    };
+    mock.notices.length = 0;
+    await edit(`- [x] Plan with [[Secret]]\n  <!-- lfcp-ref: ${ref} -->\n`);
+    const task = () => runtime.profileOf(R).then((p) => p.replica.task(id)?.task);
+    expect(await task()).toMatchObject({ title: "Plan with [[Secret]]", status: "done" });
+    expect(mock.notices.filter((n) => n.includes("links to notes"))).toHaveLength(1);
+    await edit(`- [x] Plan with [[Secret]]\n  <!-- lfcp-ref: ${ref} -->\n\nMore text.\n`);
+    expect(mock.notices.filter((n) => n.includes("links to notes"))).toHaveLength(1); // once
+
+    // Enter after the Task: a new Task slides between it and its ref.
+    await edit(`- [x] Plan with [[Secret]]\n- [ ] \n  <!-- lfcp-ref: ${ref} -->\n`);
+    expect(await task()).toMatchObject({ title: "Plan with [[Secret]]", status: "done" });
+    expect(mock.notices.some((n) => n.includes("Repair moved shared task ref"))).toBe(true);
+    app.workspace.active = { path: "n.md" };
+    await plugin.repairActiveNote();
+    plugin.changes.flush();
+    await plugin.lastProjection;
+    expect(app.vault.files.get("n.md")).toBe(
+      `- [x] Plan with [[Secret]]\n  <!-- lfcp-ref: ${ref} -->\n- [ ] \n`,
+    );
+    expect(await task()).toMatchObject({ title: "Plan with [[Secret]]", status: "done" });
+
+    // The plugin's own write is not projected back.
+    const own = `- [ ] Plan\n  <!-- lfcp-ref: ${ref} -->\n`;
+    plugin.guard.expect("n.md", own);
+    await edit(own);
+    expect(await task()).toMatchObject({ title: "Plan with [[Secret]]", status: "done" });
     host.unload();
     await plugin.stopRuntime();
   });

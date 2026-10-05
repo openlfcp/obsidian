@@ -23,8 +23,9 @@ describe("plugin", () => {
 
   it("registers every command as a stub that shows a notice", async () => {
     const { host } = await loaded();
-    expect(host.commands.map((c) => [c.id, c.name])).toEqual(COMMANDS.map((c) => [c.id, c.name]));
-    for (const command of host.commands) command.callback?.();
+    const stubs = host.commands.filter((c) => COMMANDS.some((x) => x.id === c.id));
+    expect(stubs.map((c) => [c.id, c.name])).toEqual(COMMANDS.map((c) => [c.id, c.name]));
+    for (const command of stubs) command.callback?.();
     expect(mock.notices).toHaveLength(COMMANDS.length);
     for (const notice of mock.notices) expect(notice).toMatch(/is not implemented yet\.$/);
   });

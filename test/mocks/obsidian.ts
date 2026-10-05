@@ -18,9 +18,25 @@ export interface TAbstractFile {
   path: string;
 }
 
-/** The vault's event source: tests trigger events by name. */
+export interface TFile extends TAbstractFile {}
+
+/** The vault's files and event source: tests write files and trigger events by name. */
 export class Vault {
   readonly handlers: EventRef[] = [];
+  readonly files = new Map<string, string>();
+  getFileByPath(path: string): TFile | null {
+    return this.files.has(path) ? { path } : null;
+  }
+  async read(file: TFile): Promise<string> {
+    return this.files.get(file.path) ?? "";
+  }
+  /** Writes like Obsidian: the content changes, then a modify event fires. */
+  async process(file: TFile, fn: (data: string) => string): Promise<string> {
+    const next = fn(this.files.get(file.path) ?? "");
+    this.files.set(file.path, next);
+    this.trigger("modify", { path: file.path });
+    return next;
+  }
   on(name: string, callback: (...args: unknown[]) => unknown): EventRef {
     const ref = { name, callback };
     this.handlers.push(ref);
@@ -50,8 +66,16 @@ export class SecretStorage {
   }
 }
 
+export class Workspace {
+  active: TFile | null = null;
+  getActiveFile(): TFile | null {
+    return this.active;
+  }
+}
+
 export class App {
   readonly vault = new Vault();
+  readonly workspace = new Workspace();
   /** Device-level, shared by every vault (as in Obsidian). */
   secretStorage = new SecretStorage();
   /** Vault-scoped localStorage. */

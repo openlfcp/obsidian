@@ -11,6 +11,10 @@
 import { Notice, Plugin, type TAbstractFile } from "obsidian";
 import { COMMANDS, notImplementedMessage } from "../core/commands";
 import { LfcpRuntime, type RuntimeEnv } from "../core/lfcp/runtime";
+import { ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
+import { MutationGuard } from "../core/projection/guard";
+import { ProjectionNotices } from "../core/projection/notices";
+import { applyRepair } from "../core/projection/reassociation";
 import { normalizeSettings, type Settings } from "../core/settings";
 import { VaultChangeHub } from "../core/vault/changes";
 import { obsidianRuntimeEnv } from "./lfcp-env";
@@ -23,6 +27,13 @@ export default class OpenLfcpPlugin extends Plugin {
     setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
     clearTimeout: (h) => globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
   });
+  /** The plugin's own Markdown writes, skipped as echoes (path + content hash). */
+  readonly guard = new MutationGuard();
+  /** Markdown → Shared Object projection (LFCP-061), while the runtime can write. */
+  readonly projection = new ProjectionEngine(() => this.#projectionHost(), this.guard);
+  readonly notices = new ProjectionNotices();
+  /** The last projection pass (for tests and diagnostics). */
+  lastProjection: Promise<unknown> = Promise.resolve();
   /** The LFCP runtime once started (null before, after unload, or if it failed). */
   runtime: LfcpRuntime | null = null;
   /** Why the runtime did not start, if it failed. */
@@ -41,8 +52,16 @@ export default class OpenLfcpPlugin extends Plugin {
         },
       });
     }
+    this.addCommand({
+      id: "repair-moved-ref",
+      name: "Repair moved shared task ref",
+      callback: () => void this.repairActiveNote(),
+    });
     this.addSettingTab(new OpenLfcpSettingTab(this.app, this));
     this.#listenToVault();
+    this.changes.subscribe((batch) => {
+      this.lastProjection = this.lastProjection.then(() => this.#project(batch));
+    });
     this.#starting = this.#startRuntime();
   }
 
@@ -82,6 +101,38 @@ export default class OpenLfcpPlugin extends Plugin {
       this.runtimeError = e instanceof Error ? e.message : String(e);
       return null;
     }
+  }
+
+  #projectionHost(): ProjectionHost | null {
+    const r = this.runtime;
+    return r !== null && r.status.kind === "ready" ? r : null;
+  }
+
+  async #project(batch: Parameters<ProjectionEngine["handleChanges"]>[0]): Promise<void> {
+    for (const c of batch) if (c.kind === "rename") this.notices.rename(c.oldPath, c.path);
+    try {
+      const outcomes = await this.projection.handleChanges(batch, async (path) => {
+        const file = this.app.vault.getFileByPath(path);
+        return file === null ? null : this.app.vault.read(file);
+      });
+      for (const o of outcomes) for (const m of this.notices.messages(o)) new Notice(m);
+    } catch (e) {
+      new Notice(
+        `OpenLFCP: a note could not be processed (${e instanceof Error ? e.message : String(e)}).`,
+      );
+    }
+  }
+
+  /** ST-2: moves suspected re-associated refs of the active note back under their Task. */
+  async repairActiveNote(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (file === null) return;
+    const repairs = this.notices.repairs(file.path);
+    if (repairs.length === 0) {
+      new Notice("OpenLFCP: nothing to repair in this note.");
+      return;
+    }
+    await this.app.vault.process(file, (text) => repairs.reduce((t, r) => applyRepair(t, r), text));
   }
 
   #listenToVault(): void {
