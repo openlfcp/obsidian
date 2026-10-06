@@ -60,12 +60,15 @@ export interface SharePlan {
  * The intents that share `state` (a local Task) as a new Task created by
  * `createdBy`. What LFCP-061 owns is shared; unowned pieces (🔼, 🛫, ➕,
  * ❌, 🔁, an unowned glyph, a ^block-id) stay local in the Markdown.
+ * `createdAt` (RFC 3339 UTC) becomes the Task's `created_at`, which orders
+ * "Insert all tasks from collaboration".
  * Throws when the line has no title, or (ProfileError) cannot be a valid Task.
  */
 export function planShare(
   state: TaskState,
   createdBy: PrincipalId,
   objectId: ObjectId = generateObjectId(),
+  createdAt?: string,
 ): SharePlan {
   const parsed = parseTaskText(state.taskText);
   if (parsed.title === "") throw new Error("The task has no title to share.");
@@ -84,6 +87,7 @@ export function planShare(
     id: objectId,
     title: parsed.title,
     createdBy,
+    ...(createdAt === undefined ? {} : { createdAt }),
     status,
     ...(parsed.priority === "unowned" ? {} : { priority: parsed.priority }),
     ...(parsed.due === null ? {} : { due: parsed.due }),

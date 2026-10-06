@@ -55,6 +55,7 @@ import type {
   RuntimeStatus,
 } from "../lfcp/runtime";
 import type { TaskState } from "../refs/scanner";
+import type { InsertCandidate } from "./batch";
 import { planShare } from "./markdown";
 import { codeOf, plainCode } from "./messages";
 import { DEFAULT_CLAIM_LIMIT, INVITE_PRESETS, type InvitePreset } from "./presets";
@@ -98,6 +99,8 @@ export interface CollabOptions {
   readonly joinTimeoutMs?: number;
   /** A timer (default setTimeout). */
   readonly sleep?: (ms: number) => Promise<void>;
+  /** The clock for a shared Task's created_at, in ms since the epoch (default Date.now). */
+  readonly now?: () => number;
 }
 
 /** Why something needs the network and could not get it, or was refused. */
@@ -230,7 +233,10 @@ const WS_URL = /^wss?:\/\/[^\s/]+/i;
 
 export class Collaboration {
   readonly #runtime: CollabRuntime;
-  readonly #o: Required<Omit<CollabOptions, "sleep">> & { sleep: (ms: number) => Promise<void> };
+  readonly #o: Required<Omit<CollabOptions, "sleep" | "now">> & {
+    sleep: (ms: number) => Promise<void>;
+    now: () => number;
+  };
 
   constructor(runtime: CollabRuntime, options: CollabOptions = {}) {
     this.#runtime = runtime;
@@ -239,6 +245,7 @@ export class Collaboration {
       ackTimeoutMs: options.ackTimeoutMs ?? 15_000,
       joinTimeoutMs: options.joinTimeoutMs ?? 30_000,
       sleep: options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+      now: options.now ?? Date.now,
     };
   }
 
@@ -594,12 +601,44 @@ export class Collaboration {
     R: ResourceId,
     task: TaskState,
   ): Promise<{ readonly objectId: ObjectId; readonly warnings: readonly string[] }> {
+    const [first] = (await this.shareAll(R, [task])).shared;
+    if (first === undefined) throw new Error("not shared");
+    return first;
+  }
+
+  /**
+   * Share local Tasks one by one (POST-018), each its own task.create and
+   * change, stamped created_at now + its index in ms, so their order is the
+   * note's. Stops at the first failure: `shared` holds those done before it,
+   * `error` the failure.
+   */
+  async shareAll(
+    R: ResourceId,
+    tasks: readonly TaskState[],
+  ): Promise<{
+    readonly shared: readonly {
+      readonly objectId: ObjectId;
+      readonly warnings: readonly string[];
+    }[];
+    readonly error?: unknown;
+  }> {
     const entry = await this.#entry(R);
     if (entry.state === "control_conflict") throw new CollabError("CONTROL_CONFLICT");
     const c = this.#context();
-    const plan = planShare(task, c.principal.id);
-    for (const intent of plan.intents) await this.#runtime.writeIntent(R, intent);
-    return { objectId: plan.objectId, warnings: plan.warnings };
+    const base = this.#o.now();
+    const shared: { objectId: ObjectId; warnings: readonly string[] }[] = [];
+    for (const [i, task] of tasks.entries()) {
+      try {
+        const at = new Date(base + i).toISOString();
+        const plan = planShare(task, c.principal.id, undefined, at);
+        for (const intent of plan.intents) await this.#runtime.writeIntent(R, intent);
+        shared.push({ objectId: plan.objectId, warnings: plan.warnings });
+      } catch (error) {
+        if (shared.length === 0 && tasks.length === 1) throw error;
+        return { shared, error };
+      }
+    }
+    return { shared };
   }
 
   /** The live, valid Tasks of a collaboration, for "Insert shared object". */
@@ -613,6 +652,22 @@ export class Collaboration {
       out.push({ objectId: id as ObjectId, title: task.title, status: task.status });
     }
     return out.sort((a, b) => a.title.localeCompare(b.title));
+  }
+
+  /** Every live, valid Task with its created_at, for "Insert all tasks from collaboration". */
+  async insertCandidates(R: ResourceId): Promise<InsertCandidate[]> {
+    const replica = (await this.#runtime.profileOf(R)).replica;
+    const out: InsertCandidate[] = [];
+    for (const id of replica.objectIds()) {
+      const view = replica.task(id);
+      const task = view?.task;
+      if (view?.status !== "ready" || task === undefined || task.lifecycle === "deleted") continue;
+      out.push({
+        objectId: id,
+        ...(task.created_at === undefined ? {} : { createdAt: task.created_at }),
+      });
+    }
+    return out;
   }
 
   /** A shared Task's current state (its visible values), if it is a valid Task. */

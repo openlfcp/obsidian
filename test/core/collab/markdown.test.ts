@@ -106,6 +106,18 @@ describe("share planning (LFCP-065)", () => {
     ]);
   });
 
+  it("stamps created_at when given one", () => {
+    const at = "2026-10-07T10:00:00.003Z";
+    const create = planShare(state("- [ ] Ship it"), ALICE, ID, at).intents[0] as {
+      task: Record<string, unknown>;
+    };
+    expect(create.task.created_at).toBe(at);
+    const unstamped = planShare(state("- [ ] Ship it"), ALICE, ID).intents[0] as {
+      task: Record<string, unknown>;
+    };
+    expect("created_at" in unstamped.task).toBe(false);
+  });
+
   it("refuses a Task without a title", () => {
     expect(() => planShare(state("- [ ] 📅 2026-10-15"), ALICE, ID)).toThrow(
       "The task has no title to share.",

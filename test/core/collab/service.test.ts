@@ -205,6 +205,43 @@ describe("Share and edit offline (LFCP-065, local-first)", () => {
   });
 });
 
+describe("Share many (POST-018)", () => {
+  it("shares each Task as its own change, created_at in note order", async () => {
+    const device = new Device();
+    const runtime = await LfcpRuntime.start(device.env(new FakeLocal()));
+    running.push(runtime);
+    const collab = new Collaboration(runtime, {
+      connectTimeoutMs: 50,
+      ackTimeoutMs: 50,
+      now: () => Date.UTC(2026, 9, 7, 10, 0, 0),
+    });
+    const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
+    const before = (await runtime.storage?.outbound.list(R))?.length ?? 0;
+    const { shared, error } = await collab.shareAll(R, [
+      localTask("- [ ] One"),
+      localTask("- [ ] Two"),
+      localTask("- [ ] Three"),
+    ]);
+    expect(error).toBeUndefined();
+    expect(shared).toHaveLength(3);
+    expect((await runtime.storage?.outbound.list(R))?.length).toBe(before + 3);
+    const candidates = await collab.insertCandidates(R);
+    const byId = new Map(candidates.map((c) => [c.objectId, c.createdAt]));
+    expect(shared.map((s) => byId.get(s.objectId))).toEqual([
+      "2026-10-07T10:00:00.000Z",
+      "2026-10-07T10:00:00.001Z",
+      "2026-10-07T10:00:00.002Z",
+    ]);
+    // A failure stops the batch and keeps what was shared before it.
+    const partial = await collab.shareAll(R, [
+      localTask("- [ ] Four"),
+      localTask("- [ ] 📅 2026-10-15"),
+    ]);
+    expect(partial.shared).toHaveLength(1);
+    expect(String(partial.error)).toContain("no title");
+  });
+});
+
 describe("Conflict hook (LFCP-065)", () => {
   it("lists the competing values and resolves only through task.resolve_field_conflict", async () => {
     const { runtime, collab } = await offline();
