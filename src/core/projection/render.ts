@@ -242,7 +242,7 @@ export function renderTaskText(text: string, task: Task, issues: RenderIssue[]):
       (s) =>
         s.kind === "date" && value !== null
           ? { ...s, value, raw: replaceLast(s.raw, s.value, value) }
-          : (date(field, value as string) as Segment),
+          : date(field, value as string),
     );
 
   return nextDescription + segments.map((s) => s.raw).join("") + trailing;

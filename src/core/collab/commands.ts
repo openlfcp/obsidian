@@ -455,7 +455,7 @@ export class CollabCommands {
         choices: values.map((v) => ({ label: v ?? "(clear)", value: { v } })),
       });
       if (pick === null) return;
-      await collab.resolve(R, at.ref.objectId as ObjectId, field, pick.v);
+      await collab.resolve(R, at.ref.objectId, field, pick.v);
       p.notice(`Shared Tasks: ${field} resolved.`);
     });
   }

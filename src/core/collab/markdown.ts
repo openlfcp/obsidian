@@ -65,7 +65,7 @@ export interface SharePlan {
 export function planShare(
   state: TaskState,
   createdBy: PrincipalId,
-  objectId: ObjectId = generateObjectId() as ObjectId,
+  objectId: ObjectId = generateObjectId(),
 ): SharePlan {
   const parsed = parseTaskText(state.taskText);
   if (parsed.title === "") throw new Error("The task has no title to share.");

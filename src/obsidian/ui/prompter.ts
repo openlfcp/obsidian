@@ -107,7 +107,7 @@ class ChoiceModal<T> extends SuggestModal<Choice<T>> {
   }
 
   renderSuggestion(choice: Choice<T>, el: HTMLElement): void {
-    el.createEl("div", { text: choice.label });
+    el.createDiv({ text: choice.label });
     if (choice.description !== undefined) el.createEl("small", { text: choice.description });
   }
 

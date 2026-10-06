@@ -48,36 +48,23 @@ export class SlotSecretStore implements SecretStore {
     this.#installId = installId;
   }
 
-  put(ref: SecretRef, value: Uint8Array): Promise<void> {
-    try {
-      if (!isSecretRef(ref)) throw new LfcpError("UNSUPPORTED_VALUE", "not a secret reference");
-      this.#slots.set(secretSlotId(this.#installId, ref), PREFIX + toBase64url(value));
-      return Promise.resolve();
-    } catch (e) {
-      return Promise.reject(e);
-    }
+  // async: a failure is a rejected promise, never a synchronous throw.
+  async put(ref: SecretRef, value: Uint8Array): Promise<void> {
+    if (!isSecretRef(ref)) throw new LfcpError("UNSUPPORTED_VALUE", "not a secret reference");
+    this.#slots.set(secretSlotId(this.#installId, ref), PREFIX + toBase64url(value));
   }
 
-  get(ref: SecretRef): Promise<Uint8Array | undefined> {
-    try {
-      if (!isSecretRef(ref)) return Promise.resolve(undefined);
-      const raw = this.#slots.get(secretSlotId(this.#installId, ref));
-      if (raw === null || raw === "") return Promise.resolve(undefined);
-      if (!raw.startsWith(PREFIX))
-        throw new LfcpError("UNSUPPORTED_VALUE", "a stored secret has an unknown format");
-      return Promise.resolve(fromBase64url(raw.slice(PREFIX.length)));
-    } catch (e) {
-      return Promise.reject(e);
-    }
+  async get(ref: SecretRef): Promise<Uint8Array | undefined> {
+    if (!isSecretRef(ref)) return undefined;
+    const raw = this.#slots.get(secretSlotId(this.#installId, ref));
+    if (raw === null || raw === "") return undefined;
+    if (!raw.startsWith(PREFIX))
+      throw new LfcpError("UNSUPPORTED_VALUE", "a stored secret has an unknown format");
+    return fromBase64url(raw.slice(PREFIX.length));
   }
 
-  delete(ref: SecretRef): Promise<void> {
-    try {
-      if (isSecretRef(ref)) this.#slots.set(secretSlotId(this.#installId, ref), "");
-      return Promise.resolve();
-    } catch (e) {
-      return Promise.reject(e);
-    }
+  async delete(ref: SecretRef): Promise<void> {
+    if (isSecretRef(ref)) this.#slots.set(secretSlotId(this.#installId, ref), "");
   }
 
   /** Never renders secrets (JSON, diagnostics). */

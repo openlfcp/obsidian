@@ -29,6 +29,11 @@ interface NavigatorLike {
   readonly locks?: LockManagerLike;
 }
 
+/** Whether `storage` offers navigator.storage.persist(). */
+const canPersist = (
+  storage: NavigatorLike["storage"],
+): storage is { persist(): Promise<boolean> } => typeof storage?.persist === "function";
+
 /** Holds a Web Lock until released; null when another holder has it. */
 async function acquireWebLock(locks: LockManagerLike, name: string): Promise<HeldLock | null> {
   return new Promise((resolve) => {
@@ -49,10 +54,13 @@ async function acquireWebLock(locks: LockManagerLike, name: string): Promise<Hel
 export function obsidianRuntimeEnv(app: App): RuntimeEnv {
   const nav = (globalThis as { navigator?: NavigatorLike }).navigator;
   const locks = nav?.locks;
-  const persist = nav?.storage?.persist;
+  const storage = nav?.storage;
   return {
     local: {
-      load: (key) => app.loadLocalStorage(key),
+      load: (key): unknown => {
+        const value: unknown = app.loadLocalStorage(key);
+        return value;
+      },
       save: (key, value) => app.saveLocalStorage(key, value),
     },
     slots: {
@@ -60,7 +68,7 @@ export function obsidianRuntimeEnv(app: App): RuntimeEnv {
       set: (id, value) => app.secretStorage.setSecret(id, value),
     },
     openStorage: (name, onReserved) => IdbLfcpStorage.open(name, { onReserved }),
-    ...(persist === undefined ? {} : { persist: () => persist.call(nav?.storage) }),
+    ...(canPersist(storage) ? { persist: () => storage.persist() } : {}),
     ...(locks === undefined ? {} : { acquireLock: (name) => acquireWebLock(locks, name) }),
     timers: {
       setInterval: (fn, ms) => globalThis.setInterval(fn, ms),

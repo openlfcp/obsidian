@@ -521,7 +521,11 @@ export class Collaboration {
       const replica = (await this.#runtime.profileOf(R)).replica;
       conflicts = Object.entries(replica.conflicts()).map(([objectId, fields]) => ({
         objectId,
-        title: replica.task(objectId)?.fields.title.values.join(" / ") ?? objectId,
+        title:
+          replica
+            .task(objectId)
+            ?.fields.title.values.map((v) => (typeof v === "string" ? v : JSON.stringify(v)))
+            .join(" / ") ?? objectId,
         fields: Object.keys(fields).filter((f): f is ScalarField =>
           (SCALAR_FIELDS as readonly string[]).includes(f),
         ),
