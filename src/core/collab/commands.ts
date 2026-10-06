@@ -9,7 +9,7 @@
 // copy action). Neither is ever put in a notice, a log or settings.
 
 import type { InvitationLink } from "@openlfcp/client";
-import { resourceId as asResourceId, type ObjectId, type ResourceId, toHex } from "@openlfcp/core";
+import { resourceId as asResourceId, type ResourceId, toHex } from "@openlfcp/core";
 import type { ScalarField } from "@openlfcp/shared-objects";
 import type { RegistryEntry } from "../lfcp/runtime";
 import type { MutationGuard } from "../projection/guard";
