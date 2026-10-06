@@ -375,6 +375,9 @@ export class LfcpRuntime {
           dataProfile: profile.dataProfile,
           codecFor: (u) => profile.codecFor(u),
           apply: (u, v) => profile.apply(u, v as never),
+          // A catch-up (join, reconnect, restart replay) merges in one
+          // Automerge call instead of one per unit.
+          applyBatch: (units) => profile.applyBatch(units as never),
           exclude: (ids) => profile.exclude(ids),
           has: (id) => profile.has(id),
           reset: () => profile.reset(),
