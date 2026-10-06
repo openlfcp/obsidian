@@ -12,11 +12,12 @@ import {
   insertAtLine,
   type Prompter,
 } from "../../../src/core/collab/commands";
+import { PROJECT_SERVER_HINT } from "../../../src/core/collab/server-notice";
 import { Collaboration, type ResourceStatus } from "../../../src/core/collab/service";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { MutationGuard } from "../../../src/core/projection/guard";
 import { scanRefs } from "../../../src/core/refs";
-import type { RefPlacement } from "../../../src/core/settings";
+import { PROJECT_SERVER, type RefPlacement } from "../../../src/core/settings";
 import { Device, FakeLocal } from "../../support/lfcp-env";
 
 const SERVER = "wss://offline.example.invalid/v1/ws";
@@ -31,6 +32,7 @@ class ScriptedPrompter implements Prompter {
   readonly notices: string[] = [];
   readonly asked: string[] = [];
   readonly masked: boolean[] = [];
+  readonly hints = new Map<string, (value: string) => unknown>();
   readonly progressLines: string[] = [];
   readonly invitations: { link: InvitationLink; preset: string; confirmed: boolean }[] = [];
   readonly statuses: { status: ResourceStatus; actions: string[] }[] = [];
@@ -39,8 +41,13 @@ class ScriptedPrompter implements Prompter {
   notice(message: string): void {
     this.notices.push(message);
   }
-  async text(o: { title: string; masked?: boolean }): Promise<string | null> {
+  async text(o: {
+    title: string;
+    masked?: boolean;
+    hint?: (value: string) => unknown;
+  }): Promise<string | null> {
     this.asked.push(o.title);
+    if (o.hint !== undefined) this.hints.set(o.title, o.hint);
     this.masked.push(o.masked === true);
     return this.texts.shift() ?? null;
   }
@@ -122,6 +129,11 @@ describe("LFCP-065 commands", () => {
     const s = await setup();
     await created(s);
     expect(s.prompter.asked).toEqual(["Create collaboration", "Sync server"]);
+    // The server field explains the project server, and only it.
+    const hint = s.prompter.hints.get("Sync server");
+    expect(hint?.(PROJECT_SERVER)).toBe(PROJECT_SERVER_HINT);
+    expect(hint?.(SERVER)).toBeNull();
+    expect([...s.prompter.hints.keys()]).toEqual(["Sync server"]);
     expect(s.prompter.notices.at(-1)).toMatch(
       /^OpenLFCP: "Team" created on this device\. The server .* is not reachable now/,
     );

@@ -100,6 +100,43 @@ async function createTeam(host: mock.Plugin) {
 }
 
 describe("LFCP-065 in the plugin", () => {
+  it("offers the project server with its notice, updated as the server is edited", async () => {
+    const { host } = await load();
+    const seen = mock.modals.length;
+    run(host, "create-collaboration");
+    await answer(seen, "Team");
+    const server = await next(seen + 1);
+    expect(input(server).value).toBe("wss://sync.openlfcp.org/v1/ws");
+    const links = () => server.contentEl.findAll("a").map((a) => [a.text, a.href]);
+    expect(server.contentEl.textContent).toContain(
+      "Hosted by the OpenLFCP project (beta). The server sees metadata, not your tasks.",
+    );
+    expect(links()).toEqual([
+      [
+        "Privacy note",
+        "https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-privacy.md",
+      ],
+      [
+        "Terms",
+        "https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-terms.md",
+      ],
+    ]);
+    // Another server: no notice; back to the project server: shown again.
+    input(server).value = SERVER;
+    input(server).trigger("input");
+    expect(server.contentEl.textContent).not.toContain("Hosted by the OpenLFCP project");
+    expect(links()).toEqual([]);
+    input(server).value = "wss://sync.openlfcp.org/v1/ws";
+    input(server).trigger("input");
+    expect(links()).toHaveLength(2);
+    // Not a modal of its own, and nothing to click: OK goes on as before.
+    expect(mock.modals).toHaveLength(seen + 2);
+    input(server).value = SERVER;
+    button(server, "OK").click();
+    await settle(() => mock.notices.some((n) => n.includes('"Team" created')));
+    expect(mock.notices.join("\n")).not.toContain("Hosted by");
+  });
+
   it("registers a handler for every product command", async () => {
     const { host } = await load();
     expect(

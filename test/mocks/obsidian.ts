@@ -163,16 +163,25 @@ export class FakeElement {
   type = "";
   placeholder = "";
   cls = "";
+  href = "";
   readOnly = false;
   readonly children: FakeElement[] = [];
   readonly listeners = new Map<string, ((event?: unknown) => unknown)[]>();
   constructor(readonly tag: string) {}
   createEl(
     tag: string,
-    o: { text?: string; cls?: string; type?: string; placeholder?: string; value?: string } = {},
+    o: {
+      text?: string;
+      cls?: string;
+      type?: string;
+      placeholder?: string;
+      value?: string;
+      href?: string;
+    } = {},
   ): FakeElement {
     const el = new FakeElement(tag);
     el.text = o.text ?? "";
+    el.href = o.href ?? "";
     el.cls = o.cls ?? "";
     el.type = o.type ?? "";
     el.placeholder = o.placeholder ?? "";

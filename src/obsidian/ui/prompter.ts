@@ -9,6 +9,7 @@
 import type { InvitationLink } from "@openlfcp/client";
 import { type App, MarkdownView, Modal, Notice, SuggestModal } from "obsidian";
 import type { ActiveNote, Choice, NoteAccess, Prompter } from "../../core/collab/commands";
+import type { Hint } from "../../core/collab/server-notice";
 import type { ResourceStatus } from "../../core/collab/service";
 import { statusView } from "../../core/collab/view";
 
@@ -28,6 +29,7 @@ class TextModal extends Modal {
       readonly placeholder?: string;
       readonly value?: string;
       readonly masked?: boolean;
+      readonly hint?: (value: string) => Hint | null;
     },
   ) {
     super(app);
@@ -44,6 +46,24 @@ class TextModal extends Modal {
       value: this.o.value ?? "",
     });
     if (this.o.value !== undefined) input.value = this.o.value;
+    const hint = this.o.hint;
+    if (hint !== undefined) {
+      // A line under the field for its current value: shown, updated or
+      // removed as the user types. Never blocks; links open in the browser.
+      const line = el.createEl("p", { cls: "setting-item-description" });
+      const show = () => {
+        line.empty();
+        const h = hint(input.value);
+        if (h === null) return;
+        line.createSpan({ text: `${h.text} ` });
+        h.links.forEach((link, i) => {
+          if (i > 0) line.createSpan({ text: " · " });
+          line.createEl("a", { text: link.label, href: link.url });
+        });
+      };
+      show();
+      input.addEventListener("input", show);
+    }
     const submit = () => {
       this.#value = input.value;
       this.close();

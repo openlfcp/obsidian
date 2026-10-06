@@ -20,6 +20,7 @@ import type { RefPlacement } from "../settings";
 import { attachToTask, detachExact, taskAt, unitPlacement } from "./markdown";
 import { plainError } from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
+import { type Hint, serverHint } from "./server-notice";
 import type { Collaboration, JoinStage, ResourceStatus } from "./service";
 
 export interface Choice<T> {
@@ -31,13 +32,18 @@ export interface Choice<T> {
 /** Dialogs and notices of the editor (Obsidian: Modal, SuggestModal, Notice). */
 export interface Prompter {
   notice(message: string): void;
-  /** A text field; `masked` hides what is typed (invitation links). Null when cancelled. */
+  /**
+   * A text field; `masked` hides what is typed (invitation links). `hint`
+   * gives a line shown under the field for its current value, updated as
+   * it changes (null: none). Null when cancelled.
+   */
   text(options: {
     readonly title: string;
     readonly description?: string;
     readonly placeholder?: string;
     readonly value?: string;
     readonly masked?: boolean;
+    readonly hint?: (value: string) => Hint | null;
   }): Promise<string | null>;
   choose<T>(options: {
     readonly title: string;
@@ -176,6 +182,8 @@ export class CollabCommands {
         "The server that relays this collaboration. It is not your identity and does not own the collaboration: you do. Your identity is a key pair on this device.",
       placeholder: "wss://sync.example.com/v1/ws",
       value: this.#env.defaultServer(),
+      // The project server says who runs it and links its privacy note.
+      hint: serverHint,
     });
     if (server === null) return null;
     const created = await collab.create({ name, server });
