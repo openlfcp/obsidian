@@ -54,14 +54,23 @@ export class Vault {
   }
 }
 
-/** Obsidian's SecretStorage: lowercase alphanumeric IDs with dashes; no delete. */
+/** Obsidian's secret ID rule, with its exact error. */
+export function checkSecretId(id: string): void {
+  if (!/^[a-z0-9-]{1,64}$/.test(id))
+    throw new Error(
+      "Secret ID is invalid. Use only lowercase letters, numbers and dashes. 64 characters max.",
+    );
+}
+
+/** Obsidian's SecretStorage: IDs per checkSecretId; no delete. */
 export class SecretStorage {
   readonly values = new Map<string, string>();
   setSecret(id: string, secret: string): void {
-    if (!/^[a-z0-9-]+$/.test(id)) throw new Error(`invalid secret ID ${id}`);
+    checkSecretId(id);
     this.values.set(id, secret);
   }
   getSecret(id: string): string | null {
+    checkSecretId(id);
     return this.values.get(id) ?? null;
   }
   listSecrets(): string[] {

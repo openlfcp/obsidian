@@ -2,6 +2,7 @@ import { principalId } from "@openlfcp/core";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { describe, expect, it } from "vitest";
 import { markerSlotId, SlotSecretStore, secretSlotId } from "../../../src/core/lfcp/secrets";
+import { checkSecretId } from "../../mocks/obsidian";
 import { FakeSecretSlots } from "../../support/lfcp-env";
 
 const A = "0123456789abcdef0123456789abcdef";
@@ -10,10 +11,31 @@ const ref = principalKeySecretRef(principalId(new Uint8Array(32).fill(7)), "sign
 
 describe("SlotSecretStore (secretStorage, LFCP-059)", () => {
   it("uses valid Obsidian secret IDs, namespaced per install", () => {
-    expect(secretSlotId(A, ref)).toMatch(/^openlfcp-[0-9a-f]{32}-[0-9a-f]{32}$/);
+    expect(secretSlotId(A, ref)).toMatch(/^openlfcp-[0-9a-f]{55}$/);
     expect(secretSlotId(A, ref)).not.toBe(secretSlotId(B, ref));
     expect(markerSlotId(A)).toBe(`openlfcp-${A}-marker`);
     expect(() => secretSlotId("NOT-AN-ID", ref)).toThrow();
+  });
+
+  it("always fits Obsidian's secret ID rule (1-64 of a-z, 0-9, -)", () => {
+    const hex = (n: number) =>
+      Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join("");
+    for (let i = 0; i < 200; i++) {
+      const installId = hex(16);
+      const r = principalKeySecretRef(
+        principalId(crypto.getRandomValues(new Uint8Array(32))),
+        i % 2 === 0 ? "signing" : "agreement",
+      );
+      for (const id of [secretSlotId(installId, r), markerSlotId(installId)]) {
+        expect(id).toMatch(/^[a-z0-9-]{1,64}$/);
+        expect(() => checkSecretId(id)).not.toThrow();
+      }
+    }
+    expect(() => checkSecretId(`openlfcp-${A}-${"0".repeat(32)}`)).toThrow(
+      "Secret ID is invalid. Use only lowercase letters, numbers and dashes. 64 characters max.",
+    );
   });
 
   it("keeps installs apart, round-trips empty values and deletes with a tombstone", async () => {

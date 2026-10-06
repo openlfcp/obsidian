@@ -2,10 +2,12 @@
 // such as Obsidian's app.secretStorage (LFCP-059). Obsidian-free: the
 // adapter supplies the slots.
 //
-// Slot IDs: `openlfcp-<installId>-<32 hex of SHA-256(ref)>`. Obsidian's
-// secret IDs are lowercase letters, digits and dashes, and its store is
-// shared by every vault on the device, so each install has its own
-// namespace and a SecretRef (which has colons, dots and capitals) is hashed.
+// Slot IDs: `openlfcp-<55 hex of SHA-256(installId "\n" ref)>`, 64 chars.
+// Obsidian's secret IDs are 1-64 lowercase letters, digits and dashes, and
+// its store is shared by every vault on the device, so each install has its
+// own namespace (the install ID is hashed in) and a SecretRef (which has
+// colons, dots and capitals) is hashed. The marker slot is
+// `openlfcp-<installId>-marker`, 48 chars.
 // The slot store has no delete: an empty string marks a deleted secret.
 // Values are "v1:" + unpadded base64url, so an empty secret is not "".
 
@@ -29,7 +31,8 @@ export const isInstallId = (value: unknown): value is string =>
 /** The slot of `ref` in an install's namespace. */
 export function secretSlotId(installId: string, ref: SecretRef): string {
   if (!isInstallId(installId)) throw new LfcpError("UNSUPPORTED_VALUE", "not an install ID");
-  return `openlfcp-${installId}-${toHex(sha256(new TextEncoder().encode(ref))).slice(0, 32)}`;
+  const digest = sha256(new TextEncoder().encode(`${installId}\n${ref}`));
+  return `openlfcp-${toHex(digest).slice(0, 55)}`;
 }
 
 /** The slot of an install's marker (not a SecretRef: it holds no key material). */

@@ -1,5 +1,5 @@
 // Test doubles for the LFCP runtime (LFCP-059): an in-memory stand-in for
-// Obsidian's secretStorage (same ID rule), a vault-scoped local store,
+// Obsidian's secretStorage (same ID rule and error), a vault-scoped local store,
 // counted timers and a WebSocket that never connects (offline). IndexedDB is
 // fake-indexeddb, so the storage itself is the real IdbLfcpStorage.
 
@@ -9,15 +9,17 @@ import { IdbLfcpStorage } from "@openlfcp/storage-idb";
 import type { InstallStorage, LocalKeyValue } from "../../src/core/lfcp/install";
 import type { HeldLock, RuntimeEnv, Timers } from "../../src/core/lfcp/runtime";
 import type { SecretSlots } from "../../src/core/lfcp/secrets";
+import { checkSecretId } from "../mocks/obsidian";
 
-/** Obsidian SecretStorage semantics: lowercase alphanumeric IDs with dashes, no delete. */
+/** Obsidian SecretStorage semantics: IDs per checkSecretId, no delete. */
 export class FakeSecretSlots implements SecretSlots {
   readonly values = new Map<string, string>();
   get(id: string): string | null {
+    checkSecretId(id);
     return this.values.get(id) ?? null;
   }
   set(id: string, value: string): void {
-    if (!/^[a-z0-9-]+$/.test(id)) throw new Error(`invalid secret ID ${id}`);
+    checkSecretId(id);
     this.values.set(id, value);
   }
 }
