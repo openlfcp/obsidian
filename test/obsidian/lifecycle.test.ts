@@ -86,6 +86,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(stored).toEqual({
       refPlacement: "child-line",
       defaultServer: "wss://sync.example/v1/ws",
+      settingsVersion: 2,
     });
     const dump = JSON.stringify(stored);
     expect(dump).not.toContain(id);

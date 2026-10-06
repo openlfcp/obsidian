@@ -45,7 +45,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Default server")
       .setDesc(
-        "The sync server offered when you create a collaboration. It is not your identity and does not own your collaborations.",
+        "The sync server offered when you create a collaboration. It is not your identity and does not own your collaborations. Default: the OpenLFCP project server (beta). Clear it to type a server each time.",
       )
       .addText((text) =>
         text

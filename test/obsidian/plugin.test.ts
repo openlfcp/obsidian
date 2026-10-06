@@ -2,6 +2,7 @@
 // what Obsidian would see when it enables the plugin.
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { PROJECT_SERVER } from "../../src/core/settings";
 import OpenLfcpPlugin from "../../src/main";
 import * as mock from "../mocks/obsidian";
 
@@ -22,7 +23,11 @@ describe("plugin", () => {
 
   it("loads stored settings and normalizes them", async () => {
     const { plugin } = await loaded({ refPlacement: "inline", defaultServer: 7 });
-    expect(plugin.settings).toEqual({ refPlacement: "inline", defaultServer: "" });
+    expect(plugin.settings).toEqual({
+      refPlacement: "inline",
+      defaultServer: PROJECT_SERVER,
+      settingsVersion: 2,
+    });
   });
 
   it("reloads settings changed outside the plugin", async () => {
@@ -45,14 +50,28 @@ describe("plugin", () => {
 
     await placement?.dropdown?.onChangeHandler("inline");
     expect(plugin.settings.refPlacement).toBe("inline");
-    expect(host.stored).toEqual({ refPlacement: "inline", defaultServer: "" });
+    expect(host.stored).toEqual({
+      refPlacement: "inline",
+      defaultServer: PROJECT_SERVER,
+      settingsVersion: 2,
+    });
+    expect(server?.text?.value).toBe(PROJECT_SERVER);
 
     // A value outside the dropdown's options is ignored.
     await placement?.dropdown?.onChangeHandler("sideways");
     expect(plugin.settings.refPlacement).toBe("inline");
 
     await server?.text?.onChangeHandler("wss://a.example/ws");
-    expect(host.stored).toEqual({ refPlacement: "inline", defaultServer: "wss://a.example/ws" });
+    expect(host.stored).toEqual({
+      refPlacement: "inline",
+      defaultServer: "wss://a.example/ws",
+      settingsVersion: 2,
+    });
+
+    // Cleared, it stays cleared after a reload.
+    await server?.text?.onChangeHandler("");
+    const reloaded = await loaded(host.stored);
+    expect(reloaded.plugin.settings.defaultServer).toBe("");
 
     // Redisplaying does not duplicate controls.
     const count = tab.containerEl.settings.length;
