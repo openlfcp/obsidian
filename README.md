@@ -1,47 +1,178 @@
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/openlfcp/.github/main/docs/assets/brand/openlfcp-mark-dark.svg"><img src="https://raw.githubusercontent.com/openlfcp/.github/main/docs/assets/brand/openlfcp-mark.svg" width="64" height="64" alt="OpenLFCP"></picture>
 
-# openlfcp/obsidian
+# Shared Tasks for Obsidian
+
+Shared tasks inside your private notes. By OpenLFCP (Open Local-First
+Collaboration Protocol).
 
 Website: [openlfcp.org](https://openlfcp.org)
 
-**Shared Tasks** (plugin ID `shared-tasks`): share tasks between Obsidian
-vaults, end-to-end encrypted, without uploading your notes. It is the
-Obsidian editor adapter and product UI for OpenLFCP. **Beta.**
+![Bob ticks a shared task in his note; it updates in Alice's note, end-to-end encrypted, while the rest of both notes stays private](docs/assets/shared-tasks-demo.gif)
+
+**Beta.** Plugin ID `shared-tasks`, version 0.2.0.
+
+## What it does
+
+- **Share one task, not your vault.** Put the cursor on a task and share
+  it; the rest of the note stays on your device.
+- **Invite with a one-time link.** The other person joins with it, from
+  their own vault, with "Read" or "Read + write" access.
+- **Works offline.** Edit while offline; changes sync when you are back,
+  and edits on both sides are kept.
+- **Markdown stays Markdown.** A shared task is an ordinary task line in
+  the Obsidian Tasks syntax (`📅 2026-10-20`, `✅`), with a small
+  `<!-- lfcp-ref: … -->` comment that links it.
 
 ## Install
 
-- **Now, with BRAT:** install
-  [BRAT](https://github.com/TfTHacker/obsidian42-brat), run "BRAT: Add a
-  beta plugin for testing" and enter `openlfcp/obsidian`, then enable
-  "Shared Tasks" in Settings → Community plugins.
-- **By hand:** download `shared-tasks-<version>.zip` from the
-  [releases](https://github.com/openlfcp/obsidian/releases), unzip it into
-  `<vault>/.obsidian/plugins/`, and enable the plugin.
-- **Later:** from Obsidian's community plugin directory (not submitted yet).
+Shared Tasks needs Obsidian 1.13.1 or later.
 
-Requires Obsidian 1.13.1 or later. Tested on desktop; mobile is not tested
-yet. Upgrading from 0.1.0, which was called "OpenLFCP": see
+**Beta, with BRAT:**
+1. Install and enable [BRAT](https://github.com/TfTHacker/obsidian42-brat)
+   from Settings → Community plugins.
+2. Run "BRAT: Add a beta plugin for testing" from the command palette.
+3. Enter `openlfcp/obsidian`; if BRAT asks for a version, pick `0.2.0`.
+4. Enable "Shared Tasks" in Settings → Community plugins.
+
+**By hand:** from the
+[0.2.0 release](https://github.com/openlfcp/obsidian/releases/tag/0.2.0),
+download `main.js`, `manifest.json` and `styles.css` into
+`<vault>/.obsidian/plugins/shared-tasks/` (or unzip
+`shared-tasks-0.2.0.zip` into `<vault>/.obsidian/plugins/`), then enable
+"Shared Tasks" in Settings → Community plugins.
+
+**Community Plugins:** coming; not submitted yet.
+
+Upgrading from 0.1.0, which was called "OpenLFCP": see
 [docs/releases/0.2.0.md](docs/releases/0.2.0.md).
 
-**The sync server.** "Create collaboration" offers the OpenLFCP project's
-public server, `wss://sync.openlfcp.org/v1/ws` (beta), by default. Read its
+## Your first shared task
+
+Two people, each with their own vault and Shared Tasks installed. The
+commands are in the command palette.
+
+1. **Create a collaboration.** Run "Shared Tasks: Create collaboration",
+   give it a name only you see, and keep the suggested server
+   (`wss://sync.openlfcp.org/v1/ws`, see "Which server").
+2. **Share the task.** Put the cursor on a task, for example
+   `- [ ] Prepare API contract 📅 2026-10-20`, run "Shared Tasks: Share
+   task under cursor" and pick the collaboration. A `lfcp-ref` comment
+   appears under the task; nothing else in the note changes.
+3. **Invite.** Run "Shared Tasks: Invite collaborator", pick the
+   collaboration and "Read + write", and copy the link. **The link is a
+   secret**: anyone who has it can join until it is used. Send it
+   privately.
+4. **The other person joins and inserts the task.** In their vault they run
+   "Shared Tasks: Join collaboration", paste the link, then put the cursor
+   on an empty line in any note and run "Shared Tasks: Insert shared
+   object" to place the same task there.
+5. **Tick it.** When either of you ticks the task (`- [x]`), the other
+   note shows it done, with its `✅` date, within seconds.
+
+The full walkthrough, with what to expect at each step:
+[docs/demos/two-vault-demo.md](docs/demos/two-vault-demo.md).
+
+## What's shared, what stays private, what the server sees
+
+| | |
+| --- | --- |
+| **Shared** with your collaborators | The tasks you share: title, status, dates, priority, tags. End-to-end encrypted: only members of the collaboration can read them. |
+| **Stays private** | Everything else in your vault, including the text around a shared task, and your keys, which never leave your device. Each vault has its own identity, a key pair, not an account. |
+| **The server sees** | Encrypted data it cannot read, plus the metadata it needs: public keys, collaboration IDs, who may read or write, sizes and counts of changes, and your IP address when you connect. Details: the server's [privacy note](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-privacy.md). |
+
+## Which server
+
+"Create collaboration" suggests the free public beta server of the
+OpenLFCP project, `wss://sync.openlfcp.org/v1/ws`. Read its
 [privacy note](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-privacy.md)
 and [terms](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-terms.md)
-first, or run your own server. See
+first. Or run your own:
+[openlfcp/server](https://github.com/openlfcp/server) has a container
+setup in [`deploy/`](https://github.com/openlfcp/server/tree/main/deploy).
+Change the suggestion in Settings → Shared Tasks → "Default server".
+
+A collaboration stays on the server it was created on, and people who join
+use the server named in the invitation. More:
 [docs/guides/choosing-a-server.md](docs/guides/choosing-a-server.md).
 
-**Network use.** The plugin connects only to the sync servers of your
-collaborations, over WebSocket (`wss://`). It sends only end-to-end
-encrypted data and the protocol metadata a server needs (public keys,
-Resource IDs, sizes); the server also sees your IP address. There is no
-account, no telemetry and no payment.
+## Offline and conflicts
 
+Edit shared tasks offline as usual. Changes wait on your device and are
+sent when the server is reachable again. Edits to
+different fields merge: if you rename a task while your collaborator moves
+its date, both changes arrive.
+
+If you both change the same field while apart, nothing is lost and no
+conflict text is written into your note. The note shows one of the two
+values, the status bar says "Shared Tasks: 1 shared task has a conflict",
+and the task line gets a marker naming the field. Example: you mark the task in
+progress (`[/]`) and your collaborator cancels it (`[-]`). Put the cursor on
+the task, run "Shared Tasks: Resolve shared task conflict", pick `status`
+and the value to keep; both notes then show it.
+
+## Compatibility
+
+- Obsidian 1.13.1 or later.
+- Tested by hand on macOS with Obsidian 1.14.4: the two-vault demo, on a
+  build before 0.2.0
+  ([record](docs/devel/testing/platform-smoke-runs.md)); the 0.2.0 BRAT
+  install was checked on 2026-10-07.
+- The automated platform smoke (build, tests and the two-vault E2E against
+  the real server) passes on macOS, Windows and Linux for 0.2.0. Windows
+  and Linux have not been tested by hand yet.
+- Mobile (iOS, Android) is not tested.
+- Tasks use the Obsidian Tasks plugin's emoji syntax for dates, priority
+  and completion, and the projection tests cover it. Running together with
+  the Tasks plugin itself has not been tested.
+
+## Limitations
+
+Beta software. **Not for data you need to protect yet.**
+
+- Data on the public server can be lost, including recent changes after
+  the server is restored from a backup; keep your vault, which holds the
+  full data of every collaboration.
+- A collaboration cannot move to another server.
+- Invitations offer "Read" and "Read + write" only, and there is no
+  member management in the plugin yet: you cannot remove someone from a
+  collaboration from Obsidian.
+- An invitation is a link (no QR code); a copied link stays on the
+  clipboard.
+- Decrypted shared tasks are stored unencrypted on each device, like the
+  rest of your vault, and Obsidian's secret storage is shared by every
+  plugin on the device.
+
+All known limitations, verified: the release notes of
+[Shared Tasks 0.2.0](docs/releases/0.2.0.md),
+[OpenLFCP MVP 0.1](https://github.com/openlfcp/.github/blob/main/docs/release/mvp-0.1-release-notes.md)
+and
+[server 0.2.0](https://github.com/openlfcp/.github/blob/main/docs/release/server-0.2.0-release-notes.md).
+
+## Network use
+
+The plugin connects only to the sync servers of your collaborations, over
+WebSocket (`wss://`). It sends only end-to-end encrypted data and the
+protocol metadata a server needs (public keys, Resource IDs, sizes); the
+server also sees your IP address. There is no account, no telemetry and no
+payment.
+
+## Support
+
+- Bugs and questions: [GitHub issues](https://github.com/openlfcp/obsidian/issues).
+- Security vulnerabilities: **security@openlfcp.org**, or a
+  [private security advisory](https://github.com/openlfcp/obsidian/security/advisories/new);
+  not a public issue.
+- Everything else: **hello@openlfcp.org**.
+
+## For developers
+
+This repository is the Obsidian editor adapter and product UI for OpenLFCP.
 It consumes `sdk-ts`, the Shared Objects Profile, and the Markdown
 reference format. It owns Markdown scanning, the projection engine,
 CodeMirror integration, commands, the Resource Explorer, plugin settings,
 and editor conflict presentation.
 
-## Scope
+### Scope
 
 The plugin implements the OpenLFCP MVP 0.1 product slice on
 sdk-ts: sharing Tasks between vaults over the MVP 0.1 subset of
@@ -49,12 +180,12 @@ LFCP-WIRE-01 at `mvp-0.1-baseline.8`, not every deferred WIRE-01 feature
 (see `.github: docs/release/deferred-wire-01-features.md` (in [openlfcp/.github](https://github.com/openlfcp/.github))). Desktop only is
 tested; mobile is not.
 
-## Documents
+### Documents
 
 - [docs/OBSIDIAN-ARCHITECTURE-01.md](docs/OBSIDIAN-ARCHITECTURE-01.md): architecture of the Obsidian adapter.
 - The Markdown ref grammar it implements is normative and lives in `spec: integration/MARKDOWN-REFS-01.md`.
 
-## Status
+### Status
 
 - Plugin bootstrap (LFCP-058): the plugin loads, registers its commands and
   has a settings tab.
@@ -85,13 +216,13 @@ tested; mobile is not.
   and resolving a shared conflict. See
   [docs/architecture/collaboration.md](docs/architecture/collaboration.md).
 
-## Demo
+### Demo
 
 [docs/demos/two-vault-demo.md](docs/demos/two-vault-demo.md) walks through
 the canonical two-vault demo in real Obsidian. `node scripts/demo-vaults.mjs`
 prepares the vaults and the server config outside this repository.
 
-## Layout
+### Layout
 
 | Path | What it is |
 | --- | --- |
@@ -115,7 +246,7 @@ check also refuses Automerge, `@noble`, HPKE, CBOR and COSE libraries,
 `@openlfcp/wire/cbor` and the Node-only `@openlfcp/storage-node` in `src/`,
 and keeps `fake-indexeddb` test-only.
 
-## Build from a clean checkout
+### Build from a clean checkout
 
 The `@openlfcp/*` packages are `link:` dependencies on a sibling `sdk-ts`
 checkout (`../sdk-ts`), which must be installed and built first. CI uses the

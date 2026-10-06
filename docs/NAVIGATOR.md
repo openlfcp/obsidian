@@ -7,6 +7,7 @@
 | [architecture/projection.md](architecture/projection.md) | developers | Markdown → Shared Object projection: glyphs, owned fields, conflicts, re-association, echo guard (LFCP-061) |
 | [architecture/collaboration.md](architecture/collaboration.md) | developers | The collaboration commands: SDK flows, invite presets, secrets, exact-byte detach, offline and blocked states (LFCP-065) |
 | [demos/two-vault-demo.md](demos/two-vault-demo.md) | everyone | The canonical two-vault demo in real Obsidian, step by step with expected results (LFCP-072) |
+| [assets/shared-tasks-demo.gif](assets/shared-tasks-demo.gif) | everyone | The demo animation shown in the README: a task ticked in one vault updates in the other (synthetic notes) |
 | [guides/choosing-a-server.md](guides/choosing-a-server.md) | everyone | Choosing a sync server: the project server wss://sync.openlfcp.org as the default, why the choice is permanent, running your own |
 | [devel/testing/two-vault-e2e.md](devel/testing/two-vault-e2e.md) | developers | The two-vault E2E against the real server: running it, what it proves, the harness (LFCP-066) |
 | [devel/testing/security-vertical-slice.md](devel/testing/security-vertical-slice.md) | release | The MVP 0.1 security/privacy release gate (LFCP-071): every security boundary in one live scenario |
