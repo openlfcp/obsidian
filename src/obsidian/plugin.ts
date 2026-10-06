@@ -88,6 +88,8 @@ export default class OpenLfcpPlugin extends Plugin {
     const handlers: Readonly<Record<string, () => Promise<void>>> = {
       "share-task-under-cursor": () => ui.shareTaskUnderCursor(),
       "insert-shared-object": () => ui.insertSharedObject(),
+      "share-selected-tasks": () => ui.shareSelectedTasks(),
+      "insert-all-tasks": () => ui.insertAllTasks(),
       "create-collaboration": () => ui.createCollaboration(),
       "join-collaboration": () => ui.joinCollaboration(),
       "invite-collaborator": () => ui.inviteCollaborator(),

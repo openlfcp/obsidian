@@ -78,8 +78,13 @@ class ScriptedPrompter implements Prompter {
 class Notes {
   readonly files = new Map<string, string>();
   cursor: ActiveNote | null = null;
-  open(path: string, line: number): void {
-    this.cursor = { path, line, text: this.files.get(path) ?? "" };
+  open(path: string, line: number, selection?: { from: number; to: number }): void {
+    this.cursor = {
+      path,
+      line,
+      text: this.files.get(path) ?? "",
+      ...(selection === undefined ? {} : { selection }),
+    };
   }
   active(): ActiveNote | null {
     return this.cursor === null
@@ -192,6 +197,116 @@ describe("LFCP-065 commands", () => {
     s.notes.open("c.md", 1);
     await s.commands.shareTaskUnderCursor();
     expect(s.prompter.notices.at(-1)).toMatch(/malformed or duplicated/);
+  });
+
+  it("Share selected tasks: the heading section at the cursor, one change per Task, one write", async () => {
+    const s = await setup();
+    const R = await created(s);
+    const note = [
+      "# Plan",
+      "## Sprint",
+      "- [ ] One",
+      "  - [ ] Two (nested)",
+      "- [x] Three",
+      "## Later",
+      "- [ ] Not in the section",
+      "",
+    ].join("\n");
+    s.notes.files.set("a.md", note);
+    s.notes.open("a.md", 3); // inside ## Sprint
+    s.prompter.picks.push("Team");
+    const before = (await s.runtime.storage?.outbound.list(R))?.length ?? 0;
+    await s.commands.shareSelectedTasks();
+    expect(s.prompter.asked.at(-1)).toBe(
+      "Share 3 tasks in… (everyone invited to it sees every task in it)",
+    );
+    expect(s.prompter.notices.at(-1)).toBe("Shared Tasks: 3 tasks shared.");
+    const text = s.notes.files.get("a.md") as string;
+    const scan = scanRefs(text);
+    expect(scan.projections).toHaveLength(3);
+    expect(scan.tasks.filter((t) => t.binding === "local")).toHaveLength(1); // ## Later
+    expect((await s.runtime.storage?.outbound.list(R))?.length).toBe(before + 3);
+    expect(s.guard.consume("a.md", text)).toBe(true);
+
+    // Again: all three are already shared; the Task under ## Later is not in the section.
+    s.notes.open("a.md", 2);
+    await s.commands.shareSelectedTasks();
+    expect(s.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: no task to share here. 3 already shared.",
+    );
+  });
+
+  it("Share selected tasks: a selection, skipping shared lines and refusing blocked ones", async () => {
+    const s = await setup("inline");
+    await created(s);
+    const bad =
+      "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#task:019a2f85-7b31-4c42-b85a-fc843e2f40ad";
+    s.notes.files.set(
+      "a.md",
+      `- [ ] A\r\n- [ ] B <!-- lfcp-ref: ${bad} -->\r\n- [ ] C\r\n- [ ] D outside\r\n`,
+    );
+    s.notes.open("a.md", 0);
+    s.prompter.picks.push("Team");
+    await s.commands.shareTaskUnderCursor(); // A is shared
+    s.notes.open("a.md", 0, { from: 0, to: 2 });
+    s.prompter.picks.push("Team");
+    await s.commands.shareSelectedTasks();
+    expect(s.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: 1 task shared. 1 already shared, 1 refused (a malformed or duplicated ref, or no title).",
+    );
+    const text = s.notes.files.get("a.md") as string;
+    expect(text.split("\r\n")[2]).toMatch(/^- \[ \] C <!-- lfcp-ref: /);
+    expect(text.split("\r\n")[3]).toBe("- [ ] D outside");
+    expect(text).not.toMatch(/[^\r]\n/);
+  });
+
+  it("Share selected tasks: explains an empty range and refuses more than 200 Tasks", async () => {
+    const s = await setup();
+    await created(s);
+    s.notes.files.set("a.md", "No heading here\n- [ ] T\n");
+    s.notes.open("a.md", 1);
+    await s.commands.shareSelectedTasks();
+    expect(s.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: select task lines, or put the cursor under a heading, to share its tasks.",
+    );
+    const many = `## Many\n${Array.from({ length: 201 }, (_, i) => `- [ ] T${i}`).join("\n")}\n`;
+    s.notes.files.set("b.md", many);
+    s.notes.open("b.md", 1);
+    await s.commands.shareSelectedTasks();
+    expect(s.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: 201 tasks are more than 200 at once. Select fewer; nothing was shared.",
+    );
+    expect(s.notes.files.get("b.md")).toBe(many);
+  });
+
+  it("Insert all tasks from collaboration: the Tasks the note lacks, in creation order", async () => {
+    const s = await setup();
+    await created(s);
+    s.notes.files.set("a.md", "## S\n- [ ] First\n- [ ] Second\n- [ ] Third\n");
+    s.notes.open("a.md", 1);
+    s.prompter.picks.push("Team");
+    await s.commands.shareSelectedTasks();
+    const shared = scanRefs(s.notes.files.get("a.md") as string).projections.map((p) => p.objectId);
+
+    s.notes.files.set("b.md", "# Inbox\n");
+    s.notes.open("b.md", 0);
+    s.prompter.picks.push("Team");
+    await s.commands.insertAllTasks();
+    expect(s.prompter.notices.at(-1)).toBe("Shared Tasks: 3 shared tasks inserted.");
+    const b = s.notes.files.get("b.md") as string;
+    expect(scanRefs(b).projections.map((p) => p.objectId)).toEqual(shared);
+    expect(b.split("\n").filter((l) => l.startsWith("- [ ]"))).toEqual([
+      "- [ ] First",
+      "- [ ] Second",
+      "- [ ] Third",
+    ]);
+    // Again: nothing is missing, nothing is inserted twice.
+    s.prompter.picks.push("Team");
+    await s.commands.insertAllTasks();
+    expect(s.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: every task of this collaboration is already in this note.",
+    );
+    expect(s.notes.files.get("b.md")).toBe(b);
   });
 
   it("Insert shared object: renders the shared Task; the same object may appear again", async () => {

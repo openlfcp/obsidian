@@ -280,7 +280,14 @@ export class ObsidianNotes implements NoteAccess {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const file = view?.file;
     if (view === null || file === null || file === undefined) return null;
-    return { path: file.path, line: view.editor.getCursor().line, text: view.editor.getValue() };
+    const editor = view.editor;
+    const note = { path: file.path, line: editor.getCursor().line, text: editor.getValue() };
+    if (!editor.somethingSelected()) return note;
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    // A selection that ends at the start of a line does not take that line.
+    const last = to.ch === 0 && to.line > from.line ? to.line - 1 : to.line;
+    return { ...note, selection: { from: from.line, to: last } };
   }
 
   async rewrite(path: string, fn: (data: string) => string): Promise<void> {

@@ -19,6 +19,12 @@ export interface CommandSpec {
 export const COMMANDS: readonly CommandSpec[] = [
   { id: "share-task-under-cursor", name: "Share task under cursor", implementedBy: "LFCP-065" },
   { id: "insert-shared-object", name: "Insert shared object", implementedBy: "LFCP-065" },
+  { id: "share-selected-tasks", name: "Share selected tasks", implementedBy: "POST-018" },
+  {
+    id: "insert-all-tasks",
+    name: "Insert all tasks from collaboration",
+    implementedBy: "POST-018",
+  },
   { id: "create-collaboration", name: "Create collaboration", implementedBy: "LFCP-065" },
   { id: "join-collaboration", name: "Join collaboration", implementedBy: "LFCP-065" },
   { id: "invite-collaborator", name: "Invite collaborator", implementedBy: "LFCP-065" },

@@ -10,13 +10,21 @@
 
 import type { InvitationLink } from "@openlfcp/client";
 import { resourceId as asResourceId, type ResourceId, toHex } from "@openlfcp/core";
-import type { ScalarField } from "@openlfcp/shared-objects";
+import type { ScalarField, Task } from "@openlfcp/shared-objects";
 import type { RegistryEntry } from "../lfcp/runtime";
 import type { MutationGuard } from "../projection/guard";
 import { renderNewTaskLine } from "../projection/render";
 import type { ObjectRef } from "../refs";
 import { splitLines } from "../refs/lines";
 import type { RefPlacement } from "../settings";
+import {
+  attachAll,
+  headingSection,
+  type LineRange,
+  MAX_BATCH,
+  planBatchShare,
+  tasksToInsert,
+} from "./batch";
 import { attachToTask, detachExact, taskAt, unitPlacement } from "./markdown";
 import { plainError } from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
@@ -67,6 +75,8 @@ export interface ActiveNote {
   readonly line: number;
   /** The note's current text, unsaved editor changes included. */
   readonly text: string;
+  /** The lines of the editor selection, if text is selected (POST-018). */
+  readonly selection?: LineRange;
 }
 
 /** The notes of the vault, as the commands need them. */
@@ -104,6 +114,18 @@ const STATE_TEXT: Readonly<Record<RegistryEntry["state"], string>> = {
 };
 
 /** Object Refs name the raw Resource ID (MARKDOWN-REFS-01 §7). */
+/** "1 task", "3 tasks". */
+const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** What a batch left alone, for its notice: "" or " 1 already shared, 2 refused (…)." */
+function skippedText(plan: { readonly skipped: number; readonly refused: number }): string {
+  const out: string[] = [];
+  if (plan.skipped > 0) out.push(`${plan.skipped} already shared`);
+  if (plan.refused > 0)
+    out.push(`${plan.refused} refused (a malformed or duplicated ref, or no title)`);
+  return out.length === 0 ? "" : ` ${out.join(", ")}.`;
+}
+
 const refOf = (R: ResourceId, objectId: string): ObjectRef => ({
   resourceId: R,
   objectType: "task",
@@ -292,6 +314,135 @@ export class CollabCommands {
           ? `Shared Tasks: task shared.${warnings}`
           : `Shared Tasks: the task was shared, but the note changed meanwhile, so no ref was added. Use "Insert shared object" to place it.${warnings}`,
       );
+    });
+  }
+
+  /**
+   * "Share selected tasks" (POST-018): every Task line of the selection, or
+   * else of the heading section at the cursor, in one collaboration. Each
+   * Task becomes its own task.create; all refs go in in one write.
+   */
+  shareSelectedTasks(): Promise<void> {
+    return this.#run("Sharing the tasks", async () => {
+      const collab = this.#collab();
+      if (collab === null) return;
+      const p = this.#env.prompter;
+      const note = this.#env.notes.active();
+      const range = note === null ? null : (note.selection ?? headingSection(note.text, note.line));
+      if (note === null || range === null) {
+        p.notice(
+          "Shared Tasks: select task lines, or put the cursor under a heading, to share its tasks.",
+        );
+        return;
+      }
+      const plan = planBatchShare(note.text, range);
+      const n = plan.share.length;
+      if (n === 0) {
+        p.notice(`Shared Tasks: no task to share here.${skippedText(plan)}`);
+        return;
+      }
+      if (n > MAX_BATCH) {
+        p.notice(
+          `Shared Tasks: ${n} tasks are more than ${MAX_BATCH} at once. Select fewer; nothing was shared.`,
+        );
+        return;
+      }
+      const R = await this.#pickResource(
+        collab,
+        `Share ${plural(n, "task")} in… (everyone invited to it sees every task in it)`,
+        { allowCreate: true },
+      );
+      if (R === null) return;
+      const lines = splitLines(note.text);
+      const result = await collab.shareAll(R, plan.share);
+      const pending = result.shared.map((s, i) => {
+        const line = plan.share[i]?.task.line ?? 0;
+        return { lineText: lines[line]?.text ?? "", near: line, ref: refOf(R, s.objectId) };
+      });
+      let attached = 0;
+      if (pending.length > 0)
+        await this.#env.notes.rewrite(note.path, (data) => {
+          const out = attachAll(data, pending, this.#env.placement());
+          attached = out.attached;
+          if (out.attached === 0) return data;
+          this.#env.guard.expect(note.path, out.markdown);
+          return out.markdown;
+        });
+      const shared = result.shared.length;
+      const warnings = [...new Set(result.shared.flatMap((s) => s.warnings))];
+      const parts = [`Shared Tasks: ${plural(shared, "task")} shared.${skippedText(plan)}`];
+      if (attached < shared)
+        parts.push(
+          `${plural(shared - attached, "task")} got no ref because the note changed meanwhile; use "Insert all tasks from collaboration" to place them.`,
+        );
+      if (result.error !== undefined)
+        parts.push(`Stopped after ${shared} of ${n}: ${plainError(result.error)}`);
+      parts.push(...warnings);
+      p.notice(parts.join(" "));
+    });
+  }
+
+  /**
+   * "Insert all tasks from collaboration" (POST-018): a projection of every
+   * live Task of a collaboration this note does not show yet, at the
+   * cursor, in created_at and Object ID order.
+   */
+  insertAllTasks(): Promise<void> {
+    return this.#run("Inserting the shared tasks", async () => {
+      const collab = this.#collab();
+      if (collab === null) return;
+      const p = this.#env.prompter;
+      const note = this.#env.notes.active();
+      if (note === null) {
+        p.notice("Shared Tasks: open a note to insert shared tasks into.");
+        return;
+      }
+      const R = await this.#pickResource(collab, "Insert all tasks from…", { blockedOk: true });
+      if (R === null) return;
+      const all = await collab.insertCandidates(R);
+      if (all.length === 0) {
+        p.notice("Shared Tasks: this collaboration has no shared tasks yet.");
+        return;
+      }
+      const missing = tasksToInsert(note.text, R, all);
+      if (missing.length === 0) {
+        p.notice("Shared Tasks: every task of this collaboration is already in this note.");
+        return;
+      }
+      if (missing.length > MAX_BATCH) {
+        p.notice(
+          `Shared Tasks: ${missing.length} tasks are more than ${MAX_BATCH} at once; nothing was inserted.`,
+        );
+        return;
+      }
+      const tasks: { objectId: string; task: Task }[] = [];
+      for (const t of missing) {
+        const task = await collab.profileTask(R, t.objectId);
+        if (task !== undefined) tasks.push({ objectId: t.objectId, task });
+      }
+      let inserted = 0;
+      await this.#env.notes.rewrite(note.path, (data) => {
+        // Tasks placed while this command ran are not inserted twice.
+        const still = new Set(tasksToInsert(data, R, missing).map((t) => t.objectId));
+        const units = tasks.filter((t) => still.has(t.objectId));
+        inserted = units.length;
+        if (inserted === 0) return data;
+        const next = insertAtLine(data, note.line, (indent, eol) =>
+          units
+            .map((t) =>
+              renderNewTaskLine(t.task, {
+                placement: unitPlacement(this.#env.placement()),
+                ref: refOf(R, t.objectId),
+                indent,
+                eol,
+              }),
+            )
+            .join(""),
+        );
+        this.#env.guard.expect(note.path, next);
+        return next;
+      });
+      p.notice(`Shared Tasks: ${plural(inserted, "shared task")} inserted.`);
     });
   }
 

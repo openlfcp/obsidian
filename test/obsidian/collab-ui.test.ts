@@ -9,7 +9,7 @@ import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { scanRefs } from "../../src/core/refs";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
 import OpenLfcpPlugin from "../../src/obsidian/plugin";
-import { ObsidianPrompter } from "../../src/obsidian/ui/prompter";
+import { ObsidianNotes, ObsidianPrompter } from "../../src/obsidian/ui/prompter";
 import * as mock from "../mocks/obsidian";
 import { Device } from "../support/lfcp-env";
 
@@ -100,6 +100,20 @@ async function createTeam(host: mock.Plugin) {
 }
 
 describe("LFCP-065 in the plugin", () => {
+  it("reads the editor selection as whole lines (POST-018)", () => {
+    const app = new mock.App();
+    const view = new mock.MarkdownView({ path: "a.md" } as never, "- [ ] A\n- [ ] B\n- [ ] C\n");
+    app.workspace.activeView = view;
+    const notes = new ObsidianNotes(app as never);
+    view.cursorLine = 1;
+    expect(notes.active()?.selection).toBeUndefined();
+    view.selection = { from: { line: 0, ch: 3 }, to: { line: 1, ch: 2 } };
+    expect(notes.active()?.selection).toEqual({ from: 0, to: 1 });
+    // Ending at the start of a line does not take that line.
+    view.selection = { from: { line: 0, ch: 0 }, to: { line: 2, ch: 0 } };
+    expect(notes.active()?.selection).toEqual({ from: 0, to: 1 });
+  });
+
   it("offers the project server with its notice, updated as the server is edited", async () => {
     const { host } = await load();
     const seen = mock.modals.length;

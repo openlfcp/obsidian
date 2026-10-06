@@ -88,9 +88,17 @@ export class MarkdownView {
     public file: TFile | null,
     public buffer: string,
   ) {}
+  /** The selection, if any: from and to positions (POST-018). */
+  selection: { from: { line: number; ch: number }; to: { line: number; ch: number } } | null = null;
   readonly editor = {
     getValue: () => this.buffer,
-    getCursor: () => ({ line: this.cursorLine, ch: 0 }),
+    getCursor: (which?: "from" | "to" | "head" | "anchor") =>
+      which === "from" && this.selection !== null
+        ? this.selection.from
+        : which === "to" && this.selection !== null
+          ? this.selection.to
+          : { line: this.cursorLine, ch: 0 },
+    somethingSelected: () => this.selection !== null,
   };
   async save(): Promise<void> {
     this.saves += 1;
