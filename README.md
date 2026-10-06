@@ -212,7 +212,7 @@ tested; mobile is not.
 
 - Collaboration commands (LFCP-065, `src/core/collab`, `src/obsidian/ui`):
   create, join, share the task under the cursor, insert a shared task,
-  invite (Read or Read + Write, one-time links), Resource status, detach,
+  invite (Read or Read + write, one-time links), Resource status, detach,
   and resolving a shared conflict. See
   [docs/architecture/collaboration.md](docs/architecture/collaboration.md).
 
