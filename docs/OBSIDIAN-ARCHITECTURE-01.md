@@ -1174,7 +1174,7 @@ Initial permissions:
 
 ```text
 Read
-Read + Write
+Read + write
 ```
 
 The plugin delegates invitation generation and LFCP Control Plane operations to the SDK.

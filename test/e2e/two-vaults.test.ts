@@ -112,7 +112,7 @@ describe.skipIf(!live)("two vaults, one real server (LFCP-066)", () => {
 
   it("3. A invites B to both; B joins through the real claim flow", async () => {
     for (const name of ["Project Alpha", "Project Beta"]) {
-      await A.command("invite-collaborator", [pick(name), pick("Read + Write")]);
+      await A.command("invite-collaborator", [pick(name), pick("Read + write")]);
       const link = A.prompter.invitations.at(-1)?.reveal() as string;
       expect(link).toMatch(/^lfcp:\/\/join\//);
       const joined = await B.command("join-collaboration", [link, `${name} at B`]);

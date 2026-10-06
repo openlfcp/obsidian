@@ -1,9 +1,9 @@
-// Invitation presets (LFCP-065): what "Read" and "Read + Write" mean in
+// Invitation presets (LFCP-065): what "Read" and "Read + write" mean in
 // LFCP abilities (LFCP-WIRE-01 §17.1). The SDK's createInvitation turns
 // them into a CAPABILITY_GRANT with an explicit claim_limit (§18, G-CAP8).
 //
 // - Read: data/read. The claimant opens the Resource and decrypts it.
-// - Read + Write: data/read and data/write. Writing Shared Objects needs
+// - Read + write: data/read and data/write. Writing Shared Objects needs
 //   nothing more: Data Units need data/write (§26.3), and the plugin
 //   publishes no Snapshots, so snapshot/publish is not granted.
 //
@@ -29,7 +29,7 @@ export const INVITE_PRESETS: Readonly<Record<InvitePreset, PresetSpec>> = {
     abilities: [ABILITY.DATA_READ, ABILITY.INVITE_CLAIM],
   },
   "read-write": {
-    label: "Read + Write",
+    label: "Read + write",
     description: "Can see, sync and change the shared tasks.",
     abilities: [ABILITY.DATA_READ, ABILITY.DATA_WRITE, ABILITY.INVITE_CLAIM],
   },

@@ -245,10 +245,10 @@ describe("LFCP-065 commands", () => {
   it("Invite collaborator: preset choice, the link only in the invitation dialog", async () => {
     const s = await setup();
     await created(s);
-    s.prompter.picks.push("Team", "Read + Write");
+    s.prompter.picks.push("Team", "Read + write");
     await s.commands.inviteCollaborator();
     const [shown] = s.prompter.invitations;
-    expect(shown?.preset).toBe("Read + Write");
+    expect(shown?.preset).toBe("Read + write");
     expect(shown?.confirmed).toBe(false);
     const link = shown?.link.reveal() as string;
     expect(link.startsWith("lfcp://join/")).toBe(true);

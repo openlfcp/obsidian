@@ -89,7 +89,7 @@ beforeAll(async () => {
   }
   const ids = [...A.read(PATH_A).matchAll(/#task:([0-9a-f-]+)/g)].map((m) => m[1] as string);
   [taskId, otherId] = ids as [string, string];
-  await A.command("invite-collaborator", ["Restarts", "Read + Write"]);
+  await A.command("invite-collaborator", ["Restarts", "Read + write"]);
   await B.command("join-collaboration", [
     A.prompter.invitations.at(-1)?.reveal() as string,
     "Restarts",

@@ -68,7 +68,7 @@ the note changes.
 
 ## 3. Alice invites Bob
 
-Run "Invite collaborator", pick `Project Alpha`, then `Read + Write`.
+Run "Invite collaborator", pick `Project Alpha`, then `Read + write`.
 
 **Expect:** a dialog shows a one-time `lfcp://join/…#secret=…` link with a
 copy button. **The link is a secret**: anyone holding it can join until it

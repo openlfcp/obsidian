@@ -166,7 +166,7 @@ describe("LFCP-065 in the plugin", () => {
     const seen = mock.modals.length;
     run(host, "invite-collaborator");
     await pick(seen, "Team");
-    await pick(seen + 1, "Read + Write");
+    await pick(seen + 1, "Read + write");
     const dialog = await next(seen + 2);
     const shown = input(dialog);
     expect(shown.type).toBe("password");

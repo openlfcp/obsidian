@@ -109,7 +109,7 @@ Then one line per check: `A1 PASS`, `C2 FAIL <non-secret diagnostic>`, or
 Use two vaults, either on this machine or one on another OS (see the
 cross-platform pair below).
 
-1. In vault 1, run "Invite collaborator" with "Read + Write" and "Copy
+1. In vault 1, run "Invite collaborator" with "Read + write" and "Copy
    link". Send it to vault 2's user over a trusted channel, never in a
    screenshot.
 2. In vault 2, run "Join collaboration" and paste the link in the masked

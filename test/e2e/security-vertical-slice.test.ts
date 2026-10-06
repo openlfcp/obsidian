@@ -330,7 +330,7 @@ describe.skipIf(!live)(
 
     it("3. secure invitation: B claims once through HPKE; a second claim of the link fails", () =>
       step("3 secure invitation", async () => {
-        await A.command("invite-collaborator", [NAME, "Read + Write"]);
+        await A.command("invite-collaborator", [NAME, "Read + write"]);
         const link = A.prompter.invitations.at(-1)?.reveal() as string;
         links.push(link);
         expect(link).toMatch(/^lfcp:\/\/join\//);

@@ -23,7 +23,7 @@ flow, so none of these layers holds protocol logic. A test enforces it
 | Preset | Grant abilities | Claimant gets |
 | --- | --- | --- |
 | Read | data/read, invite/claim | data/read |
-| Read + Write | data/read, data/write, invite/claim | data/read, data/write |
+| Read + write | data/read, data/write, invite/claim | data/read, data/write |
 
 Writing Shared Objects needs only data/write. The plugin publishes no
 Snapshots, so snapshot/publish is not granted. invite/claim is what makes the

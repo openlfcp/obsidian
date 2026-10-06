@@ -73,7 +73,7 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
       (await owner.collab.status(R)).pendingOutbound === 0 ? true : undefined,
     );
 
-    // Read + Write: the joiner sees the task and edits it; the owner sees the edit.
+    // Read + write: the joiner sees the task and edits it; the owner sees the edit.
     const rw = await owner.collab.invite(R, "read-write");
     expect(rw.confirmed).toBe(true);
     const writer = await device();
