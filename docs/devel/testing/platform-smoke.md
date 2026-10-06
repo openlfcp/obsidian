@@ -14,6 +14,8 @@ Linux. It has two parts:
 A platform is PASS only when both parts ran on it and passed. Never mark a
 check PASS without running it. "Not run" is a valid, honest result.
 
+Records of past runs are in [platform-smoke-runs.md](platform-smoke-runs.md).
+
 ## Rules for every run
 
 - **Server URL.** Use `ws://` only on loopback (`ws://127.0.0.1:…`, a server
