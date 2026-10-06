@@ -179,6 +179,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.runtime = runtime;
       runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
       this.#watchBlocked(runtime);
+      this.#watchRefused(runtime);
       this.#watchObjects(runtime);
       // Pending changes go out and remote ones come in without waiting for a
       // command: every stored Resource is opened (one pooled session per server).
@@ -274,6 +275,27 @@ export default class OpenLfcpPlugin extends Plugin {
         for (const e of entries) check(e.resourceId);
       })
       .catch(() => undefined);
+  }
+
+  /**
+   * One notice per collaboration when its server refuses it for good
+   * (POST-017: e.g. RESOURCE_NOT_HOSTED after a purge or a server restore,
+   * AUTHORIZATION_FAILED after a revocation). The SDK does not ask again,
+   * so there is no reconnect storm; "Resource status" keeps the state.
+   */
+  #watchRefused(runtime: LfcpRuntime): void {
+    runtime.on((e) => {
+      if (e.type !== "resource-refused") return;
+      this.blockedChecks = this.blockedChecks.then(async () => {
+        if (runtime.status.kind !== "ready") return;
+        try {
+          const text = await this.#collaboration()?.refusalNotice(e.resourceId);
+          if (text !== null && text !== undefined) new Notice(text);
+        } catch {
+          // The state stays in "Resource status"; never a reason to fail sync.
+        }
+      });
+    });
   }
 
   #watchObjects(runtime: LfcpRuntime): void {

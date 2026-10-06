@@ -26,8 +26,37 @@ const SYNC: Readonly<Record<ResourceStatus["state"], string>> = {
   offline: "Offline: changes are kept on this device and sent when the server is reachable",
   locked: "Writing is paused on this device",
   error: "Sync error: retrying",
+  refused: "Not syncing: refused by the server",
   control_conflict: "Blocked",
 };
+
+/**
+ * What a server's terminal refusal (POST-017) means for the user, in one
+ * sentence: the server named, the §62 code at the end. Syncing this
+ * collaboration stops (no retries) until Obsidian restarts; the tasks stay
+ * on this device either way.
+ */
+export function refusalText(refusal: { readonly code: string; readonly url: string }): string {
+  switch (refusal.code) {
+    case "RESOURCE_NOT_HOSTED":
+    case "RESOURCE_NOT_FOUND":
+      return `Not hosted by ${refusal.url}: the server no longer has this collaboration (${refusal.code})`;
+    case "AUTHORIZATION_FAILED":
+      return `No access on ${refusal.url}: this device's identity may no longer read this collaboration (${refusal.code})`;
+    case "RESOURCE_TOMBSTONED":
+      return `Deleted on ${refusal.url} (${refusal.code})`;
+    default:
+      return `Refused by ${refusal.url} (${refusal.code})`;
+  }
+}
+
+/** The one notice for a refused collaboration (once per collaboration, POST-017). */
+export function refusalNotice(
+  name: string,
+  refusal: { readonly code: string; readonly url: string },
+): string {
+  return `Shared Tasks: "${name}" stopped syncing. ${refusalText(refusal)}. Your tasks stay on this device; see "Resource status".`;
+}
 
 export function statusView(s: ResourceStatus): StatusView {
   const you = s.participants.find((p) => p.you);
@@ -45,7 +74,15 @@ export function statusView(s: ResourceStatus): StatusView {
     { label: "Name on this device", value: s.localName ?? "(none)" },
     { label: "Resource ID", value: s.resourceId },
     { label: "Profile", value: s.profile },
-    { label: "Sync", value: `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})` },
+    {
+      label: "Sync",
+      value:
+        s.refusal === null
+          ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
+          : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
+            ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
+            : refusalText(s.refusal),
+    },
     {
       label: "Hosting",
       value:

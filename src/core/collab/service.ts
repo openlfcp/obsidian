@@ -58,6 +58,7 @@ import type { TaskState } from "../refs/scanner";
 import { planShare } from "./markdown";
 import { codeOf, plainCode } from "./messages";
 import { DEFAULT_CLAIM_LIMIT, INVITE_PRESETS, type InvitePreset } from "./presets";
+import { refusalNotice } from "./view";
 
 /** What the flows need from the plugin runtime (LfcpRuntime implements it). */
 export interface CollabRuntime {
@@ -78,6 +79,10 @@ export interface CollabRuntime {
   collaborationContext(): CollaborationContext | null;
   /** Collaborators whose units this device cannot apply (LfcpRuntime.blockedCollaborators). */
   blockedCollaborators?(resource: ResourceId): Promise<readonly BlockedCollaborator[]>;
+  /** The server's terminal refusal not reported before (LfcpRuntime.newlyRefused). */
+  newlyRefused?(
+    resource: ResourceId,
+  ): Promise<{ readonly code: string; readonly url: string } | null>;
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
@@ -169,6 +174,8 @@ export interface ResourceStatus {
   readonly resourceId: string;
   readonly profile: string;
   readonly state: RegistryEntry["state"];
+  /** The server's terminal refusal (POST-017): its §62 code and the server, or null. */
+  readonly refusal: { readonly code: string; readonly url: string } | null;
   /** True when the Control Chain has forked: everything security-sensitive is blocked. */
   readonly blocked: boolean;
   readonly phase: string;
@@ -473,6 +480,24 @@ export class Collaboration {
     };
   }
 
+  /**
+   * The notice for a collaboration its server refused for good (POST-017),
+   * once per collaboration (LfcpRuntime.newlyRefused), or null. A
+   * collaboration created while its server was unreachable and never hosted
+   * gets none: the server refusing it is expected, the user was told to host
+   * it later, and "Resource status" says it is not hosted yet.
+   */
+  async refusalNotice(R: ResourceId): Promise<string | null> {
+    const hosting = await this.#runtime.localState.get(hostingKey(R));
+    const refusal = (await this.#runtime.newlyRefused?.(R)) ?? null;
+    if (refusal === null) return null;
+    if (hosting === "pending" && refusal.code === "RESOURCE_NOT_HOSTED") return null;
+    const name =
+      (await this.#runtime.registry()).find((e) => toHex(e.resourceId) === toHex(R))?.localName ??
+      "a collaboration";
+    return refusalNotice(name, refusal);
+  }
+
   /** "Resource status": the non-secret state of a collaboration. */
   async status(R: ResourceId): Promise<ResourceStatus> {
     const entry = await this.#entry(R);
@@ -540,6 +565,7 @@ export class Collaboration {
       resourceId: toBase64url(R),
       profile: entry.profile,
       state: entry.state,
+      refusal: entry.refusal === null ? null : { code: entry.refusal.code, url: entry.refusal.url },
       blocked: entry.state === "control_conflict",
       phase: this.#runtime.phase(R),
       hosting: hosting === "hosted" || hosting === "pending" ? hosting : "unknown",

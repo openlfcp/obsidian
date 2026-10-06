@@ -18,6 +18,7 @@ import {
   OutboundQueue,
   ProfileCheckpointer,
   type ResourcePhase,
+  type ResourceRefusal,
   SyncClient,
   type SyncEvent,
   saveControlChain,
@@ -157,7 +158,14 @@ export type RuntimeStatus =
   | { readonly kind: "stopped" };
 
 /** The registry's view of a Resource (OBSIDIAN-ARCHITECTURE-01 §27). */
-export type RegistryState = "available" | "offline" | "locked" | "error" | "control_conflict";
+export type RegistryState =
+  | "available"
+  | "offline"
+  | "locked"
+  | "error"
+  /** The server refused the Resource for good (POST-017): see RegistryEntry.refusal. */
+  | "refused"
+  | "control_conflict";
 
 export interface RegistryEntry {
   readonly resourceId: ResourceId;
@@ -169,6 +177,12 @@ export interface RegistryEntry {
   /** Hex of the stored, validated Control Head. */
   readonly lastKnownControlHead: string | null;
   readonly state: RegistryState;
+  /**
+   * Why the server refused this Resource for good in this session (e.g.
+   * RESOURCE_NOT_HOSTED after a purge, AUTHORIZATION_FAILED after a
+   * revocation), or null. It is not asked again until Obsidian restarts.
+   */
+  readonly refusal: ResourceRefusal | null;
 }
 
 /**
@@ -206,6 +220,8 @@ interface Opened {
   readonly checkpointer: ProfileCheckpointer;
   /** Set once a session serves the Resource. */
   applier: DataUnitApplier | null;
+  /** What the session was given, to open it again after a refusal. */
+  binding?: Parameters<SyncClient["open"]>[0];
 }
 
 export class LfcpRuntime {
@@ -217,6 +233,8 @@ export class LfcpRuntime {
   readonly #opened = new Map<string, Opened>();
   readonly #phases = new Map<string, ResourcePhase>();
   readonly #errors = new Map<string, string>();
+  /** Terminal refusals by the server (POST-017), per Resource. */
+  readonly #refusals = new Map<string, ResourceRefusal>();
   readonly #listeners = new Set<(e: SyncEvent) => void>();
   #stopped = false;
   #writes: Promise<void> = Promise.resolve();
@@ -356,16 +374,19 @@ export class LfcpRuntime {
       const head = await storage.control.head(R);
       const conflict = await storage.control.conflict(R);
       const phase = this.#phases.get(key);
+      const refusal = this.#refusals.get(key) ?? null;
       const state: RegistryState =
         conflict !== undefined || phase === "CONTROL_CONFLICT"
           ? "control_conflict"
           : this.#install.kind === "locked"
             ? "locked"
-            : this.#errors.has(key)
-              ? "error"
-              : phase === "LIVE"
-                ? "available"
-                : "offline";
+            : refusal !== null
+              ? "refused"
+              : this.#errors.has(key)
+                ? "error"
+                : phase === "LIVE"
+                  ? "available"
+                  : "offline";
       out.push(
         Object.freeze({
           resourceId: R,
@@ -376,6 +397,7 @@ export class LfcpRuntime {
             .map((e) => e.url),
           lastKnownControlHead: head === undefined ? null : toHex(head.head),
           state,
+          refusal,
         }),
       );
     }
@@ -405,7 +427,16 @@ export class LfcpRuntime {
 
   async #openResource(resource: ResourceId): Promise<OpenResource> {
     const local = await this.#local(resource);
-    if (local.applier !== null) return local;
+    if (local.applier !== null) {
+      // Refused for good (POST-017): the session does not ask again on its
+      // own. Opening it again — e.g. right after hosting it — asks once more.
+      const key = toHex(resource);
+      if (this.#refusals.has(key) && local.url !== null && local.binding !== undefined) {
+        this.#refusals.delete(key);
+        this.#session(local.url).client.open(local.binding);
+      }
+      return local;
+    }
     const i = this.#ready();
     const route = await i.storage.resources.route(resource);
     const url = route?.coordinatorUrl;
@@ -429,16 +460,18 @@ export class LfcpRuntime {
       ],
     });
     const { client } = this.#session(url);
-    client.open({
+    const binding = {
       resourceId: resource,
       applier,
       checkpointer: local.checkpointer,
       snapshot: {
         codec: profile.snapshotCodec(),
-        load: (s) => void profile.loadSnapshot(s as Uint8Array),
+        load: (s: unknown) => void profile.loadSnapshot(s as Uint8Array),
         current: () => profile.snapshotState(),
       },
-    });
+    };
+    client.open(binding);
+    local.binding = binding;
     local.applier = applier;
     local.url = url;
     return local;
@@ -639,6 +672,24 @@ export class LfcpRuntime {
     return fresh;
   }
 
+  /**
+   * The server's terminal refusal of `resource` if it was not reported
+   * before, recording it as reported (in local state, so a restart that is
+   * refused the same way does not report it again): one notice per
+   * collaboration. Reaching LIVE again clears the record.
+   */
+  async newlyRefused(resource: ResourceId): Promise<ResourceRefusal | null> {
+    const refusal = this.#refusals.get(toHex(resource));
+    if (refusal === undefined) return null;
+    const mark = `${refusal.code} ${refusal.url}`;
+    let fresh = false;
+    await this.localState.update(`refused-reported:${toHex(resource)}`, (value) => {
+      fresh = value !== mark;
+      return mark;
+    });
+    return fresh ? refusal : null;
+  }
+
   async hasResource(resource: ResourceId): Promise<boolean> {
     const storage = this.storage;
     return storage !== null && (await storage.resources.get(resource)) !== undefined;
@@ -823,8 +874,18 @@ export class LfcpRuntime {
 
   #onEvent(e: SyncEvent): void {
     if (e.type === "resource-state") {
-      this.#phases.set(toHex(e.resourceId), e.state);
-      if (e.state === "LIVE") this.#errors.delete(toHex(e.resourceId));
+      const key = toHex(e.resourceId);
+      this.#phases.set(key, e.state);
+      if (e.state === "LIVE") {
+        this.#errors.delete(key);
+        this.#refusals.delete(key);
+        // A later refusal of this collaboration is news again.
+        void this.localState
+          .update(`refused-reported:${key}`, () => undefined)
+          .catch(() => undefined);
+      }
+    } else if (e.type === "resource-refused") {
+      this.#refusals.set(toHex(e.resourceId), e.refusal);
     } else if (e.type === "epoch-reconciled" && e.outbound.length > 0) {
       void this.#discardStale().catch(() => undefined);
     } else if (e.type === "error" && e.code === "ENGINE_TRAP") {

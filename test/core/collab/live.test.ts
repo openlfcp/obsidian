@@ -7,6 +7,7 @@ import { type ObjectId, type ResourceId, toHex } from "@openlfcp/core";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { type JoinStage, taskAt } from "../../../src/core/collab";
 import { Collaboration } from "../../../src/core/collab/service";
+import { statusView } from "../../../src/core/collab/view";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { Device, FakeLocal } from "../../support/lfcp-env";
 import { type LiveServer, liveSkipReason, startLiveServer } from "../../support/live-server";
@@ -133,4 +134,61 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
     }
     expect(toHex(R)).toHaveLength(64);
   }, 60_000);
+
+  it("a collaboration the server does not host: refused once, shown in status, not retried (POST-017)", async () => {
+    const d = await device();
+    const url = server.url;
+    const opening = new Map<string, number>();
+    d.runtime.on((e) => {
+      if (e.type === "resource-state" && e.state === "OPENING") {
+        const key = toHex(e.resourceId);
+        opening.set(key, (opening.get(key) ?? 0) + 1);
+      }
+    });
+    const refused = (R: ResourceId) =>
+      until("the refusal", async () =>
+        (await d.runtime.registry()).find(
+          (e) => toHex(e.resourceId) === toHex(R) && e.state === "refused",
+        ),
+      );
+    const sync = async (R: ResourceId) =>
+      statusView(await d.collab.status(R)).rows.find((r) => r.label === "Sync")?.value;
+
+    // On this device only, never hosted: to the server, the same as a
+    // purged collaboration or one on a restored server.
+    const R = await d.runtime.createResource({
+      name: "Gone",
+      endpoints: [url],
+      coordinatorUrl: url,
+    });
+    await d.runtime.openResource(R);
+    expect((await refused(R)).refusal).toMatchObject({ code: "RESOURCE_NOT_HOSTED", url });
+    expect(await sync(R)).toBe(
+      `Not hosted by ${url}: the server no longer has this collaboration (RESOURCE_NOT_HOSTED)`,
+    );
+    expect(await d.collab.refusalNotice(R)).toBe(
+      `Shared Tasks: "Gone" stopped syncing. Not hosted by ${url}: the server no longer has this collaboration (RESOURCE_NOT_HOSTED). Your tasks stay on this device; see "Resource status".`,
+    );
+    expect(await d.collab.refusalNotice(R)).toBeNull(); // once per collaboration
+    // No reconnect storm: the session does not ask again.
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(opening.get(toHex(R))).toBe(1);
+
+    // Created while the server was unreachable: no notice, "not hosted yet".
+    const P = await d.runtime.createResource({
+      name: "Created offline",
+      endpoints: [url],
+      coordinatorUrl: url,
+    });
+    await d.runtime.localState.put(`collab-hosting:${toHex(P)}`, "pending");
+    await d.runtime.openResource(P);
+    await refused(P);
+    expect(await d.collab.refusalNotice(P)).toBeNull();
+    expect(await sync(P)).toBe(`Not hosted yet on ${url}: host it from here to start syncing`);
+
+    // Opening it again (e.g. right after hosting it) asks the server once more.
+    await d.runtime.openResource(R);
+    await until("a second open", async () => (opening.get(toHex(R)) === 2 ? true : undefined));
+    await refused(R);
+  }, 30_000);
 });

@@ -99,6 +99,7 @@ const STATE_TEXT: Readonly<Record<RegistryEntry["state"], string>> = {
   offline: "offline (changes are kept and sent later)",
   locked: "writing paused on this device",
   error: "sync error",
+  refused: "not syncing: the server refused it",
   control_conflict: "BLOCKED: history forked",
 };
 
