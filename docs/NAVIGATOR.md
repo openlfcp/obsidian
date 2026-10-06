@@ -13,6 +13,7 @@
 | [devel/testing/load-in-clean-vault.md](devel/testing/load-in-clean-vault.md) | developers | Manual check: load the built plugin in a clean vault |
 | [devel/testing/platform-smoke.md](devel/testing/platform-smoke.md) | release | Desktop platform smoke (LFCP-068): the CI matrix and the manual checklist per OS |
 | [devel/testing/platform-smoke-runs.md](devel/testing/platform-smoke-runs.md) | release | Records of platform smoke runs per OS, with the current status by platform (LFCP-068) |
+| [releases/0.2.0.md](releases/0.2.0.md) | everyone | Release notes of Shared Tasks 0.2.0: the rename, the default server, install, upgrading from 0.1.0 (the GitHub release body) |
 | [../src/core/refs/README.md](../src/core/refs/README.md) | developers | The `lfcp-ref` parser: output contract, MR-A1 to MR-A4 readings, adapter choices |
 
 The Markdown ref grammar is normative and lives in

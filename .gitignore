@@ -26,3 +26,5 @@ pnpm-debug.log*
 
 # Obsidian plugin bundle (built by scripts/build.mjs)
 /main.js
+# Release assets (scripts/release-assets.mjs)
+/release/

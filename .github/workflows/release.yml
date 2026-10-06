@@ -1,0 +1,79 @@
+name: Release
+
+# A GitHub release of the plugin (POST-011), built by CI from the tagged
+# commit. Obsidian, BRAT and the community directory require the release
+# tag to be exactly manifest.json's version, without a "v" ("0.2.0"), so
+# only bare-version tags trigger it; scripts/release-assets.mjs refuses a
+# tag that is not the manifest version. Assets: main.js, manifest.json,
+# styles.css, and shared-tasks-<version>.zip for a manual install. The
+# notes come from docs/releases/<version>.md, which must exist.
+
+on:
+  push:
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: obsidian
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: obsidian
+      # The same checkouts as CI: spec at the tag in spec.lock, sdk-ts at
+      # the commit in sdk-ts.lock, built for the link: dependencies.
+      - id: spec-lock
+        run: echo "tag=$(jq -er .tag spec.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/spec
+          ref: refs/tags/${{ steps.spec-lock.outputs.tag }}
+          path: spec
+          fetch-depth: 0
+      - id: sdk-lock
+        run: echo "commit=$(jq -er .commit sdk-ts.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/sdk-ts
+          ref: ${{ steps.sdk-lock.outputs.commit }}
+          path: sdk-ts
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: obsidian/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            obsidian/pnpm-lock.yaml
+            sdk-ts/pnpm-lock.yaml
+      - name: Build the linked SDK
+        working-directory: sdk-ts
+        run: pnpm install --frozen-lockfile && pnpm build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - name: Build and check the release assets
+        run: node scripts/release-assets.mjs --tag "$GITHUB_REF_NAME"
+      - name: Release notes exist
+        run: test -s "docs/releases/$GITHUB_REF_NAME.md"
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Shared Tasks $GITHUB_REF_NAME" \
+            --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
+            release/main.js release/manifest.json release/styles.css \
+            "release/shared-tasks-$GITHUB_REF_NAME.zip"
