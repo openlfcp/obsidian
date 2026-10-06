@@ -2,6 +2,8 @@
 
 # openlfcp/obsidian
 
+Website: [openlfcp.org](https://openlfcp.org)
+
 **Shared Tasks** (plugin ID `shared-tasks`): share tasks between Obsidian
 vaults, end-to-end encrypted, without uploading your notes. It is the
 Obsidian editor adapter and product UI for OpenLFCP. **Beta.**
