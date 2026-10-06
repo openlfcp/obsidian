@@ -46,7 +46,7 @@ cargo run --manifest-path ../server/Cargo.toml -- --config ../openlfcp-demo/serv
 Open both folders in Obsidian with "Open folder as vault", in two windows.
 In each, turn off Restricted mode once (Settings → Community plugins).
 
-**Expect:** OpenLFCP is enabled. In Settings → OpenLFCP, "Identity on this
+**Expect:** Shared Tasks is enabled. In Settings → Shared Tasks, "Identity on this
 device" says Ready. The two vaults have different identities; they are never
 shown, and there is no account.
 

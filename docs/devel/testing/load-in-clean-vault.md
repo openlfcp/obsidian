@@ -20,8 +20,8 @@ layer changes.
 3. Copy the plugin into the vault:
 
    ```sh
-   mkdir -p <vault>/.obsidian/plugins/openlfcp
-   cp main.js manifest.json <vault>/.obsidian/plugins/openlfcp/
+   mkdir -p <vault>/.obsidian/plugins/shared-tasks
+   cp main.js manifest.json <vault>/.obsidian/plugins/shared-tasks/
    ```
 
 4. Open the vault, go to **Settings → Community plugins**, turn off
@@ -32,6 +32,6 @@ Expected:
 - the plugin enables without an error notice or console error;
 - the command palette lists the seven `OpenLFCP:` commands from
   `src/core/commands.ts`, and each shows a "not implemented yet" notice;
-- **Settings → OpenLFCP** shows *Ref placement* (Child line by default) and
+- **Settings → Shared Tasks** shows *Ref placement* (Child line by default) and
   *Default server*; a change survives disabling and re-enabling the
-  plugin (it is stored in `<vault>/.obsidian/plugins/openlfcp/data.json`).
+  plugin (it is stored in `<vault>/.obsidian/plugins/shared-tasks/data.json`).

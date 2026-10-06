@@ -9,7 +9,7 @@ tasks: they are encrypted on your device before they leave it.
 
 ## The default: the OpenLFCP project server
 
-Settings → OpenLFCP → "Default server" is set to the project's public
+Settings → Shared Tasks → "Default server" is set to the project's public
 server, `wss://sync.openlfcp.org/v1/ws`, on a new install. "Create
 collaboration" offers it; you can replace it in that field each time, or
 change or clear the setting:

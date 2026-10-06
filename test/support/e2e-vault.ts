@@ -232,7 +232,7 @@ async function load(fresh: boolean): Promise<Modules> {
   return { plugin, mock: mockModule, env };
 }
 
-const manifest = { id: "openlfcp", name: "OpenLFCP", version: "0.0.0" };
+const manifest = { id: "shared-tasks", name: "Shared Tasks", version: "0.0.0" };
 
 /** What one running plugin instance holds that a dead process would lose. */
 class Instance {

@@ -3,7 +3,7 @@
 Where the plugin keeps LFCP state for one vault on one device, and why. This
 note records the storage design the orchestrator approved for LFCP-059.
 OBSIDIAN-ARCHITECTURE-01 §34 suggests a folder under
-`.obsidian/plugins/openlfcp/`. The plugin does not use that folder, because
+`.obsidian/plugins/shared-tasks/`. The plugin does not use that folder, because
 it syncs with the vault.
 
 ## Where each kind of state lives
@@ -14,7 +14,7 @@ it syncs with the vault.
 | Principal private keys, Resource DEKs | `app.secretStorage`, slots `openlfcp-<installId>-<hash of the SecretRef>` | No (device-level, shared by all vaults) |
 | Install marker: install ID, Principal, high-water mark of every sequence counter | `app.secretStorage` slot `openlfcp-<installId>-marker` | No |
 | Install ID of this vault on this device | `app.saveLocalStorage("openlfcp-install")`, vault-scoped | No |
-| Settings: ref placement, default server | `data.json` (`.obsidian/plugins/openlfcp/`) | Yes. It holds no identity and no secrets |
+| Settings: ref placement, default server | `data.json` (`.obsidian/plugins/shared-tasks/`) | Yes. It holds no identity and no secrets |
 
 A vault synced or copied to another device (Obsidian Sync, iCloud, Git of
 `.obsidian`) carries none of the LFCP state. Its plugin starts a new install

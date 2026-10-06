@@ -13,7 +13,7 @@ import { ObsidianPrompter } from "../../src/obsidian/ui/prompter";
 import * as mock from "../mocks/obsidian";
 import { Device } from "../support/lfcp-env";
 
-const manifest = { id: "openlfcp", name: "OpenLFCP", version: "0.0.0" };
+const manifest = { id: "shared-tasks", name: "Shared Tasks", version: "0.0.0" };
 const SERVER = "wss://offline.example.invalid/v1/ws";
 const plugins: OpenLfcpPlugin[] = [];
 const copied: string[] = [];

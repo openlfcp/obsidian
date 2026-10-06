@@ -50,13 +50,13 @@ Then one line per check: `A1 PASS`, `C2 FAIL <non-secret diagnostic>`, or
 
 1. Create a new, empty vault. Name it with a space and a non-ASCII
    character, e.g. `Smoke Vault Ü`.
-2. Copy the built plugin into `<vault>/.obsidian/plugins/openlfcp/`:
+2. Copy the built plugin into `<vault>/.obsidian/plugins/shared-tasks/`:
    `main.js` and `manifest.json`, from `pnpm run build` at the recorded
    commit.
 3. Enable it in Settings → Community plugins. Expected: no error notice,
    and the developer console (Ctrl/Cmd+Shift+I) shows no error from
    `openlfcp`.
-4. Open Settings → OpenLFCP. Expected:
+4. Open Settings → Shared Tasks. Expected:
    - "Identity on this device: Ready", with no keys shown;
    - "Ref placement" set to Child line;
    - "Default server" explained as not your identity.

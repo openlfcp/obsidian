@@ -58,8 +58,11 @@ Some unrelated notes.
   },
 };
 
+// Obsidian keys the plugin folder and community-plugins.json on the manifest ID.
+const { id } = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
+
 for (const [vault, spec] of Object.entries(NOTES)) {
-  const plugin = join(dir, vault, ".obsidian", "plugins", "openlfcp");
+  const plugin = join(dir, vault, ".obsidian", "plugins", id);
   mkdirSync(plugin, { recursive: true });
   execFileSync("node", ["scripts/build.mjs", "--outfile", join(plugin, "main.js")], {
     cwd: root,
@@ -68,7 +71,10 @@ for (const [vault, spec] of Object.entries(NOTES)) {
   for (const f of ["manifest.json", "styles.css"])
     writeFileSync(join(plugin, f), readFileSync(join(root, f)));
   // Enabled on open. Restricted mode must be turned off once per vault in Obsidian.
-  writeFileSync(join(dir, vault, ".obsidian", "community-plugins.json"), '["openlfcp"]\n');
+  writeFileSync(
+    join(dir, vault, ".obsidian", "community-plugins.json"),
+    `${JSON.stringify([id])}\n`,
+  );
   if (!existsSync(join(plugin, "data.json")))
     writeFileSync(join(plugin, "data.json"), `${JSON.stringify(spec.settings, null, 2)}\n`);
   for (const [name, text] of Object.entries(spec.notes)) {

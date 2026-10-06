@@ -1272,7 +1272,7 @@ keys, the Resource DEKs and the SDK storage stay on the device:
 | Principal private keys, Resource DEKs | the device-level `app.secretStorage` |
 | Install marker (install ID, Principal, sequence high-water marks) | `app.secretStorage`, checked against the database at startup; a mismatch locks writing |
 | Install ID of the vault on this device | vault-scoped local storage |
-| Non-secret preferences (ref placement, default server) | `data.json` under `.obsidian/plugins/openlfcp/`; nothing else |
+| Non-secret preferences (ref placement, default server) | `data.json` under `.obsidian/plugins/shared-tasks/`; nothing else |
 
 `data.json` holds no identity, key, DEK, sequence or LFCP object. A vault
 synced or copied to another device carries none of the LFCP state; the plugin

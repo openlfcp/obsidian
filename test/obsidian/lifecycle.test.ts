@@ -21,7 +21,7 @@ import * as mock from "../mocks/obsidian";
 import { collaborator, storeBlocked } from "../support/blocked-units";
 import { Device } from "../support/lfcp-env";
 
-const manifest = { id: "openlfcp", name: "OpenLFCP", version: "0.0.0" };
+const manifest = { id: "shared-tasks", name: "Shared Tasks", version: "0.0.0" };
 
 class TestPlugin extends OpenLfcpPlugin {
   device = new Device();

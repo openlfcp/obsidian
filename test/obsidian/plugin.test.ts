@@ -6,7 +6,7 @@ import { PROJECT_SERVER } from "../../src/core/settings";
 import OpenLfcpPlugin from "../../src/main";
 import * as mock from "../mocks/obsidian";
 
-const manifest = { id: "openlfcp", name: "OpenLFCP", version: "0.0.0" };
+const manifest = { id: "shared-tasks", name: "Shared Tasks", version: "0.0.0" };
 
 async function loaded(stored?: unknown) {
   const plugin = new OpenLfcpPlugin(new mock.App() as never, manifest as never);
