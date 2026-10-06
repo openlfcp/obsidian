@@ -1,7 +1,7 @@
 # `src/core/refs`: `lfcp-ref` markers
 
 This module implements `spec: integration/MARKDOWN-REFS-01.md` at the spec
-pin in `spec.lock` (`mvp-0.1-baseline.6`). It is pure TypeScript with no
+pin in `spec.lock` (`mvp-0.1-baseline.8`). It is pure TypeScript with no
 Obsidian or Node dependency, so a VS Code or other Markdown adapter can reuse
 it unchanged. LFCP-060 was done before LFCP-059 on purpose: the parser
 needs no SDK. Its token validators (`tokens.ts`) delegate to
