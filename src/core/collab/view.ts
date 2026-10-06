@@ -85,6 +85,22 @@ export function statusView(s: ResourceStatus): StatusView {
           ? "none"
           : s.conflicts.map((c) => `${c.title}: ${c.fields.join(", ")}`).join("; "),
     },
+    ...(s.blockedCollaborators === undefined
+      ? []
+      : [
+          {
+            label: "Edits that cannot be applied here",
+            value:
+              s.blockedCollaborators.length === 0
+                ? "none"
+                : s.blockedCollaborators
+                    .map(
+                      (b) =>
+                        `${b.id}: ${b.units} change${b.units === 1 ? "" : "s"} (${b.reasons.join(", ")})`,
+                    )
+                    .join("; "),
+          },
+        ]),
   ];
   return {
     title: s.localName ?? "Collaboration",

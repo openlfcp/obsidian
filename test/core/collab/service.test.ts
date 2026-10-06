@@ -4,11 +4,14 @@
 
 import { fromHex, type ObjectId, type ResourceId, toHex } from "@openlfcp/core";
 import { SharedObjectsReplica, setStatus } from "@openlfcp/shared-objects";
+import type { LfcpStorage } from "@openlfcp/storage";
 import { ABILITY, decodeControlRecord, parseInviteUri } from "@openlfcp/wire";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { taskAt } from "../../../src/core/collab/markdown";
 import { CollabError, Collaboration } from "../../../src/core/collab/service";
+import { statusView } from "../../../src/core/collab/view";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
+import { collaborator, storeBlocked } from "../../support/blocked-units";
 import { Device, FakeLocal } from "../../support/lfcp-env";
 
 const SERVER = "wss://offline.example.invalid/v1/ws";
@@ -114,6 +117,31 @@ describe("Invite collaborator (LFCP-065)", () => {
       code: "CONTROL_CONFLICT",
     });
     expect((await collab.status(R)).blocked).toBe(true);
+  });
+
+  it("shows collaborators whose edits cannot be applied, with codes and counts only", async () => {
+    const { runtime, collab } = await offline();
+    const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
+    const row = async () =>
+      statusView(await collab.status(R)).rows.find(
+        (r) => r.label === "Edits that cannot be applied here",
+      )?.value;
+    expect(await row()).toBe("none");
+    await storeBlocked(runtime.storage as LfcpStorage, R, [
+      { n: 1, who: 0x11, seq: 3n, status: "equivocation" },
+      { n: 2, who: 0x11, seq: 3n, status: "equivocation" },
+      {
+        n: 3,
+        who: 0x22,
+        seq: 1n,
+        status: "local-failure",
+        detail: "INVALID_AUTOMERGE_BYTES: crashed the engine twice",
+      },
+    ]);
+    const id = (n: number) => toHex(collaborator(n)).slice(0, 8);
+    expect(await row()).toBe(
+      `${id(0x11)}: 2 changes (ACTOR_EQUIVOCATION); ${id(0x22)}: 1 change (INVALID_AUTOMERGE_BYTES)`,
+    );
   });
 });
 

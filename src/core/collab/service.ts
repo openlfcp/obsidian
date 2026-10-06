@@ -48,6 +48,7 @@ import {
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
 import type {
+  BlockedCollaborator,
   CollaborationContext,
   OpenResource,
   RegistryEntry,
@@ -75,6 +76,8 @@ export interface CollabRuntime {
   /** The session phase of a Resource ("CLOSED" when not open). */
   phase(resource: ResourceId): string;
   collaborationContext(): CollaborationContext | null;
+  /** Collaborators whose units this device cannot apply (LfcpRuntime.blockedCollaborators). */
+  blockedCollaborators?(resource: ResourceId): Promise<readonly BlockedCollaborator[]>;
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
@@ -178,6 +181,16 @@ export interface ResourceStatus {
   readonly participants: readonly Participant[];
   readonly pendingOutbound: number;
   readonly conflicts: readonly ConflictSummary[];
+  /**
+   * Collaborators whose edits this device cannot apply (rejected,
+   * quarantined, equivocating, or held too long): short Principal ID, unit
+   * count and reason codes. Never content.
+   */
+  readonly blockedCollaborators?: readonly {
+    readonly id: string;
+    readonly units: number;
+    readonly reasons: readonly string[];
+  }[];
 }
 
 export interface TaskChoice {
@@ -517,6 +530,7 @@ export class Collaboration {
       conflicts = [];
     }
     const hosting = await this.#runtime.localState.get(hostingKey(R));
+    const notApplied = await this.#runtime.blockedCollaborators?.(R).catch(() => []);
     return {
       localName: entry.localName,
       resourceId: toBase64url(R),
@@ -533,6 +547,15 @@ export class Collaboration {
       participants,
       pendingOutbound: (await c.storage.outbound.list(R)).length,
       conflicts,
+      ...(notApplied === undefined
+        ? {}
+        : {
+            blockedCollaborators: notApplied.map((b) => ({
+              id: short(b.principal),
+              units: b.units,
+              reasons: b.reasons,
+            })),
+          }),
     };
   }
 

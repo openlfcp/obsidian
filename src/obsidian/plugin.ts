@@ -15,7 +15,7 @@
 // next save). Conflicts show in the status bar and as an editor line
 // decoration, never in the text.
 
-import { type ResourceId, toBase64url } from "@openlfcp/core";
+import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { MarkdownView, Notice, Plugin, type TAbstractFile, type TFile } from "obsidian";
 import { CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
@@ -33,6 +33,16 @@ import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
 import { OpenLfcpSettingTab } from "./settings-tab";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
+
+/** Apply outcomes after which a collaborator may be blocked. */
+const BLOCKING_OUTCOMES: ReadonlySet<string> = new Set([
+  "profile-rejected",
+  "quarantined",
+  "equivocation",
+  "local-failure",
+  "held",
+  "engine-crash",
+]);
 
 export default class OpenLfcpPlugin extends Plugin {
   override settings: Settings = normalizeSettings(undefined);
@@ -168,6 +178,7 @@ export default class OpenLfcpPlugin extends Plugin {
       }
       this.runtime = runtime;
       runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
+      this.#watchBlocked(runtime);
       this.#watchObjects(runtime);
       // Pending changes go out and remote ones come in without waiting for a
       // command: every stored Resource is opened (one pooled session per server).
@@ -215,6 +226,56 @@ export default class OpenLfcpPlugin extends Plugin {
    * re-render their notes. After a rebuild, own changes a Key Epoch cut off
    * are first re-applied from the notes (G-EP5), not rendered away.
    */
+  /** Resolves when the blocked-collaborator checks queued so far are done (tests). */
+  blockedChecks: Promise<void> = Promise.resolve();
+
+  /**
+   * One notice per Resource and collaborator when that collaborator's edits
+   * first cannot be applied here (rejected, quarantined, equivocating or
+   * held too long); the details are in "Resource status". Checked at start
+   * and after the session events that change a unit's fate.
+   */
+  #watchBlocked(runtime: LfcpRuntime): void {
+    const queued = new Set<string>();
+    const check = (R: ResourceId) => {
+      const key = toHex(R);
+      if (queued.has(key)) return;
+      queued.add(key);
+      this.blockedChecks = this.blockedChecks.then(async () => {
+        queued.delete(key);
+        if (runtime.status.kind !== "ready") return;
+        try {
+          const fresh = await runtime.newlyBlocked(R);
+          if (fresh.length === 0) return;
+          const name =
+            (await runtime.registry()).find((e) => toHex(e.resourceId) === key)?.localName ??
+            "a collaboration";
+          for (const b of fresh)
+            new Notice(
+              `OpenLFCP: edits from ${b.principal.slice(0, 8)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
+            );
+        } catch {
+          // Reported again on the next event; never a reason to fail sync.
+        }
+      });
+    };
+    runtime.on((e) => {
+      if (
+        (e.type === "unit" && BLOCKING_OUTCOMES.has(e.outcome.kind)) ||
+        e.type === "replayed" ||
+        e.type === "epoch-reconciled" ||
+        (e.type === "resource-state" && e.state === "LIVE")
+      )
+        check(e.resourceId);
+    });
+    void runtime
+      .registry()
+      .then((entries) => {
+        for (const e of entries) check(e.resourceId);
+      })
+      .catch(() => undefined);
+  }
+
   #watchObjects(runtime: LfcpRuntime): void {
     let keys = new Set<string>();
     let regressed = new Set<string>();

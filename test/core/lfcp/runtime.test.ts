@@ -3,11 +3,15 @@
 
 import { saveControlChain } from "@openlfcp/client";
 import {
+  actorSequence,
+  controlRecordId,
   type DataUnitId,
   dataEpoch,
+  dataUnitId,
   generateResourceId,
   hash32,
   type ObjectId,
+  principalId,
   type ResourceId,
   toHex,
 } from "@openlfcp/core";
@@ -26,9 +30,9 @@ import {
   signControlRecord,
   validateControlChain,
 } from "@openlfcp/wire";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { databaseName } from "../../../src/core/lfcp/install";
-import { LfcpRuntime, NEEDS_RESTART } from "../../../src/core/lfcp/runtime";
+import { HELD_BLOCKED_MS, LfcpRuntime, NEEDS_RESTART } from "../../../src/core/lfcp/runtime";
 import { Device, deleteDatabase, FakeLocal } from "../../support/lfcp-env";
 
 const URL = "wss://offline.example.invalid/v1/ws";
@@ -288,6 +292,74 @@ describe("LfcpRuntime (LFCP-059)", () => {
     const again = await start(device, local);
     expect(again.status.kind).toBe("ready");
     expect((await again.profileOf(R)).replica.task(TASK)).toBeUndefined();
+  });
+
+  it("lists collaborators whose units cannot be applied, held ones after a delay, and reports each once", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    const storage = r.storage as LfcpStorage;
+    const status = r.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    const actor = (n: number) => principalId(new Uint8Array(32).fill(n));
+    const unit = (n: number, who: number, seq: bigint) => ({
+      unitId: dataUnitId(new Uint8Array(32).fill(n)),
+      resourceId: R,
+      dataEpoch: dataEpoch(0n),
+      actor: actor(who),
+      actorSeq: actorSequence(seq),
+      prevDataUnitId: null,
+      controlHead: controlRecordId(new Uint8Array(32).fill(9)),
+      bytes: Uint8Array.of(n),
+    });
+    const put = (n: number, who: number, seq: bigint, s: string, detail?: string) =>
+      storage.commit([
+        {
+          op: "put-data-unit",
+          unit: unit(n, who, seq),
+          status: s as never,
+          ...(detail === undefined ? {} : { detail }),
+        },
+      ]);
+    // An equivocating pair from collaborator 0x11, a unit of 0x22 that
+    // crashed the engine twice, and a unit of 0x33 held just now.
+    await put(1, 0x11, 3n, "equivocation");
+    await put(2, 0x11, 3n, "equivocation");
+    await put(3, 0x22, 1n, "local-failure", "INVALID_AUTOMERGE_BYTES: crashed the engine twice");
+    await put(4, 0x33, 2n, "held", "PREV_MISMATCH");
+    const hex = (n: number) => toHex(actor(n));
+    expect(await r.blockedCollaborators(R)).toEqual([
+      { principal: hex(0x11), units: 2, reasons: ["ACTOR_EQUIVOCATION"] },
+      { principal: hex(0x22), units: 1, reasons: ["INVALID_AUTOMERGE_BYTES"] },
+    ]);
+    expect((await r.newlyBlocked(R)).map((b) => b.principal)).toEqual([hex(0x11), hex(0x22)]);
+    expect(await r.newlyBlocked(R)).toEqual([]); // reported once
+    // Held for longer than HELD_BLOCKED_MS: now 0x33 counts too.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + HELD_BLOCKED_MS + 1);
+      expect((await r.newlyBlocked(R)).map((b) => [b.principal, b.reasons])).toEqual([
+        [hex(0x33), ["PREV_MISMATCH"]],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+    // Not reported again after a restart; this Principal's own units never count.
+    await r.stop();
+    const again = await start(device, local);
+    expect(await again.newlyBlocked(R)).toEqual([]);
+    await (again.storage as LfcpStorage).commit([
+      {
+        op: "put-data-unit",
+        unit: { ...unit(5, 0, 9n), actor: status.principalId },
+        status: "quarantined",
+        detail: "BEYOND_CUTOFF",
+      },
+    ]);
+    expect((await again.blockedCollaborators(R)).map((b) => b.principal)).not.toContain(
+      toHex(status.principalId),
+    );
   });
 
   it("locks, offers a new Principal, and refuses to open Resources while locked", async () => {

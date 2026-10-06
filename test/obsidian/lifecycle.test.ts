@@ -11,12 +11,14 @@ import {
   setDue,
   type Task,
 } from "@openlfcp/shared-objects";
+import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it } from "vitest";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
 import OpenLfcpPlugin from "../../src/obsidian/plugin";
 import * as mock from "../mocks/obsidian";
+import { collaborator, storeBlocked } from "../support/blocked-units";
 import { Device } from "../support/lfcp-env";
 
 const manifest = { id: "openlfcp", name: "OpenLFCP", version: "0.0.0" };
@@ -313,5 +315,49 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(runtime.status.kind).toBe("needs-restart");
     host.unload();
     await plugin.stopRuntime();
+  });
+
+  it("notifies once per collaborator whose edits cannot be applied, also across reloads", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const runtime = first.plugin.runtime;
+    if (runtime === null) throw new Error("no runtime");
+    const R = await runtime.createResource({
+      name: "Team",
+      endpoints: ["wss://offline.example.invalid/v1/ws"],
+      coordinatorUrl: "wss://offline.example.invalid/v1/ws",
+    });
+    await storeBlocked(runtime.storage as LfcpStorage, R, [
+      { n: 1, who: 0x11, seq: 3n, status: "equivocation" },
+      { n: 2, who: 0x11, seq: 3n, status: "equivocation" },
+    ]);
+    const blockedNotices = () =>
+      mock.notices.filter((n) => n.includes("can't be applied") && n.includes('"Team"'));
+    const settled = async (plugin: OpenLfcpPlugin) => {
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+        await plugin.blockedChecks;
+      }
+    };
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    mock.notices.length = 0;
+    // The next start finds the equivocation: one notice.
+    const second = await load(app, first.host.stored);
+    await ready(second.plugin);
+    await settled(second.plugin);
+    expect(blockedNotices()).toEqual([
+      `OpenLFCP: edits from ${toHex(collaborator(0x11)).slice(0, 8)} in "Team" can't be applied (ACTOR_EQUIVOCATION). See "Resource status".`,
+    ]);
+    second.host.unload();
+    await second.plugin.stopRuntime();
+    // Not again after another reload.
+    const third = await load(app, second.host.stored);
+    await ready(third.plugin);
+    await settled(third.plugin);
+    expect(blockedNotices()).toHaveLength(1);
+    third.host.unload();
+    await third.plugin.stopRuntime();
   });
 });

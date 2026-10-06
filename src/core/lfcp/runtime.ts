@@ -88,6 +88,49 @@ export interface RuntimeEnv extends InstallEnv {
 /** What every refused call says once the profile engine trapped (needs-restart). */
 export const NEEDS_RESTART = "OpenLFCP needs an Obsidian restart: its sync engine stopped working";
 
+/** How long a held unit waits before its author counts as blocked (§26.2 links usually arrive at once). */
+export const HELD_BLOCKED_MS = 10 * 60_000;
+
+/**
+ * A collaborator whose units this device cannot apply: refused by the
+ * profile, quarantined (a Key Epoch cutoff, the engine crash breaker,
+ * no key), equivocating, or held unlinked for HELD_BLOCKED_MS. Codes and
+ * counts only, never content.
+ */
+export interface BlockedCollaborator {
+  /** The author's public Principal ID (hex). */
+  readonly principal: string;
+  /** How many of their units cannot be applied here. */
+  readonly units: number;
+  /** The reason codes (ACTOR_EQUIVOCATION, INVALID_AUTOMERGE_BYTES, PREV_MISMATCH, …), sorted. */
+  readonly reasons: readonly string[];
+}
+
+const BLOCKING_STATUSES = [
+  "profile-rejected",
+  "quarantined",
+  "equivocation",
+  "local-failure",
+  "held",
+] as const;
+
+/** The reason code of a stored unit that cannot be applied. */
+function blockReason(status: (typeof BLOCKING_STATUSES)[number], detail: string | null): string {
+  const code = /^[A-Z][A-Z0-9_]+/.exec(detail ?? "")?.[0];
+  switch (status) {
+    case "profile-rejected":
+      return "PROFILE_REJECTED";
+    case "equivocation":
+      return "ACTOR_EQUIVOCATION";
+    case "quarantined":
+      return code ?? "STALE_DATA_EPOCH";
+    case "local-failure":
+      return code ?? "LOCAL_FAILURE";
+    case "held":
+      return code ?? "HELD";
+  }
+}
+
 export type RuntimeStatus =
   | {
       readonly kind: "ready";
@@ -530,6 +573,71 @@ export class LfcpRuntime {
   }
 
   /** Whether this vault stores the Resource (and can therefore project it). */
+  /**
+   * The collaborators whose units this device cannot apply in `resource`
+   * (BlockedCollaborator), by Principal ID; this Principal's own units are
+   * left out (own stale work is re-applied, G-EP5). A held unit counts once
+   * it has been held for HELD_BLOCKED_MS: the first time a unit is seen
+   * held is kept in local state.
+   */
+  async blockedCollaborators(resource: ResourceId): Promise<BlockedCollaborator[]> {
+    const { storage, principal } = this.#ready();
+    const me = toHex(principal.id);
+    const now = this.#env.timers.now();
+    const units: { actor: string; unit: string; held: boolean; reason: string }[] = [];
+    for (const status of BLOCKING_STATUSES)
+      for (const u of await storage.dataUnits.withStatus(resource, status)) {
+        const actor = toHex(u.actor);
+        if (actor !== me)
+          units.push({
+            actor,
+            unit: toHex(u.unitId),
+            held: status === "held",
+            reason: blockReason(status, u.detail),
+          });
+      }
+    // First-seen times of held units: new ones now, those no longer held dropped.
+    let since: Record<string, number> = {};
+    await this.localState.update(`held-since:${toHex(resource)}`, (value) => {
+      const old = (value ?? {}) as Record<string, number>;
+      since = Object.fromEntries(
+        units.filter((u) => u.held).map((u) => [u.unit, old[u.unit] ?? now]),
+      );
+      return since;
+    });
+    const byActor = new Map<string, { units: number; reasons: Set<string> }>();
+    for (const u of units) {
+      if (u.held && now - (since[u.unit] ?? now) < HELD_BLOCKED_MS) continue;
+      const entry = byActor.get(u.actor) ?? { units: 0, reasons: new Set<string>() };
+      entry.units++;
+      entry.reasons.add(u.reason);
+      byActor.set(u.actor, entry);
+    }
+    return [...byActor]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([principal, e]) =>
+        Object.freeze({ principal, units: e.units, reasons: Object.freeze([...e.reasons].sort()) }),
+      );
+  }
+
+  /**
+   * The blocked collaborators of `resource` not reported before, and
+   * records them as reported (in local state, so a restart does not report
+   * them again): one notice per Resource and collaborator.
+   */
+  async newlyBlocked(resource: ResourceId): Promise<BlockedCollaborator[]> {
+    const blocked = await this.blockedCollaborators(resource);
+    if (blocked.length === 0) return [];
+    let fresh: BlockedCollaborator[] = [];
+    await this.localState.update(`blocked-reported:${toHex(resource)}`, (value) => {
+      const reported = new Set((value ?? []) as string[]);
+      fresh = blocked.filter((b) => !reported.has(b.principal));
+      for (const b of fresh) reported.add(b.principal);
+      return [...reported].sort();
+    });
+    return fresh;
+  }
+
   async hasResource(resource: ResourceId): Promise<boolean> {
     const storage = this.storage;
     return storage !== null && (await storage.resources.get(resource)) !== undefined;
