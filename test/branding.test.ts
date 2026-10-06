@@ -4,9 +4,11 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const SRC = new URL("../src/", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: on Windows the pathname is "/D:/…".
+const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
 /** Code lines naming OpenLFCP on purpose: the project and its server. */
 const ALLOWED = ["Hosted by the OpenLFCP project (beta)", "the OpenLFCP project server (beta)"];
@@ -23,8 +25,12 @@ function sources(dir: string): string[] {
 
 describe("branding", () => {
   it("names the plugin Shared Tasks, never OpenLFCP, in its texts", () => {
+    const files = sources(SRC);
+    // A wrong path must not pass by scanning nothing.
+    expect(files.length).toBeGreaterThan(20);
+    expect(files.some((f) => f.endsWith("main.ts"))).toBe(true);
     const found: string[] = [];
-    for (const file of sources(SRC))
+    for (const file of files)
       readFileSync(file, "utf8")
         .split("\n")
         .forEach((line, i) => {
