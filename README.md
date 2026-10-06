@@ -73,6 +73,24 @@ commands are in the command palette.
 The full walkthrough, with what to expect at each step:
 [docs/demos/two-vault-demo.md](docs/demos/two-vault-demo.md).
 
+### Many tasks at once
+
+- **"Shared Tasks: Share selected tasks"** shares every task line you
+  selected. With nothing selected, it shares the tasks under the heading
+  at the cursor, down to the next heading of the same or a higher level.
+  You pick the collaboration once; each task becomes a shared task of its
+  own, nested ones included. Tasks already shared are skipped, and tasks
+  with a broken `lfcp-ref` are left alone. One notice says how many were
+  shared.
+- **"Shared Tasks: Insert all tasks from collaboration"** places, at the
+  cursor, every task of a collaboration that this note does not show yet,
+  in the order they were created.
+
+Everyone invited to a collaboration sees every task in it, including tasks
+you add later. Each command handles at most 200 tasks; above that it does
+nothing and says so. A shared list or section is not itself shared: its
+order and heading, and tasks added to it later, stay local in each note.
+
 ## What's shared, what stays private, what the server sees
 
 | | |

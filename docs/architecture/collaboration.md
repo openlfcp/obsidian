@@ -1,6 +1,7 @@
 # Collaboration commands (LFCP-065)
 
-The product UI of v0.1: seven commands and a conflict hook. Everything else
+The product UI: nine commands and a conflict hook (seven in v0.1, two for
+many Tasks at once in POST-018). Everything else
 stays ordinary Markdown. The commands are thin. Dialogs live in
 `src/obsidian/ui/prompter.ts`, the handlers in `src/core/collab/commands.ts`,
 and the flows in `src/core/collab/service.ts`. Every protocol step is an SDK
@@ -13,10 +14,20 @@ flow, so none of these layers holds protocol logic. A test enforces it
 | Join collaboration | Asks the invitation link in a masked field and a local name, then claims | `acceptInvitation` (LFCP-053) |
 | Share task under cursor | `task.create` from what the line represents, then adds the ref | `runtime.writeIntent` |
 | Insert shared object | Picks a Resource and a Task, then writes its projection at the cursor | `renderNewTaskLine` (LFCP-062) |
+| Share selected tasks | Every Task line of the selection, or else of the heading section at the cursor (down to the next heading of the same or a higher level; ATX headings outside fences and front matter): one Resource pick, one `task.create` each (`created_at` now + its index in ms, keeping note order), all refs in one `vault.process`. Bound lines are skipped, blocked or title-less ones refused; one summary notice | `runtime.writeIntent` (`Collaboration.shareAll`) |
+| Insert all tasks from collaboration | Every live Task the note does not project yet, at the cursor, ordered by `created_at` then Object ID | `renderNewTaskLine` |
 | Invite collaborator | Picks a preset, then shows a one-time link | `createInvitation` |
 | Resource status | The non-secret state of a collaboration | stored Control state, Shared Objects state |
 | Detach shared task | Removes the ref; the shared object is untouched | none |
 | Resolve shared task conflict | Lists a field's competing values and keeps the chosen one | `task.resolve_field_conflict` |
+
+Batches (POST-018) hold at most 200 Tasks (`MAX_BATCH`): a larger one is
+refused before anything is written. The pick dialog says that everyone
+invited sees every Task of the collaboration. The range logic is pure, in
+`src/core/collab/batch.ts`. A section or list is not a shared object: its
+order, its heading and Tasks added to it later stay local; shared sections
+need the protocol (NEXT-001). Headings inside HTML or `%%` comments still
+count as headings.
 
 ## Presets
 

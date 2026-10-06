@@ -30,8 +30,8 @@ layer changes.
 Expected:
 
 - the plugin enables without an error notice or console error;
-- the command palette lists the seven `Shared Tasks:` commands from
-  `src/core/commands.ts`, and each shows a "not implemented yet" notice;
+- the command palette lists the `Shared Tasks:` commands of
+  `src/core/commands.ts` and "Repair moved shared task ref";
 - **Settings → Shared Tasks** shows *Ref placement* (Child line by default) and
   *Default server*; a change survives disabling and re-enabling the
   plugin (it is stored in `<vault>/.obsidian/plugins/shared-tasks/data.json`).
