@@ -9,7 +9,8 @@ Website: [openlfcp.org](https://openlfcp.org)
 
 ![Bob ticks a shared task in his note; it updates in Alice's note, end-to-end encrypted, while the rest of both notes stays private](docs/assets/shared-tasks-demo.gif)
 
-**Beta.** Plugin ID `shared-tasks`, version 0.2.0.
+**Beta.** Plugin ID `shared-tasks`; for the current version, see the
+[latest release](https://github.com/openlfcp/obsidian/releases/latest).
 
 ## What it does
 
@@ -31,14 +32,14 @@ Shared Tasks needs Obsidian 1.13.1 or later.
 1. Install and enable [BRAT](https://github.com/TfTHacker/obsidian42-brat)
    from Settings → Community plugins.
 2. Run "BRAT: Add a beta plugin for testing" from the command palette.
-3. Enter `openlfcp/obsidian`; if BRAT asks for a version, pick `0.2.0`.
+3. Enter `openlfcp/obsidian`; if BRAT asks for a version, pick the latest.
 4. Enable "Shared Tasks" in Settings → Community plugins.
 
 **By hand:** from the
-[0.2.0 release](https://github.com/openlfcp/obsidian/releases/tag/0.2.0),
+[latest release](https://github.com/openlfcp/obsidian/releases/latest),
 download `main.js`, `manifest.json` and `styles.css` into
 `<vault>/.obsidian/plugins/shared-tasks/` (or unzip
-`shared-tasks-0.2.0.zip` into `<vault>/.obsidian/plugins/`), then enable
+`shared-tasks-<version>.zip` into `<vault>/.obsidian/plugins/`), then enable
 "Shared Tasks" in Settings → Community plugins.
 
 **Community Plugins:** coming; not submitted yet.
@@ -150,7 +151,7 @@ Beta software. **Not for data you need to protect yet.**
   plugin on the device.
 
 All known limitations, verified: the release notes of
-[Shared Tasks 0.2.0](docs/releases/0.2.0.md),
+[Shared Tasks](docs/releases/),
 [OpenLFCP MVP 0.1](https://github.com/openlfcp/.github/blob/main/docs/release/mvp-0.1-release-notes.md)
 and
 [server 0.2.0](https://github.com/openlfcp/.github/blob/main/docs/release/server-0.2.0-release-notes.md).
