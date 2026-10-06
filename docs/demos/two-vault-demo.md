@@ -52,7 +52,7 @@ shown, and there is no account.
 
 ## 1. Alice creates a collaboration
 
-In Vault A, run "OpenLFCP: Create collaboration" from the command palette.
+In Vault A, run "Shared Tasks: Create collaboration" from the command palette.
 Name it `Project Alpha` and accept the default server.
 
 **Expect:** the notice *"Project Alpha" created and hosted. You own it.*

@@ -25,12 +25,12 @@ layer changes.
    ```
 
 4. Open the vault, go to **Settings → Community plugins**, turn off
-   Restricted mode if asked, and enable **OpenLFCP**.
+   Restricted mode if asked, and enable **Shared Tasks**.
 
 Expected:
 
 - the plugin enables without an error notice or console error;
-- the command palette lists the seven `OpenLFCP:` commands from
+- the command palette lists the seven `Shared Tasks:` commands from
   `src/core/commands.ts`, and each shows a "not implemented yet" notice;
 - **Settings → Shared Tasks** shows *Ref placement* (Child line by default) and
   *Default server*; a change survives disabling and re-enabling the
