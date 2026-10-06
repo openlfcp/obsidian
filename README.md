@@ -2,7 +2,37 @@
 
 # openlfcp/obsidian
 
-Obsidian editor adapter and product UI for OpenLFCP.
+**Shared Tasks** (plugin ID `shared-tasks`): share tasks between Obsidian
+vaults, end-to-end encrypted, without uploading your notes. It is the
+Obsidian editor adapter and product UI for OpenLFCP. **Beta.**
+
+## Install
+
+- **Now, with BRAT:** install
+  [BRAT](https://github.com/TfTHacker/obsidian42-brat), run "BRAT: Add a
+  beta plugin for testing" and enter `openlfcp/obsidian`, then enable
+  "Shared Tasks" in Settings → Community plugins.
+- **By hand:** download `shared-tasks-<version>.zip` from the
+  [releases](https://github.com/openlfcp/obsidian/releases), unzip it into
+  `<vault>/.obsidian/plugins/`, and enable the plugin.
+- **Later:** from Obsidian's community plugin directory (not submitted yet).
+
+Requires Obsidian 1.13.1 or later. Tested on desktop; mobile is not tested
+yet. Upgrading from 0.1.0, which was called "OpenLFCP": see
+[docs/releases/0.2.0.md](docs/releases/0.2.0.md).
+
+**The sync server.** "Create collaboration" offers the OpenLFCP project's
+public server, `wss://sync.openlfcp.org/v1/ws` (beta), by default. Read its
+[privacy note](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-privacy.md)
+and [terms](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-terms.md)
+first, or run your own server. See
+[docs/guides/choosing-a-server.md](docs/guides/choosing-a-server.md).
+
+**Network use.** The plugin connects only to the sync servers of your
+collaborations, over WebSocket (`wss://`). It sends only end-to-end
+encrypted data and the protocol metadata a server needs (public keys,
+Resource IDs, sizes); the server also sees your IP address. There is no
+account, no telemetry and no payment.
 
 It consumes `sdk-ts`, the Shared Objects Profile, and the Markdown
 reference format. It owns Markdown scanning, the projection engine,
@@ -63,7 +93,8 @@ prepares the vaults and the server config outside this repository.
 
 | Path | What it is |
 | --- | --- |
-| `manifest.json`, `versions.json` | Obsidian community-plugin manifest (id `openlfcp`) and its app-version map |
+| `manifest.json`, `versions.json` | Obsidian community-plugin manifest (id `shared-tasks`) and its app-version map |
+| `scripts/release-assets.mjs`, `.github/workflows/release.yml` | The release: assets built and checked from a bare version tag; see [docs/devel/release.md](docs/devel/release.md) |
 | `src/main.ts` | Entry point; bundled into `main.js` by `scripts/build.mjs` (esbuild) |
 | `src/obsidian/` | The thin Obsidian adapter: plugin lifecycle, commands, settings tab. The only code that imports `obsidian` |
 | `src/core/` | Obsidian-free modules, reusable by other editor adapters |
