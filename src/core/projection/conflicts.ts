@@ -67,7 +67,9 @@ export class ConflictRegistry {
   /** The status bar text (empty when nothing is conflicted). */
   summary(): string {
     const n = this.count;
-    return n === 0 ? "" : `OpenLFCP: ${n} shared ${n === 1 ? "task has" : "tasks have"} a conflict`;
+    return n === 0
+      ? ""
+      : `Shared Tasks: ${n} shared ${n === 1 ? "task has" : "tasks have"} a conflict`;
   }
 
   onChange(listener: () => void): () => void {

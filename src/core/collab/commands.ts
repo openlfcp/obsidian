@@ -122,7 +122,7 @@ export class CollabCommands {
     const c = this.#env.collab();
     if (c === null)
       this.#env.prompter.notice(
-        "OpenLFCP: not ready yet (starting, or writing is paused on this device).",
+        "Shared Tasks: not ready yet (starting, or writing is paused on this device).",
       );
     return c;
   }
@@ -132,7 +132,7 @@ export class CollabCommands {
       await body();
     } catch (e) {
       if (e instanceof Abort) return;
-      this.#env.prompter.notice(`OpenLFCP: ${what} failed. ${plainError(e)}`);
+      this.#env.prompter.notice(`Shared Tasks: ${what} failed. ${plainError(e)}`);
     }
   }
 
@@ -151,7 +151,7 @@ export class CollabCommands {
       choices.push({ label: "Create a new collaboration…", value: "new" });
     if (choices.length === 0) {
       this.#env.prompter.notice(
-        'OpenLFCP: no collaboration yet. Use "Create collaboration" or "Join collaboration" first.',
+        'Shared Tasks: no collaboration yet. Use "Create collaboration" or "Join collaboration" first.',
       );
       return null;
     }
@@ -161,7 +161,7 @@ export class CollabCommands {
     const entry = entries.find((e) => toHex(e.resourceId) === toHex(picked));
     if (entry?.state === "control_conflict" && options.blockedOk !== true) {
       this.#env.prompter.notice(
-        'OpenLFCP: this collaboration\'s history has forked. Sharing and invitations are blocked until it is resolved; see "Resource status".',
+        'Shared Tasks: this collaboration\'s history has forked. Sharing and invitations are blocked until it is resolved; see "Resource status".',
       );
       return null;
     }
@@ -190,10 +190,10 @@ export class CollabCommands {
     const h = created.hosting;
     p.notice(
       h.kind === "hosted"
-        ? `OpenLFCP: "${name.trim()}" created and hosted. You own it.`
+        ? `Shared Tasks: "${name.trim()}" created and hosted. You own it.`
         : h.kind === "pending"
-          ? `OpenLFCP: "${name.trim()}" created on this device. ${h.reason}`
-          : `OpenLFCP: "${name.trim()}" created on this device, but the server refused to host it. ${h.message}`,
+          ? `Shared Tasks: "${name.trim()}" created on this device. ${h.reason}`
+          : `Shared Tasks: "${name.trim()}" created on this device, but the server refused to host it. ${h.message}`,
     );
     return { resourceId: created.resourceId };
   }
@@ -232,10 +232,10 @@ export class CollabCommands {
         });
         p.notice(
           outcome.kind === "joined"
-            ? `OpenLFCP: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
+            ? `Shared Tasks: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
             : outcome.kind === "already-member"
-              ? "OpenLFCP: this device is already in that collaboration."
-              : `OpenLFCP: could not join. ${outcome.message}`,
+              ? "Shared Tasks: this device is already in that collaboration."
+              : `Shared Tasks: could not join. ${outcome.message}`,
         );
       } finally {
         progress.close();
@@ -251,16 +251,16 @@ export class CollabCommands {
       const note = this.#env.notes.active();
       const at = note === null ? { kind: "none" as const } : taskAt(note.text, note.line);
       if (note === null || at.kind === "none") {
-        p.notice("OpenLFCP: put the cursor on a task line (- [ ] …) to share it.");
+        p.notice("Shared Tasks: put the cursor on a task line (- [ ] …) to share it.");
         return;
       }
       if (at.kind === "bound") {
-        p.notice("OpenLFCP: this task is already shared; nothing new was created.");
+        p.notice("Shared Tasks: this task is already shared; nothing new was created.");
         return;
       }
       if (at.kind === "blocked") {
         p.notice(
-          "OpenLFCP: this task's lfcp-ref is malformed or duplicated. Fix or remove it first.",
+          "Shared Tasks: this task's lfcp-ref is malformed or duplicated. Fix or remove it first.",
         );
         return;
       }
@@ -288,8 +288,8 @@ export class CollabCommands {
       const warnings = shared.warnings.length === 0 ? "" : ` ${shared.warnings.join(" ")}`;
       p.notice(
         attached
-          ? `OpenLFCP: task shared.${warnings}`
-          : `OpenLFCP: the task was shared, but the note changed meanwhile, so no ref was added. Use "Insert shared object" to place it.${warnings}`,
+          ? `Shared Tasks: task shared.${warnings}`
+          : `Shared Tasks: the task was shared, but the note changed meanwhile, so no ref was added. Use "Insert shared object" to place it.${warnings}`,
       );
     });
   }
@@ -301,14 +301,14 @@ export class CollabCommands {
       const p = this.#env.prompter;
       const note = this.#env.notes.active();
       if (note === null) {
-        p.notice("OpenLFCP: open a note to insert a shared task into.");
+        p.notice("Shared Tasks: open a note to insert a shared task into.");
         return;
       }
       const R = await this.#pickResource(collab, "Insert a task from…", { blockedOk: true });
       if (R === null) return;
       const tasks = await collab.tasks(R);
       if (tasks.length === 0) {
-        p.notice("OpenLFCP: this collaboration has no shared tasks yet.");
+        p.notice("Shared Tasks: this collaboration has no shared tasks yet.");
         return;
       }
       const objectId = await p.choose({
@@ -330,7 +330,7 @@ export class CollabCommands {
         this.#env.guard.expect(note.path, next);
         return next;
       });
-      p.notice("OpenLFCP: shared task inserted.");
+      p.notice("Shared Tasks: shared task inserted.");
     });
   }
 
@@ -381,10 +381,10 @@ export class CollabCommands {
             const h = await collab.host(R);
             this.#env.prompter.notice(
               h.kind === "hosted"
-                ? "OpenLFCP: hosted."
+                ? "Shared Tasks: hosted."
                 : h.kind === "pending"
-                  ? `OpenLFCP: ${h.reason}`
-                  : `OpenLFCP: the server refused. ${h.message}`,
+                  ? `Shared Tasks: ${h.reason}`
+                  : `Shared Tasks: the server refused. ${h.message}`,
             );
           },
         });
@@ -398,7 +398,9 @@ export class CollabCommands {
       const note = this.#env.notes.active();
       const at = note === null ? { kind: "none" as const } : taskAt(note.text, note.line);
       if (note === null || at.kind !== "bound") {
-        p.notice("OpenLFCP: put the cursor on a shared task (one with an lfcp-ref) to detach it.");
+        p.notice(
+          "Shared Tasks: put the cursor on a shared task (one with an lfcp-ref) to detach it.",
+        );
         return;
       }
       const key = `${toHex(at.ref.resourceId)}#${at.ref.objectId}`;
@@ -411,7 +413,7 @@ export class CollabCommands {
         return next;
       });
       p.notice(
-        "OpenLFCP: the task is no longer shared in this note. The shared task itself is unchanged.",
+        "Shared Tasks: the task is no longer shared in this note. The shared task itself is unchanged.",
       );
     });
   }
@@ -429,13 +431,13 @@ export class CollabCommands {
       const note = this.#env.notes.active();
       const at = note === null ? { kind: "none" as const } : taskAt(note.text, note.line);
       if (note === null || at.kind !== "bound") {
-        p.notice("OpenLFCP: put the cursor on a shared task to resolve its conflicts.");
+        p.notice("Shared Tasks: put the cursor on a shared task to resolve its conflicts.");
         return;
       }
       const R = asResourceId(at.ref.resourceId);
       const conflicts = await collab.conflicts(R, at.ref.objectId);
       if (conflicts.length === 0) {
-        p.notice("OpenLFCP: this shared task has no conflicts.");
+        p.notice("Shared Tasks: this shared task has no conflicts.");
         return;
       }
       const field = await p.choose<ScalarField>({
@@ -454,7 +456,7 @@ export class CollabCommands {
       });
       if (pick === null) return;
       await collab.resolve(R, at.ref.objectId as ObjectId, field, pick.v);
-      p.notice(`OpenLFCP: ${field} resolved.`);
+      p.notice(`Shared Tasks: ${field} resolved.`);
     });
   }
 }

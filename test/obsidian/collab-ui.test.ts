@@ -154,7 +154,7 @@ describe("LFCP-065 in the plugin", () => {
     const seen = mock.modals.length;
     run(host, "share-task-under-cursor");
     await pick(seen, "Team");
-    await settle(() => mock.notices.includes("OpenLFCP: task shared."));
+    await settle(() => mock.notices.includes("Shared Tasks: task shared."));
     const text = app.vault.files.get(file.path) as string;
     expect(scanRefs(text).projections.map((p) => p.placement)).toEqual(["child"]);
     expect(view.saves).toBe(1);

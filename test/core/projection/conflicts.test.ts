@@ -13,7 +13,7 @@ describe("ConflictRegistry (LFCP-062 item 5)", () => {
     r.update("b.md", [rendered(1, "k1", ["due"])]);
     expect(r.marks("a.md")).toEqual([{ line: 0, key: "k1", fields: ["due", "status"] }]);
     expect(r.count).toBe(1);
-    expect(r.summary()).toBe("OpenLFCP: 1 shared task has a conflict");
+    expect(r.summary()).toBe("Shared Tasks: 1 shared task has a conflict");
     r.update("b.md", [rendered(1, "k1", ["due"])]); // unchanged: no notification
     expect(changes).toBe(2);
     r.rename("b.md", "c.md");

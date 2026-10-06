@@ -135,7 +135,7 @@ describe("LFCP-065 commands", () => {
     expect(hint?.(SERVER)).toBeNull();
     expect([...s.prompter.hints.keys()]).toEqual(["Sync server"]);
     expect(s.prompter.notices.at(-1)).toMatch(
-      /^OpenLFCP: "Team" created on this device\. The server .* is not reachable now/,
+      /^Shared Tasks: "Team" created on this device\. The server .* is not reachable now/,
     );
   });
 
@@ -153,7 +153,7 @@ describe("LFCP-065 commands", () => {
     expect(text.split("\n")[3]).toBe("- [ ] Other");
     expect(toHex(p?.resourceId as Uint8Array)).toBe(toHex(R));
     expect(s.guard.consume("a.md", text)).toBe(true);
-    expect(s.prompter.notices.at(-1)).toBe("OpenLFCP: task shared.");
+    expect(s.prompter.notices.at(-1)).toBe("Shared Tasks: task shared.");
     const objects = (await s.runtime.profileOf(R)).replica.objectIds();
     expect(objects).toEqual([p?.objectId]);
 
@@ -162,7 +162,7 @@ describe("LFCP-065 commands", () => {
       s.notes.open("a.md", line);
       await s.commands.shareTaskUnderCursor();
       expect(s.prompter.notices.at(-1)).toBe(
-        "OpenLFCP: this task is already shared; nothing new was created.",
+        "Shared Tasks: this task is already shared; nothing new was created.",
       );
     }
     expect((await s.runtime.profileOf(R)).replica.objectIds()).toEqual(objects);
@@ -278,7 +278,9 @@ describe("LFCP-065 commands", () => {
       "Joining collaboration",
       "Connecting to the collaboration's server…",
     ]);
-    expect(s.prompter.notices.at(-1)).toMatch(/^OpenLFCP: could not join\. .*needs a connection/);
+    expect(s.prompter.notices.at(-1)).toMatch(
+      /^Shared Tasks: could not join\. .*needs a connection/,
+    );
     const secret = link.slice(link.indexOf("#secret=") + 8);
     for (const line of [...s.prompter.notices, ...s.prompter.progressLines, ...logged])
       expect(line).not.toContain(secret);
@@ -318,10 +320,10 @@ describe("LFCP-065 commands", () => {
 
     s.prompter.picks.push("status", "done");
     await s.commands.resolveConflictUnderCursor();
-    expect(s.prompter.notices.at(-1)).toBe("OpenLFCP: status resolved.");
+    expect(s.prompter.notices.at(-1)).toBe("Shared Tasks: status resolved.");
     expect(profile.replica.task(objectId)?.fields.status.values).toEqual(["done"]);
     await s.commands.resolveConflictUnderCursor();
-    expect(s.prompter.notices.at(-1)).toBe("OpenLFCP: this shared task has no conflicts.");
+    expect(s.prompter.notices.at(-1)).toBe("Shared Tasks: this shared task has no conflicts.");
   });
 
   it("reports not ready instead of acting", async () => {
@@ -336,7 +338,7 @@ describe("LFCP-065 commands", () => {
     });
     await commands.createCollaboration();
     expect(prompter.notices).toEqual([
-      "OpenLFCP: not ready yet (starting, or writing is paused on this device).",
+      "Shared Tasks: not ready yet (starting, or writing is paused on this device).",
     ]);
   });
 });

@@ -282,7 +282,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
       app.vault.trigger("modify", { path: "n.md" });
       plugin.changes.flush();
       await settle(plugin);
-      expect(host.statusBar[0]?.text).toBe("OpenLFCP: 1 shared task has a conflict");
+      expect(host.statusBar[0]?.text).toBe("Shared Tasks: 1 shared task has a conflict");
       expect(plugin.conflicts.marks("n.md")).toMatchObject([{ fields: ["due"] }]);
       expect(host.editorExtensions).toHaveLength(1);
       expect(app.vault.files.get("n.md")).not.toMatch(/<{7}|={7}|>{7}|conflict/i);
@@ -311,7 +311,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await expect(runtime.writeIntent(R, intent)).rejects.toThrow("needs an Obsidian restart");
     const restart = mock.notices.filter((n) => n.includes("Restart Obsidian"));
     expect(restart).toHaveLength(1);
-    expect(host.statusBar[0]?.text).toBe("OpenLFCP: restart Obsidian");
+    expect(host.statusBar[0]?.text).toBe("Shared Tasks: restart Obsidian");
     expect(plugin.needsRestart).not.toBeNull();
     expect(runtime.status.kind).toBe("needs-restart");
     host.unload();
@@ -349,7 +349,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await ready(second.plugin);
     await settled(second.plugin);
     expect(blockedNotices()).toEqual([
-      `OpenLFCP: edits from ${toHex(collaborator(0x11)).slice(0, 8)} in "Team" can't be applied (ACTOR_EQUIVOCATION). See "Resource status".`,
+      `Shared Tasks: edits from ${toHex(collaborator(0x11)).slice(0, 8)} in "Team" can't be applied (ACTOR_EQUIVOCATION). See "Resource status".`,
     ]);
     second.host.unload();
     await second.plugin.stopRuntime();

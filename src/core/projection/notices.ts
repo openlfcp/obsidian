@@ -10,16 +10,16 @@ const ANNOUNCED: Partial<
   Record<ProjectionDiagnostic["code"], (d: ProjectionDiagnostic) => string>
 > = {
   TITLE_WIKILINK: () =>
-    "OpenLFCP: a shared task's title links to notes. Collaborators see those note names.",
+    "Shared Tasks: a shared task's title links to notes. Collaborators see those note names.",
   RECURRENCE_NOT_SYNCED: () =>
-    "OpenLFCP: recurrence (🔁) is not shared. Collaborators see the task without it.",
+    "Shared Tasks: recurrence (🔁) is not shared. Collaborators see the task without it.",
   REF_REASSOCIATION_SUSPECTED: () =>
-    'OpenLFCP: a shared task\'s ref now sits under another task, so nothing was sent. Run "Repair moved shared task ref" to move it back.',
+    'Shared Tasks: a shared task\'s ref now sits under another task, so nothing was sent. Run "Repair moved shared task ref" to move it back.',
   FIELD_CONFLICTED: (d) =>
-    `OpenLFCP: a shared task's ${d.field ?? "field"} has concurrent values; your edit was not sent.`,
+    `Shared Tasks: a shared task's ${d.field ?? "field"} has concurrent values; your edit was not sent.`,
   PROJECTIONS_DISAGREE: () =>
-    "OpenLFCP: copies of one shared task in this note were edited differently; nothing was sent.",
-  WRITE_FAILED: (d) => `OpenLFCP: a change could not be saved for sharing (${d.message}).`,
+    "Shared Tasks: copies of one shared task in this note were edited differently; nothing was sent.",
+  WRITE_FAILED: (d) => `Shared Tasks: a change could not be saved for sharing (${d.message}).`,
 };
 
 export class ProjectionNotices {
@@ -52,13 +52,13 @@ export class ProjectionNotices {
     for (const p of rendered) {
       for (const i of p.issues)
         if (i.code === "STATE_REGRESSED" && this.#once(`${path}\u0000${p.key}\u0000${i.code}`))
-          out.push(`OpenLFCP: ${i.message}`);
+          out.push(`Shared Tasks: ${i.message}`);
       if (
         p.conflicts.length > 0 &&
         this.#once(`${p.key}\u0000conflict\u0000${p.conflicts.join(",")}`)
       )
         out.push(
-          `OpenLFCP: a shared task has concurrent values in ${p.conflicts.join(", ")}. The note shows one of them.`,
+          `Shared Tasks: a shared task has concurrent values in ${p.conflicts.join(", ")}. The note shows one of them.`,
         );
     }
     return out;

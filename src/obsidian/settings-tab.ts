@@ -66,7 +66,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       identity.setDesc(
         this.plugin.runtimeError === null
           ? "Starting…"
-          : `OpenLFCP could not start: ${this.plugin.runtimeError}`,
+          : `Shared Tasks could not start: ${this.plugin.runtimeError}`,
       );
       return;
     }
@@ -79,7 +79,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         new Setting(containerEl)
           .setName("Storage may be cleared")
           .setDesc(
-            "This device did not grant persistent storage. If it clears OpenLFCP's local data, this vault stops writing as its current identity until you create a new one.",
+            "This device did not grant persistent storage. If it clears Shared Tasks' local data, this vault stops writing as its current identity until you create a new one.",
           );
       return;
     }

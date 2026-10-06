@@ -158,8 +158,8 @@ class InvitationModal extends Modal {
     const copy = buttons.createEl("button", { text: "Copy link", cls: "mod-cta" });
     copy.addEventListener("click", () => {
       void this.copy(this.o.link.reveal()).then(
-        () => new Notice("OpenLFCP: invitation link copied."),
-        () => new Notice("OpenLFCP: could not copy; use Show link."),
+        () => new Notice("Shared Tasks: invitation link copied."),
+        () => new Notice("Shared Tasks: could not copy; use Show link."),
       );
     });
     buttons.createEl("button", { text: "Show link" }).addEventListener("click", () => {
@@ -264,9 +264,9 @@ export class ObsidianPrompter implements Prompter {
   }
 
   progress(title: string): { update(text: string): void; close(): void } {
-    const n = new Notice(`OpenLFCP: ${title}…`, 0);
+    const n = new Notice(`Shared Tasks: ${title}…`, 0);
     return {
-      update: (text) => n.setMessage(`OpenLFCP: ${text}`),
+      update: (text) => n.setMessage(`Shared Tasks: ${text}`),
       close: () => n.hide(),
     };
   }

@@ -82,15 +82,15 @@ export type LockReason =
   | "lock-held";
 
 export const LOCK_MESSAGES: Readonly<Record<LockReason, string>> = {
-  "state-missing": "This vault's local OpenLFCP state is missing.",
+  "state-missing": "This vault's local Shared Tasks state is missing.",
   "database-missing":
-    "This vault's local OpenLFCP database was cleared or evicted, so its write sequences are lost.",
-  "marker-missing": "This device's OpenLFCP secrets for this vault are missing.",
-  mismatch: "This vault's local OpenLFCP records do not belong together.",
-  "keys-missing": "This vault's OpenLFCP private keys are missing.",
+    "This vault's local Shared Tasks database was cleared or evicted, so its write sequences are lost.",
+  "marker-missing": "This device's Shared Tasks secrets for this vault are missing.",
+  mismatch: "This vault's local Shared Tasks records do not belong together.",
+  "keys-missing": "This vault's Shared Tasks private keys are missing.",
   "database-behind":
-    "This vault's local OpenLFCP database is older than the writes it already made (restored from a backup?).",
-  "lock-held": "Another OpenLFCP instance is using this vault's local state.",
+    "This vault's local Shared Tasks database is older than the writes it already made (restored from a backup?).",
+  "lock-held": "Another Shared Tasks instance is using this vault's local state.",
 };
 
 /** The local Principal: public identity plus its keys (never shown or exported). */
@@ -138,7 +138,7 @@ interface Meta {
 /** Thrown by every sequence reservation of a locked install. */
 export class InstallLockedError extends LfcpError {
   constructor(reason: LockReason) {
-    super("UNSUPPORTED_VALUE", `OpenLFCP is locked for writing: ${LOCK_MESSAGES[reason]}`);
+    super("UNSUPPORTED_VALUE", `Shared Tasks is locked for writing: ${LOCK_MESSAGES[reason]}`);
   }
 }
 

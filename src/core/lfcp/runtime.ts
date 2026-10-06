@@ -86,7 +86,8 @@ export interface RuntimeEnv extends InstallEnv {
 }
 
 /** What every refused call says once the profile engine trapped (needs-restart). */
-export const NEEDS_RESTART = "OpenLFCP needs an Obsidian restart: its sync engine stopped working";
+export const NEEDS_RESTART =
+  "Shared Tasks needs an Obsidian restart: its sync engine stopped working";
 
 /** How long a held unit waits before its author counts as blocked (§26.2 links usually arrive at once). */
 export const HELD_BLOCKED_MS = 10 * 60_000;
@@ -446,7 +447,7 @@ export class LfcpRuntime {
   #ready(): Extract<Install, { kind: "ready" }> {
     const i = this.#install;
     if (this.#trapped !== null) throw new Error(NEEDS_RESTART);
-    if (this.#stopped || i.kind !== "ready") throw new Error("OpenLFCP is not ready");
+    if (this.#stopped || i.kind !== "ready") throw new Error("Shared Tasks is not ready");
     return i;
   }
 
@@ -796,7 +797,7 @@ export class LfcpRuntime {
     const pooled = this.#pool.get(url);
     if (pooled !== undefined) return pooled;
     const i = this.#install;
-    if (i.kind !== "ready") throw new Error("OpenLFCP is not ready");
+    if (i.kind !== "ready") throw new Error("Shared Tasks is not ready");
     // One outbound queue per session: a queue holds its server's READY
     // limits and the messages in flight on that connection, and a lost
     // connection retries only its own (a shared queue applied one server's

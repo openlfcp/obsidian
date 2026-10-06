@@ -242,8 +242,8 @@ export class Collaboration {
       throw new CollabError(
         "NOT_READY",
         s.kind === "locked"
-          ? `OpenLFCP cannot write on this device: ${s.message}`
-          : "OpenLFCP is not ready yet.",
+          ? `Shared Tasks cannot write on this device: ${s.message}`
+          : "Shared Tasks is not ready yet.",
       );
     }
     return c;

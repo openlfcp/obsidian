@@ -166,7 +166,7 @@ export default class OpenLfcpPlugin extends Plugin {
     if (this.needsRestart !== null) return;
     this.needsRestart = message;
     new Notice(`${message}. Restart Obsidian to continue; your notes are not affected.`, 0);
-    this.#bar?.setText("OpenLFCP: restart Obsidian");
+    this.#bar?.setText("Shared Tasks: restart Obsidian");
   }
 
   async #startRuntime(): Promise<LfcpRuntime | null> {
@@ -202,7 +202,7 @@ export default class OpenLfcpPlugin extends Plugin {
   #enqueue(job: () => Promise<void>): void {
     this.lastProjection = this.lastProjection.then(job).catch((e: unknown) => {
       new Notice(
-        `OpenLFCP: a note could not be processed (${e instanceof Error ? e.message : String(e)}).`,
+        `Shared Tasks: a note could not be processed (${e instanceof Error ? e.message : String(e)}).`,
       );
     });
   }
@@ -252,7 +252,7 @@ export default class OpenLfcpPlugin extends Plugin {
             "a collaboration";
           for (const b of fresh)
             new Notice(
-              `OpenLFCP: edits from ${b.principal.slice(0, 8)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
+              `Shared Tasks: edits from ${b.principal.slice(0, 8)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
             );
         } catch {
           // Reported again on the next event; never a reason to fail sync.
@@ -386,7 +386,7 @@ export default class OpenLfcpPlugin extends Plugin {
     if (file === null) return;
     const repairs = this.notices.repairs(file.path);
     if (repairs.length === 0) {
-      new Notice("OpenLFCP: nothing to repair in this note.");
+      new Notice("Shared Tasks: nothing to repair in this note.");
       return;
     }
     await this.app.vault.process(file, (text) => repairs.reduce((t, r) => applyRepair(t, r), text));
