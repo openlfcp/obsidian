@@ -28,7 +28,7 @@ import {
 } from "@openlfcp/wire";
 import { afterEach, describe, expect, it } from "vitest";
 import { databaseName } from "../../../src/core/lfcp/install";
-import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
+import { LfcpRuntime, NEEDS_RESTART } from "../../../src/core/lfcp/runtime";
 import { Device, deleteDatabase, FakeLocal } from "../../support/lfcp-env";
 
 const URL = "wss://offline.example.invalid/v1/ws";
@@ -253,6 +253,41 @@ describe("LfcpRuntime (LFCP-059)", () => {
     expect(Object.keys(map)).toEqual([toHex(kept)]);
     // The cut unit is reported once.
     expect(await r.cutOwnObjects(R)).toEqual([]);
+  });
+
+  it("an engine trap blocks the runtime once until restart (needs-restart)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    const status = r.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    await r.openResource(R);
+    expect(r.sessions).toBe(1);
+    const profile = await r.profileOf(R);
+    // Test hook: the engine traps on the next change, as a terminated wasm module does.
+    let calls = 0;
+    profile.replica.apply = () => {
+      calls++;
+      throw new WebAssembly.RuntimeError("unreachable executed");
+    };
+    const heard: string[] = [];
+    r.onNeedsRestart((m) => heard.push(m));
+    const { intent } = createTask({ id: TASK, title: "Draft", createdBy: status.principalId });
+    await expect(r.writeIntent(R, intent)).rejects.toThrow(NEEDS_RESTART);
+    expect(r.status).toMatchObject({ kind: "needs-restart" });
+    expect(r.sessions).toBe(0); // every session stopped
+    expect(heard).toHaveLength(1);
+    // Later calls refuse at once, without touching the engine, and are not reported again.
+    await expect(r.writeIntent(R, intent)).rejects.toThrow(NEEDS_RESTART);
+    await expect(r.openResource(R)).rejects.toThrow(NEEDS_RESTART);
+    expect(calls).toBe(1);
+    expect(heard).toHaveLength(1);
+    // A restart works again (the trap was in this process only).
+    await r.stop();
+    const again = await start(device, local);
+    expect(again.status.kind).toBe("ready");
+    expect((await again.profileOf(R)).replica.task(TASK)).toBeUndefined();
   });
 
   it("locks, offers a new Principal, and refuses to open Resources while locked", async () => {

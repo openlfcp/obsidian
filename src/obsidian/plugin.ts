@@ -99,7 +99,10 @@ export default class OpenLfcpPlugin extends Plugin {
     this.#listenToVault();
     this.changes.subscribe((batch) => this.#enqueue(() => this.#onVaultChanges(batch)));
     const bar = this.addStatusBarItem();
-    this.conflicts.onChange(() => bar.setText(this.conflicts.summary()));
+    this.#bar = bar;
+    this.conflicts.onChange(() => {
+      if (this.needsRestart === null) bar.setText(this.conflicts.summary());
+    });
     this.registerEditorExtension(conflictDecorations(this.conflicts));
     this.#starting = this.#startRuntime();
   }
@@ -143,6 +146,19 @@ export default class OpenLfcpPlugin extends Plugin {
     await runtime?.stop();
   }
 
+  #bar: { setText(text: string): void } | null = null;
+
+  /** Set once the sync engine trapped: OpenLFCP is blocked until Obsidian restarts. */
+  needsRestart: string | null = null;
+
+  /** The engine trapped: one notice, a lasting status bar, no further projection work. */
+  #onNeedsRestart(message: string): void {
+    if (this.needsRestart !== null) return;
+    this.needsRestart = message;
+    new Notice(`${message}. Restart Obsidian to continue; your notes are not affected.`, 0);
+    this.#bar?.setText("OpenLFCP: restart Obsidian");
+  }
+
   async #startRuntime(): Promise<LfcpRuntime | null> {
     try {
       const runtime = await LfcpRuntime.start(this.runtimeEnv());
@@ -151,6 +167,7 @@ export default class OpenLfcpPlugin extends Plugin {
         return null;
       }
       this.runtime = runtime;
+      runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
       this.#watchObjects(runtime);
       // Pending changes go out and remote ones come in without waiting for a
       // command: every stored Resource is opened (one pooled session per server).

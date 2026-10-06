@@ -13,6 +13,7 @@ import {
   createQueuedDataUnit,
   DataUnitApplier,
   dekResolver,
+  isEngineTrap,
   loadControlChain,
   OutboundQueue,
   ProfileCheckpointer,
@@ -84,6 +85,9 @@ export interface RuntimeEnv extends InstallEnv {
   readonly tickMs?: number;
 }
 
+/** What every refused call says once the profile engine trapped (needs-restart). */
+export const NEEDS_RESTART = "OpenLFCP needs an Obsidian restart: its sync engine stopped working";
+
 export type RuntimeStatus =
   | {
       readonly kind: "ready";
@@ -95,6 +99,16 @@ export type RuntimeStatus =
       readonly reason: LockReason;
       readonly message: string;
       readonly principalId: PrincipalId | null;
+    }
+  | {
+      /**
+       * The profile engine trapped (Automerge's wasm module is terminated
+       * for this process): every session is stopped and nothing more is
+       * processed until Obsidian restarts. At the next start the SDK's
+       * crash-loop breaker isolates the content that caused it.
+       */
+      readonly kind: "needs-restart";
+      readonly message: string;
     }
   | { readonly kind: "stopped" };
 
@@ -202,6 +216,7 @@ export class LfcpRuntime {
 
   get status(): RuntimeStatus {
     if (this.#stopped) return { kind: "stopped" };
+    if (this.#trapped !== null) return { kind: "needs-restart", message: this.#trapped };
     const i = this.#install;
     return i.kind === "ready"
       ? { kind: "ready", principalId: i.principal.id, persisted: i.persisted }
@@ -340,7 +355,11 @@ export class LfcpRuntime {
    * SyncClient per endpoint, shared). Returns at once; syncing continues in
    * the background.
    */
-  async openResource(resource: ResourceId): Promise<OpenResource> {
+  openResource(resource: ResourceId): Promise<OpenResource> {
+    return this.#engine(() => this.#openResource(resource));
+  }
+
+  async #openResource(resource: ResourceId): Promise<OpenResource> {
     const local = await this.#local(resource);
     if (local.applier !== null) return local;
     const i = this.#ready();
@@ -380,8 +399,44 @@ export class LfcpRuntime {
 
   #ready(): Extract<Install, { kind: "ready" }> {
     const i = this.#install;
+    if (this.#trapped !== null) throw new Error(NEEDS_RESTART);
     if (this.#stopped || i.kind !== "ready") throw new Error("OpenLFCP is not ready");
     return i;
+  }
+
+  /** Why the engine trapped (needs-restart), or null. */
+  #trapped: string | null = null;
+  readonly #restartListeners = new Set<(message: string) => void>();
+
+  /** Called once if the profile engine traps and Obsidian must restart (status needs-restart). */
+  onNeedsRestart(listener: (message: string) => void): () => void {
+    this.#restartListeners.add(listener);
+    return () => this.#restartListeners.delete(listener);
+  }
+
+  /** The engine trapped: stop every session once; later calls refuse with NEEDS_RESTART. */
+  #engineTrapped(detail: string): void {
+    if (this.#trapped !== null || this.#stopped) return;
+    this.#trapped = `${NEEDS_RESTART} (${detail})`;
+    for (const p of this.#pool.values()) {
+      p.stopDriver();
+      p.unsubscribe();
+      void p.client.stop().catch(() => undefined);
+    }
+    this.#pool.clear();
+    for (const l of this.#restartListeners) l(this.#trapped);
+  }
+
+  /** Runs engine work; a trap switches the runtime to needs-restart. */
+  async #engine<T>(work: () => Promise<T>): Promise<T> {
+    if (this.#trapped !== null) throw new Error(NEEDS_RESTART);
+    try {
+      return await work();
+    } catch (e) {
+      if (!isEngineTrap(e)) throw e;
+      this.#engineTrapped(e instanceof Error ? e.message : String(e));
+      throw new Error(NEEDS_RESTART);
+    }
   }
 
   /** A stored Resource's Shared Objects state, local only (no session). */
@@ -478,8 +533,8 @@ export class LfcpRuntime {
   }
 
   /** The Shared Objects state of a stored Resource, without opening a session. */
-  async profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile> {
-    return (await this.#local(resource)).profile;
+  profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile> {
+    return this.#engine(async () => (await this.#local(resource)).profile);
   }
 
   /**
@@ -492,7 +547,7 @@ export class LfcpRuntime {
    * session for the Resource is open.
    */
   writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null> {
-    const run = this.#writes.then(() => this.#write(resource, intent));
+    const run = this.#writes.then(() => this.#engine(() => this.#write(resource, intent)));
     this.#writes = run.then(
       () => undefined,
       () => undefined,
@@ -539,7 +594,15 @@ export class LfcpRuntime {
    * row and the profile's initial document as the first Data Unit. Local
    * only: hosting it on a server is a separate step (LFCP-065).
    */
-  async createResource(options: {
+  createResource(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+  }): Promise<ResourceId> {
+    return this.#engine(() => this.#createResource(options));
+  }
+
+  async #createResource(options: {
     readonly name: string;
     readonly endpoints: readonly string[];
     readonly coordinatorUrl: string;
@@ -652,6 +715,8 @@ export class LfcpRuntime {
       if (e.state === "LIVE") this.#errors.delete(toHex(e.resourceId));
     } else if (e.type === "epoch-reconciled" && e.outbound.length > 0) {
       void this.#discardStale().catch(() => undefined);
+    } else if (e.type === "error" && e.code === "ENGINE_TRAP") {
+      this.#engineTrapped(e.message);
     } else if (e.type === "error" && e.resourceId !== undefined) {
       this.#errors.set(toHex(e.resourceId), e.code);
     }
@@ -691,17 +756,20 @@ export class LfcpRuntime {
     await Promise.allSettled([...this.#pool.values()].map((p) => p.client.stop()));
     this.#pool.clear();
     const now = this.#env.timers.now();
-    await Promise.allSettled(
-      [...this.#opened.values()]
-        .filter((o) => o.checkpointer.dirty)
-        .map((o) => o.checkpointer.flush(now)),
-    );
+    // After a trap the engine cannot save: the stored units are replayed at the next start.
+    if (this.#trapped === null)
+      await Promise.allSettled(
+        [...this.#opened.values()]
+          .filter((o) => o.checkpointer.dirty)
+          .map((o) => o.checkpointer.flush(now)),
+      );
     this.#opened.clear();
     this.#install.storage?.close();
     this.#lock?.release();
     this.#lock = null;
     this.#listeners.clear();
     this.#objectListeners.clear();
+    this.#restartListeners.clear();
   }
 
   /**

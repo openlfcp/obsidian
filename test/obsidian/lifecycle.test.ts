@@ -287,4 +287,31 @@ describe("plugin lifecycle (LFCP-059)", () => {
       await plugin.stopRuntime();
     });
   });
+
+  it("an engine trap shows one restart notice and a lasting status bar; nothing repeats", async () => {
+    const { plugin, host } = await load();
+    const status = await ready(plugin);
+    const runtime = plugin.runtime;
+    if (runtime === null) throw new Error("no runtime");
+    const R = await runtime.createResource({
+      name: "Mine",
+      endpoints: ["wss://offline.example.invalid/v1/ws"],
+      coordinatorUrl: "wss://offline.example.invalid/v1/ws",
+    });
+    const profile = await runtime.profileOf(R);
+    profile.replica.apply = () => {
+      throw new WebAssembly.RuntimeError("unreachable executed"); // test hook: the engine traps
+    };
+    mock.notices.length = 0;
+    const intent = createTask({ title: "Draft", createdBy: status.principalId }).intent;
+    await expect(runtime.writeIntent(R, intent)).rejects.toThrow("needs an Obsidian restart");
+    await expect(runtime.writeIntent(R, intent)).rejects.toThrow("needs an Obsidian restart");
+    const restart = mock.notices.filter((n) => n.includes("Restart Obsidian"));
+    expect(restart).toHaveLength(1);
+    expect(host.statusBar[0]?.text).toBe("OpenLFCP: restart Obsidian");
+    expect(plugin.needsRestart).not.toBeNull();
+    expect(runtime.status.kind).toBe("needs-restart");
+    host.unload();
+    await plugin.stopRuntime();
+  });
 });

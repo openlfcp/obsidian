@@ -83,6 +83,10 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
           );
       return;
     }
+    if (status.kind === "needs-restart") {
+      identity.setDesc(`${status.message}. Restart Obsidian to continue.`);
+      return;
+    }
     if (status.kind === "locked") {
       identity.setDesc(
         `Writing is paused. ${status.message} To keep collaborating from this vault, create a new identity; collaborators then need to invite it again.`,
