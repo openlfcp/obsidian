@@ -172,6 +172,7 @@ function lockedStorage(storage: InstallStorage, reason: LockReason): InstallStor
     outbound: storage.outbound,
     profileState: storage.profileState,
     syncState: storage.syncState,
+    localMarks: storage.localMarks,
     meta: storage.meta,
     actorSequences: { reserveNext: refuse },
     snapshotSequences: { reserveNext: refuse },

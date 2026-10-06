@@ -323,6 +323,7 @@ export class E2EVault {
           snapshots: storage.snapshots,
           resources: storage.resources,
           outbound: storage.outbound,
+          localMarks: storage.localMarks,
           profileState: storage.profileState,
           syncState: storage.syncState,
           meta: storage.meta,
