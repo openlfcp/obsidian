@@ -37,6 +37,20 @@ describe("plugin", () => {
     expect(plugin.settings.refPlacement).toBe("inline");
   });
 
+  it("declares its settings for Obsidian 1.13 settings search, without its own display()", async () => {
+    const { host } = await loaded();
+    const tab = host.settingTabs[0] as mock.PluginSettingTab;
+    expect(Object.hasOwn(Object.getPrototypeOf(tab), "display")).toBe(false);
+    const controls = tab
+      .getSettingDefinitions()
+      .filter((d) => d.control !== undefined)
+      .map((d) => [d.name, d.control?.type, d.control?.key]);
+    expect(controls).toEqual([
+      ["Ref placement", "dropdown", "refPlacement"],
+      ["Default server", "text", "defaultServer"],
+    ]);
+  });
+
   it("settings tab edits and saves the placeholders", async () => {
     const { plugin, host } = await loaded();
     expect(host.settingTabs).toHaveLength(1);

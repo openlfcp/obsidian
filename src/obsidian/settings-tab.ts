@@ -7,10 +7,15 @@
 // Resource). Neither the Principal nor its keys are shown (decision 6);
 // the public Principal ID is available to later UI through runtime.status.
 
-import { type App, PluginSettingTab, Setting } from "obsidian";
+import { type App, PluginSettingTab, type Setting, type SettingDefinitionItem } from "obsidian";
 import { isRefPlacement } from "../core/settings";
 import type OpenLfcpPlugin from "./plugin";
 
+/**
+ * Declarative (Obsidian 1.13+, the plugin's minAppVersion is 1.13.1): the
+ * settings are searchable from Obsidian's settings search, and the tab
+ * re-renders through update(), never by re-calling display().
+ */
 export class OpenLfcpSettingTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -19,49 +24,57 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  override display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    this.#identity(containerEl);
-
-    new Setting(containerEl)
-      .setName("Ref placement")
-      .setDesc(
-        "Where new lfcp-ref markers go: on the line after the task (recommended with suffix-sensitive task plugins) or at the end of the task line. Existing refs keep their placement.",
-      )
-      .addDropdown((dropdown) =>
-        dropdown
-          .addOption("child-line", "Child line")
-          .addOption("inline", "Inline")
-          .setValue(this.plugin.settings.refPlacement)
-          .onChange(async (value) => {
-            if (isRefPlacement(value)) {
-              this.plugin.settings.refPlacement = value;
-              await this.plugin.saveSettings();
-            }
-          }),
-      );
-
-    new Setting(containerEl)
-      .setName("Default server")
-      .setDesc(
-        "The sync server offered when you create a collaboration. It is not your identity and does not own your collaborations. Default: the OpenLFCP project server (beta). Clear it to type a server each time.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("wss://…")
-          .setValue(this.plugin.settings.defaultServer)
-          .onChange(async (value) => {
-            this.plugin.settings.defaultServer = value;
-            await this.plugin.saveSettings();
-          }),
-      );
+  override getSettingDefinitions(): SettingDefinitionItem[] {
+    const status = () => this.plugin.runtime?.status;
+    return [
+      {
+        name: "Identity on this device",
+        searchable: false,
+        render: (setting) => this.#identity(setting),
+      },
+      {
+        name: "Storage may be cleared",
+        desc: "This device did not grant persistent storage. If it clears Shared Tasks' local data, this vault stops writing as its current identity until you create a new one.",
+        visible: () => {
+          const s = status();
+          return s?.kind === "ready" && s.persisted !== true;
+        },
+      },
+      {
+        name: "Ref placement",
+        desc: "Where new lfcp-ref markers go: on the line after the task (recommended with suffix-sensitive task plugins) or at the end of the task line. Existing refs keep their placement.",
+        control: {
+          type: "dropdown",
+          key: "refPlacement",
+          options: { "child-line": "Child line", inline: "Inline" },
+        },
+      },
+      {
+        name: "Default server",
+        desc: "The sync server offered when you create a collaboration. It is not your identity and does not own your collaborations. Default: the OpenLFCP project server (beta). Clear it to type a server each time.",
+        control: { type: "text", key: "defaultServer", placeholder: "wss://…" },
+      },
+    ];
   }
 
-  #identity(containerEl: ContainerLike): void {
+  override getControlValue(key: string): unknown {
+    if (key === "refPlacement") return this.plugin.settings.refPlacement;
+    if (key === "defaultServer") return this.plugin.settings.defaultServer;
+    return undefined;
+  }
+
+  override async setControlValue(key: string, value: unknown): Promise<void> {
+    if (key === "refPlacement" && isRefPlacement(value)) this.plugin.settings.refPlacement = value;
+    else if (key === "defaultServer" && typeof value === "string")
+      this.plugin.settings.defaultServer = value;
+    else return;
+    await this.plugin.saveSettings();
+  }
+
+  /** The identity row: its state, and "Create a new identity" when it is locked. */
+  #identity(identity: Setting): void {
     const runtime = this.plugin.runtime;
     const status = runtime?.status;
-    const identity = new Setting(containerEl).setName("Identity on this device");
     if (status === undefined) {
       identity.setDesc(
         this.plugin.runtimeError === null
@@ -75,12 +88,6 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       identity.setDesc(
         "Ready. This vault has its own identity on this device: a key pair, not an account. Its private keys never leave this device.",
       );
-      if (status.persisted !== true)
-        new Setting(containerEl)
-          .setName("Storage may be cleared")
-          .setDesc(
-            "This device did not grant persistent storage. If it clears Shared Tasks' local data, this vault stops writing as its current identity until you create a new one.",
-          );
       return;
     }
     if (status.kind === "needs-restart") {
@@ -95,11 +102,9 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         identity.addButton((button) =>
           button.setButtonText("Create a new identity").onClick(async () => {
             await runtime?.createNewPrincipal();
-            this.display();
+            this.update();
           }),
         );
     }
   }
 }
-
-type ContainerLike = PluginSettingTab["containerEl"];

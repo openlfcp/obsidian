@@ -365,13 +365,62 @@ export class ContainerEl {
   }
 }
 
+/** The declarative settings of Obsidian 1.13 that the plugin uses. */
+interface Definition {
+  name: string;
+  desc?: string;
+  visible?: boolean | (() => boolean);
+  searchable?: boolean | (() => boolean);
+  render?: (setting: Setting) => unknown;
+  control?: {
+    type: "dropdown" | "text";
+    key: string;
+    options?: Record<string, string>;
+    placeholder?: string;
+  };
+}
+
+/** Renders getSettingDefinitions() like Obsidian 1.13 (display() and update()). */
 export abstract class PluginSettingTab {
   readonly containerEl = new ContainerEl();
   constructor(
     readonly app: App,
     readonly plugin: Plugin,
   ) {}
-  abstract display(): void;
+  getSettingDefinitions(): Definition[] {
+    return [];
+  }
+  getControlValue(_key: string): unknown {
+    return undefined;
+  }
+  setControlValue(_key: string, _value: unknown): void | Promise<void> {}
+  display(): void {
+    this.update();
+  }
+  update(): void {
+    this.containerEl.empty();
+    for (const d of this.getSettingDefinitions()) {
+      const visible = typeof d.visible === "function" ? d.visible() : (d.visible ?? true);
+      if (!visible) continue;
+      const setting = new Setting(this.containerEl).setName(d.name);
+      if (d.desc !== undefined) setting.setDesc(d.desc);
+      d.render?.(setting);
+      const c = d.control;
+      if (c?.type === "dropdown")
+        setting.addDropdown((dropdown) => {
+          for (const [value, label] of Object.entries(c.options ?? {}))
+            dropdown.addOption(value, label);
+          dropdown.setValue(String(this.getControlValue(c.key) ?? ""));
+          dropdown.onChange((value) => this.setControlValue(c.key, value));
+        });
+      if (c?.type === "text")
+        setting.addText((text) => {
+          text.setPlaceholder(c.placeholder ?? "");
+          text.setValue(String(this.getControlValue(c.key) ?? ""));
+          text.onChange((value) => this.setControlValue(c.key, value));
+        });
+    }
+  }
 }
 
 type Change = (value: string) => unknown;
