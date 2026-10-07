@@ -16,6 +16,7 @@
 | [devel/testing/platform-smoke-runs.md](devel/testing/platform-smoke-runs.md) | release | Records of platform smoke runs per OS, with the current status by platform (LFCP-068) |
 | [devel/release.md](devel/release.md) | release | Releasing the plugin: the bare version tag, the release workflow, the owner's tag and BRAT steps (POST-011) |
 | [devel/community-submission.md](devel/community-submission.md) | release | Draft community directory submission: the community-plugins.json entry, the PR text, the owner's checklist (POST-011) |
+| [releases/0.3.0.md](releases/0.3.0.md) | everyone | Release notes of Shared Tasks 0.3.0: share selected tasks, insert all tasks from a collaboration, created_at (the GitHub release body) |
 | [releases/0.2.1.md](releases/0.2.1.md) | everyone | Release notes of Shared Tasks 0.2.1: the refused-collaboration notice, offline hosting, review clean-ups (the GitHub release body) |
 | [releases/0.2.0.md](releases/0.2.0.md) | everyone | Release notes of Shared Tasks 0.2.0: the rename, the default server, install, upgrading from 0.1.0 (the GitHub release body) |
 | [../src/core/refs/README.md](../src/core/refs/README.md) | developers | The `lfcp-ref` parser: output contract, MR-A1 to MR-A4 readings, adapter choices |
