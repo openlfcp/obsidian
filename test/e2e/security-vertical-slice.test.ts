@@ -500,6 +500,10 @@ describe.skipIf(!live)(
     it("8. two-way sync: B changes the title, A sets the due date; same ObjectId, private text untouched", () =>
       step("8 two-way sync", async () => {
         const privateA = A.read(PATH_A).replace(/^- \[.\].*\n( {2}<!--.*\n)?/m, "");
+        // Step 6 waited for the server's ACK of A's due date, not for B: wait for B to show it.
+        await until("A's due date on B", () =>
+          B.read(PATH_B).includes(`${TASK} 📅 2026-11-01 <!--`) ? true : undefined,
+        );
         await B.editLine(PATH_B, `${TASK} 📅 2026-11-01 <!--`, `${TASK} B 📅 2026-11-01 <!--`);
         await until("B's title on A", () =>
           A.read(PATH_A).includes(`${TASK} B`) ? true : undefined,
