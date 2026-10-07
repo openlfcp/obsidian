@@ -12,6 +12,21 @@ Website: [openlfcp.org](https://openlfcp.org)
 **Beta.** Plugin ID `shared-tasks`; for the current version, see the
 [latest release](https://github.com/openlfcp/obsidian/releases/latest).
 
+## Quick start
+
+1. **Install.** In Obsidian 1.13.1 or later, install and enable
+   [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Settings →
+   Community plugins. Run "BRAT: Add a beta plugin for testing" and enter
+   `openlfcp/obsidian`. Then enable "Shared Tasks".
+2. **Share.** Run "Shared Tasks: Create collaboration". Put the cursor on
+   a task and run "Shared Tasks: Share task under cursor".
+3. **Invite.** Run "Shared Tasks: Invite collaborator" and send the
+   one-time link privately. The other person runs "Join collaboration",
+   then "Insert shared object".
+
+Step by step, with everyday use and troubleshooting:
+**[the user guide](docs/guides/user-guide.md)**.
+
 ## What it does
 
 - **Share one task, not your vault.** Put the cursor on a task and share
