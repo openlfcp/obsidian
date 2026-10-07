@@ -56,7 +56,7 @@ download `main.js`, `manifest.json` and `styles.css` into a new folder
 `<vault>/.obsidian/plugins/shared-tasks/`, then enable "Shared Tasks" in
 Settings → Community plugins.
 
-**Community Plugins:** coming; not submitted yet.
+**Community Plugins:** submitted; in the directory review.
 
 Upgrading from 0.1.0, which was called "OpenLFCP": see
 [docs/releases/0.2.0.md](docs/releases/0.2.0.md).
