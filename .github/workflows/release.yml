@@ -4,8 +4,8 @@ name: Release
 # commit. Obsidian, BRAT and the community directory require the release
 # tag to be exactly manifest.json's version, without a "v" ("0.2.0"), so
 # only bare-version tags trigger it; scripts/release-assets.mjs refuses a
-# tag that is not the manifest version. Assets: main.js, manifest.json,
-# styles.css, and shared-tasks-<version>.zip for a manual install. The
+# tag that is not the manifest version. Assets: main.js, manifest.json and
+# styles.css, nothing else (the community directory flags extra files). The
 # notes come from docs/releases/<version>.md, which must exist.
 
 on:
@@ -88,5 +88,4 @@ jobs:
             --verify-tag \
             --title "Shared Tasks $GITHUB_REF_NAME" \
             --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
-            release/main.js release/manifest.json release/styles.css \
-            "release/shared-tasks-$GITHUB_REF_NAME.zip"
+            release/main.js release/manifest.json release/styles.css

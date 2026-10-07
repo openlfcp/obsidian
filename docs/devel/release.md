@@ -26,13 +26,14 @@ On a pushed tag `X.Y.Z`:
 2. It runs build, lint, typecheck and the tests.
 3. `node scripts/release-assets.mjs --tag X.Y.Z` checks that the tag,
    `manifest.json`, `package.json` and `versions.json` agree. It then
-   writes `release/main.js`, `manifest.json`, `styles.css` and
-   `shared-tasks-X.Y.Z.zip`, and checks what the zip holds.
+   writes `release/main.js`, `manifest.json` and `styles.css`, and checks
+   that nothing else is there: the community directory flags extra release
+   assets (0.3.0 had a zip).
 4. `actions/attest` signs SLSA build provenance for `main.js`,
    `manifest.json` and `styles.css` (check one with `gh attestation verify
    main.js --repo openlfcp/obsidian`).
 5. It needs `docs/releases/X.Y.Z.md` (non-empty), the release notes.
-6. `gh release create X.Y.Z` attaches the four files, with the notes as
+6. `gh release create X.Y.Z` attaches the three files, with the notes as
    the body.
 
 ## The owner's steps
@@ -48,7 +49,7 @@ On a pushed tag `X.Y.Z`:
    git push origin X.Y.Z
    ```
 
-3. Watch the "Release" workflow. Check the release page: four assets, and
+3. Watch the "Release" workflow. Check the release page: three assets, and
    the manifest asset shows `"id": "shared-tasks"` and the version.
 4. BRAT beta, in a clean vault with Restricted mode off:
    - install BRAT;

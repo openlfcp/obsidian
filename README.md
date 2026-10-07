@@ -37,10 +37,9 @@ Shared Tasks needs Obsidian 1.13.1 or later.
 
 **By hand:** from the
 [latest release](https://github.com/openlfcp/obsidian/releases/latest),
-download `main.js`, `manifest.json` and `styles.css` into
-`<vault>/.obsidian/plugins/shared-tasks/` (or unzip
-`shared-tasks-<version>.zip` into `<vault>/.obsidian/plugins/`), then enable
-"Shared Tasks" in Settings → Community plugins.
+download `main.js`, `manifest.json` and `styles.css` into a new folder
+`<vault>/.obsidian/plugins/shared-tasks/`, then enable "Shared Tasks" in
+Settings → Community plugins.
 
 **Community Plugins:** coming; not submitted yet.
 

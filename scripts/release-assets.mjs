@@ -3,16 +3,15 @@
 //
 //   node scripts/release-assets.mjs [--tag TAG]
 //
-// into release/: main.js, manifest.json and styles.css (the three files
-// Obsidian, BRAT and the community directory read from a GitHub release),
-// and <id>-<version>.zip holding them in a folder named after the plugin
-// ID, for a manual install into <vault>/.obsidian/plugins/. It fails when
+// into release/: main.js, manifest.json and styles.css, the three files
+// Obsidian, BRAT and the community directory read from a GitHub release
+// (since 0.3.1 nothing else: the directory flags extra assets). It fails when
 // manifest.json, package.json and versions.json disagree, or when --tag is
 // not exactly the version: Obsidian requires the bare version ("0.2.0",
 // no "v") as the release tag. The release workflow runs it on the tag.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,27 +46,19 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
   const out = join(root, "release");
-  const folder = join(out, manifest.id);
   rmSync(out, { recursive: true, force: true });
-  mkdirSync(folder, { recursive: true });
-  execFileSync("node", ["scripts/build.mjs", "--outfile", join(folder, "main.js")], {
+  mkdirSync(out, { recursive: true });
+  execFileSync("node", ["scripts/build.mjs", "--outfile", join(out, "main.js")], {
     cwd: root,
     stdio: "inherit",
   });
-  for (const f of ["manifest.json", "styles.css"]) copyFileSync(join(root, f), join(folder, f));
-  for (const f of ["main.js", "manifest.json", "styles.css"])
-    copyFileSync(join(folder, f), join(out, f));
-  const zip = `${manifest.id}-${manifest.version}.zip`;
-  execFileSync("zip", ["-q", "-X", "-r", zip, manifest.id], { cwd: out });
-  const listed = execFileSync("unzip", ["-Z1", zip], { cwd: out, encoding: "utf8" })
-    .split("\n")
-    .filter((l) => l !== "" && !l.endsWith("/"))
-    .sort();
-  const expected = ["main.js", "manifest.json", "styles.css"].map((f) => `${manifest.id}/${f}`);
-  if (JSON.stringify(listed) !== JSON.stringify(expected)) {
-    console.error(`release: ${zip} holds ${listed.join(", ")}, not ${expected.join(", ")}`);
+  for (const f of ["manifest.json", "styles.css"]) copyFileSync(join(root, f), join(out, f));
+  const assets = readdirSync(out).sort();
+  const expected = ["main.js", "manifest.json", "styles.css"];
+  if (JSON.stringify(assets) !== JSON.stringify(expected)) {
+    console.error(`release: release/ holds ${assets.join(", ")}, not ${expected.join(", ")}`);
     process.exit(1);
   }
   console.log(`release: ${manifest.name} ${manifest.version} (${manifest.id}) in release/:`);
-  console.log(`  main.js manifest.json styles.css ${zip}`);
+  console.log("  main.js manifest.json styles.css");
 }
