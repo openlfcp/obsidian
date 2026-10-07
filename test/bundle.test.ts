@@ -23,7 +23,10 @@ beforeAll(() => {
     stdio: "pipe",
   });
   bundle = readFileSync(out, "utf8");
-  inputs = Object.keys(JSON.parse(readFileSync(meta, "utf8")).inputs);
+  // A plugin namespace's input is its absolute path, with backslashes on Windows.
+  inputs = Object.keys(JSON.parse(readFileSync(meta, "utf8")).inputs).map((i) =>
+    i.replaceAll("\\", "/"),
+  );
 }, 60_000);
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
