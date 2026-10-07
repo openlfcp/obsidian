@@ -349,10 +349,16 @@ export default class OpenLfcpPlugin extends Plugin {
    * Startup reconciliation (§46): notes that contain refs are synced one by
    * one (their edits sent, their bound Tasks rendered field by field); notes
    * without refs are not touched.
+   *
+   * Every Markdown note is looked at, locally, for an `lfcp-ref`: a note
+   * may have gained or changed refs while the plugin was off (vault sync,
+   * another editor), which a stored index of ref notes would miss. The look
+   * uses `cachedRead` (Obsidian's content cache, no disk read for files it
+   * holds); only a note with a ref is then read in full and synced.
    */
   async reconcile(): Promise<void> {
     for (const file of this.app.vault.getMarkdownFiles()) {
-      const text = await this.app.vault.read(file);
+      const text = await this.app.vault.cachedRead(file);
       if (text.includes("lfcp-ref")) this.#report([await this.writer.syncNote(file.path)]);
     }
   }

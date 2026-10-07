@@ -30,7 +30,15 @@ export class Vault {
   getFileByPath(path: string): TFile | null {
     return this.files.has(path) ? { path } : null;
   }
+  /** The paths read with read() and with cachedRead(), in order. */
+  readonly reads: string[] = [];
+  readonly cachedReads: string[] = [];
   async read(file: TFile): Promise<string> {
+    this.reads.push(file.path);
+    return this.files.get(file.path) ?? "";
+  }
+  async cachedRead(file: TFile): Promise<string> {
+    this.cachedReads.push(file.path);
     return this.files.get(file.path) ?? "";
   }
   /** Writes like Obsidian: the content changes, then a modify event fires. */

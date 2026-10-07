@@ -181,6 +181,24 @@ protocol metadata a server needs (public keys, Resource IDs, sizes); the
 server also sees your IP address. There is no account, no telemetry and no
 payment.
 
+## What the plugin accesses
+
+- **Your notes, locally.** At startup the plugin looks through every
+  Markdown note of the vault for `lfcp-ref` markers, using Obsidian's
+  content cache. Notes with a marker are synchronized; notes without one are
+  not touched. Afterwards it reacts to note changes as you make them. None
+  of your notes leaves the vault: only the shared tasks you chose go out,
+  end-to-end encrypted.
+- **The clipboard,** only when you press "Copy link" in the invitation
+  dialog. The plugin never reads the clipboard.
+- **The network,** only `wss://` connections to the servers of your
+  collaborations (see "Network use").
+- **Local storage on this device:** IndexedDB for the sync state, and
+  Obsidian's secret storage for the keys; neither is inside the vault.
+- **Bundled WebAssembly.** The plugin ships Automerge (the CRDT engine) as
+  WebAssembly inside `main.js`, stored compressed and decoded when the
+  plugin starts. Nothing is downloaded at run time.
+
 ## Support
 
 - Bugs and questions: [GitHub issues](https://github.com/openlfcp/obsidian/issues).

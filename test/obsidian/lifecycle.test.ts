@@ -266,6 +266,25 @@ describe("plugin lifecycle (LFCP-059)", () => {
       await second.plugin.stopRuntime();
     });
 
+    it("looks at every note through the content cache at start, reads only ref notes in full", async () => {
+      const app = new mock.App();
+      const first = await withTask(app);
+      app.vault.files.set("plain.md", "# Just notes\n\n- [ ] a local task\n");
+      app.vault.files.set("other.md", "Nothing shared here.\n");
+      first.host.unload();
+      await first.plugin.stopRuntime();
+      app.vault.reads.length = 0;
+      app.vault.cachedReads.length = 0;
+      const second = await load(app);
+      await ready(second.plugin);
+      await settle(second.plugin);
+      expect([...app.vault.cachedReads].sort()).toEqual(["n.md", "other.md", "plain.md"]);
+      expect(app.vault.reads.filter((p) => p !== "n.md")).toEqual([]);
+      expect(app.vault.reads).toContain("n.md");
+      second.host.unload();
+      await second.plugin.stopRuntime();
+    });
+
     it("shows conflicts in the status bar and an editor decoration, never in the note", async () => {
       const { plugin, host, app, runtime, R } = await withTask();
       const profile = await runtime.profileOf(R);
