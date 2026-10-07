@@ -20,6 +20,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { guardChild } from "./reaper.mjs";
 
 const SERVER_DIR = resolve(
   process.env.LFCP_SERVER_DIR ?? resolve(import.meta.dirname, "../../../server"),
@@ -69,6 +70,10 @@ export function serverBinary(): { bin: string } | { skip: string } {
 
 export interface E2EServer {
   readonly url: string;
+  /** The server's process ID. */
+  readonly pid: number;
+  /** The server's temporary directory: its config and state. */
+  readonly dir: string;
   /** Every byte the server stored, file by file. */
   stored(): { readonly file: string; readonly bytes: Buffer }[];
   log(): string;
@@ -113,6 +118,8 @@ export async function startServer(bin: string): Promise<E2EServer> {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, RUST_LOG: "debug" },
   });
+  // Killed, and `dir` removed, even if this test process dies first.
+  const release = guardChild(child, [dir]);
   child.stdout?.on("data", (d) => {
     log += String(d);
   });
@@ -121,13 +128,17 @@ export async function startServer(bin: string): Promise<E2EServer> {
   });
   const deadline = Date.now() + 15_000;
   for (;;) {
-    if (child.exitCode !== null) throw new Error(`the server exited:\n${log}`);
+    if (child.exitCode !== null) {
+      release();
+      throw new Error(`the server exited:\n${log}`);
+    }
     try {
       if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break;
     } catch {
       // not listening yet
     }
     if (Date.now() > deadline) {
+      release();
       child.kill();
       throw new Error(`the server did not become healthy:\n${log}`);
     }
@@ -135,9 +146,12 @@ export async function startServer(bin: string): Promise<E2EServer> {
   }
   return {
     url,
+    pid: child.pid as number,
+    dir,
     stored: () => files(join(dir, "state")).map((file) => ({ file, bytes: readFileSync(file) })),
     log: () => log,
     stop: async () => {
+      release();
       if (child.exitCode === null) {
         const exited = new Promise((r) => child.once("exit", r));
         child.kill();

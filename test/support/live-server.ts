@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { guardChild } from "./reaper.mjs";
 
 const EXE = process.platform === "win32" ? "lfcp-server.exe" : "lfcp-server";
 const CANDIDATES = [
@@ -27,6 +28,10 @@ const BIN = CANDIDATES.find((p) => existsSync(p)) ?? (CANDIDATES[0] as string);
 
 export interface LiveServer {
   readonly url: string;
+  /** The server's process ID. */
+  readonly pid: number;
+  /** The server's temporary directory: its config and state. */
+  readonly dir: string;
   stop(): Promise<void>;
 }
 
@@ -68,6 +73,8 @@ export async function startLiveServer(): Promise<LiveServer> {
   const child: ChildProcess = spawn(BIN, ["--config", join(dir, "server.toml")], {
     stdio: ["ignore", "pipe", "pipe"],
   });
+  // Killed, and `dir` removed, even if this test process dies first.
+  const release = guardChild(child, [dir]);
   child.stdout?.on("data", (d) => {
     log += String(d);
   });
@@ -76,13 +83,17 @@ export async function startLiveServer(): Promise<LiveServer> {
   });
   const deadline = Date.now() + 15_000;
   for (;;) {
-    if (child.exitCode !== null) throw new Error(`the server exited:\n${log}`);
+    if (child.exitCode !== null) {
+      release();
+      throw new Error(`the server exited:\n${log}`);
+    }
     try {
       if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break;
     } catch {
       // not listening yet
     }
     if (Date.now() > deadline) {
+      release();
       child.kill();
       throw new Error(`the server did not become healthy:\n${log}`);
     }
@@ -90,7 +101,10 @@ export async function startLiveServer(): Promise<LiveServer> {
   }
   return {
     url,
+    pid: child.pid as number,
+    dir,
     stop: async () => {
+      release();
       if (child.exitCode === null) {
         const exited = new Promise((r) => child.once("exit", r));
         child.kill();

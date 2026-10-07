@@ -43,7 +43,11 @@ pnpm test
 The `@openlfcp/*` SDK packages come from npm at the versions locked in
 `pnpm-lock.yaml`. The live tests, the two-vault E2E included, run against
 the real OpenLFCP server, built with cargo from a `../server` checkout;
-without it they are skipped. See
+without it they are skipped. No server outlives its test process: the
+harnesses in `test/support/` kill it when the process exits, and a
+watchdog started with each server kills it and removes its temporary
+directory if the process is SIGKILLed or crashes (POSIX only;
+`test/e2e/orphan.test.ts` checks this). See
 [docs/devel/testing/two-vault-e2e.md](docs/devel/testing/two-vault-e2e.md)
 and the README's "For developers" section. To try your build in Obsidian:
 [docs/devel/testing/load-in-clean-vault.md](docs/devel/testing/load-in-clean-vault.md).

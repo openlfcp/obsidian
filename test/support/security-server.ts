@@ -18,9 +18,14 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { guardChild } from "./reaper.mjs";
 
 export interface SecurityServer {
   readonly url: string;
+  /** The running server's process ID (a new one after restart). */
+  readonly pid: number;
+  /** The server's temporary directory: its config and state. */
+  readonly dir: string;
   /** Every byte the server stored, file by file (its state directory). */
   stored(): { readonly file: string; readonly bytes: Buffer }[];
   /** Everything the server wrote to stdout and stderr, across restarts. */
@@ -68,12 +73,15 @@ export async function startSecurityServer(bin: string): Promise<SecurityServer> 
   );
   let log = "";
   let child: ChildProcess;
+  let release = (): void => {};
 
   const spawnServer = async (): Promise<void> => {
     child = spawn(bin, ["--config", config], {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, RUST_LOG: "debug" },
     });
+    // Killed, and `dir` removed, even if this test process dies first.
+    release = guardChild(child, [dir]);
     child.stdout?.on("data", (d) => {
       log += String(d);
     });
@@ -82,13 +90,17 @@ export async function startSecurityServer(bin: string): Promise<SecurityServer> 
     });
     const deadline = Date.now() + 15_000;
     for (;;) {
-      if (child.exitCode !== null) throw new Error(`the server exited:\n${log.slice(-4000)}`);
+      if (child.exitCode !== null) {
+        release();
+        throw new Error(`the server exited:\n${log.slice(-4000)}`);
+      }
       try {
         if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return;
       } catch {
         // not listening yet
       }
       if (Date.now() > deadline) {
+        release();
         child.kill("SIGKILL");
         throw new Error(`the server did not become healthy:\n${log.slice(-4000)}`);
       }
@@ -97,6 +109,7 @@ export async function startSecurityServer(bin: string): Promise<SecurityServer> 
   };
 
   const kill = async (signal: NodeJS.Signals): Promise<void> => {
+    release();
     if (child.exitCode !== null || child.signalCode !== null) return;
     const exited = new Promise((r) => child.once("exit", r));
     child.kill(signal);
@@ -106,6 +119,10 @@ export async function startSecurityServer(bin: string): Promise<SecurityServer> 
   await spawnServer();
   return {
     url,
+    get pid() {
+      return child.pid as number;
+    },
+    dir,
     stored: () => files(join(dir, "state")).map((file) => ({ file, bytes: readFileSync(file) })),
     log: () => log,
     http: async (path) => {
