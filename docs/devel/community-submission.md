@@ -74,17 +74,12 @@ error, a warning, a recommendation or a pass. **Warnings do not block.**
 Fix errors in the repository, then publish a new release with a higher
 version, or use **Request review** to recheck.
 
-- **Build verification: the main risk.** The scanner runs the first of
-  the `build`, `build:plugin` or `compile` package scripts. Our `build`
-  needs the sibling `sdk-ts` checkout: the `@openlfcp/*` packages are
-  `link:../sdk-ts/...` dependencies, built at `sdk-ts.lock`, as CI does.
-  The scanner has no such checkout, so the build may fail there. Run
-  **Review branch** first.
-  - If it reports an error, the remedy is to depend on the published
-    `@openlfcp/*` npm packages at the pinned version instead of `link:`.
-    That is a change of its own (publish sdk-ts at the lock, switch the
-    dependencies, regenerate `pnpm-lock.yaml`).
-  - If it only warns, nothing is needed.
+- **Build verification.** The scanner runs the first of the `build`,
+  `build:plugin` or `compile` package scripts. Since 0.3.1 the
+  `@openlfcp/*` packages come from npm at exact versions (before, they were
+  `link:` dependencies on a sibling `sdk-ts` checkout the scanner did not
+  have), so a clean clone builds with `pnpm install --frozen-lockfile &&
+  pnpm build` alone.
 - **Source code** is checked with the rules of `eslint-plugin-obsidianmd`
   (the official lint plugin; the recommended config includes
   typescript-eslint's type-checked rules). Run it locally before a
@@ -139,7 +134,7 @@ in the table below.
 | typecheck-level lint errors (official recommended config) | fixed: 9 → 0 (844cca3, dc7eede) | see the commits |
 | `globalThis` → `window`, `setTimeout` → `window.setTimeout` (popout windows) | warning, kept: process-wide timers, `navigator` and clipboard; the adapter also runs in the Node test environment, where `window` does not exist | `src/obsidian/lfcp-env.ts:55`, `:74-75`, `src/obsidian/plugin.ts:51-52`, `src/obsidian/ui/prompter.ts:120`, `:223`, `src/core/collab/service.ts:234` |
 | Declarative settings (`getSettingDefinitions`, 1.13+; `display()` deprecated) | warning, follow-up: the settings tab works; adopting the declarative API makes the settings searchable | `src/obsidian/settings-tab.ts:14`, `:98` |
-| Build verification by the scanner | **risk**: `build` needs the sibling sdk-ts checkout; run "Review branch" first | `package.json` |
+| Build verification by the scanner | fixed in 0.3.1: the SDK comes from npm, a clean clone builds | `package.json` |
 
 The fixes since 0.2.0 change a text users see ("Read + write") and the
 source the review scans, so they ship as **0.2.1** before submitting.

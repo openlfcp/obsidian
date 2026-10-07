@@ -21,8 +21,8 @@ nothing.
 
 On a pushed tag `X.Y.Z`:
 
-1. It checks out the tagged commit, spec at `spec.lock` and sdk-ts at
-   `sdk-ts.lock`, and builds the linked SDK, as CI does.
+1. It checks out the tagged commit and spec at `spec.lock`, as CI does;
+   the SDK is the `@openlfcp/*` npm packages locked in `pnpm-lock.yaml`.
 2. It runs build, lint, typecheck and the tests.
 3. `node scripts/release-assets.mjs --tag X.Y.Z` checks that the tag,
    `manifest.json`, `package.json` and `versions.json` agree. It then

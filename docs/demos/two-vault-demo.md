@@ -18,8 +18,8 @@ LFCP_REQUIRE_LIVE=1 LFCP_E2E_NARRATE=1 pnpm vitest run test/e2e/two-vaults.test.
 
 ## 0. Prepare
 
-From a built checkout of this repository (see the README), with `../sdk-ts`
-built and `../server` checked out:
+From a built checkout of this repository (see the README), with
+`../server` checked out:
 
 ```sh
 node scripts/demo-vaults.mjs          # or: --dir <somewhere> --port <n>
