@@ -20,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Build provenance attestations of the release assets (actions/attest).
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     defaults:
       run:
         working-directory: obsidian
@@ -64,6 +68,15 @@ jobs:
       - run: pnpm test
       - name: Build and check the release assets
         run: node scripts/release-assets.mjs --tag "$GITHUB_REF_NAME"
+      # Signed SLSA build provenance for the files Obsidian downloads; verify
+      # with `gh attestation verify main.js --repo openlfcp/obsidian`.
+      - name: Attest the release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            obsidian/release/main.js
+            obsidian/release/manifest.json
+            obsidian/release/styles.css
       - name: Release notes exist
         run: test -s "docs/releases/$GITHUB_REF_NAME.md"
       - name: Create the GitHub release

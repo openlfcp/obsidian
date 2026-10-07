@@ -28,8 +28,11 @@ On a pushed tag `X.Y.Z`:
    `manifest.json`, `package.json` and `versions.json` agree. It then
    writes `release/main.js`, `manifest.json`, `styles.css` and
    `shared-tasks-X.Y.Z.zip`, and checks what the zip holds.
-4. It needs `docs/releases/X.Y.Z.md` (non-empty), the release notes.
-5. `gh release create X.Y.Z` attaches the four files, with the notes as
+4. `actions/attest` signs SLSA build provenance for `main.js`,
+   `manifest.json` and `styles.css` (check one with `gh attestation verify
+   main.js --repo openlfcp/obsidian`).
+5. It needs `docs/releases/X.Y.Z.md` (non-empty), the release notes.
+6. `gh release create X.Y.Z` attaches the four files, with the notes as
    the body.
 
 ## The owner's steps
