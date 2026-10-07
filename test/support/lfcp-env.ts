@@ -112,6 +112,9 @@ export class Device {
   }
 }
 
+/** The Collaboration timer of the tests. */
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 export const deleteDatabase = (name: string): Promise<void> =>
   new Promise((resolve, reject) => {
     const r = indexedDB.deleteDatabase(name);

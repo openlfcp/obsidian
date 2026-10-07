@@ -18,7 +18,7 @@ import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { MutationGuard } from "../../../src/core/projection/guard";
 import { scanRefs } from "../../../src/core/refs";
 import { PROJECT_SERVER, type RefPlacement } from "../../../src/core/settings";
-import { Device, FakeLocal } from "../../support/lfcp-env";
+import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 
 const SERVER = "wss://offline.example.invalid/v1/ws";
 const running: LfcpRuntime[] = [];
@@ -101,6 +101,7 @@ async function setup(placement: RefPlacement = "child-line") {
   const runtime = await LfcpRuntime.start(device.env(new FakeLocal()));
   running.push(runtime);
   const collab = new Collaboration(runtime, {
+    sleep,
     connectTimeoutMs: 30,
     ackTimeoutMs: 30,
     joinTimeoutMs: 200,

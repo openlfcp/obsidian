@@ -9,7 +9,7 @@ import { type JoinStage, taskAt } from "../../../src/core/collab";
 import { Collaboration } from "../../../src/core/collab/service";
 import { statusView } from "../../../src/core/collab/view";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
-import { Device, FakeLocal } from "../../support/lfcp-env";
+import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 import { type LiveServer, liveSkipReason, startLiveServer } from "../../support/live-server";
 
 const skip = liveSkipReason();
@@ -34,7 +34,7 @@ async function device() {
   const { webSocket: _offline, ...online } = d.env(new FakeLocal(), { tickMs: 20 });
   const runtime = await LfcpRuntime.start(online);
   running.push(runtime);
-  return { runtime, collab: new Collaboration(runtime, { connectTimeoutMs: 5000 }) };
+  return { runtime, collab: new Collaboration(runtime, { connectTimeoutMs: 5000, sleep }) };
 }
 
 async function until<T>(what: string, f: () => Promise<T | undefined>, ms = 10_000): Promise<T> {

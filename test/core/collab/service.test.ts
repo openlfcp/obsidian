@@ -12,7 +12,7 @@ import { CollabError, Collaboration } from "../../../src/core/collab/service";
 import { statusView } from "../../../src/core/collab/view";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { collaborator, storeBlocked } from "../../support/blocked-units";
-import { Device, FakeLocal } from "../../support/lfcp-env";
+import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 
 const SERVER = "wss://offline.example.invalid/v1/ws";
 const running: LfcpRuntime[] = [];
@@ -27,6 +27,7 @@ async function offline() {
   const runtime = await LfcpRuntime.start(device.env(new FakeLocal()));
   running.push(runtime);
   const collab = new Collaboration(runtime, {
+    sleep,
     connectTimeoutMs: 50,
     ackTimeoutMs: 50,
     joinTimeoutMs: 200,
@@ -211,6 +212,7 @@ describe("Share many (POST-018)", () => {
     const runtime = await LfcpRuntime.start(device.env(new FakeLocal()));
     running.push(runtime);
     const collab = new Collaboration(runtime, {
+      sleep,
       connectTimeoutMs: 50,
       ackTimeoutMs: 50,
       now: () => Date.UTC(2026, 9, 7, 10, 0, 0),

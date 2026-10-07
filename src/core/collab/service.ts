@@ -97,8 +97,8 @@ export interface CollabOptions {
   readonly ackTimeoutMs?: number;
   /** How long a join may take (ms). */
   readonly joinTimeoutMs?: number;
-  /** A timer (default setTimeout). */
-  readonly sleep?: (ms: number) => Promise<void>;
+  /** A timer: the host's (the plugin passes window.setTimeout, for popout windows). */
+  readonly sleep: (ms: number) => Promise<void>;
   /** The clock for a shared Task's created_at, in ms since the epoch (default Date.now). */
   readonly now?: () => number;
 }
@@ -233,18 +233,15 @@ const WS_URL = /^wss?:\/\/[^\s/]+/i;
 
 export class Collaboration {
   readonly #runtime: CollabRuntime;
-  readonly #o: Required<Omit<CollabOptions, "sleep" | "now">> & {
-    sleep: (ms: number) => Promise<void>;
-    now: () => number;
-  };
+  readonly #o: Required<CollabOptions>;
 
-  constructor(runtime: CollabRuntime, options: CollabOptions = {}) {
+  constructor(runtime: CollabRuntime, options: CollabOptions) {
     this.#runtime = runtime;
     this.#o = {
       connectTimeoutMs: options.connectTimeoutMs ?? 10_000,
       ackTimeoutMs: options.ackTimeoutMs ?? 15_000,
       joinTimeoutMs: options.joinTimeoutMs ?? 30_000,
-      sleep: options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+      sleep: options.sleep,
       now: options.now ?? Date.now,
     };
   }
