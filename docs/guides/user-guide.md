@@ -16,15 +16,12 @@ About. Update Obsidian first if it is older.
 
 ### 2. Install the plugin
 
-Until Shared Tasks is listed in Community plugins, install it with BRAT:
-
 1. Settings → Community plugins. If "Restricted mode" is on, turn it off.
-2. Click "Browse", search for **BRAT**, install it and enable it.
-3. In the command palette, run **"BRAT: Add a beta plugin for testing"**.
-4. Enter `openlfcp/obsidian`. If BRAT asks for a version, pick the latest.
-5. Back in Settings → Community plugins, enable **Shared Tasks**.
+2. Click "Browse" and search for **Shared Tasks**.
+3. Click **Install**, then **Enable**.
 
-BRAT keeps the plugin up to date. To install by hand instead, see the
+Obsidian updates the plugin like any other community plugin. To try
+pre-release builds with BRAT, or to install by hand, see the
 [README](../../README.md#install).
 
 ### 3. Check that it is ready

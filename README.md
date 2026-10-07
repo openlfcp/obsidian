@@ -14,10 +14,8 @@ Website: [openlfcp.org](https://openlfcp.org)
 
 ## Quick start
 
-1. **Install.** In Obsidian 1.13.1 or later, install and enable
-   [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Settings →
-   Community plugins. Run "BRAT: Add a beta plugin for testing" and enter
-   `openlfcp/obsidian`. Then enable "Shared Tasks".
+1. **Install.** In Obsidian 1.13.1 or later, open Settings → Community
+   plugins → Browse, search for "Shared Tasks", install it and enable it.
 2. **Share.** Run "Shared Tasks: Create collaboration". Put the cursor on
    a task and run "Shared Tasks: Share task under cursor".
 3. **Invite.** Run "Shared Tasks: Invite collaborator" and send the
@@ -43,7 +41,13 @@ Step by step, with everyday use and troubleshooting:
 
 Shared Tasks needs Obsidian 1.13.1 or later.
 
-**Beta, with BRAT:**
+**From Community plugins (recommended):**
+1. Settings → Community plugins. If "Restricted mode" is on, turn it off.
+2. Click "Browse" and search for **Shared Tasks**
+   ([directory page](https://obsidian.md/plugins?id=shared-tasks)).
+3. Install it, then enable it.
+
+**Pre-release builds, with BRAT:**
 1. Install and enable [BRAT](https://github.com/TfTHacker/obsidian42-brat)
    from Settings → Community plugins.
 2. Run "BRAT: Add a beta plugin for testing" from the command palette.
@@ -55,8 +59,6 @@ Shared Tasks needs Obsidian 1.13.1 or later.
 download `main.js`, `manifest.json` and `styles.css` into a new folder
 `<vault>/.obsidian/plugins/shared-tasks/`, then enable "Shared Tasks" in
 Settings → Community plugins.
-
-**Community Plugins:** submitted; in the directory review.
 
 Upgrading from 0.1.0, which was called "OpenLFCP": see
 [docs/releases/0.2.0.md](docs/releases/0.2.0.md).
