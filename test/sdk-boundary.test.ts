@@ -1,7 +1,7 @@
 // Test 10 (LFCP-059): the generic SDK the plugin consumes imports no
 // Obsidian API. The dependency arrow is Obsidian -> adapter -> SDK, never
 // back. sdk-ts enforces it at its source (scripts/check-boundaries.mjs);
-// this checks the built packages the plugin actually links.
+// this checks the published packages the plugin actually installs.
 
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ function files(dir: string): string[] {
   });
 }
 
-describe("the linked SDK", () => {
+describe("the installed SDK", () => {
   const packages = readdirSync(root);
 
   it("is every package the plugin uses, from sdk-ts", () => {

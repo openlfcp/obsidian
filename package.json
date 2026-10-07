@@ -18,13 +18,13 @@
     "format": "biome check --write ."
   },
   "dependencies": {
-    "@openlfcp/client": "link:../sdk-ts/packages/client",
-    "@openlfcp/core": "link:../sdk-ts/packages/core",
-    "@openlfcp/crypto": "link:../sdk-ts/packages/crypto",
-    "@openlfcp/shared-objects": "link:../sdk-ts/packages/shared-objects",
-    "@openlfcp/storage": "link:../sdk-ts/packages/storage",
-    "@openlfcp/storage-idb": "link:../sdk-ts/packages/storage-idb",
-    "@openlfcp/wire": "link:../sdk-ts/packages/wire"
+    "@openlfcp/client": "0.1.1",
+    "@openlfcp/core": "0.1.1",
+    "@openlfcp/crypto": "0.1.1",
+    "@openlfcp/shared-objects": "0.1.1",
+    "@openlfcp/storage": "0.1.1",
+    "@openlfcp/storage-idb": "0.1.1",
+    "@openlfcp/wire": "0.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

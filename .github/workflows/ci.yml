@@ -30,15 +30,8 @@ jobs:
           ref: refs/tags/${{ steps.spec-lock.outputs.tag }}
           path: spec
           fetch-depth: 0
-      # The plugin links the TypeScript SDK from ../sdk-ts (link: dependencies),
-      # built at the commit pinned in sdk-ts.lock.
-      - id: sdk-lock
-        run: echo "commit=$(jq -er .commit sdk-ts.lock)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: openlfcp/sdk-ts
-          ref: ${{ steps.sdk-lock.outputs.commit }}
-          path: sdk-ts
+      # The TypeScript SDK comes from npm: the exact @openlfcp/* versions in
+      # package.json, locked in pnpm-lock.yaml.
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: obsidian/package.json
@@ -46,12 +39,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: |
-            obsidian/pnpm-lock.yaml
-            sdk-ts/pnpm-lock.yaml
-      - name: Build the linked SDK
-        working-directory: sdk-ts
-        run: pnpm install --frozen-lockfile && pnpm build
+          cache-dependency-path: obsidian/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm run lint

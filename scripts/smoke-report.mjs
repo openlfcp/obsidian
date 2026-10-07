@@ -8,7 +8,7 @@
 // and PASS/FAIL per test file with the names of failing tests. Failure
 // text is cut to its first line and never includes note content: the tests
 // use synthetic notes, and no assertion prints a secret (LFCP-065).
-// Environment: LFCP_SERVER_COMMIT, LFCP_SDK_TS_COMMIT (optional).
+// Environment: LFCP_SERVER_COMMIT (optional).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { arch, platform, release, type } from "node:os";
@@ -23,7 +23,11 @@ const root = resolve(import.meta.dirname, "..");
 const report = JSON.parse(readFileSync(input, "utf8"));
 const manifest = JSON.parse(readFileSync(resolve(root, "manifest.json"), "utf8"));
 const spec = JSON.parse(readFileSync(resolve(root, "spec.lock"), "utf8"));
-const sdk = JSON.parse(readFileSync(resolve(root, "sdk-ts.lock"), "utf8"));
+const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+const sdk = Object.entries(pkg.dependencies)
+  .filter(([name]) => name.startsWith("@openlfcp/"))
+  .map(([name, version]) => `${name}@${version}`)
+  .join(", ");
 
 const firstLine = (s) =>
   String(s ?? "")
@@ -51,7 +55,7 @@ const lines = [
   `- Platform: ${type()} ${release()} (${platform()}/${arch()})`,
   `- Node: ${process.version}`,
   `- Plugin: ${manifest.id} ${manifest.version} (minAppVersion ${manifest.minAppVersion})`,
-  `- sdk-ts: ${process.env.LFCP_SDK_TS_COMMIT ?? sdk.commit}`,
+  `- sdk-ts (npm): ${sdk}`,
   `- Spec: ${spec.tag} (${spec.commit})`,
   `- Server: ${process.env.LFCP_SERVER_COMMIT ?? "(not recorded)"}`,
   `- Tests: ${report.numPassedTests}/${report.numTotalTests} passed, ${report.numFailedTests} failed, ${report.numPendingTests ?? 0} skipped`,
