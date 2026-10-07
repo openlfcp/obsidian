@@ -48,6 +48,9 @@ Upgrading from 0.1.0, which was called "OpenLFCP": see
 
 ## Your first shared task
 
+New here? The [step-by-step guide](docs/guides/user-guide.md) covers setup
+and everyday use, including what to do when something goes wrong.
+
 Two people, each with their own vault and Shared Tasks installed. The
 commands are in the command palette.
 
