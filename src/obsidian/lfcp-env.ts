@@ -52,7 +52,7 @@ async function acquireWebLock(locks: LockManagerLike, name: string): Promise<Hel
 }
 
 export function obsidianRuntimeEnv(app: App): RuntimeEnv {
-  const nav = (globalThis as { navigator?: NavigatorLike }).navigator;
+  const nav: NavigatorLike | undefined = window.navigator;
   const locks = nav?.locks;
   const storage = nav?.storage;
   return {
@@ -71,8 +71,8 @@ export function obsidianRuntimeEnv(app: App): RuntimeEnv {
     ...(canPersist(storage) ? { persist: () => storage.persist() } : {}),
     ...(locks === undefined ? {} : { acquireLock: (name) => acquireWebLock(locks, name) }),
     timers: {
-      setInterval: (fn, ms) => globalThis.setInterval(fn, ms),
-      clearInterval: (h) => globalThis.clearInterval(h as ReturnType<typeof setInterval>),
+      setInterval: (fn, ms) => window.setInterval(fn, ms),
+      clearInterval: (h) => window.clearInterval(h as number),
       now: () => Date.now(),
     },
   };

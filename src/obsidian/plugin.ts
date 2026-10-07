@@ -48,8 +48,8 @@ export default class OpenLfcpPlugin extends Plugin {
   override settings: Settings = normalizeSettings(undefined);
   /** Vault-level file changes, whatever made them (§45). */
   readonly changes = new VaultChangeHub({
-    setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
-    clearTimeout: (h) => globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
+    setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+    clearTimeout: (h) => window.clearTimeout(h as number),
   });
   /** The plugin's own Markdown writes, skipped as echoes (path + content hash). */
   readonly guard = new MutationGuard();
@@ -137,7 +137,12 @@ export default class OpenLfcpPlugin extends Plugin {
     const runtime = this.runtime;
     if (runtime === null) return null;
     if (this.#collab?.runtime !== runtime)
-      this.#collab = { runtime, flows: new Collaboration(runtime) };
+      this.#collab = {
+        runtime,
+        flows: new Collaboration(runtime, {
+          sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+        }),
+      };
     return this.#collab.flows;
   }
 

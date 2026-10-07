@@ -117,7 +117,7 @@ class ChoiceModal<T> extends SuggestModal<Choice<T>> {
 
   override onClose(): void {
     // Obsidian closes the modal before reporting the choice: settle "cancelled" afterwards.
-    setTimeout(() => this.#done(null), 0);
+    window.setTimeout(() => this.#done(null), 0);
   }
 }
 
@@ -219,11 +219,9 @@ class StatusModal extends Modal {
 }
 
 const clipboard = async (text: string): Promise<void> => {
-  const nav = (
-    globalThis as { navigator?: { clipboard?: { writeText(t: string): Promise<void> } } }
-  ).navigator;
-  if (nav?.clipboard === undefined) throw new Error("no clipboard");
-  await nav.clipboard.writeText(text);
+  const board = (window.navigator as { clipboard?: Clipboard } | undefined)?.clipboard;
+  if (board === undefined) throw new Error("no clipboard");
+  await board.writeText(text);
 };
 
 export class ObsidianPrompter implements Prompter {
