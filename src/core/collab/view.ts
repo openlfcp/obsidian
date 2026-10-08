@@ -55,6 +55,11 @@ export function refusalText(refusal: { readonly code: string; readonly url: stri
   }
 }
 
+/** The quiet notice after the client hosted a collaboration again on a server that had lost it (ADR 0008). */
+export function rehostNotice(name: string, url: string): string {
+  return `Shared Tasks: "${name}" was hosted again on ${url}, which had lost it. Changes are being sent again.`;
+}
+
 /** The one notice for a refused collaboration (once per collaboration, POST-017). */
 export function refusalNotice(
   name: string,

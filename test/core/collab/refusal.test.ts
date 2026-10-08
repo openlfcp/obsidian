@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 import type { ResourceStatus } from "../../../src/core/collab/service";
-import { refusalNotice, refusalText, statusView } from "../../../src/core/collab/view";
+import {
+  refusalNotice,
+  refusalText,
+  rehostNotice,
+  statusView,
+} from "../../../src/core/collab/view";
 
 const URL = "wss://sync.example.org/v1/ws";
 
@@ -65,6 +70,12 @@ describe("a collaboration the server refused (POST-017)", () => {
   it("words the notice as Shared Tasks, with the collaboration's name", () => {
     expect(refusalNotice("Team", { code: "RESOURCE_NOT_HOSTED", url: URL })).toBe(
       `Shared Tasks: "Team" stopped syncing. Not hosted by ${URL}: the server no longer has this collaboration (RESOURCE_NOT_HOSTED). Your tasks stay on this device; see "Resource status".`,
+    );
+  });
+
+  it("words the quiet notice after an automatic rehost (ADR 0008)", () => {
+    expect(rehostNotice("Team", URL)).toBe(
+      `Shared Tasks: "Team" was hosted again on ${URL}, which had lost it. Changes are being sent again.`,
     );
   });
 });

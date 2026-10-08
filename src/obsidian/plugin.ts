@@ -19,6 +19,7 @@ import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { MarkdownView, Notice, Plugin, type TAbstractFile, type TFile } from "obsidian";
 import { CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
+import { rehostNotice } from "../core/collab/view";
 import { COMMANDS } from "../core/commands";
 import { LfcpRuntime, type RuntimeEnv } from "../core/lfcp/runtime";
 import { ConflictRegistry } from "../core/projection/conflicts";
@@ -296,6 +297,17 @@ export default class OpenLfcpPlugin extends Plugin {
    */
   #watchRefused(runtime: LfcpRuntime): void {
     runtime.on((e) => {
+      // ADR 0008 (sdk-ts 0.1.3): the server had lost the collaboration and the
+      // client hosted it again; a refusal comes as resource-refused below.
+      if (e.type === "rehost" && e.outcome === "hosted") {
+        this.blockedChecks = this.blockedChecks.then(async () => {
+          const name = (await runtime.registry()).find(
+            (x) => toHex(x.resourceId) === toHex(e.resourceId),
+          )?.localName;
+          new Notice(rehostNotice(name ?? "a collaboration", e.url));
+        });
+        return;
+      }
       if (e.type !== "resource-refused") return;
       this.blockedChecks = this.blockedChecks.then(async () => {
         if (runtime.status.kind !== "ready") return;
