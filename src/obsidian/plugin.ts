@@ -138,19 +138,23 @@ export default class OpenLfcpPlugin extends Plugin {
         },
         () => this.settings.refPlacement,
         () => this.settings.sectionComments,
+        () => this.#collaboration(),
+        () => this.settings.defaultServer,
       );
       this.registerEditorExtension(this.sections.editor.extension);
       this.addCommand({
         id: "share-section",
         name: "Share section…",
-        editorCallback: (editor) => {
-          void this.sections?.shareSection(editor).then((approved) => {
-            // Creating the section from an approved preview is LFCP-02-050.
-            if (approved !== null)
-              new Notice(
-                `Shared Tasks: "${approved.title}" is ready to share (creation comes next).`,
-              );
-          });
+        editorCallback: (editor, ctx) => {
+          const path = ctx.file?.path;
+          if (path === undefined) return;
+          void this.sections
+            ?.shareSection(editor)
+            .then((approved) =>
+              approved === null
+                ? undefined
+                : this.sections?.createSection(path, editor.getValue(), approved),
+            );
         },
       });
     }

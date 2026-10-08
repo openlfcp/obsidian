@@ -7,17 +7,25 @@
 //
 // Known gaps of the preview, each its own task: Task fields inside a
 // section are not rendered or sent (the SDK has no TaskView for section
-// Tasks yet), write access is not checked (contract §6), and there is no
-// sync status (026) nor a command to share a section.
+// Tasks yet), write access is not checked (contract §6), there is no sync
+// status (026), and invitations to a section are not offered yet (051).
 
-import { generateObjectId, type PrincipalId, type ResourceId } from "@openlfcp/core";
+import {
+  fromBase64url,
+  generateObjectId,
+  generateResourceId,
+  type PrincipalId,
+  type ResourceId,
+} from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
+import type { Collaboration } from "../core/collab/service";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { SdkSectionPort } from "../core/lfcp/section-port";
 import { newProjectionId } from "../core/sections/base";
-import { SectionEngine } from "../core/sections/engine";
+import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
+import { applyChanges, SectionEngine } from "../core/sections/engine";
 import { parseSections } from "../core/sections/parser";
 import {
   preflight,
@@ -38,6 +46,10 @@ const SECTION_MARK = "lfcp-section:";
 
 export class SectionsHost {
   #engine: SectionEngine | null = null;
+  #creation: SectionCreation | null = null;
+  #runtime: LfcpRuntime | null = null;
+  /** Section Resources whose model changes start passes (hex of the ID). */
+  readonly #watched = new Set<string>();
   #bases: KeyValueSectionBaseStore | null = null;
   /** Notes that hold a section, by the section's Resource (hex of its ID). */
   readonly #notes = new Map<string, Set<string>>();
@@ -50,6 +62,10 @@ export class SectionsHost {
     private readonly refPlacement: () => RefPlacement,
     /** The section comments setting (§4.5). */
     private readonly sectionComments: () => SectionComments,
+    /** The collaboration flows (hosting), null before the runtime runs. */
+    private readonly collab: () => Collaboration | null,
+    /** The server a new section is hosted on (the default server setting). */
+    private readonly server: () => string,
   ) {
     this.editor = sectionEditorExtension({
       engine: () => this.#engine,
@@ -88,17 +104,119 @@ export class SectionsHost {
       refPlacement: this.refPlacement,
       sectionComments: this.sectionComments,
     });
+    this.#runtime = runtime;
+    this.#creation = new SectionCreation({
+      host: {
+        createSectionResource: (o) => runtime.createSectionResource(o),
+        openSection: (R) => runtime.openSection(R),
+        host: async (R) => {
+          const flows = this.collab();
+          if (flows === null)
+            return { kind: "pending", reason: "Shared Tasks is not running yet." };
+          const h = await flows.host(R);
+          return h.kind === "hosted" ? { kind: "hosted" } : h;
+        },
+      },
+      port,
+      edit: (path, fn) => this.#edit(path, fn),
+      journal: runtime.localState,
+      createdBy: principal,
+      server: this.server,
+      newResourceId: () => generateResourceId(),
+      newNodeId: () => generateObjectId(),
+      newOperationId: () => crypto.randomUUID(),
+      newTask: (line, id) => newSectionTask(line, principal, id),
+      refPlacement: this.refPlacement,
+    });
     for (const entry of await runtime.registry())
-      if (entry.profile === SECTIONS_PROFILE_ID) {
-        const profile = await runtime.openSection(entry.resourceId);
-        profile.onNodesChanged(() => void this.#remote(entry.resourceId));
-      }
+      if (entry.profile === SECTIONS_PROFILE_ID) await this.#watch(entry.resourceId);
     for (const file of this.app.vault.getMarkdownFiles()) {
       const text = await this.app.vault.cachedRead(file);
       if (!text.includes(SECTION_MARK)) continue;
       this.#index(file.path, text);
       this.editor.remoteChanged(file.path, text);
     }
+    // Creations a restart interrupted go on from their journal (SSP §12.2).
+    for (const entry of await this.#creation.unfinished())
+      void this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+  }
+
+  /**
+   * Creates the shared section of an approved preview (LFCP-02-050): the
+   * creation is journaled first, then runs; an interrupted one goes on
+   * at the next start.
+   */
+  async createSection(path: string, markdown: string, preview: SharePreview): Promise<void> {
+    const creation = this.#creation;
+    if (creation === null) {
+      new Notice("Shared Tasks: still starting. Share the section again in a moment.");
+      return;
+    }
+    if (this.server().trim() === "") {
+      new Notice("Shared Tasks: set a default sync server in the settings to share a section.");
+      return;
+    }
+    const entry = await creation.prepare(path, markdown, preview);
+    await this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+  }
+
+  async #finish(entry: CreationEntry): Promise<CreationResult> {
+    const creation = this.#creation as SectionCreation;
+    const result = await creation.run(entry);
+    if (result.kind === "stale") await creation.cancel(result.entry);
+    if (result.kind === "hosted" || result.kind === "local") {
+      await this.#watch(fromKey(entry.resource));
+      const file = this.app.vault.getFileByPath(entry.path);
+      const open = this.#openEditor(entry.path);
+      const text = open?.getValue() ?? (file === null ? null : await this.app.vault.read(file));
+      if (text !== null) {
+        this.#index(entry.path, text);
+        if (open !== null) this.editor.remoteChanged(entry.path);
+        else this.editor.remoteChanged(entry.path, text);
+      }
+    }
+    return result;
+  }
+
+  async #watch(resource: ResourceId): Promise<void> {
+    const runtime = this.#runtime;
+    if (runtime === null || this.#watched.has(toKey(resource))) return;
+    this.#watched.add(toKey(resource));
+    const profile = await runtime.openSection(resource);
+    profile.onNodesChanged(() => void this.#remote(resource));
+  }
+
+  #openEditor(path: string): Editor | null {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown"))
+      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === path)
+        return leaf.view.editor;
+    return null;
+  }
+
+  /** The changes `fn` computes, on the open editor's text, else on the file's. */
+  async #edit(
+    path: string,
+    fn: (current: string) => readonly { from: number; to: number; insert: string }[] | null,
+  ): Promise<void> {
+    const editor = this.#openEditor(path);
+    if (editor !== null) {
+      const changes = fn(editor.getValue());
+      if (changes === null || changes.length === 0) return;
+      editor.transaction({
+        changes: changes.map((c) => ({
+          from: editor.offsetToPos(c.from),
+          to: editor.offsetToPos(c.to),
+          text: c.insert,
+        })),
+      });
+      return;
+    }
+    const file = this.app.vault.getFileByPath(path);
+    if (file === null) return;
+    await this.app.vault.process(file, (text) => {
+      const changes = fn(text);
+      return changes === null ? text : applyChanges(text, changes);
+    });
   }
 
   /**
@@ -180,6 +298,30 @@ export class SectionsHost {
     }
   }
 }
+
+/** What became of a creation, in a notice (UX §3). */
+function notifyCreation(entry: CreationEntry, r: CreationResult): void {
+  const title = entry.preview.title;
+  if (r.kind === "hosted") new Notice(`Shared Tasks: section "${title}" is shared.`);
+  else if (r.kind === "local")
+    new Notice(
+      `Shared Tasks: section "${title}" was created on this device; invitation is not ready yet. ${r.reason}`,
+    );
+  else if (r.kind === "stale")
+    new Notice(
+      `Shared Tasks: section "${title}" changed since the preview. Nothing was bound; share it again.`,
+    );
+  else if (r.kind === "failed")
+    new Notice(`Shared Tasks: section "${title}" could not be created (${r.reason}).`);
+}
+
+const notifyFailure = (entry: CreationEntry) => (e: unknown) => {
+  new Notice(
+    `Shared Tasks: creating section "${entry.preview.title}" stopped (${e instanceof Error ? e.message : String(e)}). It goes on at the next start.`,
+  );
+};
+
+const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
 
 const toKey = (r: Uint8Array): string =>
   [...r].map((b) => b.toString(16).padStart(2, "0")).join("");

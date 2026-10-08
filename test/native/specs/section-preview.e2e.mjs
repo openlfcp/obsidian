@@ -103,6 +103,12 @@ describe("shared sections preview in Shared Tasks (real SDK, no server)", () => 
 
 describe("Share section… preview (LFCP-02-049, flag on)", () => {
   before(async () => {
+    // A server that never answers: creation stays on this device, nothing leaves it.
+    await browser.executeObsidian(async ({ app }) => {
+      const plugin = app.plugins.plugins["shared-tasks"];
+      plugin.settings.defaultServer = "ws://127.0.0.1:9/v1/ws";
+      await plugin.saveData(plugin.settings);
+    });
     await restartWith(true);
   });
   after(async () => {
@@ -164,6 +170,74 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(shown.boxes).toEqual(["- [ ] Prepare contract\n  Draft contract"]);
     expect(shown.problems).toEqual([]);
     expect(shown.shareDisabled).toBe(false);
+  });
+
+  it("Share creates the section: the range bound, its content in the replica, private text outside (LFCP-02-050)", async () => {
+    const note = [
+      "PRIVATE_BEFORE_8f3a: budget.",
+      "",
+      "## Launch",
+      "- [ ] Prepare contract",
+      "",
+      "Draft the plan.",
+      "",
+      "## Other",
+      "PRIVATE_AFTER_71c2: do not transmit.",
+      "",
+    ].join("\n");
+    await browser.executeObsidian(
+      async ({ app, obsidian }, file, text) => {
+        await app.vault.create(file, text);
+        const leaf = app.workspace.getLeaf(false);
+        await leaf.openFile(app.vault.getFileByPath(file), { state: { mode: "source", source: true } });
+        app.workspace.setActiveLeaf(leaf, { focus: true });
+        const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        for (let i = 0; i < 40 && view.editor.getValue() !== text; i++)
+          await new Promise((r) => setTimeout(r, 50));
+        view.editor.setCursor({ line: 3, ch: 0 });
+        app.commands.executeCommandById("shared-tasks:share-section");
+        let share = null;
+        for (let i = 0; i < 40 && share === null; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          share =
+            [...document.querySelectorAll(".modal-container .modal button")].find(
+              (b) => b.textContent === "Share",
+            ) ?? null;
+        }
+        share.click();
+      },
+      "share-create.md",
+      note,
+    );
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(({ app, obsidian }) =>
+          app.workspace
+            .getActiveViewOfType(obsidian.MarkdownView)
+            .editor.getValue()
+            .includes("<!-- /lfcp-section: "),
+        ),
+      { timeout: 15000, timeoutMsg: "section bound" },
+    );
+    const out = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const text = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getValue();
+      const runtime = app.plugins.plugins["shared-tasks"].runtime;
+      const texts = [];
+      for (const e of await runtime.registry()) {
+        const snap = runtime.sectionProfile(e.resourceId)?.replica.snapshot();
+        if (snap?.title?.value === "Launch")
+          texts.push(...Object.values(snap.nodes).map((n) => n.text).filter((t) => t !== undefined));
+      }
+      return { text, texts };
+    });
+    console.log(`EVIDENCE ${JSON.stringify({ id: "SHARE-CREATE", ...out })}`);
+    expect(out.texts).toContain("Draft the plan.");
+    expect(out.texts.join(" ")).not.toContain("PRIVATE_");
+    expect(out.text).toMatch(
+      /^PRIVATE_BEFORE_8f3a: budget\.\n\n## Launch\n<!-- lfcp-section: lfcp1:[\w-]+#section:[0-9a-f-]{36} -->\n- \[ \] Prepare contract\n/,
+    );
+    expect(out.text).toMatch(/<!-- lfcp-node: paragraph:[0-9a-f-]{36} -->\nDraft the plan\.\n/);
+    expect(out.text).toMatch(/<!-- \/lfcp-section: [^>]+ -->\n\n## Other\nPRIVATE_AFTER_71c2: do not transmit\.\n$/);
   });
 
   it("a heading inside blocks the share, with a reason", async () => {
