@@ -26,6 +26,7 @@ inside a section).
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 | `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents in the shape of sdk-ts's `SectionReplica` (the section ID as the root's parent, `createdBy` on new nodes), `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
 | `input.ts` | When typing becomes a reconciliation (`ReconcileScheduler`) and which new content waits (`transientCandidates`), LFCP-02-043 |
+| `engine.ts` | One reconciliation pass of a note's sections: all of the above put together (`SectionEngine.pass`, `written`) |
 | `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
 | `markers.ts` | Bindings for nodes that just got their IDs: node markers and child-line Task refs (`bindingChanges`) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
@@ -125,6 +126,48 @@ fix, [projection.md](projection.md)).
   `MemorySectionBaseStore` serves the tests; the install-database adapter,
   under the key `section-base:<projection ID>`, comes with the journal
   (LFCP-02-038).
+
+## One pass over a note (`engine.ts`)
+
+`SectionEngine.pass(path, source, context)` reconciles every section of a
+note on the source just read and returns the note changes as one list
+against it; the host writes them through the coordinator's route and calls
+`written` (bases stored, operations finished) or `abandoned`. The context
+carries the caret's line, the bound nodes the user's own transactions
+removed with their bindings, and the transactions' origin (undo, redo).
+Per section:
+
+1. Every snapshot is taken before the first await (the 0.3.2 rule). No
+   snapshot, a paused section or an importing one: nothing happens.
+2. Without a base (MS11), a note that shows the model exactly seeds it;
+   any other note publishes nothing (`base-unknown`).
+3. Unfinished operations of the projection come first. A committed batch
+   whose bindings were never written (a crash, an unwritten pass) is
+   applied to the base, and its new nodes are found again among the
+   unbound ones by kind and content and get the IDs already allocated,
+   never new ones.
+4. The user's edits since then, against that base, go out as one batch
+   (`commit.ts`). A missing node is deleted only when the user's
+   transaction removed it with its binding; otherwise it is
+   NODE_BINDING_LOST and stays in the base. Undo and redo compensate
+   (`undo.ts`). Transient new content waits (`input.ts`). If the batch is
+   not committed (read-only, refused, failed), the pass stops there: the
+   edit stays in the note and nothing is projected over it.
+5. The new nodes get their bindings (`markers.ts`), and the base becomes
+   the stored base with the batch applied (`applyBatch`), not the note,
+   which may hold edits held back in this pass.
+6. The model, read again after the commit, is projected (`remote.ts`).
+   Bindings and remote changes are composed into one list.
+
+The stored base keeps a model revision per node, the one at which the
+model's Text equals the base's (contract §7.3, §7.5): a Text edit's `base`
+names it. A node whose own edit was merged with a concurrent one and not
+projected yet has none, and its next Text edits wait until it is projected,
+so indices are never sent against a revision whose Text differs.
+
+Not wired yet: Task field edits inside a section (checkbox, dates, title)
+need the 0.1 field planner (`projection/intents.ts`) run on section Tasks;
+remote Task changes are already rendered (`remote.ts`).
 
 ## Typing and IME (LFCP-02-043)
 
@@ -421,6 +464,12 @@ title changes in UTF-16, CRLF and indentation of new lines, local edits
 deferred, deletion with its blank line, edited or commented deleted nodes
 kept, created and moved nodes listed, a stale revision refused, a second
 pass empty, and the three skips.
+
+`test/core/sections/engine.test.ts` (against the fake port with a model):
+seeding and MS11, one batch for a Text edit with a new paragraph and Task
+and their bindings, a transient Task, deletion versus a lost binding,
+read-only, remote projection alone and with local edits, and a crash
+between the commit and the bindings (one Task, the same ID).
 
 `test/core/sections/input.test.ts`: idle, the cap while typing, no pass
 during a composition and one at its end, blur, dispose; transient
