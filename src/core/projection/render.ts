@@ -21,7 +21,7 @@ import {
 } from "@openlfcp/shared-objects";
 import { joinLines, splitLines } from "../refs/lines";
 import type { ObjectRef } from "../refs/object-ref";
-import type { MarkdownProjectionRef } from "../refs/scanner";
+import type { MarkdownProjectionRef, ScanResult } from "../refs/scanner";
 import { formatRefComment } from "../refs/serializer";
 import { scanLegacy } from "./legacy-scan";
 import { suspectReassociation } from "./reassociation";
@@ -275,69 +275,82 @@ export function renderNote(
     const key = projectionKey(p);
     const target = lookup(key);
     if (target === undefined) continue;
-    const issues: RenderIssue[] = [];
-    const leave = (code: RenderIssueCode, message: string) =>
-      projections.push({
-        line: p.taskLine,
-        key,
-        changed: [],
-        conflicts: [],
-        issues: [{ code, message }],
-      });
-    const view = target.view;
-    if (view === undefined) {
-      leave("OBJECT_UNKNOWN", "The shared Task is not here yet; the line is left as it is.");
-      continue;
-    }
-    if (view.status === "object_id_collision") {
-      leave("OBJECT_ID_COLLISION", "Two shared objects use this ID; the line is left as it is.");
-      continue;
-    }
-    if (view.status !== "ready" || view.task === undefined) {
-      leave("OBJECT_PROFILE_INVALID", "The shared Task is not valid; the line is left as it is.");
-      continue;
-    }
-    const task = view.task;
-    if (task.lifecycle === "deleted") {
-      leave("OBJECT_DELETED", "The shared Task was deleted; the line is kept.");
-      continue;
-    }
-    if (suspectReassociation(p, scan.tasks, task.title) !== null) {
-      leave(
-        "REF_REASSOCIATION_SUSPECTED",
-        "The ref seems to sit under another Task; nothing is rendered until it is repaired.",
-      );
-      continue;
-    }
-    const conflicts = SCALAR_FIELDS.filter((f) => view.fields[f].conflicted);
     const line = lines[p.taskLine] as { text: string; eol: string };
-    const next = renderLine(
-      line.text,
-      p,
-      scan.tasks.find((t) => t.task.line === p.taskLine)?.task.status,
-      task,
-      issues,
-    );
-    if (next === null) continue;
-    const fields = changedFields(p.taskText, next.text, next.glyphBefore, next.glyphAfter);
-    if (next.line !== line.text) {
-      lines[p.taskLine] = { text: next.line, eol: line.eol };
+    const r = renderProjectedLine(line.text, p, scan.tasks, target);
+    if (r === null) continue;
+    if (r.line !== line.text) {
+      lines[p.taskLine] = { text: r.line, eol: line.eol };
       changed = true;
-      if (target.regressed === true)
-        issues.push({
-          code: "STATE_REGRESSED",
-          message: `An earlier change was withdrawn (a Key Epoch cutoff), so this task shows older values again (${fields.join(", ")}).`,
-        });
     }
-    projections.push({
-      line: p.taskLine,
-      key,
-      changed: next.line !== line.text ? fields : [],
-      conflicts,
-      issues,
-    });
+    projections.push(r.projection);
   }
   return { text: changed ? joinLines(lines) : markdown, changed, projections };
+}
+
+/**
+ * One bound Task line rendered from its object (the body of renderNote, also
+ * used for Tasks inside shared sections). Null when the line's pieces do not
+ * reassemble (it is left alone, unreported); otherwise the line to write
+ * (the same text when nothing changes) and the report.
+ */
+export function renderProjectedLine(
+  lineText: string,
+  p: MarkdownProjectionRef,
+  tasks: ScanResult["tasks"],
+  target: RenderTarget,
+): { line: string; projection: RenderedProjection } | null {
+  const key = projectionKey(p);
+  const issues: RenderIssue[] = [];
+  const leave = (code: RenderIssueCode, message: string) => ({
+    line: lineText,
+    projection: { line: p.taskLine, key, changed: [], conflicts: [], issues: [{ code, message }] },
+  });
+  const view = target.view;
+  if (view === undefined)
+    return leave("OBJECT_UNKNOWN", "The shared Task is not here yet; the line is left as it is.");
+  if (view.status === "object_id_collision")
+    return leave(
+      "OBJECT_ID_COLLISION",
+      "Two shared objects use this ID; the line is left as it is.",
+    );
+  if (view.status !== "ready" || view.task === undefined)
+    return leave(
+      "OBJECT_PROFILE_INVALID",
+      "The shared Task is not valid; the line is left as it is.",
+    );
+  const task = view.task;
+  if (task.lifecycle === "deleted")
+    return leave("OBJECT_DELETED", "The shared Task was deleted; the line is kept.");
+  if (suspectReassociation(p, tasks, task.title) !== null)
+    return leave(
+      "REF_REASSOCIATION_SUSPECTED",
+      "The ref seems to sit under another Task; nothing is rendered until it is repaired.",
+    );
+  const conflicts = SCALAR_FIELDS.filter((f) => view.fields[f].conflicted);
+  const next = renderLine(
+    lineText,
+    p,
+    tasks.find((t) => t.task.line === p.taskLine)?.task.status,
+    task,
+    issues,
+  );
+  if (next === null) return null;
+  const fields = changedFields(p.taskText, next.text, next.glyphBefore, next.glyphAfter);
+  if (next.line !== lineText && target.regressed === true)
+    issues.push({
+      code: "STATE_REGRESSED",
+      message: `An earlier change was withdrawn (a Key Epoch cutoff), so this task shows older values again (${fields.join(", ")}).`,
+    });
+  return {
+    line: next.line,
+    projection: {
+      line: p.taskLine,
+      key,
+      changed: next.line !== lineText ? fields : [],
+      conflicts,
+      issues,
+    },
+  };
 }
 
 function renderLine(
