@@ -25,6 +25,7 @@ inside a section).
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 | `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents in the shape of sdk-ts's `SectionReplica` (the section ID as the root's parent, `createdBy` on new nodes), `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
+| `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
@@ -119,6 +120,28 @@ fix, [projection.md](projection.md)).
   `MemorySectionBaseStore` serves the tests; the install-database adapter,
   under the key `section-base:<projection ID>`, comes with the journal
   (LFCP-02-038).
+
+## One source per note (LFCP-02-041)
+
+`SourceCoordinator` decides what a pass reads and how it writes, from the
+adapter's events (`opened`, `closed`, `editorChanged`, `fileChanged`,
+`remoteChanged`, `renamed`, `deleted`):
+
+- While a note is open, only its editor document is a source, and writes
+  go through an editor transaction (route `editor`): the editor can be
+  newer than the file, and an external write reaches the editor, which
+  reloads it as a transaction. A file event of an open note is never
+  reconciled on its own; it may still be the plugin's own write, which
+  `writes.ts` recognizes by content. Split views share one document.
+- A closed note is read from its file and written by read-modify-write
+  (route `file`).
+- One pass per note at a time. Events during a pass mark the note dirty,
+  and one more pass follows with the latest source and every trigger
+  (`local`, `remote`); other notes are not delayed. A source already
+  reconciled (same SHA-256) is not reconciled again, unless a remote change
+  must be projected. A failed pass is reported and leaves the source
+  unreconciled. A rename while a pass is queued carries the note's state to
+  its new path.
 
 ## Committing local edits (LFCP-02-039)
 
@@ -359,6 +382,12 @@ title changes in UTF-16, CRLF and indentation of new lines, local edits
 deferred, deletion with its blank line, edited or commented deleted nodes
 kept, created and moved nodes listed, a stale revision refused, a second
 pass empty, and the three skips.
+
+`test/core/sections/coordinator.test.ts`: the file route for closed
+notes and the editor route while open (a lagging or external file event
+ignored), split views, repeated notifications, coalescing during a pass
+with every trigger, one slow note not delaying another, a failed pass,
+rename while queued, deletion.
 
 `test/core/sections/commit.test.ts` (against the fake port, mock
 evidence): one batch per pass with IDs before the commit and chained new
