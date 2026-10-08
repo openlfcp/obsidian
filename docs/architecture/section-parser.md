@@ -107,6 +107,9 @@ fix, [projection.md](projection.md)).
 - `markdownState(markdown, section)` gives the note's state: bound nodes
   with parent, order and Text, plus the unbound candidates (kind, parent,
   bound sibling before it, Text, line) for the adapter to bind or report.
+  Bound nodes under a parent without a binding yet (existing items
+  indented under a new one) are neither missing nor moved, and new nodes
+  under it wait until it is bound.
 - `planSection(base, note, shared)` gives the user's edits: section title,
   Text edits (scalar positions, against the base Text), moves and missing
   nodes. With no base (first sight), the note is compared with the shared

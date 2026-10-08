@@ -176,3 +176,27 @@ describe("the base store, by projection ID (OP-24)", () => {
     expect(await store.load(p)).toBeUndefined();
   });
 });
+
+describe("nodes under a parent without a binding yet", () => {
+  it("are neither missing nor moved, and new nodes under them wait for it", () => {
+    const md = (body: string[]) =>
+      `${["## Launch", formatBoundary("start", S), ...body, formatBoundary("end", S)].join("\n")}\n`;
+    const before = md(["- Old", `  ${formatNodeMarker("item", id(2))}`]);
+    const after = md([
+      "- New parent",
+      "  - Old",
+      `    ${formatNodeMarker("item", id(2))}`,
+      "  - New child",
+    ]);
+    const parse = (m: string) => {
+      const [s] = parseSections(m).sections;
+      return markdownState(m, s as NonNullable<typeof s>);
+    };
+    const base = parse(before).state;
+    const now = parse(after);
+    expect(now.unbound.map((u) => u.text)).toEqual(["New parent"]);
+    const plan = planSection(base, now.state, base);
+    expect(plan.missing).toEqual([]);
+    expect(plan.moves).toEqual([]);
+  });
+});

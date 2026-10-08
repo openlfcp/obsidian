@@ -51,6 +51,13 @@ export interface UnboundNode {
 
 export const ROOT = "";
 
+/**
+ * The parent of a bound node whose parent in the note has no binding yet
+ * (a new item the user indented existing nodes under). It is not a move
+ * until that parent is bound, and the node is not missing either.
+ */
+export const UNBOUND_PARENT = "\u0000unbound";
+
 /** The note's state of a parsed section, and its unbound candidates. */
 export function markdownState(
   markdown: string,
@@ -65,13 +72,16 @@ export function markdownState(
     for (const n of children) {
       const text = nodeSource(markdown, n)?.text;
       if (n.id === null) {
-        unbound.push({
-          kind: n.kind,
-          parent,
-          after,
-          ...(text === undefined ? {} : { text }),
-          line: n.lines.from,
-        });
+        // A new node under a new node binds once its parent has an ID.
+        if (parent !== UNBOUND_PARENT)
+          unbound.push({
+            kind: n.kind,
+            parent,
+            after,
+            ...(text === undefined ? {} : { text }),
+            line: n.lines.from,
+          });
+        walk(n.children, UNBOUND_PARENT);
         continue;
       }
       const line = n.kind === "task" ? lines[n.lines.from]?.text : undefined;
@@ -82,7 +92,7 @@ export function markdownState(
         ...(line === undefined ? {} : { line }),
       };
       const key = parent ?? ROOT;
-      order[key] = [...(order[key] ?? []), n.id];
+      if (parent !== UNBOUND_PARENT) order[key] = [...(order[key] ?? []), n.id];
       after = n.id;
       walk(n.children, n.id);
     }
@@ -147,6 +157,8 @@ export function planSection(
       if (edit !== null) textEdits.push({ nodeId: id, edit });
     }
     // Every bound node is a candidate; reduceMoves keeps those the user moved.
+    // Under a parent without a binding yet, there is no placement to send.
+    if (n.parent === UNBOUND_PARENT) continue;
     moves.push({ nodeId: id, parent: n.parent, after: predecessor(note, n.parent, id) });
   }
   // With no base, nothing was shown here before: nothing can be missing.
