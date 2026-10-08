@@ -212,7 +212,9 @@ shared task ref"** to put the marker back under its task.
 | *put the cursor on a task line (- [ ] …) to share it* | The cursor is not on a task. Put it on a line that starts with `- [ ]`. |
 | *this task's lfcp-ref is malformed or duplicated* | The marker was edited or copied. Undo the edit (`Ctrl/Cmd + Z`). If you copied a task line, delete the copied marker and use "Insert shared object" instead. |
 | *could not join* | The reason follows in the notice. Most often the link was already used, since each link works once. Ask for a new one. |
-| *"…" stopped syncing* | The server no longer has the collaboration or no longer lets you in. Your tasks stay on your computer. "Resource status" says why. |
+| *"…" was hosted again on wss://…* | Nothing to do. The server had lost the collaboration (for example after a restore from a backup); Shared Tasks put it back and is sending the missing changes. |
+| *"…" stopped syncing* | The server no longer has the collaboration and refused to take it back, or no longer lets you in. Your tasks stay on your computer. "Resource status" says why; ask the collaboration's owner. |
+| *could not join… needs a newer version of Shared Tasks* | The collaboration uses a newer kind of sharing. Update Shared Tasks in Settings → Community plugins, then join again with the same link: it has not been used. |
 | A change does not arrive | Check that both of you are online, then look at "Resource status". |
 
 Bugs and questions go to [GitHub issues](https://github.com/openlfcp/obsidian/issues).

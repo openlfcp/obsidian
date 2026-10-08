@@ -133,12 +133,17 @@ A collaboration stays on the server it was created on, and people who join
 use the server named in the invitation. More:
 [docs/guides/choosing-a-server.md](docs/guides/choosing-a-server.md).
 
-If the server no longer has a collaboration (it was removed there, or the
-server was restored from an older backup) or no longer lets you read it,
-Shared Tasks shows one notice and "Resource status" says why, for example
-"Not hosted by wss://…". Syncing that collaboration stops (Shared Tasks does
-not keep retrying), and your tasks stay on this device. Restarting Obsidian
-asks the server again.
+If the server lost data (it was restored from an older backup), Shared
+Tasks repairs it from your device: it hosts a lost collaboration there
+again, sends back the changes the server no longer has, and shows one short
+notice. Your collaborators' devices do the same, so whoever connects first
+brings the server up to date.
+
+If the server no longer has a collaboration and refuses to host it again,
+or no longer lets you read it, Shared Tasks shows one notice and "Resource
+status" says why, for example "Not hosted by wss://…". Syncing that
+collaboration stops (Shared Tasks does not keep retrying), and your tasks
+stay on this device. Restarting Obsidian asks the server again.
 
 ## Offline and conflicts
 
