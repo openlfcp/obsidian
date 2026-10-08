@@ -131,6 +131,8 @@ const BLOCKING_STATUSES = [
   "equivocation",
   "local-failure",
   "held",
+  // POST-001 (sdk-ts 0.1.3): another change took this (actor, seq); it waits for a rebuild.
+  "profile-held",
 ] as const;
 
 /** The reason code of a stored unit that cannot be applied. */
@@ -147,6 +149,8 @@ function blockReason(status: (typeof BLOCKING_STATUSES)[number], detail: string 
       return code ?? "LOCAL_FAILURE";
     case "held":
       return code ?? "HELD";
+    case "profile-held":
+      return code ?? "PROFILE_HELD";
   }
 }
 
@@ -649,7 +653,7 @@ export class LfcpRuntime {
           units.push({
             actor,
             unit: toHex(u.unitId),
-            held: status === "held",
+            held: status === "held" || status === "profile-held",
             reason: blockReason(status, u.detail),
           });
       }

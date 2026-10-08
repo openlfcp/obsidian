@@ -328,6 +328,8 @@ describe("LfcpRuntime (LFCP-059)", () => {
     await put(2, 0x11, 3n, "equivocation");
     await put(3, 0x22, 1n, "local-failure", "INVALID_AUTOMERGE_BYTES: crashed the engine twice");
     await put(4, 0x33, 2n, "held", "PREV_MISMATCH");
+    // POST-001 (sdk-ts 0.1.3): a unit of 0x44 waiting for a rebuild; like held, after a delay.
+    await put(6, 0x44, 1n, "profile-held");
     const hex = (n: number) => toHex(actor(n));
     expect(await r.blockedCollaborators(R)).toEqual([
       { principal: hex(0x11), units: 2, reasons: ["ACTOR_EQUIVOCATION"] },
@@ -341,6 +343,7 @@ describe("LfcpRuntime (LFCP-059)", () => {
       vi.setSystemTime(Date.now() + HELD_BLOCKED_MS + 1);
       expect((await r.newlyBlocked(R)).map((b) => [b.principal, b.reasons])).toEqual([
         [hex(0x33), ["PREV_MISMATCH"]],
+        [hex(0x44), ["PROFILE_HELD"]],
       ]);
     } finally {
       vi.useRealTimers();

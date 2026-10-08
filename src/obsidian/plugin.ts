@@ -41,6 +41,7 @@ const BLOCKING_OUTCOMES: ReadonlySet<string> = new Set([
   "equivocation",
   "local-failure",
   "held",
+  "profile-held",
   "engine-crash",
 ]);
 
