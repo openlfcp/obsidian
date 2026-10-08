@@ -6,7 +6,7 @@
 // produce anything; blocked refs neither. Raw lines are never synchronized.
 
 import { type ResourceId, resourceId, toBase64url } from "@openlfcp/core";
-import type { ReplicaIntent, SharedObjectsDataProfile } from "@openlfcp/shared-objects";
+import type { ReplicaIntent, SharedObjectsDataProfile, TaskView } from "@openlfcp/shared-objects";
 import { scanRefs } from "../refs";
 import type { MarkdownProjectionRef } from "../refs/scanner";
 import type { VaultChange } from "../vault/changes";
@@ -74,8 +74,17 @@ const INFO = new Set<EngineDiagnosticCode>([
 const severity = (code: EngineDiagnosticCode): ProjectionDiagnostic["severity"] =>
   code === "WRITE_FAILED" ? "error" : INFO.has(code) ? "info" : "warning";
 
-const objectKey = (p: { resourceId: Uint8Array; objectId: string }): string =>
+export const objectKey = (p: { resourceId: Uint8Array; objectId: string }): string =>
   `${toBase64url(p.resourceId)}#${p.objectId}`;
+
+/**
+ * The shared state of a note's objects as it was when the note's text was
+ * read (`<resource>#<object id>` → view). A pass compares the Markdown with
+ * this, never with a state that changed after the read: the text cannot
+ * show a later change yet, and with no base its difference would pass for
+ * the user's edit and revert the change.
+ */
+export type SharedSnapshot = ReadonlyMap<string, TaskView | undefined>;
 
 export class ProjectionEngine {
   readonly #host: () => ProjectionHost | null;
@@ -192,8 +201,12 @@ export class ProjectionEngine {
     return out;
   }
 
-  /** One file's current content: intents for its bound Tasks, and diagnostics. */
-  async processFile(path: string, text: string): Promise<FileOutcome> {
+  /**
+   * One file's current content: intents for its bound Tasks, and
+   * diagnostics. `snapshot` is the shared state taken with `text`
+   * (ProjectionWriter); without it, the current state is read per object.
+   */
+  async processFile(path: string, text: string, snapshot?: SharedSnapshot): Promise<FileOutcome> {
     if (this.#guard.consume(path, text)) {
       await this.reindex(path, text);
       return { path, skipped: "echo", sent: [], diagnostics: [] };
@@ -268,9 +281,11 @@ export class ProjectionEngine {
           );
         continue;
       }
-      const profile = await host.profileOf(R);
-      const view = profile.replica.task(first.objectId);
       const key = objectKey(first);
+      const view =
+        snapshot?.has(key) === true
+          ? snapshot.get(key)
+          : (await host.profileOf(R)).replica.task(first.objectId);
       const base = bases.get(key);
       const plans: { p: MarkdownProjectionRef; plan: Plan; represented: Represented }[] = [];
       for (const p of projections) {

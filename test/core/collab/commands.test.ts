@@ -111,6 +111,7 @@ async function setup(placement: RefPlacement = "child-line") {
   const notes = new Notes();
   const guard = new MutationGuard();
   const settings = { placement };
+  const written: [string, string][] = [];
   const commands = new CollabCommands({
     collab: () => collab,
     prompter,
@@ -118,8 +119,9 @@ async function setup(placement: RefPlacement = "child-line") {
     guard,
     placement: () => settings.placement,
     defaultServer: () => SERVER,
+    wrote: (path, markdown) => void written.push([path, markdown]),
   });
-  return { device, runtime, collab, prompter, notes, guard, commands, settings };
+  return { device, runtime, collab, prompter, notes, guard, commands, settings, written };
 }
 
 /** Create a collaboration through the command. */
@@ -492,5 +494,25 @@ describe("insertAtLine", () => {
     expect(s.prompter.statuses).toHaveLength(1);
     expect(s.prompter.statuses[0]?.status.state).toBe("unsupported");
     expect(s.prompter.statuses[0]?.actions).toEqual([]);
+  });
+
+  it("reports every write to the projection at once, so its bases do not wait for the echo (0.3.2)", async () => {
+    const s = await setup();
+    await created(s);
+    s.notes.files.set("n.md", "## Sprint\n- [ ] One\n- [ ] Two\n");
+    s.notes.open("n.md", 0);
+    s.prompter.picks.push("Team");
+    await s.commands.shareSelectedTasks();
+    s.notes.open("n.md", 1);
+    await s.commands.detachSharedTask();
+    // Exactly what each command wrote, in order: the share, then the detach.
+    expect(s.written.map(([path]) => path)).toEqual(["n.md", "n.md"]);
+    expect(s.written[0]?.[1].split("lfcp-ref:").length).toBe(3);
+    expect(s.written[1]?.[1]).toBe(s.notes.files.get("n.md"));
+    // A command that writes nothing reports nothing.
+    s.notes.files.set("plain.md", "no task here\n");
+    s.notes.open("plain.md", 0);
+    await s.commands.detachSharedTask();
+    expect(s.written).toHaveLength(2);
   });
 });

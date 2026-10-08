@@ -82,6 +82,16 @@ last sync. Bases are persisted in the install database, never in the vault.
   back.
 - With no base (first sight of a projection), the Markdown is the user's
   intent.
+- A pass compares the Markdown with the shared state **as it was when the
+  note was read** (0.3.2). The writer takes a snapshot of every bound
+  Task's state synchronously with the read; a shared change that lands
+  during the pass is rendered by the next pass, never mistaken for the
+  user's edit and sent back. Before 0.3.2 a pass without bases read the
+  state per Task as it went and could revert such a change.
+- Commands record what they wrote (index and bases) as soon as the write
+  is done (0.3.2), not only when the vault reports it back: an edit saved
+  within the 300 ms change debounce would merge with that report and hide
+  it.
 
 ## Shared Object → Markdown (LFCP-062)
 

@@ -94,6 +94,12 @@ export interface CommandEnv {
   readonly guard: MutationGuard;
   readonly placement: () => RefPlacement;
   readonly defaultServer: () => string;
+  /**
+   * A command wrote `markdown` to `path`: the projection records it as the
+   * note's index and bases at once, without waiting for the vault's echo,
+   * which a quick edit can merge with (and hide) inside the change debounce.
+   */
+  readonly wrote?: (path: string, markdown: string) => void;
 }
 
 const STAGE_TEXT: Readonly<Record<JoinStage, string>> = {
@@ -165,6 +171,7 @@ export class CollabCommands {
       written = out;
       return out;
     });
+    if (written !== null) this.#env.wrote?.(path, written);
     return written;
   }
 

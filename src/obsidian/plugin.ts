@@ -84,6 +84,7 @@ export default class OpenLfcpPlugin extends Plugin {
       guard: this.guard,
       placement: () => this.settings.refPlacement,
       defaultServer: () => this.settings.defaultServer,
+      wrote: (path, markdown) => this.#enqueue(() => this.projection.reindex(path, markdown)),
     });
     const handlers: Readonly<Record<string, () => Promise<void>>> = {
       "share-task-under-cursor": () => ui.shareTaskUnderCursor(),

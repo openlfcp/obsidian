@@ -258,3 +258,66 @@ describe("ProjectionWriter (LFCP-062)", () => {
     expect((await task(id)).status).toBe("todo");
   });
 });
+
+describe("a pass compares the note with the shared state it was read against (0.3.2)", () => {
+  /**
+   * The runtime as projection host, renaming `target` to `title` the
+   * `at`-th time the pass looks up a Resource: a remote change landing in
+   * the middle of a pass, after the note was read.
+   */
+  function midPass(target: ObjectId, title: string, at: number) {
+    let calls = 0;
+    return {
+      hasResource: async (r: typeof R) => {
+        if (++calls === at)
+          await runtime.writeIntent(R, { intent: "task.set_title", id: target, title });
+        return runtime.hasResource(r);
+      },
+      supportsResource: (r: typeof R) => runtime.supportsResource(r),
+      profileOf: (r: typeof R) => runtime.profileOf(r),
+      writeIntent: (r: typeof R, i: Parameters<LfcpRuntime["writeIntent"]>[1]) =>
+        runtime.writeIntent(r, i),
+    };
+  }
+
+  it("a change landing mid-pass, with no base yet, is not sent back (the revert race)", async () => {
+    const a = await shared({ title: "Alpha" });
+    const b = await shared({ title: "Beta" });
+    const note = `- [ ] Alpha\n  <!-- lfcp-ref: ${refOf(a)} -->\n- [ ] Beta\n  <!-- lfcp-ref: ${refOf(b)} -->\n`;
+    const guard = new MutationGuard();
+    const host = midPass(b, "Beta, renamed by a peer", 3);
+    const engine = new ProjectionEngine(() => host, guard); // no bases: first sight
+    const vault = new FakeVault();
+    vault.files.set("race.md", note);
+    const writer = new ProjectionWriter(engine, guard, vault, () => host);
+    const out = await writer.syncNote("race.md");
+    expect(out.projection?.sent).toEqual([]);
+    expect((await task(b)).title).toBe("Beta, renamed by a peer");
+    // The next pass (the change's own render) shows it.
+    await writer.objectsChanged(new Set([keyOf(b)]));
+    expect(vault.files.get("race.md")).toContain("- [ ] Beta, renamed by a peer\n");
+    expect((await task(b)).title).toBe("Beta, renamed by a peer");
+  });
+
+  it("without a snapshot the same pass would revert it (the engine's live reading, kept for callers that have none)", async () => {
+    const b = await shared({ title: "Gamma" });
+    const note = `- [ ] Gamma\n  <!-- lfcp-ref: ${refOf(b)} -->\n`;
+    await runtime.writeIntent(R, { intent: "task.set_title", id: b, title: "Gamma, renamed" });
+    const engine = new ProjectionEngine(() => runtime, new MutationGuard());
+    const stale = await engine.processFile("stale.md", note);
+    expect(stale.sent.map((s) => s.intent)).toEqual([
+      { intent: "task.set_title", id: b, title: "Gamma" },
+    ]);
+  });
+
+  it("a snapshot equal to the note sends nothing, whatever the state is now", async () => {
+    const b = await shared({ title: "Delta" });
+    const note = `- [ ] Delta\n  <!-- lfcp-ref: ${refOf(b)} -->\n`;
+    const snapshot = new Map([[keyOf(b), (await runtime.profileOf(R)).replica.task(b)]]);
+    await runtime.writeIntent(R, { intent: "task.set_title", id: b, title: "Delta, renamed" });
+    const engine = new ProjectionEngine(() => runtime, new MutationGuard());
+    const out = await engine.processFile("snap.md", note, snapshot);
+    expect(out.sent).toEqual([]);
+    expect((await task(b)).title).toBe("Delta, renamed");
+  });
+});

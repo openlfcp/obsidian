@@ -48,8 +48,14 @@ reverted. The cause, reproduced:
 
 The window is small (a pass over 200 Tasks takes about 100 ms), but any
 pass without bases is exposed: right after sharing or inserting, after a
-base store is lost, and after G-EP5 forgets bases. Reported to the
-orchestrator for a decision; not fixed here.
+base store is lost, and after G-EP5 forgets bases.
+
+**Fixed in 0.3.2.** A pass compares the Markdown with a snapshot of the
+shared state taken with the read, and commands record their bases as soon
+as they write ([../../architecture/projection.md](../../architecture/projection.md)).
+Regression tests: `test/core/projection/writer.test.ts` (the race,
+deterministic) and `test/native/specs/projection-race.e2e.mjs` (the
+original scenario in a real Obsidian).
 
 Still to establish (LFCP-02-005, ADR 0001 spikes S1–S6):
 

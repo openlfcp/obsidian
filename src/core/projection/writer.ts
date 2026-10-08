@@ -13,9 +13,17 @@
 // runs the same pass. If the note changed between the read and the write,
 // the write is abandoned the same way.
 
-import { resourceId as asResourceId, fromBase64url } from "@openlfcp/core";
+import { resourceId as asResourceId, fromBase64url, toBase64url } from "@openlfcp/core";
+import type { SharedObjectsDataProfile, TaskView } from "@openlfcp/shared-objects";
+import { scanRefs } from "../refs";
 import type { VaultChange } from "../vault/changes";
-import type { FileOutcome, ProjectionEngine, ProjectionHost } from "./engine";
+import {
+  type FileOutcome,
+  objectKey,
+  type ProjectionEngine,
+  type ProjectionHost,
+  type SharedSnapshot,
+} from "./engine";
 import type { MutationGuard } from "./guard";
 import { type RenderedProjection, type RenderTarget, renderNote } from "./render";
 
@@ -36,6 +44,43 @@ export interface NoteOutcome {
   readonly wrote: boolean;
   /** Why the note was not written now (it will be on its next change). */
   readonly deferred?: "editing" | "changed";
+}
+
+/**
+ * The note's text and the shared state of its objects at the same moment.
+ * Shared changes (remote merges) do not touch the note's text until a later
+ * render, which runs after this pass, so a snapshot taken synchronously
+ * right after the read is the state the text was read against. Profiles are
+ * looked up first (asynchronously); a read that names a Resource not looked
+ * up yet looks it up and reads again.
+ */
+async function snapshotRead(
+  read: () => Promise<string | null>,
+  host: ProjectionHost,
+): Promise<{ text: string; snapshot: SharedSnapshot } | null> {
+  const profiles = new Map<string, SharedObjectsDataProfile | null>();
+  for (;;) {
+    const text = await read();
+    if (text === null) return null;
+    const projections = scanRefs(text).projections;
+    const missing = [...new Set(projections.map((p) => toBase64url(p.resourceId)))].filter(
+      (r) => !profiles.has(r),
+    );
+    if (missing.length === 0) {
+      // Synchronous from the read on: no shared change can land in between.
+      const snapshot = new Map<string, TaskView | undefined>();
+      for (const p of projections) {
+        const profile = profiles.get(toBase64url(p.resourceId));
+        if (profile) snapshot.set(objectKey(p), profile.replica.task(p.objectId));
+      }
+      return { text, snapshot };
+    }
+    for (const r of missing) {
+      const R = asResourceId(fromBase64url(r));
+      const usable = (await host.hasResource(R)) && (await host.supportsResource(R));
+      profiles.set(r, usable ? await host.profileOf(R) : null);
+    }
+  }
 }
 
 export class ProjectionWriter {
@@ -105,17 +150,18 @@ export class ProjectionWriter {
   async syncNote(path: string, regressed: ReadonlySet<string> = new Set()): Promise<NoteOutcome> {
     const host = this.#host();
     if (host === null) return { path, rendered: [], wrote: false };
-    const text = await this.#io.read(path);
-    if (text === null) {
+    const read = await snapshotRead(() => this.#io.read(path), host);
+    if (read === null) {
       this.#engine.forgetPath(path);
       return { path, rendered: [], wrote: false };
     }
+    const { text, snapshot } = read;
     if (this.#io.isBeingEdited(path, text)) {
       this.deferred.add(path);
       return { path, rendered: [], wrote: false, deferred: "editing" };
     }
     this.deferred.delete(path);
-    const projection = await this.#engine.processFile(path, text);
+    const projection = await this.#engine.processFile(path, text, snapshot);
 
     // A projection whose edit could not be sent keeps the user's text: it is
     // not rendered over until the edit is sent.
