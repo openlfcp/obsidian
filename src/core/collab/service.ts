@@ -47,12 +47,13 @@ import {
 } from "@openlfcp/shared-objects";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
-import type {
-  BlockedCollaborator,
-  CollaborationContext,
-  OpenResource,
-  RegistryEntry,
-  RuntimeStatus,
+import {
+  type BlockedCollaborator,
+  type CollaborationContext,
+  NEEDS_NEWER_VERSION,
+  type OpenResource,
+  type RegistryEntry,
+  type RuntimeStatus,
 } from "../lfcp/runtime";
 import type { TaskState } from "../refs/scanner";
 import type { InsertCandidate } from "./batch";
@@ -72,6 +73,7 @@ export interface CollabRuntime {
   }): Promise<ResourceId>;
   openResource(resource: ResourceId): Promise<OpenResource>;
   hasResource(resource: ResourceId): Promise<boolean>;
+  supportsResource(resource: ResourceId): Promise<boolean>;
   profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
   writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null>;
   on(listener: (e: SyncEvent) => void): () => void;
@@ -152,6 +154,12 @@ export type JoinOutcome =
       readonly abilities: readonly string[];
     }
   | { readonly kind: "already-member"; readonly resourceId: ResourceId }
+  /**
+   * The collaboration has another Data Profile (a newer plugin's shared
+   * sections, say). Checked before the claim: the invitation is not used
+   * and nothing is stored, so it works once the plugin is updated.
+   */
+  | { readonly kind: "needs-newer-version"; readonly resourceId: ResourceId }
   | { readonly kind: "refused"; readonly code: string; readonly message: string }
   | { readonly kind: "unavailable"; readonly message: string };
 
@@ -426,7 +434,10 @@ export class Collaboration {
     const stage = options.onStage ?? (() => undefined);
     const c = this.#context();
     const R = parseInviteUri(uri.trim()).resourceId;
-    if (await this.#runtime.hasResource(R)) return { kind: "already-member", resourceId: R };
+    if (await this.#runtime.hasResource(R))
+      return (await this.#runtime.supportsResource(R))
+        ? { kind: "already-member", resourceId: R }
+        : { kind: "needs-newer-version", resourceId: R };
     const accepted: AcceptedInvitation = await acceptInvitation({
       onProgress: (p) => stage(SDK_STAGE[p.stage]),
       link: uri.trim(),
@@ -436,7 +447,11 @@ export class Collaboration {
       now: c.now,
       ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
       timeout: this.#o.sleep(this.#o.joinTimeoutMs),
+      // Another profile is refused before the claim, so the link stays unused.
+      dataProfiles: [PROFILE_ID],
     });
+    if (accepted.kind === "profile-unsupported")
+      return { kind: "needs-newer-version", resourceId: R };
     if (accepted.kind === "refused")
       return { kind: "refused", code: accepted.code, message: plainCode(accepted.code) };
     if (accepted.kind === "unavailable")
@@ -446,11 +461,9 @@ export class Collaboration {
       };
     const chain = await loadControlChain(c.storage, R);
     if (chain?.kind !== "linear") throw new CollabError("INVALID_CONTROL_CHAIN");
+    // Unreachable since the SDK checks before the claim (dataProfiles); kept as a guard.
     if (chain.state.dataProfile !== PROFILE_ID)
-      throw new CollabError(
-        "PROFILE_UNSUPPORTED",
-        "This collaboration does not use Shared Objects.",
-      );
+      throw new CollabError("NEWER_VERSION_NEEDED", NEEDS_NEWER_VERSION);
     const id = c.principal.id;
     const r = await c.storage.commit([
       {

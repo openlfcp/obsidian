@@ -28,6 +28,7 @@ export async function storeForeign(
   runtime: LfcpRuntime,
   profile = SECTIONS,
   name = "Launch",
+  R: ResourceId = generateResourceId(),
 ): Promise<ResourceId> {
   const storage = runtime.storage as LfcpStorage;
   const key = generateSigningKeyPair();
@@ -35,7 +36,6 @@ export async function storeForeign(
     key,
     descriptor: principalDescriptorFromKeys(key, generateAgreementKeyPair()),
   };
-  const R = generateResourceId();
   const genesis = signControlRecord(
     { resourceId: R, controlSeq: 0n, prevControlId: null },
     {
