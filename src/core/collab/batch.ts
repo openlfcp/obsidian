@@ -5,8 +5,9 @@
 // Shared Object; a section or a list stays local presentation.
 
 import type { ResourceId } from "@openlfcp/core";
+import { scanLegacy } from "../projection/legacy-scan";
 import { parseTaskText } from "../projection/task-text";
-import { type ObjectRef, scanRefs } from "../refs";
+import type { ObjectRef } from "../refs";
 import { splitLines } from "../refs/lines";
 import type { TaskState } from "../refs/scanner";
 import type { RefPlacement } from "../settings";
@@ -81,7 +82,7 @@ export function planBatchShare(markdown: string, range: LineRange): SharePlanBat
   const share: TaskState[] = [];
   let skipped = 0;
   let refused = 0;
-  for (const state of scanRefs(markdown).tasks) {
+  for (const state of scanLegacy(markdown).tasks) {
     const line = state.task.line;
     if (line < range.from || line > range.to) continue;
     if (state.binding === "bound") skipped++;
@@ -140,7 +141,7 @@ export function tasksToInsert(
   const same = (a: Uint8Array, b: Uint8Array) =>
     a.length === b.length && a.every((x, i) => x === b[i]);
   const shown = new Set(
-    scanRefs(markdown)
+    scanLegacy(markdown)
       .projections.filter((p) => same(p.resourceId, R))
       .map((p) => p.objectId),
   );

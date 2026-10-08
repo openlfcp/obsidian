@@ -7,7 +7,6 @@
 
 import { type ResourceId, resourceId, toBase64url } from "@openlfcp/core";
 import type { ReplicaIntent, SharedObjectsDataProfile, TaskView } from "@openlfcp/shared-objects";
-import { scanRefs } from "../refs";
 import type { MarkdownProjectionRef } from "../refs/scanner";
 import type { VaultChange } from "../vault/changes";
 import type { MutationGuard } from "./guard";
@@ -18,6 +17,7 @@ import {
   planIntents,
   type Represented,
 } from "./intents";
+import { scanLegacy } from "./legacy-scan";
 import { type MoveRefRepair, suspectReassociation } from "./reassociation";
 import { parseTaskText, statusOfGlyph } from "./task-text";
 
@@ -124,7 +124,7 @@ export class ProjectionEngine {
    * anything: for the plugin's own writes (a guard echo does this too).
    */
   async reindex(path: string, text: string): Promise<void> {
-    const scan = scanRefs(text);
+    const scan = scanLegacy(text);
     this.#index.set(path, new Set(scan.projections.map(objectKey)));
     const bases = new Map<string, Represented>();
     for (const p of scan.projections) {
@@ -214,7 +214,7 @@ export class ProjectionEngine {
     const host = this.#host();
     if (host === null) return { path, skipped: "not-ready", sent: [], diagnostics: [] };
 
-    const scan = scanRefs(text);
+    const scan = scanLegacy(text);
     const bases = await this.#basesOf(path);
     const nextBases = new Map<string, Represented>();
     const diagnostics: ProjectionDiagnostic[] = [];
@@ -355,7 +355,7 @@ export interface BaseStore {
 }
 
 /** What a projection's Task line represents (glyph status and parsed text). */
-function represent(p: MarkdownProjectionRef, scan: ReturnType<typeof scanRefs>): Represented {
+function represent(p: MarkdownProjectionRef, scan: ReturnType<typeof scanLegacy>): Represented {
   const glyph = scan.tasks.find((t) => t.task.line === p.taskLine)?.task.status ?? " ";
   return { status: statusOfGlyph(glyph), text: parseTaskText(p.taskText) };
 }

@@ -15,7 +15,6 @@
 
 import { resourceId as asResourceId, fromBase64url, toBase64url } from "@openlfcp/core";
 import type { SharedObjectsDataProfile, TaskView } from "@openlfcp/shared-objects";
-import { scanRefs } from "../refs";
 import type { VaultChange } from "../vault/changes";
 import {
   type FileOutcome,
@@ -25,6 +24,7 @@ import {
   type SharedSnapshot,
 } from "./engine";
 import type { MutationGuard } from "./guard";
+import { scanLegacy } from "./legacy-scan";
 import { type RenderedProjection, type RenderTarget, renderNote } from "./render";
 
 export interface NoteIO {
@@ -62,7 +62,7 @@ async function snapshotRead(
   for (;;) {
     const text = await read();
     if (text === null) return null;
-    const projections = scanRefs(text).projections;
+    const projections = scanLegacy(text).projections;
     const missing = [...new Set(projections.map((p) => toBase64url(p.resourceId)))].filter(
       (r) => !profiles.has(r),
     );

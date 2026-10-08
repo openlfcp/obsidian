@@ -88,6 +88,11 @@ last sync. Bases are persisted in the install database, never in the vault.
   during the pass is rendered by the next pass, never mistaken for the
   user's edit and sent back. Before 0.3.2 a pass without bases read the
   state per Task as it went and could revert such a change.
+- **Shared sections (0.4):** the lines a shared section owns, valid or
+  damaged, belong to the section engine. This engine scans the note as
+  before and drops every Task, ref and diagnostic inside them
+  (`scanLegacy`, ADR 0001 §1): it never sends an intent for, nor rewrites, a
+  Task line inside a section, even one with an ordinary `lfcp-ref`.
 - Commands record what they wrote (index and bases) as soon as the write
   is done (0.3.2), not only when the vault reports it back: an edit saved
   within the 300 ms change debounce would merge with that report and hide

@@ -19,11 +19,11 @@ import {
   type Task,
   type TaskView,
 } from "@openlfcp/shared-objects";
-import { scanRefs } from "../refs";
 import { joinLines, splitLines } from "../refs/lines";
 import type { ObjectRef } from "../refs/object-ref";
 import type { MarkdownProjectionRef } from "../refs/scanner";
 import { formatRefComment } from "../refs/serializer";
+import { scanLegacy } from "./legacy-scan";
 import { suspectReassociation } from "./reassociation";
 import {
   DATE_FIELD_EMOJI,
@@ -267,7 +267,7 @@ export function renderNote(
   markdown: string,
   lookup: (key: string) => RenderTarget | undefined,
 ): RenderResult {
-  const scan = scanRefs(markdown);
+  const scan = scanLegacy(markdown);
   const lines = splitLines(markdown);
   const projections: RenderedProjection[] = [];
   let changed = false;
