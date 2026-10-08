@@ -74,6 +74,13 @@ export type ListStyle = "bullet" | "ordered";
  * first. Every new ID is the plugin's (UUIDv7, allocated before the commit).
  */
 export type SectionIntent =
+  /** The section's root, once per Resource: the first intent of the import (SSP §4.1, §12.1). */
+  | {
+      readonly intent: "section.create";
+      readonly sectionId: string;
+      readonly title: string;
+      readonly createdBy: PrincipalId;
+    }
   | { readonly intent: "section.set_title"; readonly title: string }
   | {
       readonly intent: "text.edit";

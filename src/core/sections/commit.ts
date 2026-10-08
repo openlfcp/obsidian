@@ -370,6 +370,7 @@ export function applyBatch(
   };
   for (const i of intents) {
     switch (i.intent) {
+      case "section.create":
       case "section.set_title":
         title = i.title;
         break;
