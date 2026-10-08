@@ -45,6 +45,7 @@ import {
   type SharedObjectsDataProfile,
   type Task,
 } from "@openlfcp/shared-objects";
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
 import {
@@ -72,6 +73,8 @@ export interface CollabRuntime {
     readonly coordinatorUrl: string;
   }): Promise<ResourceId>;
   openResource(resource: ResourceId): Promise<OpenResource>;
+  /** A shared-sections Resource's session (MVP 0.2). */
+  openSection(resource: ResourceId): Promise<unknown>;
   hasResource(resource: ResourceId): Promise<boolean>;
   supportsResource(resource: ResourceId): Promise<boolean>;
   profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
@@ -350,7 +353,10 @@ export class Collaboration {
     try {
       const durability = await client.host(genesis);
       await this.#runtime.localState.put(hostingKey(R), "hosted");
-      await this.#runtime.openResource(R);
+      // A shared-sections Resource opens with its own profile (MVP 0.2).
+      if ((await c.storage.resources.get(R))?.dataProfile === SECTIONS_PROFILE_ID)
+        await this.#runtime.openSection(R);
+      else await this.#runtime.openResource(R);
       return { kind: "hosted", durability };
     } catch (e) {
       const code = /NACK (\w+)/.exec(e instanceof Error ? e.message : "")?.[1];

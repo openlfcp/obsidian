@@ -65,6 +65,25 @@ describe("shared-sections Resources in the runtime", () => {
     expect(await receiptOf(again.storage as LfcpStorage, R, "create")).toEqual(receipt);
   });
 
+  it("creates under a Resource ID chosen beforehand, once (LFCP-02-050)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const first = await r.createSectionResource({
+      name: "Launch",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    const wanted = new Uint8Array(32).fill(7) as unknown as typeof first;
+    const options = { name: "Launch", endpoints: [URL], coordinatorUrl: URL, resourceId: wanted };
+    expect(toBase64url(await r.createSectionResource(options))).toBe(toBase64url(wanted));
+    const genesis = await r.storage?.resources.get(wanted);
+    // A retry after a crash finds it and does not make it again.
+    expect(toBase64url(await r.createSectionResource(options))).toBe(toBase64url(wanted));
+    expect(await r.storage?.resources.get(wanted)).toEqual(genesis);
+    expect(toBase64url(first)).not.toBe(toBase64url(wanted));
+  });
+
   it("runs the section engine on the runtime, its records in the install database", async () => {
     const device = new Device();
     const local = new FakeLocal();

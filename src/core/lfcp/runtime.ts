@@ -869,8 +869,18 @@ export class LfcpRuntime {
     readonly name: string;
     readonly endpoints: readonly string[];
     readonly coordinatorUrl: string;
+    /**
+     * The Resource ID chosen beforehand (the section creation journal,
+     * LFCP-02-050): a Resource already stored under it is not created again.
+     */
+    readonly resourceId?: ResourceId;
   }): Promise<ResourceId> {
-    return this.#engine(async () => (await this.#genesis(options, SECTIONS_PROFILE_ID)).R);
+    return this.#engine(async () => {
+      const wanted = options.resourceId;
+      if (wanted !== undefined && (await this.#ready().storage.resources.get(wanted)) !== undefined)
+        return wanted;
+      return (await this.#genesis(options, SECTIONS_PROFILE_ID, wanted)).R;
+    });
   }
 
   /**
@@ -956,9 +966,10 @@ export class LfcpRuntime {
       readonly coordinatorUrl: string;
     },
     dataProfile: string,
+    resourceId?: ResourceId,
   ) {
     const { storage, secrets, principal } = this.#ready();
-    const R = generateResourceId();
+    const R = resourceId ?? generateResourceId();
     const dek = generateResourceDEK();
     const epoch0 = dataEpoch(0n);
     const genesis = signControlRecord(
