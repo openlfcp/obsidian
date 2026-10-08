@@ -232,6 +232,25 @@ adapter's events (`opened`, `closed`, `editorChanged`, `fileChanged`,
   unreconciled. A rename while a pass is queued carries the note's state to
   its new path.
 
+## The port on the real SDK (`src/core/lfcp/section-port.ts`)
+
+`SdkSectionPort` implements the port over sdk-ts (at `sdk-ts.lock`): the
+snapshot of an open Resource's sections replica (`fromSdkSnapshot`),
+commits through the Resource's `SyncClient.commit` (the profile's
+`commitBinding` stages the batch; units, outbound entries, checkpoint and
+receipt are stored in one transaction), and the receipts' store
+(`receiptOf`, `releaseReceipt`). The SDK's `SectionIntentError` and
+`OperationIdReusedError` become `CommitRefused` with the same code; any
+other error leaves the outcome unknown, for the journal to ask the
+receipt. Unit IDs are hex in the port's receipt. Write access comes from
+the runtime (`SectionResources.canWrite`). Not wired into the plugin yet:
+the runtime opens no sections Resource so far.
+`test/core/lfcp/section-port.test.ts` runs it on an offline `SyncClient`
+with the sections profile, as sdk-ts's own conformance test does: the
+snapshot, a durable receipt found again and released, the refusals, and
+the engine end to end (a new paragraph and an edit committed into the
+replica).
+
 ## The SDK's snapshot (`sdk-snapshot.ts`)
 
 `fromSdkSnapshot` renames and regroups sdk-ts's one-revision snapshot
