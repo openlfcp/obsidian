@@ -18,6 +18,7 @@ inside a section).
 | `grammar.ts` | The spelling of the markers, and nothing else: `parseBoundary`, `parseNodeMarker`, `parseSectionRef` and their formatters. The only file to change while the grammar is a draft |
 | `parser.ts` | `parseSections(markdown): SectionScan`: boundaries (pass 1), then the nodes of each valid section (pass 2) |
 | `text.ts` | Text positions (LFCP-02-036): UTF-16 offsets ↔ Unicode scalar positions (SSP §10), lone surrogates refused, `diffText` (one edit, in scalars) |
+| `undo.ts` | Native undo/redo as compensating intents (LFCP-02-044): `compensate` with the session ledger |
 | `journal.ts` | Local records (LFCP-02-038): the reconciliation journal, pending candidates, the diagnostics view, rebuild from a note |
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
@@ -138,6 +139,27 @@ SDK's durable receipts (LFCP-02-025) come later.
   prove identity, not whether a difference is an unsent edit or a stale
   rendering (MARKDOWN-SECTIONS-01 §11).
 
+## Undo and redo (LFCP-02-044)
+
+Undo changes the note, never shared history (OBSIDIAN-SECTIONS-ARCHITECTURE-02
+§7). Text and Task field edits need nothing new: the three-way planner sees
+the note back at an older value and sends it as a new edit. Only nodes that
+disappear or reappear need a decision, made from the transaction's
+`userEvent` (`undo`/`redo`, ADR 0001 S1) and a session ledger of the nodes
+this projection created and deleted:
+
+| Change | Origin | Intent |
+| --- | --- | --- |
+| A node created in this session is gone | undo | `node.delete` (compensating) |
+| A node deleted in this session is back | undo | `node.restore`, a fresh lifecycle operation (SSP §9) |
+| The same, the other way round | redo | `node.restore` / `node.delete` |
+| A node is gone | anything else | `NODE_BINDING_LOST`, text kept (§7) |
+| A deleted node is back | anything else | review, nothing sent |
+
+The marker of a node created by typing joins the user's undo step (S2), so
+one undo removes text and marker together, which is what makes the
+"created in this session" case reliable.
+
 ## Fail closed
 
 A damaged boundary (missing, mismatched, overlapping, or a start marker not
@@ -207,6 +229,10 @@ it to warn that this private text travels with the shared heading (§3).
   extensions.
 
 ## Tests
+
+`test/core/sections/undo.test.ts`: origins, a text undo as a new edit,
+compensating delete and restore for undo and redo, and the cases left to
+review.
 
 `test/core/sections/journal.test.ts`: forward-only phases, IDs and
 receipts never replaced, the recovery table, unfinished entries, candidates
