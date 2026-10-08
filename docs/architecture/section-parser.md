@@ -18,6 +18,7 @@ inside a section).
 | `grammar.ts` | The spelling of the markers, and nothing else: `parseBoundary`, `parseNodeMarker`, `parseSectionRef` and their formatters. The only file to change while the grammar is a draft |
 | `parser.ts` | `parseSections(markdown): SectionScan`: boundaries (pass 1), then the nodes of each valid section (pass 2) |
 | `text.ts` | Text positions (LFCP-02-036): UTF-16 offsets ↔ Unicode scalar positions (SSP §10), lone surrogates refused, `diffText` (one edit, in scalars) |
+| `journal.ts` | Local records (LFCP-02-038): the reconciliation journal, pending candidates, the diagnostics view, rebuild from a note |
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 
@@ -112,6 +113,31 @@ fix, [projection.md](projection.md)).
   under the key `section-base:<projection ID>`, comes with the journal
   (LFCP-02-038).
 
+## Journal and local records (LFCP-02-038)
+
+Interfaces and an in-memory store; the install-database adapter and the
+SDK's durable receipts (LFCP-02-025) come later.
+
+- **Journal.** One entry per reconciliation, with phases in order
+  (OBSIDIAN-SECTIONS-ARCHITECTURE-02 §5): `captured` → `ids-allocated`
+  (IDs written before anything that could be retried) → `committed` (with
+  the SDK's durable receipt) → `projected` (markers written, the patched
+  hash recorded) → `done`, or `abandoned` with a reason. `advance()` only
+  moves forward and never replaces an allocated ID or a receipt.
+- **Recovery** after a restart follows the crash table: re-evaluate with
+  the recorded IDs; ask the SDK for the receipt when the commit is
+  uncertain (never repeat blindly); project the existing IDs after a
+  commit; finish when the source still has the patched hash.
+- **Pending candidates** keep text that cannot be shared yet (unsupported
+  syntax, a lost binding, an unknown base, read-only or revoked access, a
+  rejection) with its reason. They are removed only by an explicit
+  resolution, never to save space. `diagnosticView()` is the only shape
+  default diagnostics may show: no text, no path.
+- **Rebuild from a note** (`rebuildFromNote`) recovers section identities,
+  ranges and bound IDs, and always reports the base as unknown: markers
+  prove identity, not whether a difference is an unsent edit or a stale
+  rendering (MARKDOWN-SECTIONS-01 §11).
+
 ## Fail closed
 
 A damaged boundary (missing, mismatched, overlapping, or a start marker not
@@ -181,6 +207,10 @@ it to warn that this private text travels with the shared heading (§3).
   extensions.
 
 ## Tests
+
+`test/core/sections/journal.test.ts`: forward-only phases, IDs and
+receipts never replaced, the recovery table, unfinished entries, candidates
+kept until resolved, the diagnostics view, rebuild without a base.
 
 `test/core/sections/base.test.ts`: the note's state and unbound
 candidates, user edits vs. remote changes, first sight against the
