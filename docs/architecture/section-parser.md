@@ -24,6 +24,8 @@ inside a section).
 | `journal.ts` | Local records (LFCP-02-038): the reconciliation journal, pending candidates, the diagnostics view, rebuild from a note |
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
+| `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: for now the section snapshot (`SectionSnapshot`, `ModelNode`, `SectionProblem`); tests use a fake until the SDK provides it |
+| `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
 
 ```ts
 interface SectionScan {
@@ -115,6 +117,40 @@ fix, [projection.md](projection.md)).
   `MemorySectionBaseStore` serves the tests; the install-database adapter,
   under the key `section-base:<projection ID>`, comes with the journal
   (LFCP-02-038).
+
+## Remote changes into the note (LFCP-02-040)
+
+`planRemote(markdown, section, base, snapshot, tasks)` turns the model's
+state into the smallest note changes (contract §7.6), against the
+projection's base, so concurrent local typing is never overwritten:
+
+- A node is patched only while the note still shows its base. Otherwise it
+  is deferred (`local-edit`): the user's edit is committed first and the
+  merged value comes back on a later pass. A node the note already shows
+  as the model has it only advances the base.
+- The title changes inside the heading line (level and closing hashes
+  kept); a Text through the source map (`textEditToDoc`, the note's line
+  ending and the node's indentation for new lines); a Task line through
+  the 0.1 renderer (`renderProjectedLine`, shared with `renderNote`), so a
+  remote completion changes one character and keeps either ref placement
+  (MS02, MS12).
+- A node deleted in the model loses its lines (markers, ref, children and
+  the blank line after it), but only when none of them changed here and no
+  local comment sits among them (`edited-under-deletion`, `private-text`).
+- Fail closed (MS14): a node the model reports a problem for is left as it
+  is; with any problem, nothing structural is projected (`frozen`); a node
+  the model's tree merely omits is never deleted; a value the note cannot
+  hold (a blank line in a paragraph, a line break in a title) is deferred
+  as `unrenderable`. Creations and moves are listed as `unprojected` for
+  the structural writer, which is the next step.
+- Nothing is projected while the section imports, without a base (MS11:
+  rebuild first) or while the parser has paused the section.
+
+The patch carries the note's revision (SHA-256, as the mutation guard
+uses) and the snapshot's. `applyRemote` refuses another revision of the
+note (null): the caller plans again from the current note rather than
+shifting old offsets. `patch.base` is the projection's base once the patch
+is written, and an applied patch planned again is empty.
 
 ## Journal and local records (LFCP-02-038)
 
@@ -253,6 +289,13 @@ it to warn that this private text travels with the shared heading (§3).
   extensions.
 
 ## Tests
+
+`test/core/sections/remote.test.ts`: MS02, MS12 and MS14 (their notes
+checked byte for byte against spec `mvp-0.2-baseline.1`), minimal Text and
+title changes in UTF-16, CRLF and indentation of new lines, local edits
+deferred, deletion with its blank line, edited or commented deleted nodes
+kept, created and moved nodes listed, a stale revision refused, a second
+pass empty, and the three skips.
 
 `test/core/sections/rules.test.ts`: detach with inline refs, CRLF and a
 last line without an ending; the readable copy; delete vs. lost; duplicates
