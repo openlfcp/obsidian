@@ -433,6 +433,10 @@ fence inside a region hides the end marker from the lexer, so the region
 never closes: `SECTION_BOUNDARY_MISSING` plus `SECTION_UNSUPPORTED_SYNTAX`
 (detail `unclosed-fence`) at the fence.
 
+A comment preceded by a `raw` marker is a raw node, shared, whatever the
+section comments setting (§4.5, MS41); only a comment without one is kept
+local.
+
 Problems inside a valid region mark it `blocked`: a heading, a duplicate
 ID, a foreign Task ref, a malformed node marker, or a Task ref no Task owns
 any more (`NODE_BINDING_ORPHAN`: its line was edited into something else

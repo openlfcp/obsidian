@@ -404,3 +404,16 @@ describe("a Task ref no Task owns (MS17-transient)", () => {
     expect(shape(scan.sections[0]?.nodes ?? [])).toEqual(["task:002", "task:003"]);
   });
 });
+
+describe("a comment with a raw marker (§4.5, MS41)", () => {
+  it("is a shared raw node, not a local comment", () => {
+    const raw = formatNodeMarker("raw", id(9));
+    for (const comment of ["%% shared note %%", "<!-- an HTML note -->"]) {
+      const scan = parseSections(lines("## Launch", start, raw, comment, end));
+      const [s] = scan.sections;
+      expect(shape(s?.nodes ?? [])).toEqual(["raw:009"]);
+      expect(s?.localBlocks).toEqual([]);
+      expect(scan.diagnostics).toEqual([]);
+    }
+  });
+});

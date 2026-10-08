@@ -406,6 +406,13 @@ function parseBody(
     if (obsidian || HTML_COMMENT.test(t)) {
       let to = i;
       while (to + 1 < r.end && kinds[to + 1] === "literal") to++;
+      if (lead?.kind === "raw") {
+        // A comment with a raw marker is a shared raw node, whatever the
+        // section comments setting (§4.5, MS41).
+        place(node("raw", lead.id, from, to, indentWidth(t)), -1);
+        i = to;
+        continue;
+      }
       localBlocks.push({ from: i, to });
       note("SECTION_UNSUPPORTED_SYNTAX", i, obsidian ? "obsidian-comment" : "html-comment");
       if (lead !== null) note("NODE_KIND_MISMATCH", lead.line);
