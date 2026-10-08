@@ -49,6 +49,8 @@ export type SectionDiagnosticCode =
   | "NODE_MARKER_MALFORMED"
   /** A node marker with nothing to bind (no item above, no block below). */
   | "NODE_BINDING_ORPHAN"
+  /** A Task ref left without its Task (the line is no Task any more): the binding is lost (§7). */
+  | "NODE_BINDING_LOST"
   /** A node marker of another kind than the block it binds (e.g. `raw` before a paragraph). */
   | "NODE_KIND_MISMATCH"
   /** The same node or Task ID twice in one section projection. */
@@ -375,9 +377,9 @@ function parseBody(
     if (refLines.has(i)) continue; // a child-line Task ref, owned by its Task
     if (kinds[i] !== "literal" && TASK_REF.test(t) && parseTaskLine(t, i) === undefined) {
       // A Task ref no Task owns any more (its line was edited into
-      // something else, MS17-transient): a broken binding, never Text.
-      // Publication pauses until it is repaired (§7, MS21).
-      note("NODE_BINDING_ORPHAN", i);
+      // something else, MS17-transient): the Task's binding is lost, the
+      // ref is never Text. Publication pauses until it is repaired (§7, MS21).
+      note("NODE_BINDING_LOST", i);
       blocked = true;
       continue;
     }

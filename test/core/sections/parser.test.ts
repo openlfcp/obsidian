@@ -385,7 +385,7 @@ describe("a Task ref no Task owns (MS17-transient)", () => {
       const scan = parseSections(md);
       const [s] = scan.sections;
       expect(s?.blocked, md).toBe(true);
-      expect(scan.diagnostics.map((d) => d.code)).toContain("NODE_BINDING_ORPHAN");
+      expect(scan.diagnostics.map((d) => d.code)).toContain("NODE_BINDING_LOST");
       expect(JSON.stringify(s?.nodes)).not.toContain('"to":3');
     }
   });
