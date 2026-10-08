@@ -15,13 +15,17 @@ fixtures still checks them.
 | `comments.ts` | recognizing `lfcp-ref` comments on a line (§6) |
 | `lines.ts` | physical lines with their line endings |
 | `scanner.ts` | `scanRefs`: projections, Task states and diagnostics (§11–§17, §25–§27) |
+| `tasks-suffix.ts` | a Tasks suffix after an inline ref, inside shared sections only (MARKDOWN-SECTIONS-01 §4.1) |
 | `serializer.ts` | `attachRef`, `detachRef`, `replaceTaskText`, `emitUnit` (§12, §18–§21, §28) |
 
 ## Output contract
 
 - `scanRefs(markdown)` takes text only. A binding never depends on a file
   name, path or server (§23, §24): renaming or moving a file cannot change
-  it.
+  it. Its one option, `tasksSuffix(line)`, names the lines of shared
+  sections, where an inline ref may be followed by a Tasks suffix
+  (MARKDOWN-SECTIONS-01 §4.1); without it, MARKDOWN-REFS-01 applies
+  unchanged.
 - Lines are 0-based. Every range has `start`/`end`, UTF-16 offsets within
   the line's text (JavaScript string indices, line ending excluded), and
   `offsetStart`/`offsetEnd`, UTF-16 offsets in the whole input. CRLF, LF and

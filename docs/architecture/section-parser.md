@@ -62,10 +62,19 @@ The parser does not read Markdown a second way:
   line is text (§2, §9), exactly as `lfcp-ref` comments are in 0.1. Both
   parsers therefore agree on what is live Markdown.
 - **Task refs.** `scanRefs()` finds Task projections with both placements
-  and their diagnostics (MARKDOWN-REFS-01 unchanged, §4.1). The section
-  parser only adds the section's context: a Task line in the region is a
-  `task` node, bound when it has a ref; a ref to another Resource is
-  `FOREIGN_RESOURCE_REF`.
+  and their diagnostics (MARKDOWN-REFS-01, §4.1). The section parser only
+  adds the section's context: a Task line in the region is a `task` node,
+  bound when it has a ref; a ref to another Resource is
+  `FOREIGN_RESOURCE_REF`; a Task whose ref is blocked pauses the section.
+  Inside a valid section (and only there) an inline ref may be followed by
+  a Tasks suffix (§4.1, host facts H6 and H8: dates, priority, recurrence,
+  dependencies, on-completion, an optional block ID; `src/core/refs/tasks-suffix.ts`).
+  The Task's fields are then read as if the suffix stood before the ref
+  (MS42: the ✅ the Tasks plugin appends is a completion date); a field given
+  both before and after the ref, or any other text after it, is
+  `LFCP_REF_NOT_AT_LINE_END` and blocks the Task (MS44). Section code reads
+  refs through `scanSectionRefs`, which passes the sections' lines to
+  `scanRefs`.
 - **Item continuations.** An item's paragraph goes on in continuation
   lines, lazy ones included (CommonMark); its `item` marker follows the last
   of them (§4.2), since an HTML comment interrupts a paragraph.

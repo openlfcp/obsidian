@@ -14,6 +14,7 @@
 import { findRefComments, type RefComment } from "./comments";
 import { indentWidth, isBlank, type Line, splitLines } from "./lines";
 import type { ObjectRef } from "./object-ref";
+import { isTasksSuffix, suffixAmbiguous } from "./tasks-suffix";
 
 /** §26: where the ref sits. */
 export type Placement = "inline" | "child";
@@ -91,8 +92,14 @@ export interface MarkdownProjectionRef extends ObjectRef {
   readonly comment: Range & { readonly text: string };
   /** Whether the comment's spacing is canonical (§6). */
   readonly canonical: boolean;
-  /** The Task's semantic text: after the checkbox, without the inline comment (§5, §11). */
+  /**
+   * The Task's semantic text: after the checkbox, without the inline comment
+   * (§5, §11); inside a section with a Tasks suffix after the ref, the suffix
+   * as if it stood before the ref (MARKDOWN-SECTIONS-01 §4.1).
+   */
   readonly taskText: string;
+  /** The Tasks suffix after an inline ref inside a section, its leading whitespace kept. */
+  readonly tasksSuffix?: string;
   /** The whole unit: the Task line to the end of the comment's line, line ending excluded. */
   readonly unit: { readonly offsetStart: number; readonly offsetEnd: number };
   readonly parts: UnitParts;
@@ -250,7 +257,15 @@ function refOnly(text: string, c: Classified): RefComment | undefined {
 }
 
 /** Scan a Markdown text for `lfcp-ref` projections and diagnostics. */
-export function scanRefs(markdown: string): ScanResult {
+export interface ScanOptions {
+  /**
+   * Lines where an inline ref may be followed by a Tasks suffix: those of a
+   * shared section (MARKDOWN-SECTIONS-01 §4.1). None by default (§11).
+   */
+  readonly tasksSuffix?: (line: number) => boolean;
+}
+
+export function scanRefs(markdown: string, options: ScanOptions = {}): ScanResult {
   const lines = splitLines(markdown);
   const lineStart: number[] = [];
   lines.reduce((offset, l) => {
@@ -295,7 +310,16 @@ export function scanRefs(markdown: string): ScanResult {
     const unit = [...k.refs.map((comment) => ({ line: i, comment })), ...children];
     for (const { comment } of unit) consumed.add(comment);
     const textEnd = k.refs.length > 0 ? Math.min(...k.refs.map((c) => c.start)) : text.length;
-    const taskText = text.slice(task.textStart, textEnd).trimEnd();
+    // Inside a section, a Tasks suffix after the one inline ref is read as
+    // if it stood before the ref (§4.1).
+    const single = k.refs.length === 1 && children.length === 0 ? k.refs[0] : undefined;
+    const after = single === undefined ? "" : text.slice(single.end);
+    const suffix =
+      single !== undefined && options.tasksSuffix?.(i) === true && isTasksSuffix(after)
+        ? after.trimEnd()
+        : "";
+    const before = text.slice(task.textStart, textEnd).trimEnd();
+    const taskText = suffix === "" ? before : before + suffix;
     const blocked = () => tasks.push({ task, binding: "blocked", taskText });
 
     if (unit.length === 0) {
@@ -315,7 +339,12 @@ export function scanRefs(markdown: string): ScanResult {
     }
     const [{ line, comment }] = unit as [{ line: number; comment: RefComment }];
     const inline = line === i;
-    if (inline && text.slice(comment.end).trim() !== "") {
+    if (inline && suffix !== "" && suffixAmbiguous(before, suffix)) {
+      diagnose("LFCP_REF_NOT_AT_LINE_END", line, comment);
+      blocked();
+      return;
+    }
+    if (inline && suffix === "" && text.slice(comment.end).trim() !== "") {
       diagnose("LFCP_REF_NOT_AT_LINE_END", line, comment);
       if (comment.error) diagnose(comment.error, line, comment);
       blocked();
@@ -334,7 +363,7 @@ export function scanRefs(markdown: string): ScanResult {
       return;
     }
     const refText = lines[line]?.text ?? "";
-    const taskEnd = task.textStart + taskText.length;
+    const taskEnd = task.textStart + before.length;
     projections.push({
       ...comment.ref,
       placement: inline ? "inline" : "child",
@@ -344,6 +373,7 @@ export function scanRefs(markdown: string): ScanResult {
       comment: { text: comment.text, ...range(line, comment.start, comment.end) },
       canonical: comment.canonical,
       taskText,
+      ...(suffix === "" ? {} : { tasksSuffix: suffix }),
       unit: {
         offsetStart: lineStart[i] ?? 0,
         offsetEnd: (lineStart[line] ?? 0) + refText.length,
@@ -353,7 +383,8 @@ export function scanRefs(markdown: string): ScanResult {
         taskGap: text.slice(taskEnd, inline ? comment.start : text.length),
         taskEol: inline ? "" : (lines[i]?.eol ?? ""),
         refIndent: inline ? "" : refText.slice(0, comment.start),
-        refTrail: refText.slice(comment.end),
+        refTrail:
+          suffix === "" ? refText.slice(comment.end) : refText.slice(comment.end + suffix.length),
       },
     });
     tasks.push({ task, binding: "bound", taskText });

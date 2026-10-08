@@ -25,9 +25,8 @@ import {
   renderProjectedLine,
 } from "../projection/render";
 import { isBlank, splitLines } from "../refs/lines";
-import { scanRefs } from "../refs/scanner";
 import { longestCommonSubsequence, markdownState, type NodeState, type SectionState } from "./base";
-import type { LineRange, ParsedSection, SectionNode } from "./parser";
+import { type LineRange, type ParsedSection, type SectionNode, scanSectionRefs } from "./parser";
 import type { SectionSnapshot } from "./port";
 import { type DocChange, lineStarts, nodeSource, textEditToDoc } from "./source-map";
 import { diffText, scalarToUtf16 } from "./text";
@@ -121,7 +120,7 @@ export function planRemote(
   const note = markdownState(markdown, section).state;
   const lines = splitLines(markdown);
   const starts = lineStarts(lines);
-  const scan = scanRefs(markdown);
+  const scan = scanSectionRefs(markdown);
   const refAt = new Map(scan.projections.map((p) => [p.taskLine, p]));
   const problem = new Set(model.problems.flatMap((p) => p.nodeIds));
   const frozen = model.problems.length > 0;

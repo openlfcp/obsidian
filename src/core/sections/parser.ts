@@ -139,6 +139,18 @@ function heading(
   return m ? { level: (m[1] as string).length, title: (m[2] ?? "").trim() } : null;
 }
 
+/**
+ * The note's Task refs as section code reads them: inside a valid section,
+ * an inline ref may be followed by a Tasks suffix (§4.1); elsewhere
+ * MARKDOWN-REFS-01 applies unchanged.
+ */
+export function scanSectionRefs(markdown: string): ReturnType<typeof scanRefs> {
+  const sections = parseSections(markdown).sections;
+  return scanRefs(markdown, {
+    tasksSuffix: (l) => sections.some((s) => l > s.startLine && l < s.endLine),
+  });
+}
+
 /** The shared sections of a note. */
 export function parseSections(markdown: string): SectionScan {
   const lines = splitLines(markdown);
@@ -225,8 +237,11 @@ export function parseSections(markdown: string): SectionScan {
     fail(Math.max(0, o.start - 1));
   }
 
-  // Pass 2: the nodes of each valid region.
-  const refs = scanRefs(markdown);
+  // Pass 2: the nodes of each valid region. Inside one, an inline Task ref
+  // may be followed by a Tasks suffix (§4.1).
+  const refs = scanRefs(markdown, {
+    tasksSuffix: (l) => regions.some((r) => l > r.start && l < r.end),
+  });
   const sections = regions.map((r) => {
     const h = heading(lines[r.headingLine]?.text ?? "", kinds[r.headingLine]) as {
       level: number;
@@ -445,6 +460,10 @@ function parseBody(
     const task = parseTaskLine(t, i);
     if (task !== undefined) {
       const p = byTaskLine.get(i);
+      // A Task whose ref is blocked (text after an inline ref that is not a
+      // Tasks suffix, a duplicate ref, MS44) is neither bound nor new: the
+      // section pauses until it is repaired.
+      if (refs.tasks.some((s) => s.task.line === i && s.binding === "blocked")) blocked = true;
       if (p !== undefined && !sameBytes(p.resourceId, r.ref.resourceId)) {
         note("FOREIGN_RESOURCE_REF", i);
         blocked = true;

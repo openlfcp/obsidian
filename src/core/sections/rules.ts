@@ -3,9 +3,8 @@
 // parser's output and the editor transaction's facts; not wired in.
 
 import { joinLines, type Line, splitLines } from "../refs/lines";
-import { scanRefs } from "../refs/scanner";
 import { parseNodeMarker, type SectionRef, sameSection } from "./grammar";
-import type { LineRange, ParsedSection, SectionNode } from "./parser";
+import { type LineRange, type ParsedSection, type SectionNode, scanSectionRefs } from "./parser";
 
 /** The note's lines that only carry bindings of `section`, and its inline refs. */
 function bindingsOf(markdown: string, section: ParsedSection) {
@@ -14,7 +13,7 @@ function bindingsOf(markdown: string, section: ParsedSection) {
   for (let i = section.startLine + 1; i < section.endLine; i++)
     if (parseNodeMarker(lines[i]?.text ?? "")?.kind !== undefined) drop.add(i);
   const inline = new Map<number, { start: number; end: number }>();
-  for (const p of scanRefs(markdown).projections) {
+  for (const p of scanSectionRefs(markdown).projections) {
     if (p.taskLine <= section.startLine || p.taskLine >= section.endLine) continue;
     if (p.placement === "child") drop.add(p.refLine);
     else inline.set(p.taskLine, { start: p.comment.start, end: p.comment.end });
