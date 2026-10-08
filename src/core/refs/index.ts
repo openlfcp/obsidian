@@ -12,6 +12,8 @@ export {
   sameBinding,
 } from "./object-ref";
 export {
+  type LineKind,
+  lineKinds,
   type MarkdownProjectionRef,
   type Placement,
   parseTaskLine,

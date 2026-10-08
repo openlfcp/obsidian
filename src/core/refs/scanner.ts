@@ -149,7 +149,9 @@ export function parseTaskLine(text: string, line: number): TaskLine | undefined 
   };
 }
 
-type Kind = "literal" | "blockquote" | "task" | "other";
+/** A physical line's lexical kind (pass 1). */
+export type LineKind = "literal" | "blockquote" | "task" | "other";
+type Kind = LineKind;
 
 interface Classified {
   readonly kind: Kind;
@@ -228,6 +230,16 @@ function classify(lines: readonly Line[]): Classified[] {
     out.push({ kind: task ? "task" : "other", refs, task });
   });
   return out;
+}
+
+/**
+ * The lexical kind of each line, as this scanner sees it: "literal" inside
+ * fences, front matter, indented code and multi-line HTML or Obsidian
+ * comments. For other parsers of the same note (shared sections), so that
+ * both agree on what is live Markdown.
+ */
+export function lineKinds(lines: readonly Line[]): LineKind[] {
+  return classify(lines).map((c) => c.kind);
 }
 
 /** A line holding exactly one `lfcp-ref` comment and only whitespace besides. */
