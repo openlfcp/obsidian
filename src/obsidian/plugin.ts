@@ -191,8 +191,10 @@ export default class OpenLfcpPlugin extends Plugin {
       // Pending changes go out and remote ones come in without waiting for a
       // command: every stored Resource is opened (one pooled session per server).
       if (runtime.status.kind === "ready")
+        // A collaboration of another Data Profile is never opened (it needs a newer plugin).
         for (const entry of await runtime.registry())
-          void runtime.openResource(entry.resourceId).catch(() => undefined);
+          if (entry.state !== "unsupported")
+            void runtime.openResource(entry.resourceId).catch(() => undefined);
       this.app.workspace.onLayoutReady(() => this.#enqueue(() => this.reconcile()));
       return runtime;
     } catch (e) {

@@ -103,7 +103,8 @@ note writes nothing.
   `^block-id`, unowned tokens (🛫 ➕ ❌ 🔼 🔁), indentation, surrounding
   text, local Tasks (their ✅ too) and line endings.
 - **Not rewritten:** deleted, PROFILE_INVALID or collided objects, objects
-  of Resources not on this device, and a ref that slid under another Task
+  of Resources not on this device or of another Data Profile
+  (`RESOURCE_UNSUPPORTED`, 0.3.2), and a ref that slid under another Task
   (ST-2). Each gets a diagnostic.
 - **G-EP7:** a rebuild can show older values again (done back to todo). The
   render projects it faithfully through the guard and reports

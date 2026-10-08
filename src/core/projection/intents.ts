@@ -46,6 +46,8 @@ export type ProjectionDiagnosticCode =
   | "OBJECT_UNKNOWN"
   /** The Resource is not stored locally: nothing is sent. */
   | "RESOURCE_UNKNOWN"
+  /** The Resource has a Data Profile this version cannot read (a newer plugin's): nothing is sent or rendered. */
+  | "RESOURCE_UNSUPPORTED"
   /** The field is conflicted: no intent until it is explicitly resolved (item 8). */
   | "FIELD_CONFLICTED"
   /** The checkbox glyph or the shared status is not owned by the adapter (ST-1). */

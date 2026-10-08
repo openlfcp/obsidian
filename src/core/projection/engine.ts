@@ -24,6 +24,8 @@ import { parseTaskText, statusOfGlyph } from "./task-text";
 /** What the engine needs from the LFCP runtime. */
 export interface ProjectionHost {
   hasResource(resource: ResourceId): Promise<boolean>;
+  /** Whether the stored Resource has the Shared Objects profile (others are never opened). */
+  supportsResource(resource: ResourceId): Promise<boolean>;
   profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
   writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<unknown>;
 }
@@ -254,6 +256,15 @@ export class ProjectionEngine {
             p,
             "RESOURCE_UNKNOWN",
             "This Resource is not known on this device; nothing is sent.",
+          );
+        continue;
+      }
+      if (!(await host.supportsResource(R))) {
+        for (const p of projections)
+          note(
+            p,
+            "RESOURCE_UNSUPPORTED",
+            "This collaboration needs a newer version of Shared Tasks; nothing is sent.",
           );
         continue;
       }

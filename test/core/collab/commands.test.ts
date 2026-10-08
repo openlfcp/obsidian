@@ -14,10 +14,11 @@ import {
 } from "../../../src/core/collab/commands";
 import { PROJECT_SERVER_HINT } from "../../../src/core/collab/server-notice";
 import { Collaboration, type ResourceStatus } from "../../../src/core/collab/service";
-import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
+import { LfcpRuntime, NEEDS_NEWER_VERSION } from "../../../src/core/lfcp/runtime";
 import { MutationGuard } from "../../../src/core/projection/guard";
 import { scanRefs } from "../../../src/core/refs";
 import { PROJECT_SERVER, type RefPlacement } from "../../../src/core/settings";
+import { storeForeign } from "../../support/foreign-resource";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 
 const SERVER = "wss://offline.example.invalid/v1/ws";
@@ -468,5 +469,28 @@ describe("insertAtLine", () => {
     );
     expect(insertAtLine("A", 0, unit)).toBe("A\n- [ ] T\n  <!-- r -->");
     expect(insertAtLine("", 0, unit)).toBe("- [ ] T\n  <!-- r -->");
+  });
+
+  it("a collaboration of another Data Profile asks for a newer version; only its status opens (0.3.2)", async () => {
+    const s = await setup();
+    await storeForeign(s.runtime, undefined, "Sections");
+    s.notes.files.set("n.md", "- [ ] Prepare contract\n");
+    s.notes.open("n.md", 0);
+    for (const run of [
+      () => s.commands.shareTaskUnderCursor(),
+      () => s.commands.insertSharedObject(),
+      () => s.commands.insertAllTasks(),
+      () => s.commands.inviteCollaborator(),
+    ]) {
+      s.prompter.picks.push("Sections");
+      await run();
+    }
+    expect(s.prompter.notices).toEqual(Array(4).fill(`Shared Tasks: ${NEEDS_NEWER_VERSION}.`));
+    expect(s.notes.files.get("n.md")).toBe("- [ ] Prepare contract\n");
+    s.prompter.picks.push("Sections");
+    await s.commands.resourceStatus();
+    expect(s.prompter.statuses).toHaveLength(1);
+    expect(s.prompter.statuses[0]?.status.state).toBe("unsupported");
+    expect(s.prompter.statuses[0]?.actions).toEqual([]);
   });
 });

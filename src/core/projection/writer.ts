@@ -129,7 +129,8 @@ export class ProjectionWriter {
       if (unsent.has(key)) continue;
       const [r, id] = key.split("#") as [string, string];
       const R = asResourceId(fromBase64url(r));
-      if (!(await host.hasResource(R))) continue; // reported by the intents pass; never rewritten
+      // Reported by the intents pass; never rewritten.
+      if (!(await host.hasResource(R)) || !(await host.supportsResource(R))) continue;
       const profile = await host.profileOf(R);
       targets.set(key, { view: profile.replica.task(id), regressed: regressed.has(key) });
     }

@@ -86,6 +86,11 @@ pass the link on. Every invitation has `claim_limit = 1` (G-CAP8).
 - A forked Control Chain (`control_conflict`) blocks sharing and invitations.
   The status view says so in a banner and never reports the collaboration as
   in sync.
+- A collaboration of another Data Profile than Shared Objects (a newer
+  plugin's shared sections, say) is `unsupported` (0.3.2). It is never
+  opened, merged or written; every command except "Resource status" says
+  it needs a newer version of Shared Tasks, and its stored data stays
+  untouched.
 
 ## Server, Principal, owner
 

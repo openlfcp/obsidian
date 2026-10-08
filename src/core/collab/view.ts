@@ -7,6 +7,7 @@
 // server only relays, this device's identity is a key pair, and the owner
 // is whoever created the collaboration (or received it by transfer).
 
+import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
 import type { ResourceStatus } from "./service";
 
 export interface StatusRow {
@@ -28,6 +29,7 @@ const SYNC: Readonly<Record<ResourceStatus["state"], string>> = {
   error: "Sync error: retrying",
   refused: "Not syncing: refused by the server",
   control_conflict: "Blocked",
+  unsupported: "Not syncing: this version of Shared Tasks cannot read this collaboration",
 };
 
 /**
@@ -143,7 +145,9 @@ export function statusView(s: ResourceStatus): StatusView {
     title: s.localName ?? "Collaboration",
     banner: s.blocked
       ? "This collaboration's history has forked (control conflict). It is NOT in sync: sharing, invitations and other changes to who can access it are blocked until the owner resolves it."
-      : null,
+      : s.state === "unsupported"
+        ? `${NEEDS_NEWER_VERSION}. Its data stays on this device, untouched.`
+        : null,
     rows,
   };
 }

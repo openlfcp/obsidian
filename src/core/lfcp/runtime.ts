@@ -90,6 +90,22 @@ export interface RuntimeEnv extends InstallEnv {
 export const NEEDS_RESTART =
   "Shared Tasks needs an Obsidian restart: its sync engine stopped working";
 
+/** What a collaboration of another Data Profile (e.g. a shared section) says. */
+export const NEEDS_NEWER_VERSION =
+  "This collaboration needs a newer version of Shared Tasks. Update the plugin in Settings → Community plugins";
+
+/**
+ * A stored Resource whose Data Profile this version cannot read (a newer
+ * plugin's shared sections, say): it is never opened, merged or written.
+ */
+export class UnsupportedProfileError extends Error {
+  readonly code = "PROFILE_UNSUPPORTED";
+  constructor(readonly dataProfile: string) {
+    super(NEEDS_NEWER_VERSION);
+    this.name = "UnsupportedProfileError";
+  }
+}
+
 /** How long a held unit waits before its author counts as blocked (§26.2 links usually arrive at once). */
 export const HELD_BLOCKED_MS = 10 * 60_000;
 
@@ -165,7 +181,9 @@ export type RegistryState =
   | "error"
   /** The server refused the Resource for good (POST-017): see RegistryEntry.refusal. */
   | "refused"
-  | "control_conflict";
+  | "control_conflict"
+  /** Another Data Profile than Shared Objects: never opened here (needs a newer plugin). */
+  | "unsupported";
 
 export interface RegistryEntry {
   readonly resourceId: ResourceId;
@@ -376,17 +394,19 @@ export class LfcpRuntime {
       const phase = this.#phases.get(key);
       const refusal = this.#refusals.get(key) ?? null;
       const state: RegistryState =
-        conflict !== undefined || phase === "CONTROL_CONFLICT"
-          ? "control_conflict"
-          : this.#install.kind === "locked"
-            ? "locked"
-            : refusal !== null
-              ? "refused"
-              : this.#errors.has(key)
-                ? "error"
-                : phase === "LIVE"
-                  ? "available"
-                  : "offline";
+        row.dataProfile !== PROFILE_ID
+          ? "unsupported"
+          : conflict !== undefined || phase === "CONTROL_CONFLICT"
+            ? "control_conflict"
+            : this.#install.kind === "locked"
+              ? "locked"
+              : refusal !== null
+                ? "refused"
+                : this.#errors.has(key)
+                  ? "error"
+                  : phase === "LIVE"
+                    ? "available"
+                    : "offline";
       out.push(
         Object.freeze({
           resourceId: R,
@@ -525,7 +545,9 @@ export class LfcpRuntime {
     const existing = this.#opened.get(key);
     if (existing !== undefined) return existing;
     const { storage, principal } = this.#ready();
-    if ((await storage.resources.get(resource)) === undefined) throw new Error("unknown Resource");
+    const row = await storage.resources.get(resource);
+    if (row === undefined) throw new Error("unknown Resource");
+    if (row.dataProfile !== PROFILE_ID) throw new UnsupportedProfileError(row.dataProfile);
     const options = { resource, principal: principal.id };
     const checkpoint = await storage.profileState.checkpoint(resource);
     const profile =
@@ -693,6 +715,11 @@ export class LfcpRuntime {
   async hasResource(resource: ResourceId): Promise<boolean> {
     const storage = this.storage;
     return storage !== null && (await storage.resources.get(resource)) !== undefined;
+  }
+
+  /** Whether a stored Resource has the Data Profile this version reads (Shared Objects). */
+  async supportsResource(resource: ResourceId): Promise<boolean> {
+    return (await this.storage?.resources.get(resource))?.dataProfile === PROFILE_ID;
   }
 
   /** The Shared Objects state of a stored Resource, without opening a session. */

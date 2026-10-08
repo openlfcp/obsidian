@@ -11,7 +11,7 @@
 import type { InvitationLink } from "@openlfcp/client";
 import { resourceId as asResourceId, type ResourceId, toHex } from "@openlfcp/core";
 import type { ScalarField, Task } from "@openlfcp/shared-objects";
-import type { RegistryEntry } from "../lfcp/runtime";
+import { NEEDS_NEWER_VERSION, type RegistryEntry } from "../lfcp/runtime";
 import type { MutationGuard } from "../projection/guard";
 import { renderNewTaskLine } from "../projection/render";
 import type { ObjectRef } from "../refs";
@@ -111,6 +111,7 @@ const STATE_TEXT: Readonly<Record<RegistryEntry["state"], string>> = {
   error: "sync error",
   refused: "not syncing: the server refused it",
   control_conflict: "BLOCKED: history forked",
+  unsupported: "needs a newer version of Shared Tasks",
 };
 
 /** Object Refs name the raw Resource ID (MARKDOWN-REFS-01 §7). */
@@ -162,7 +163,12 @@ export class CollabCommands {
   async #pickResource(
     collab: Collaboration,
     title: string,
-    options: { readonly allowCreate?: boolean; readonly blockedOk?: boolean } = {},
+    options: {
+      readonly allowCreate?: boolean;
+      readonly blockedOk?: boolean;
+      /** Status only: a collaboration this version cannot read can still be inspected. */
+      readonly unsupportedOk?: boolean;
+    } = {},
   ): Promise<ResourceId | null> {
     const entries = await collab.list();
     const choices: Choice<ResourceId | "new">[] = entries.map((e) => ({
@@ -182,6 +188,10 @@ export class CollabCommands {
     if (picked === null) return null;
     if (picked === "new") return (await this.#create(collab))?.resourceId ?? null;
     const entry = entries.find((e) => toHex(e.resourceId) === toHex(picked));
+    if (entry?.state === "unsupported" && options.unsupportedOk !== true) {
+      this.#env.prompter.notice(`Shared Tasks: ${NEEDS_NEWER_VERSION}.`);
+      return null;
+    }
     if (entry?.state === "control_conflict" && options.blockedOk !== true) {
       this.#env.prompter.notice(
         'Shared Tasks: this collaboration\'s history has forked. Sharing and invitations are blocked until it is resolved; see "Resource status".',
@@ -522,11 +532,14 @@ export class CollabCommands {
     return this.#run("Showing the status", async () => {
       const collab = this.#collab();
       if (collab === null) return;
-      const R = await this.#pickResource(collab, "Status of…", { blockedOk: true });
+      const R = await this.#pickResource(collab, "Status of…", {
+        blockedOk: true,
+        unsupportedOk: true,
+      });
       if (R === null) return;
       const status = await collab.status(R);
       const actions: Choice<() => Promise<void>>[] = [];
-      if (status.hosting !== "hosted" && !status.blocked)
+      if (status.hosting !== "hosted" && !status.blocked && status.state !== "unsupported")
         actions.push({
           label: "Host on the server now",
           value: async () => {
