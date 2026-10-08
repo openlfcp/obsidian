@@ -111,7 +111,7 @@ export interface NotePass {
 export function sharedState(s: SectionSnapshot): SectionState {
   const nodes: Record<string, SectionState["nodes"][string]> = {};
   for (const [id, n] of Object.entries(s.nodes))
-    if (n.lifecycle === "active")
+    if (n.lifecycle === "active" && n.hidden !== true)
       nodes[id] = {
         kind: n.kind,
         parent: n.parent,

@@ -29,6 +29,7 @@ inside a section).
 | `engine.ts` | One reconciliation pass of a note's sections: all of the above put together (`SectionEngine.pass`, `written`) |
 | `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
 | `markers.ts` | Bindings for nodes that just got their IDs: node markers and child-line Task refs (`bindingChanges`) |
+| `sdk-snapshot.ts` | sdk-ts's `SectionReplica.snapshot()` in the port's terms (`fromSdkSnapshot`) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
@@ -209,6 +210,23 @@ adapter's events (`opened`, `closed`, `editorChanged`, `fileChanged`,
   must be projected. A failed pass is reported and leaves the source
   unreconciled. A rename while a pass is queued carries the note's state to
   its new path.
+
+## The SDK's snapshot (`sdk-snapshot.ts`)
+
+`fromSdkSnapshot` renames and regroups sdk-ts's one-revision snapshot
+(sdk-ts `32b72bf`): the root's parent is the section ID there and null
+here; `deleted` (the node itself, or a Task node's Task) is the lifecycle
+that may remove a node's lines from a note, while `hidden` (also under a
+deleted ancestor) only keeps it out of the visible state; recovery facts,
+invalid nodes, ID collisions and edits retained under a deletion are the
+problems that freeze structure, and concurrent Task field values are not
+(the 0.1 conflict marks show them). A section the SDK classifies
+`PROFILE_INVALID` gives no snapshot, `IMPORTING` is `ready: false`, and a
+node of an unknown kind or without a placement is left out.
+`test/core/sections/sdk-snapshot.test.ts` runs against the real
+`SectionReplica` at `sdk-ts.lock`: the mapping, and the engine's batches
+(creations, a Text edit against the snapshot's revision, a move, a
+deletion) accepted by the replica as they are.
 
 ## Committing local edits (LFCP-02-039)
 

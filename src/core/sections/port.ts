@@ -13,7 +13,10 @@ export interface ModelNode {
   readonly kind: SectionNodeKind;
   /** The parent node's ID, or null for the section's root. */
   readonly parent: string | null;
+  /** Deleted itself (a Task node: its Task): only this removes the node's lines from a note. */
   readonly lifecycle: "active" | "deleted";
+  /** Not shown: deleted itself or under a deleted ancestor. */
+  readonly hidden?: boolean;
   /** The Text (paragraph, item, raw), LF line breaks; absent for Tasks. */
   readonly text?: string;
 }
