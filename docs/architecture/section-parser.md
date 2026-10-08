@@ -26,6 +26,7 @@ inside a section).
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 | `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents in the shape of sdk-ts's `SectionReplica` (the section ID as the root's parent, `createdBy` on new nodes), `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
 | `input.ts` | When typing becomes a reconciliation (`ReconcileScheduler`) and which new content waits (`transientCandidates`), LFCP-02-043 |
+| `stores.ts` | The bases and the journal in the install database: `KeyValueSectionBaseStore`, `KeyValueSectionJournalStore` over the plugin's local state |
 | `engine.ts` | One reconciliation pass of a note's sections: all of the above put together (`SectionEngine.pass`, `written`) |
 | `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
 | `markers.ts` | Bindings for nodes that just got their IDs: node markers and child-line Task refs (`bindingChanges`) |
@@ -431,6 +432,16 @@ SDK's durable receipts (LFCP-02-025) come later.
   prove identity, not whether a difference is an unsent edit or a stale
   rendering (MARKDOWN-SECTIONS-01 §11).
 
+
+In the plugin the records live in the install database, next to the LFCP
+state (`stores.ts`, over `LfcpRuntime.localState`): never synced, never
+secrets. The key-value store has no key listing, so the stores keep their
+own indexes (projections by note path, unfinished operations, candidates
+by projection). A section's Resource ID is kept as base64url in a stored
+locator. `test/core/sections/stores.test.ts` checks them on a store that
+clones values as the database does, and an engine restarted on the same
+database after a commit whose bindings were never written: the next engine
+writes the same ID, one batch.
 ## Undo and redo (LFCP-02-044)
 
 Undo changes the note, never shared history (OBSIDIAN-SECTIONS-ARCHITECTURE-02

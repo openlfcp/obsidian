@@ -69,6 +69,12 @@ export class JournalError extends Error {
 
 const rank = (p: Phase) => (p === "abandoned" ? Number.POSITIVE_INFINITY : PHASES.indexOf(p));
 
+/** A stored entry may only be replaced by itself or a later phase (the store's own check). */
+export function checkForward(old: JournalEntry | undefined, entry: JournalEntry): void {
+  if (old !== undefined && old !== entry && rank(entry.phase) <= rank(old.phase))
+    throw new JournalError(`operation ${entry.operationId} cannot go back to ${entry.phase}`);
+}
+
 /** The entry moved to `phase`: forward only, IDs and receipt never replaced. */
 export function advance(
   entry: JournalEntry,
@@ -168,10 +174,8 @@ export class MemorySectionJournalStore implements SectionJournalStore {
   readonly #candidates = new Map<string, PendingCandidate>();
 
   async put(entry: JournalEntry): Promise<void> {
-    const old = this.#entries.get(entry.operationId);
     // A put is the same check as advance(): forward only.
-    if (old !== undefined && old !== entry && rank(entry.phase) <= rank(old.phase))
-      throw new JournalError(`operation ${entry.operationId} cannot go back to ${entry.phase}`);
+    checkForward(this.#entries.get(entry.operationId), entry);
     this.#entries.set(entry.operationId, entry);
   }
 
