@@ -41,12 +41,14 @@ tested in 0.3; H6 is the first real check), "Markdown stays Markdown" (the
 per-node markers of decision M5 are visible in Live Preview until the plugin
 hides them, H3), and the website's "one invisible comment" (review OP-06).
 
-## Proposal: `pnpm native` in CI (not enabled)
+## `pnpm native` in CI (manual runs only)
 
-A separate workflow, `.github/workflows/native.yml`, so the main CI stays fast:
+A separate workflow, `.github/workflows/native.yml`, so the main CI stays
+fast. It exists with a manual trigger only (`workflow_dispatch`, the
+orchestrator's decision of 2026-10-08); automatic triggers come later:
 
-- **Triggers:** `workflow_dispatch`, pushes to `main` that touch `src/`,
-  `test/native/` or `manifest.json`, and release tags.
+- **Triggers (later):** pushes to `main` that touch `src/`, `test/native/`
+  or `manifest.json`, and release tags.
 - **Matrix:** `macos-latest`, `windows-latest`, `ubuntu-latest` × Obsidian
   `1.13.4`, `1.14.4` (`NATIVE_OBSIDIAN`), `max-parallel: 3`, one Obsidian per
   job (the runner refuses to start next to another).

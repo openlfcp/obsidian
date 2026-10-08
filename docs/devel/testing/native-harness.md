@@ -5,7 +5,11 @@ desktop app, started from the command line. The specs read Obsidian's state
 (the app object, the DOM, CodeMirror) and run commands. The unit tests
 (`pnpm test`) cannot reach any of this: they use a mock of the Obsidian API.
 
-It is local only for now. CI on three systems is a separate step.
+Locally with `pnpm native`; in CI by hand: the "Native harness" workflow
+(`.github/workflows/native.yml`, Actions → Run workflow) runs it on macOS,
+Linux (under `xvfb-run`) and Windows for both pinned Obsidian versions. It
+caches Obsidian with `actions/cache` and keeps each log, `METRIC` lines
+included, as an artifact. Metrics never gate.
 
 ## Run it
 
