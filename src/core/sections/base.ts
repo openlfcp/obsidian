@@ -10,6 +10,7 @@
 // Bases are stored per projection ID, not per path (review finding OP-24):
 // a note can hold several projections, and a rename must not lose them.
 
+import { splitLines } from "../refs/lines";
 import type { SectionRef } from "./grammar";
 import type { ParsedSection, SectionNode, SectionNodeKind } from "./parser";
 import { nodeSource } from "./source-map";
@@ -22,6 +23,11 @@ export interface NodeState {
   readonly parent: string | null;
   /** The Text (paragraph, item, raw); absent for Tasks (their fields are compared by the 0.1 planner). */
   readonly text?: string;
+  /**
+   * A Task's line as the note showed it (its inline ref included): a remote
+   * change is rendered onto the line only while it is unchanged (remote.ts).
+   */
+  readonly line?: string;
 }
 
 /** A section as the note, the base or the shared state shows it. */
@@ -53,6 +59,7 @@ export function markdownState(
   const nodes: Record<string, NodeState> = {};
   const order: Record<string, string[]> = {};
   const unbound: UnboundNode[] = [];
+  const lines = splitLines(markdown);
   const walk = (children: readonly SectionNode[], parent: string | null) => {
     let after: string | null = null;
     for (const n of children) {
@@ -67,7 +74,13 @@ export function markdownState(
         });
         continue;
       }
-      nodes[n.id] = { kind: n.kind, parent, ...(text === undefined ? {} : { text }) };
+      const line = n.kind === "task" ? lines[n.lines.from]?.text : undefined;
+      nodes[n.id] = {
+        kind: n.kind,
+        parent,
+        ...(text === undefined ? {} : { text }),
+        ...(line === undefined ? {} : { line }),
+      };
       const key = parent ?? ROOT;
       order[key] = [...(order[key] ?? []), n.id];
       after = n.id;

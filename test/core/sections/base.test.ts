@@ -59,7 +59,7 @@ describe("markdownState", () => {
     expect(st).toEqual({
       title: "Launch",
       nodes: {
-        [id(2)]: { kind: "task", parent: null },
+        [id(2)]: { kind: "task", parent: null, line: "- [ ] Contract" },
         [id(3)]: { kind: "paragraph", parent: id(2), text: "Draft 🦔" },
         [id(4)]: { kind: "paragraph", parent: null, text: "Root text" },
       },
