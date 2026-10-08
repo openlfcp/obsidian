@@ -25,6 +25,7 @@ inside a section).
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 | `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents in the shape of sdk-ts's `SectionReplica` (the section ID as the root's parent, `createdBy` on new nodes), `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
+| `input.ts` | When typing becomes a reconciliation (`ReconcileScheduler`) and which new content waits (`transientCandidates`), LFCP-02-043 |
 | `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
@@ -123,6 +124,25 @@ fix, [projection.md](projection.md)).
   `MemorySectionBaseStore` serves the tests; the install-database adapter,
   under the key `section-base:<projection ID>`, comes with the journal
   (LFCP-02-038).
+
+## Typing and IME (LFCP-02-043)
+
+Per ADR 0001 §2, reconciliation runs outside the editor's update.
+`ReconcileScheduler` runs a pass after a short idle (400 ms), at the end
+of an IME composition, at blur, and at the latest 2 s after the first
+unreconciled edit while typing goes on, but never during a composition.
+It reports the note as edited at the first keystroke (SI02), not at the
+pass. The debounce is never the only copy of an edit: the buffer holds it
+until the journal and the receipt do (`commit.ts`).
+
+`transientCandidates` holds back new content that is not ready on the
+caret's line: an item without text, or a Task without a title (the
+`- [ ] ` Enter leaves). It gets no identity in this pass and is reconciled
+once the caret leaves or it has content. A Task line damaged while typing
+(`- [ Prepare`) leaves its ref orphaned: the parser pauses the section
+(`NODE_BINDING_ORPHAN`) and nothing is published from it (MS17-transient).
+The IME behaviour on the real host is the manual
+[IME checklist](../devel/testing/ime-checklist.md).
 
 ## One source per note (LFCP-02-041)
 
@@ -388,6 +408,10 @@ title changes in UTF-16, CRLF and indentation of new lines, local edits
 deferred, deletion with its blank line, edited or commented deleted nodes
 kept, created and moved nodes listed, a stale revision refused, a second
 pass empty, and the three skips.
+
+`test/core/sections/input.test.ts`: idle, the cap while typing, no pass
+during a composition and one at its end, blur, dispose; transient
+candidates on and off the caret's line.
 
 `test/core/sections/coordinator.test.ts`: the file route for closed
 notes and the editor route while open (a lagging or external file event
