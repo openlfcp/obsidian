@@ -157,6 +157,14 @@ export default class OpenLfcpPlugin extends Plugin {
             );
         },
       });
+      this.addCommand({
+        id: "insert-section",
+        name: "Insert shared section…",
+        editorCallback: (editor, ctx) => {
+          const path = ctx.file?.path;
+          if (path !== undefined) void this.sections?.insertSection(editor, path);
+        },
+      });
     }
     this.#starting = this.#startRuntime();
   }

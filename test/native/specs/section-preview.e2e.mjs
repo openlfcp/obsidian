@@ -240,6 +240,67 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(out.text).toMatch(/<!-- \/lfcp-section: [^>]+ -->\n\n## Other\nPRIVATE_AFTER_71c2: do not transmit\.\n$/);
   });
 
+  it("Insert shared section… writes the loaded section, complete, after the paragraph at the cursor (LFCP-02-052)", async () => {
+    const note = ["# Week", "", "Private intro,", "two lines.", "", "## Later", "Private.", ""].join("\n");
+    await browser.executeObsidian(
+      async ({ app, obsidian }, file, text) => {
+        await app.vault.create(file, text);
+        const leaf = app.workspace.getLeaf(false);
+        await leaf.openFile(app.vault.getFileByPath(file), { state: { mode: "source", source: true } });
+        app.workspace.setActiveLeaf(leaf, { focus: true });
+        const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        for (let i = 0; i < 40 && view.editor.getValue() !== text; i++)
+          await new Promise((r) => setTimeout(r, 50));
+        view.editor.setCursor({ line: 2, ch: 0 });
+        app.commands.executeCommandById("shared-tasks:insert-section");
+        let item = null;
+        for (let i = 0; i < 40 && item === null; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          item =
+            [...document.querySelectorAll(".suggestion-item")].find((e) => e.textContent === "Launch") ??
+            null;
+        }
+        item.click();
+        let insert = null;
+        for (let i = 0; i < 40 && insert === null; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          insert =
+            [...document.querySelectorAll(".modal-container .modal button")].find(
+              (b) => b.textContent === "Insert",
+            ) ?? null;
+        }
+        insert.click();
+      },
+      "insert-target.md",
+      note,
+    );
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(({ app, obsidian }) =>
+          app.workspace
+            .getActiveViewOfType(obsidian.MarkdownView)
+            .editor.getValue()
+            .includes("<!-- /lfcp-section: "),
+        ),
+      { timeout: 10000, timeoutMsg: "section inserted" },
+    );
+    // A pass on the inserted section has nothing to change or send.
+    await new Promise((r) => setTimeout(r, 500));
+    const out = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const text = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getValue();
+      const source = await app.vault.adapter.read("share-create.md");
+      return { text, source };
+    });
+    console.log(`EVIDENCE ${JSON.stringify({ id: "INSERT-SECTION", text: out.text })}`);
+    expect(out.text.startsWith("# Week\n\nPrivate intro,\ntwo lines.\n\n## Launch\n<!-- lfcp-section: ")).toBe(true);
+    expect(out.text.endsWith("\n\n## Later\nPrivate.\n")).toBe(true);
+    // The same section, bound to the same nodes as the note it was shared from.
+    const ids = (t) => [...t.matchAll(/lfcp-(?:node|ref): [^ ]*?([0-9a-f]{8}-[0-9a-f-]{27})/g)].map((m) => m[1]);
+    expect(ids(out.text)).toEqual(ids(out.source));
+    expect(out.text).toContain("- [ ] Prepare contract\n");
+    expect(out.text).toContain("Draft the plan.\n");
+  });
+
   it("a heading inside blocks the share, with a reason", async () => {
     const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
     const shown = await preview("share-nested.md", note, 0);

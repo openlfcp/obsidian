@@ -26,6 +26,7 @@ import { SdkSectionPort } from "../core/lfcp/section-port";
 import { newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
 import { applyChanges, SectionEngine } from "../core/sections/engine";
+import { type InsertResult, SectionInsertion } from "../core/sections/insert";
 import { parseSections } from "../core/sections/parser";
 import {
   preflight,
@@ -39,6 +40,7 @@ import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
+import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
 import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
@@ -47,6 +49,7 @@ const SECTION_MARK = "lfcp-section:";
 export class SectionsHost {
   #engine: SectionEngine | null = null;
   #creation: SectionCreation | null = null;
+  #insertion: SectionInsertion | null = null;
   #runtime: LfcpRuntime | null = null;
   /** Section Resources whose model changes start passes (hex of the ID). */
   readonly #watched = new Set<string>();
@@ -128,6 +131,16 @@ export class SectionsHost {
       newTask: (line, id) => newSectionTask(line, principal, id),
       refPlacement: this.refPlacement,
     });
+    this.#insertion = new SectionInsertion({
+      port,
+      bases: this.#bases,
+      journal: runtime.localState,
+      loaded: (r) => (runtime.sectionProfile(fromKey(r))?.heldUnits().length ?? 1) === 0,
+      task: (r, taskId) => port.task(r, taskId),
+      edit: (path, fn) => this.#edit(path, fn),
+      newInsertionId: newProjectionId,
+      refPlacement: this.refPlacement,
+    });
     for (const entry of await runtime.registry())
       if (entry.profile === SECTIONS_PROFILE_ID) await this.#watch(entry.resourceId);
     for (const file of this.app.vault.getMarkdownFiles()) {
@@ -158,6 +171,64 @@ export class SectionsHost {
     }
     const entry = await creation.prepare(path, markdown, preview);
     await this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+  }
+
+  /**
+   * "Insert shared section…" (LFCP-02-052): a ready, fully loaded section
+   * of this vault, previewed, then written after the block at the cursor
+   * as one complete projection.
+   */
+  async insertSection(editor: Editor, path: string): Promise<void> {
+    const runtime = this.#runtime;
+    const insertion = this.#insertion;
+    if (runtime === null || insertion === null) {
+      new Notice("Shared Tasks: still starting. Try again in a moment.");
+      return;
+    }
+    const choices: SectionChoice[] = [];
+    for (const entry of await runtime.registry()) {
+      if (entry.profile !== SECTIONS_PROFILE_ID) continue;
+      const replica = runtime.sectionProfile(entry.resourceId)?.replica;
+      const snap = replica?.snapshot();
+      const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
+        ?.id;
+      if (snap === undefined || typeof sectionId !== "string") continue;
+      choices.push({ resource: entry.resourceId, sectionId, title: snap.title.value ?? "" });
+    }
+    if (choices.length === 0) {
+      new Notice("Shared Tasks: no shared section on this device yet.");
+      return;
+    }
+    const pick = new PickSectionModal(this.app, choices);
+    pick.open();
+    const choice = await pick.result;
+    if (choice === null) return;
+    const preview = insertion.preview(choice.resource as ResourceId, choice.sectionId);
+    if ("refused" in preview) {
+      new Notice(
+        preview.refused === "importing"
+          ? "Shared Tasks: this section is still being imported. Try again when it is ready."
+          : preview.refused === "not-loaded"
+            ? "Shared Tasks: this section has not fully arrived yet. Try again in a moment."
+            : "Shared Tasks: this section cannot be shown here yet (it has a problem to resolve).",
+      );
+      return;
+    }
+    const modal = new InsertSectionModal(this.app, preview);
+    modal.open();
+    if (!(await modal.result)) return;
+    const entry = await insertion.prepare(
+      path,
+      editor.getValue(),
+      editor.getCursor().line,
+      preview,
+    );
+    const result = await insertion.run(entry);
+    notifyInsertion(result);
+    if (result.kind === "inserted") {
+      this.#index(path, editor.getValue());
+      this.editor.remoteChanged(path);
+    }
   }
 
   async #finish(entry: CreationEntry): Promise<CreationResult> {
@@ -313,6 +384,15 @@ function notifyCreation(entry: CreationEntry, r: CreationResult): void {
     );
   else if (r.kind === "failed")
     new Notice(`Shared Tasks: section "${title}" could not be created (${r.reason}).`);
+}
+
+function notifyInsertion(r: InsertResult): void {
+  if (r.kind === "stale")
+    new Notice("Shared Tasks: the note changed where the section would go. Insert it again.");
+  else if (r.kind === "inserted" && (r.entry.warnings ?? []).length > 0)
+    new Notice(
+      "Shared Tasks: section inserted. The private text after it, up to the next heading, stays private but moves with its heading.",
+    );
 }
 
 const notifyFailure = (entry: CreationEntry) => (e: unknown) => {
