@@ -22,6 +22,7 @@ describe("settings", () => {
       refPlacement: "inline",
       defaultServer: "wss://a.example/ws",
       showSharingMetadata: false,
+      sectionComments: "local",
       settingsVersion: SETTINGS_VERSION,
     });
     expect(
@@ -42,6 +43,7 @@ describe("settings", () => {
       refPlacement: "inline",
       defaultServer: PROJECT_SERVER,
       showSharingMetadata: false,
+      sectionComments: "local",
       settingsVersion: 2,
     });
     expect(normalizeSettings({ refPlacement: "inline" }).defaultServer).toBe(PROJECT_SERVER);
@@ -70,5 +72,11 @@ describe("settings", () => {
     expect(isRefPlacement("inline")).toBe(true);
     expect(isRefPlacement("Inline")).toBe(false);
     expect(isRefPlacement(undefined)).toBe(false);
+  });
+
+  it("keep a valid section comments choice and default an invalid one to local", () => {
+    expect(normalizeSettings({ sectionComments: "shared" }).sectionComments).toBe("shared");
+    expect(normalizeSettings({ sectionComments: "everyone" }).sectionComments).toBe("local");
+    expect(normalizeSettings({}).sectionComments).toBe("local");
   });
 });

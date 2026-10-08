@@ -8,7 +8,7 @@
 // the public Principal ID is available to later UI through runtime.status.
 
 import { type App, PluginSettingTab, type Setting, type SettingDefinitionItem } from "obsidian";
-import { isRefPlacement } from "../core/settings";
+import { isRefPlacement, isSectionComments } from "../core/settings";
 import type OpenLfcpPlugin from "./plugin";
 
 /**
@@ -42,7 +42,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       },
       {
         name: "Ref placement",
-        desc: "Where new lfcp-ref markers go: on the line after the task (recommended with suffix-sensitive task plugins) or at the end of the task line. Existing refs keep their placement.",
+        desc: "Where new lfcp-ref markers go, for shared tasks and in shared sections: on the line after the task (recommended) or on the task line. On the task line, the marker goes before the Tasks plugin's dates and other fields, which that plugin needs to find them. Existing refs keep their placement.",
         control: {
           type: "dropdown",
           key: "refPlacement",
@@ -53,6 +53,15 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         name: "Show sharing metadata",
         desc: "Show the lines that bind a shared section (its start and end markers, and the marker under each task, paragraph and item) in Live Preview. Hidden by default; Source mode always shows them.",
         control: { type: "toggle", key: "showSharingMetadata" },
+      },
+      {
+        name: "Comments in shared sections",
+        desc: "Obsidian comments (%% … %%) and HTML comments you add inside a shared section: kept on this device only (default), or shared with the section like the rest of its text.",
+        control: {
+          type: "dropdown",
+          key: "sectionComments",
+          options: { local: "Keep local", shared: "Share" },
+        },
       },
       {
         name: "Default server",
@@ -66,6 +75,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
     if (key === "refPlacement") return this.plugin.settings.refPlacement;
     if (key === "defaultServer") return this.plugin.settings.defaultServer;
     if (key === "showSharingMetadata") return this.plugin.settings.showSharingMetadata;
+    if (key === "sectionComments") return this.plugin.settings.sectionComments;
     return undefined;
   }
 
@@ -75,6 +85,8 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       return;
     }
     if (key === "refPlacement" && isRefPlacement(value)) this.plugin.settings.refPlacement = value;
+    else if (key === "sectionComments" && isSectionComments(value))
+      this.plugin.settings.sectionComments = value;
     else if (key === "defaultServer" && typeof value === "string")
       this.plugin.settings.defaultServer = value;
     else return;

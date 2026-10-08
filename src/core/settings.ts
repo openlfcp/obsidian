@@ -23,13 +23,31 @@ export const PROJECT_SERVER = "wss://sync.openlfcp.org/v1/ws";
  */
 export const SETTINGS_VERSION = 2;
 
+/**
+ * Comments inside a shared section (MARKDOWN-SECTIONS-01 §4.5, spec
+ * d5ac669): kept local and never shared (the default), or shared as raw
+ * blocks. A comment already bound as a raw block stays shared either way.
+ */
+export type SectionComments = "local" | "shared";
+
+const SECTION_COMMENTS: readonly SectionComments[] = ["local", "shared"];
+
+export function isSectionComments(value: unknown): value is SectionComments {
+  return SECTION_COMMENTS.includes(value as SectionComments);
+}
+
 export interface Settings {
-  /** Placement of refs the plugin writes. Existing refs keep theirs. */
+  /**
+   * Placement of refs the plugin writes, for standalone Tasks and inside
+   * shared sections (§4.1, spec e14b3d0). Existing refs keep theirs.
+   */
   refPlacement: RefPlacement;
   /** The sync server offered by default when creating a collaboration; empty offers none. */
   defaultServer: string;
   /** Show the binding lines of shared sections in Live Preview (hidden by default, M5). */
   showSharingMetadata: boolean;
+  /** New comments in shared sections: local (default) or shared. */
+  sectionComments: SectionComments;
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */
   settingsVersion: number;
 }
@@ -38,6 +56,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   refPlacement: "child-line",
   defaultServer: PROJECT_SERVER,
   showSharingMetadata: false,
+  sectionComments: "local",
   settingsVersion: SETTINGS_VERSION,
 };
 
@@ -74,6 +93,9 @@ export function normalizeSettings(stored: unknown): Settings {
       typeof data.showSharingMetadata === "boolean"
         ? data.showSharingMetadata
         : DEFAULT_SETTINGS.showSharingMetadata,
+    sectionComments: isSectionComments(data.sectionComments)
+      ? data.sectionComments
+      : DEFAULT_SETTINGS.sectionComments,
     settingsVersion: SETTINGS_VERSION,
   };
 }

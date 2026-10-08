@@ -27,6 +27,7 @@ describe("plugin", () => {
       refPlacement: "inline",
       defaultServer: PROJECT_SERVER,
       showSharingMetadata: false,
+      sectionComments: "local",
       settingsVersion: 2,
     });
   });
@@ -49,6 +50,7 @@ describe("plugin", () => {
     expect(controls).toEqual([
       ["Ref placement", "dropdown", "refPlacement"],
       ["Show sharing metadata", "toggle", "showSharingMetadata"],
+      ["Comments in shared sections", "dropdown", "sectionComments"],
       ["Default server", "text", "defaultServer"],
     ]);
   });
@@ -70,6 +72,7 @@ describe("plugin", () => {
       refPlacement: "inline",
       defaultServer: PROJECT_SERVER,
       showSharingMetadata: false,
+      sectionComments: "local",
       settingsVersion: 2,
     });
     expect(server?.text?.value).toBe(PROJECT_SERVER);
@@ -83,6 +86,7 @@ describe("plugin", () => {
       refPlacement: "inline",
       defaultServer: "wss://a.example/ws",
       showSharingMetadata: false,
+      sectionComments: "local",
       settingsVersion: 2,
     });
 
