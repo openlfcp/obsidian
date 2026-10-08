@@ -889,10 +889,10 @@ export class LfcpRuntime {
     const profile =
       checkpoint === undefined
         ? new SharedSectionsDataProfile(SectionReplica.empty(options))
-        : SharedSectionsDataProfile.restore(checkpoint as never, options);
+        : SharedSectionsDataProfile.restore(checkpoint, options);
     const checkpointer = new ProfileCheckpointer(
       storage,
-      { checkpoint: () => profile.checkpoint() as never },
+      { checkpoint: () => profile.checkpoint() },
       { minIntervalMs: 2000 },
     );
     const applier = new DataUnitApplier({
@@ -901,7 +901,7 @@ export class LfcpRuntime {
       handlers: [
         {
           dataProfile: profile.dataProfile,
-          codecFor: (u) => profile.codecFor(u) as never,
+          codecFor: (u) => profile.codecFor(u),
           apply: (u, v) => profile.apply(u, v as never),
           applyBatch: (units) => profile.applyBatch(units as never),
           exclude: (ids) => profile.exclude(ids),
