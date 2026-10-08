@@ -88,6 +88,7 @@ touch it either.
 | --- | --- |
 | `specs/smoke.e2e.mjs` | The plugin is enabled, registers its commands, and its runtime reaches `ready` |
 | `specs/host-facts.e2e.mjs` | Obsidian host facts that MVP 0.2 designs rely on; see [obsidian-host-facts.md](obsidian-host-facts.md) |
+| `specs/baseline-0.3.e2e.mjs` | Baselines of the 0.3 plugin: start, "Share selected tasks" with 200 Tasks, edit → queued, change → render. Prints `METRIC {…}` lines; results in [obsidian-host-facts.md](obsidian-host-facts.md) |
 
 Specs are plain ES modules run by Mocha. The `browser` and `expect` globals
 come from WebdriverIO. `browser.executeObsidian(({ app, obsidian }) => …)`
