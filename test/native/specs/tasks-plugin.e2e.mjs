@@ -42,6 +42,10 @@ describe("Obsidian Tasks 8.4.0 next to Shared Tasks", () => {
     const plain = await toggle("t1.md", "- [ ] alpha 📅 2026-11-01\n");
     const inline = await toggle("t2.md", `- [ ] alpha 📅 2026-11-01 ${REF}\n`);
     const child = await toggle("t3.md", `- [ ] alpha 📅 2026-11-01\n  ${REF}\n`);
+    const recurringInline = await toggle("t5.md", `- [ ] water 🔁 every day 📅 2026-11-01 ${REF}\n`);
+    const refBeforeSuffix = await toggle("t6.md", `- [ ] water ${REF} 🔁 every day 📅 2026-11-01\n`);
+    const plainRefBeforeSuffix = await toggle("t7.md", `- [ ] alpha ${REF} 📅 2026-11-01\n`);
+    evidence("TASKS-H8", { recurringInline, refBeforeSuffix, plainRefBeforeSuffix });
     const recurring = await toggle("t4.md", "- [ ] water 🔁 every day 📅 2026-11-01\n  " + REF + "\n");
     evidence("TASKS", { plain, inline, child, recurring });
     const today = new Date().toLocaleDateString("sv-SE"); // local YYYY-MM-DD, as Tasks writes it
@@ -52,6 +56,14 @@ describe("Obsidian Tasks 8.4.0 next to Shared Tasks", () => {
     expect(inline.after).toBe(`- [x] alpha 📅 2026-11-01 ${REF} ✅ ${today}\n`);
     // A child-line ref is untouched.
     expect(child.after).toBe(`- [x] alpha 📅 2026-11-01 ✅ ${today}\n  ${REF}\n`);
+    // H8a: 🔁 and 📅 before an inline ref at the end are not seen: no next occurrence, ✅ after the ref.
+    expect(recurringInline.after).toBe(`- [x] water 🔁 every day 📅 2026-11-01 ${REF} ✅ ${today}\n`);
+    // H8b: with the ref before the Tasks suffix, the next occurrence is created above and COPIES the ref.
+    expect(refBeforeSuffix.after).toBe(
+      `- [ ] water ${REF} 🔁 every day 📅 2026-11-02\n- [x] water ${REF} 🔁 every day 📅 2026-11-01 ✅ ${today}\n`,
+    );
+    // H8c: a plain Task with the ref before its suffix gets ✅ at the end.
+    expect(plainRefBeforeSuffix.after).toBe(`- [x] alpha ${REF} 📅 2026-11-01 ✅ ${today}\n`);
     // A recurring Task: the next occurrence goes ABOVE, unbound; the ref stays with the done one.
     expect(recurring.after).toBe(
       `- [ ] water 🔁 every day 📅 2026-11-02\n- [x] water 🔁 every day 📅 2026-11-01 ✅ ${today}\n  ${REF}\n`,
