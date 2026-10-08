@@ -50,18 +50,21 @@ export interface ScalarEdit {
   readonly insert: string;
 }
 
-/** A new Task's fields, as 0.1's task.create carries them (planShare builds them). */
+/** A new Task, as the SDK's createTask builds it (planShare's fields); its ID is the node's. */
 export interface NewSectionTask {
   readonly id: string;
   readonly title: string;
   readonly [field: string]: unknown;
 }
 
+export type ListStyle = "bullet" | "ordered";
+
 /**
  * The profile's intents (SHARED-SECTIONS-PROFILE-01 §11) the section engine
- * sends, in this contract's field names. `after` is the bound sibling before
- * the node, or null for the first child; `parent` null is the section root.
- * Every new ID is the plugin's (UUIDv7, allocated before the commit).
+ * sends, in the shape of sdk-ts's SectionReplica (`SectionIntent`, a1b0556
+ * to 725a06c). `parent` is the section ID for the root, or a task or item
+ * node; `after` is the visible sibling before the node, null for the
+ * first. Every new ID is the plugin's (UUIDv7, allocated before the commit).
  */
 export type SectionIntent =
   | { readonly intent: "section.set_title"; readonly title: string }
@@ -75,22 +78,27 @@ export type SectionIntent =
   | {
       readonly intent: "node.move";
       readonly id: string;
-      readonly parent: string | null;
+      readonly parent: string;
       readonly after: string | null;
     }
   | { readonly intent: "node.delete" | "node.restore"; readonly id: string }
   | {
       readonly intent: "paragraph.create" | "item.create" | "raw.create";
       readonly id: string;
-      readonly parent: string | null;
+      readonly parent: string;
       readonly after: string | null;
       readonly text: string;
+      /** The Principal creating the node. */
+      readonly createdBy: string;
+      /** item.create only. */
+      readonly listStyle?: ListStyle;
     }
   | {
       readonly intent: "task.create_in_section";
       readonly task: NewSectionTask;
-      readonly parent: string | null;
+      readonly parent: string;
       readonly after: string | null;
+      readonly listStyle?: ListStyle;
     };
 
 /** A durable local commit's receipt (contract §3.2). */
@@ -113,11 +121,16 @@ export type CommitRefusalCode =
   | "SECTION_IMPORTING"
   | (string & {});
 
-/** A batch refused before commit: nothing was written and there is no receipt. */
+/**
+ * A batch refused before commit: nothing was written and there is no
+ * receipt. The SDK binding turns sdk-ts's SectionIntentError (same codes,
+ * intent index and node) into this.
+ */
 export class CommitRefused extends Error {
   constructor(
     readonly code: CommitRefusalCode,
     readonly nodeId?: string,
+    readonly intentIndex?: number,
   ) {
     super(`commit refused: ${code}`);
     this.name = "CommitRefused";

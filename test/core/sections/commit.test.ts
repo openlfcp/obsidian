@@ -51,9 +51,13 @@ const task = (line: number, after: string | null): UnboundNode => ({
   line,
 });
 
+const SECTION = id(1);
+const ME = "principal-me";
 const pass = (over: Partial<LocalPass> = {}): LocalPass => ({
   projectionId: "p-1",
   resource: R,
+  sectionId: SECTION,
+  createdBy: ME,
   sourceHash: "h0",
   sourceText: "## Launch\n- [ ] Contract\n",
   baseRevision: "heads-0",
@@ -97,13 +101,27 @@ describe("one pass, one durable batch", () => {
     expect(port.changes).toHaveLength(1);
     expect(port.changes[0]?.intents).toEqual([
       { intent: "section.set_title", title: "Launch plan" },
-      { intent: "paragraph.create", id: id(100), parent: null, after: id(5), text: "First" },
+      {
+        intent: "paragraph.create",
+        id: id(100),
+        parent: SECTION,
+        after: id(5),
+        text: "First",
+        createdBy: ME,
+      },
       // Consecutive new nodes follow each other, not the same bound sibling.
-      { intent: "paragraph.create", id: id(101), parent: null, after: id(100), text: "Second" },
+      {
+        intent: "paragraph.create",
+        id: id(101),
+        parent: SECTION,
+        after: id(100),
+        text: "Second",
+        createdBy: ME,
+      },
       {
         intent: "task.create_in_section",
         task: { id: id(102), title: "Contract", status: "todo" },
-        parent: null,
+        parent: SECTION,
         after: id(6),
       },
       { intent: "node.restore", id: id(4) },
@@ -113,7 +131,7 @@ describe("one pass, one durable batch", () => {
         edits: [{ index: 0, deleteCount: 0, insert: "New " }],
         base: "heads-0",
       },
-      { intent: "node.move", id: id(6), parent: null, after: id(5) },
+      { intent: "node.move", id: id(6), parent: SECTION, after: id(5) },
       { intent: "node.delete", id: id(8) },
     ]);
     expect(out.receipt.modelRevision).toBe("heads-1");

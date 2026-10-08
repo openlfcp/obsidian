@@ -24,7 +24,7 @@ inside a section).
 | `journal.ts` | Local records (LFCP-02-038): the reconciliation journal, pending candidates, the diagnostics view, rebuild from a note |
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
-| `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents, `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
+| `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents in the shape of sdk-ts's `SectionReplica` (the section ID as the root's parent, `createdBy` on new nodes), `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |

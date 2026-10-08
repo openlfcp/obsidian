@@ -31,6 +31,10 @@ import {
 export interface LocalPass {
   readonly projectionId: string;
   readonly resource: string;
+  /** The section's ID: the parent of its root nodes in intents. */
+  readonly sectionId: string;
+  /** The local Principal, the creator of new nodes. */
+  readonly createdBy: string;
   /** SHA-256 of the section's source when captured. */
   readonly sourceHash: string;
   /** The section's private source, kept as a candidate when the edit cannot be sent. */
@@ -118,23 +122,29 @@ export function intentsOf(
       intents.push({
         intent: "task.create_in_section",
         task: pass.newTask(c, id),
-        parent: c.parent,
+        parent: c.parent ?? pass.sectionId,
         after,
       });
     } else
       intents.push({
         intent: `${c.kind}.create`,
         id,
-        parent: c.parent,
+        parent: c.parent ?? pass.sectionId,
         after,
         text: c.text ?? "",
+        createdBy: pass.createdBy,
       });
   }
   for (const id of pass.restores ?? []) intents.push({ intent: "node.restore", id });
   for (const { nodeId, edit } of plan.textEdits)
     intents.push({ intent: "text.edit", id: nodeId, edits: [edit], base: pass.baseRevision });
   for (const m of plan.moves)
-    intents.push({ intent: "node.move", id: m.nodeId, parent: m.parent, after: m.after });
+    intents.push({
+      intent: "node.move",
+      id: m.nodeId,
+      parent: m.parent ?? pass.sectionId,
+      after: m.after,
+    });
   for (const id of pass.deletes ?? []) intents.push({ intent: "node.delete", id });
   return { intents, ids: allocated };
 }
