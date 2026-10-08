@@ -91,7 +91,7 @@ export function nodeSource(markdown: string, node: SectionNode): NodeSource | nu
   if (node.kind === "item") {
     const m = LIST_PREFIX.exec(first);
     const prefix = m === null ? "" : `${m[1]}${m[2]}${m[3] || " "}`;
-    const from = m === null ? 0 : (m[0] as string).length;
+    const from = m === null ? 0 : m[0].length;
     pieces.push({ line: node.lines.from, from, rest: first.slice(from), virtual: 0 });
     const contentColumn = visualWidth(prefix);
     // New lines continue at the content column: as an existing continuation line does, or in spaces.
@@ -140,7 +140,8 @@ export function textToDoc(src: NodeSource, index: number): number {
   const u = scalarToUtf16(src.text, index);
   let found: Segment | undefined;
   for (const s of src.segments) if (s.textFrom <= u) found = s;
-  const s = found ?? (src.segments[0] as Segment);
+  const s = found ?? src.segments[0];
+  if (s === undefined) return 0; // no segment: an empty node at the start
   const within = u - s.textFrom;
   // Inside a tab's virtual spaces: the tab itself.
   if (within < s.virtual) return s.docFrom - 1;

@@ -224,7 +224,7 @@ export interface SectionBaseStore {
 export const sectionBaseKey = (projectionId: string): string => `section-base:${projectionId}`;
 
 /** A new projection ID: random, local only. */
-export const newProjectionId = (): string => globalThis.crypto.randomUUID();
+export const newProjectionId = (): string => crypto.randomUUID();
 
 /** In memory, for tests and until the install database adapter (LFCP-02-038). */
 export class MemorySectionBaseStore implements SectionBaseStore {
