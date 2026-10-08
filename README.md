@@ -315,11 +315,19 @@ and keeps `fake-indexeddb` test-only.
 
 ### Build from a clean checkout
 
-The `@openlfcp/*` packages come from npm at the exact versions in
-`package.json` (locked in `pnpm-lock.yaml`); no sibling `sdk-ts` checkout is
-needed to build.
+Released versions build from the `@openlfcp/*` npm packages at the exact
+versions in `package.json` (locked in `pnpm-lock.yaml`); no sibling `sdk-ts`
+checkout is needed. While 0.4 (shared sections) is developed on `main`, the
+plugin links the SDK from a sibling `../sdk-ts` checkout instead, at the
+commit in `sdk-ts.lock`, built first; a tag release refuses that setup
+(`scripts/check-release-deps.mjs`).
 
 ```sh
+# main during 0.4 development only: the SDK at sdk-ts.lock, next to this checkout
+git clone https://github.com/openlfcp/sdk-ts ../sdk-ts
+git -C ../sdk-ts checkout "$(jq -r .commit sdk-ts.lock)"
+(cd ../sdk-ts && pnpm install --frozen-lockfile && pnpm build)
+
 pnpm install --frozen-lockfile
 pnpm run build       # typecheck src and bundle main.js
 pnpm run lint        # Biome and the boundary check (with its self-test)

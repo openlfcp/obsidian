@@ -6,8 +6,8 @@
 # a short result record (scripts/smoke-report.mjs). The desktop Obsidian
 # part is the manual checklist in docs/devel/testing/platform-smoke.md.
 #
-# Pins: spec.lock (tag), server.lock (commit), sdk-rs at the server's own
-# sdk-rs.lock; the SDK is the @openlfcp/* npm packages in pnpm-lock.yaml.
+# Pins: spec.lock (tag), sdk-ts.lock and server.lock (commits); sdk-rs at
+# the server's own sdk-rs.lock.
 
 name: Platform smoke
 
@@ -48,6 +48,7 @@ jobs:
         run: |
           {
             echo "spec=$(jq -er .tag spec.lock)"
+            echo "sdk_ts=$(jq -er .commit sdk-ts.lock)"
             echo "server=$(jq -er .commit server.lock)"
           } >> "$GITHUB_OUTPUT"
 
@@ -58,6 +59,11 @@ jobs:
           ref: refs/tags/${{ steps.pins.outputs.spec }}
           path: spec
           fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: openlfcp/sdk-ts
+          ref: ${{ steps.pins.outputs.sdk_ts }}
+          path: sdk-ts
       - uses: actions/checkout@v4
         with:
           repository: openlfcp/server
@@ -99,7 +105,13 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: obsidian/pnpm-lock.yaml
+          cache-dependency-path: |
+            obsidian/pnpm-lock.yaml
+            sdk-ts/pnpm-lock.yaml
+      - name: Build the linked SDK
+        working-directory: sdk-ts
+        run: pnpm install --frozen-lockfile && pnpm build
+
       - name: Build, lint and typecheck the plugin
         working-directory: obsidian
         run: |
@@ -120,6 +132,7 @@ jobs:
         working-directory: obsidian
         env:
           LFCP_SERVER_COMMIT: ${{ steps.pins.outputs.server }}
+          LFCP_SDK_TS_COMMIT: ${{ steps.pins.outputs.sdk_ts }}
         run: node scripts/smoke-report.mjs "$RUNNER_TEMP/vitest.json" "$RUNNER_TEMP/platform-smoke-${{ runner.os }}.md"
       - uses: actions/upload-artifact@v4
         if: always()

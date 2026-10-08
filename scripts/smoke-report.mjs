@@ -8,9 +8,9 @@
 // and PASS/FAIL per test file with the names of failing tests. Failure
 // text is cut to its first line and never includes note content: the tests
 // use synthetic notes, and no assertion prints a secret (LFCP-065).
-// Environment: LFCP_SERVER_COMMIT (optional).
+// Environment: LFCP_SERVER_COMMIT, LFCP_SDK_TS_COMMIT (optional).
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { arch, platform, release, type } from "node:os";
 import { relative, resolve } from "node:path";
 
@@ -24,10 +24,14 @@ const report = JSON.parse(readFileSync(input, "utf8"));
 const manifest = JSON.parse(readFileSync(resolve(root, "manifest.json"), "utf8"));
 const spec = JSON.parse(readFileSync(resolve(root, "spec.lock"), "utf8"));
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
-const sdk = Object.entries(pkg.dependencies)
-  .filter(([name]) => name.startsWith("@openlfcp/"))
-  .map(([name, version]) => `${name}@${version}`)
-  .join(", ");
+// The SDK: a development pin (sdk-ts.lock, link: dependencies) or the npm packages.
+const sdkLock = resolve(root, "sdk-ts.lock");
+const sdk = existsSync(sdkLock)
+  ? `sdk-ts: ${process.env.LFCP_SDK_TS_COMMIT ?? JSON.parse(readFileSync(sdkLock, "utf8")).commit}`
+  : `sdk-ts (npm): ${Object.entries(pkg.dependencies)
+      .filter(([name]) => name.startsWith("@openlfcp/"))
+      .map(([name, version]) => `${name}@${version}`)
+      .join(", ")}`;
 
 const firstLine = (s) =>
   String(s ?? "")
@@ -55,7 +59,7 @@ const lines = [
   `- Platform: ${type()} ${release()} (${platform()}/${arch()})`,
   `- Node: ${process.version}`,
   `- Plugin: ${manifest.id} ${manifest.version} (minAppVersion ${manifest.minAppVersion})`,
-  `- sdk-ts (npm): ${sdk}`,
+  `- ${sdk}`,
   `- Spec: ${spec.tag} (${spec.commit})`,
   `- Server: ${process.env.LFCP_SERVER_COMMIT ?? "(not recorded)"}`,
   `- Tests: ${report.numPassedTests}/${report.numTotalTests} passed, ${report.numFailedTests} failed, ${report.numPendingTests ?? 0} skipped`,

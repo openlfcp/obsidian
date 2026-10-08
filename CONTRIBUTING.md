@@ -41,7 +41,10 @@ pnpm test
 ```
 
 The `@openlfcp/*` SDK packages come from npm at the versions locked in
-`pnpm-lock.yaml`. The live tests, the two-vault E2E included, run against
+`pnpm-lock.yaml` for releases. During 0.4 development `main` links them
+from a sibling `../sdk-ts` checkout at the commit in `sdk-ts.lock`, built
+first (README, "Build from a clean checkout"); move the pin only to a
+pushed sdk-ts commit, in its own commit. The live tests, the two-vault E2E included, run against
 the real OpenLFCP server, built with cargo from a `../server` checkout;
 without it they are skipped. No server outlives its test process: the
 harnesses in `test/support/` kill it when the process exits, and a

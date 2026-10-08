@@ -37,7 +37,7 @@ Records of past runs are in [platform-smoke-runs.md](platform-smoke-runs.md).
 Platform:           <OS> <version> <arch>
 Obsidian:           <version> (installer <version>)
 Plugin:             openlfcp <manifest version>, built from obsidian <commit>
-sdk-ts / spec:      <@openlfcp/* npm version> / <spec.lock tag>
+sdk-ts / spec:      <@openlfcp/* npm version, or the sdk-ts.lock commit on main> / <spec.lock tag>
 Server:             <server.lock commit>, <ws://127.0.0.1:PORT | wss://host>
 Peer (if any):      <OS of the other vault>
 Automated record:   platform-smoke-<OS>.md from run <URL>: PASS | FAIL
