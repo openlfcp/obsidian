@@ -14,6 +14,8 @@
 | [devel/testing/two-vault-e2e.md](devel/testing/two-vault-e2e.md) | developers | The two-vault E2E against the real server: running it, what it proves, the harness (LFCP-066) |
 | [devel/testing/security-vertical-slice.md](devel/testing/security-vertical-slice.md) | release | The MVP 0.1 security/privacy release gate (LFCP-071): every security boundary in one live scenario |
 | [devel/testing/load-in-clean-vault.md](devel/testing/load-in-clean-vault.md) | developers | Manual check: load the built plugin in a clean vault |
+| [devel/testing/native-harness.md](devel/testing/native-harness.md) | developers | The native harness (LFCP-02-096): the built plugin in a real, sandboxed Obsidian from the CLI; safety rules, cache, pinned versions |
+| [devel/testing/obsidian-host-facts.md](devel/testing/obsidian-host-facts.md) | developers | Obsidian host facts MVP 0.2 depends on (LFCP-02-005 evidence): minAppVersion was a beta, tabs by default, comments visible in Live Preview |
 | [devel/testing/platform-smoke.md](devel/testing/platform-smoke.md) | release | Desktop platform smoke (LFCP-068): the CI matrix and the manual checklist per OS |
 | [devel/testing/platform-smoke-runs.md](devel/testing/platform-smoke-runs.md) | release | Records of platform smoke runs per OS, with the current status by platform (LFCP-068) |
 | [devel/release.md](devel/release.md) | release | Releasing the plugin: the bare version tag, the release workflow, the owner's tag and BRAT steps (POST-011) |
