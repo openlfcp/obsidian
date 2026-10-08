@@ -278,6 +278,9 @@ function relocate(
   return out;
 }
 
+/** The prefix of a provisional projection ID (a section occurrence without a base). */
+const PENDING = "pending:";
+
 export class SectionEngine {
   readonly #ledger = new SessionLedger();
 
@@ -374,11 +377,19 @@ export class SectionEngine {
       if (b !== undefined) known.push({ id, section: b.locator.section });
     }
     const used = new Set<string>();
+    const seen = new Map<string, number>();
     return sections.map((s) => {
       const found = known.find((k) => !used.has(k.id) && sameSection(k.section, s.ref));
-      const id = found?.id ?? this.deps.newProjectionId();
-      used.add(id);
-      return id;
+      if (found !== undefined) {
+        used.add(found.id);
+        return found.id;
+      }
+      // No base yet: a provisional ID, stable for this occurrence of the
+      // section in this note, until a base is seeded (CM11 candidates).
+      const key = `${toBase64url(s.ref.resourceId)}#${s.ref.sectionId}`;
+      const k = seen.get(key) ?? 0;
+      seen.set(key, k + 1);
+      return `${PENDING}${path}#${key}#${k}`;
     });
   }
 
@@ -405,12 +416,30 @@ export class SectionEngine {
     const stored = await this.deps.bases.load(projectionId);
     const shared = sharedState(snap);
     if (stored === undefined) {
-      // MS11: only a note that already shows the model seeds a base.
+      // MS11, CM11: only a note that already shows the model seeds a base.
+      // Otherwise its bindings are recovered but no causal base is guessed:
+      // nothing is uploaded, and the section's source is kept as a
+      // comparison candidate until the note and the model agree.
       const note = markdownState(source, section);
-      if (note.unbound.length > 0 || !sameState(note.state, shared)) return skip("base-unknown");
+      const candidateId = `base-unknown:${projectionId}`;
+      if (note.unbound.length > 0 || !sameState(note.state, shared)) {
+        const lines = splitLines(source);
+        await this.deps.journal.putCandidate({
+          candidateId,
+          projectionId,
+          reason: "base-unknown",
+          sourceText: lines
+            .slice(section.heading.line, section.endLine + 1)
+            .map((l) => l.text + l.eol)
+            .join(""),
+        });
+        return skip("base-unknown");
+      }
+      await this.deps.journal.resolveCandidate(candidateId);
+      const seeded = projectionId.startsWith(PENDING) ? this.deps.newProjectionId() : projectionId;
       return {
         result: {
-          projectionId,
+          projectionId: seeded,
           section: ref,
           ...none,
           base: { locator, state: note.state, revision: snap.revision },

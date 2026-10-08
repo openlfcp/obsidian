@@ -172,8 +172,13 @@ Per section:
 
 1. Every snapshot is taken before the first await (the 0.3.2 rule). No
    snapshot, a paused section or an importing one: nothing happens.
-2. Without a base (MS11), a note that shows the model exactly seeds it;
-   any other note publishes nothing (`base-unknown`).
+2. Without a base (MS11, CM11: the index was lost, or the note was edited
+   while the plugin was off), a note that shows the model exactly seeds it;
+   any other note publishes nothing (`base-unknown`), and the section's
+   source is kept as a `base-unknown` comparison candidate until the note
+   and the model agree. Such an occurrence has a provisional projection ID,
+   stable per note, section and occurrence; the real one is allocated when
+   its base is seeded.
 3. Unfinished operations of the projection come first. A committed batch
    whose bindings were never written (a crash, an unwritten pass) is
    applied to the base, and its new nodes are found again among the
@@ -220,6 +225,23 @@ pass goes through the coordinator; its changes are dispatched only onto the
 revision they were computed for, outside the undo history, else the pass
 is abandoned and runs again on the new document. The native harness runs
 it on the fake SDK (`specs/section-sync.e2e.mjs`).
+
+## Several projections (LFCP-02-045)
+
+Each projection has its own base, by projection ID, never by note path
+(OP-24). A complete copy of a section, in the same note or another one, is
+another projection of the same identities (MS07): it seeds its own base
+when it shows the model, and an edit in it is the user's edit against that
+base; the others receive it as a remote change on their next pass (the
+snapshot rule: one pass reads the model once). A rename or move changes
+only the locator (`rename` of the base store); line shifts change nothing,
+as identities are in the markers. A standalone Task ref to a section's Task
+is not a section projection: the section engine never acts on it, and the
+0.1 engine refuses the sections Resource. At start the plugin looks for any
+`lfcp-` marker, not only refs (OP-14).
+`test/core/sections/projections.test.ts` covers MS07, MS11 and CM11, a
+rename, two projections in one note across a restart, and a standalone
+ref.
 
 ## Typing and IME (LFCP-02-043)
 
