@@ -42,6 +42,8 @@ export const config = {
       plugins: [
         path.resolve(here, "../.."),
         path.join(here, "plugins/cm-spike"),
+        // LFCP-02-048 spike, installed disabled; specs/marker-hiding enables it.
+        { path: path.join(here, "plugins/marker-spike"), enabled: false },
         { id: "obsidian-tasks-plugin", version: "8.4.0", enabled: false },
       ],
       vault: path.join(here, "vaults/basic"),

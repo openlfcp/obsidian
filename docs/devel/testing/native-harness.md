@@ -91,6 +91,7 @@ touch it either.
 | `specs/projection-race.e2e.mjs` | Regression (0.3.2): a collaborator's change arriving right after sharing and editing is not sent back |
 | `specs/adr-0001-spikes.e2e.mjs` | ADR 0001 spikes S1–S6: CodeMirror transactions, undo grouping, several views, external writes, cost, Live Preview; through the test-only plugin `plugins/cm-spike` |
 | `specs/tasks-plugin.e2e.mjs` | The Obsidian Tasks plugin (8.4.0) next to Shared Tasks: the lines it writes when toggling a Task (plain, inline ref, child-line ref, recurring) and its transactions |
+| `specs/marker-hiding.e2e.mjs` | LFCP-02-048 spike: hiding binding lines in Live Preview with the test-only plugin `plugins/marker-spike` (installed disabled, enabled by this spec); results in [../reports/marker-hiding-spike.md](../reports/marker-hiding-spike.md) |
 | `specs/baseline-0.3.e2e.mjs` | Baselines of the 0.3 plugin: start, "Share selected tasks" with 200 Tasks, edit → queued, change → render. Prints `METRIC {…}` lines; results in [obsidian-host-facts.md](obsidian-host-facts.md) |
 
 Each run also installs the Obsidian Tasks plugin 8.4.0 (released

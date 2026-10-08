@@ -1,0 +1,9 @@
+{
+  "id": "lfcp-marker-spike",
+  "name": "LFCP marker hiding spike (test only)",
+  "version": "0.0.0",
+  "minAppVersion": "1.13.1",
+  "description": "Native harness only: hides LFCP binding lines in Live Preview (LFCP-02-048 spike).",
+  "author": "OpenLFCP",
+  "isDesktopOnly": true
+}
