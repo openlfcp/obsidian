@@ -102,8 +102,12 @@ export class SourceCoordinator {
     if (n.views.size === 0) this.#request(path, "local");
   }
 
-  /** The shared state of a note's projection changed: project it from the current source. */
-  remoteChanged(path: string): void {
+  /**
+   * The shared state of a note's projection changed: project it from the
+   * current source. `content` is a closed note's file as just read.
+   */
+  remoteChanged(path: string, content?: string): void {
+    if (content !== undefined) this.#note(path).fileSource = content;
     this.#request(path, "remote");
   }
 

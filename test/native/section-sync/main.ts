@@ -36,7 +36,7 @@ export default class SectionSyncHarness extends Plugin {
     const statuses: { path: string; status: EditorSyncStatus; at: number }[] = [];
     const errors: string[] = [];
     const editor = sectionEditorExtension({
-      engine,
+      engine: () => engine,
       onPass: (path, pass) =>
         passes.push({ path, changes: pass.changes.length, local: pass.sections[0]?.local?.kind }),
       onStatus: (path, status) => statuses.push({ path, status, at: Date.now() }),

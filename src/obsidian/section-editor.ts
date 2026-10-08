@@ -19,7 +19,12 @@ import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
 import { contentHash } from "../core/projection/guard";
 import { type PassRequest, SourceCoordinator } from "../core/sections/coordinator";
-import type { NotePass, PassContext, SectionEngine } from "../core/sections/engine";
+import {
+  applyChanges,
+  type NotePass,
+  type PassContext,
+  type SectionEngine,
+} from "../core/sections/engine";
 import { ReconcileScheduler, type Timer } from "../core/sections/input";
 import { type ChangeOrigin, originOf } from "../core/sections/undo";
 
@@ -32,8 +37,16 @@ const BINDING_ID =
 
 export type EditorSyncStatus = "edited" | "reconciling" | "idle" | "error";
 
+/** Closed notes: read and atomic read-modify-write (Obsidian's vault.process). */
+export interface SectionFiles {
+  rewrite(path: string, fn: (current: string) => string): Promise<string | null>;
+}
+
 export interface SectionEditorOptions {
-  readonly engine: SectionEngine;
+  /** The engine, once the runtime is ready (null before: nothing is reconciled). */
+  readonly engine: () => SectionEngine | null;
+  /** The route of closed notes; without it, only open editors are reconciled. */
+  readonly files?: SectionFiles;
   readonly timer?: Timer;
   /** The note's sync status changed (SI02: "edited" at the first keystroke). */
   readonly onStatus?: (path: string, status: EditorSyncStatus) => void;
@@ -57,8 +70,12 @@ const defaultTimer: Timer = {
 
 export function sectionEditorExtension(o: SectionEditorOptions): {
   readonly extension: Extension;
-  /** The shared state of a note's sections changed: project it into its open editor. */
-  remoteChanged(path: string): void;
+  /** The shared state of a note's sections changed (`content`: a closed note's file as just read). */
+  remoteChanged(path: string, content?: string): void;
+  /** A note's file changed on disk (reconciled when the note is closed). */
+  fileChanged(path: string, content: string): void;
+  renamed(oldPath: string, newPath: string): void;
+  deleted(path: string): void;
   readonly views: ReadonlyMap<EditorView, { readonly path: string | null }>;
 } {
   const views = new Map<EditorView, ViewState>();
@@ -72,9 +89,32 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     return found;
   };
 
+  /** A closed note: the pass is written by read-modify-write, only onto the source it read. */
+  const reconcileFile = async (req: PassRequest, engine: SectionEngine): Promise<void> => {
+    if (o.files === undefined) return;
+    status(req.path, "reconciling");
+    const ctx: PassContext = { caretLine: null, deletedIds: new Set(), origin: "other" };
+    const pass = await engine.pass(req.path, req.source, ctx);
+    let current = req.source;
+    const written = await o.files.rewrite(req.path, (text) => {
+      current = text;
+      return contentHash(text) === pass.sourceRevision ? applyChanges(text, pass.changes) : text;
+    });
+    if (written === null || contentHash(current) !== pass.sourceRevision) {
+      engine.abandoned(pass);
+      if (written !== null) coordinator.fileChanged(req.path, current);
+      return;
+    }
+    await engine.written(pass, written);
+    o.onPass?.(req.path, pass);
+    status(req.path, "idle");
+  };
+
   const reconcile = async (req: PassRequest): Promise<void> => {
-    // Closed notes go through the vault path of the plugin, not this extension.
-    const open = req.route === "editor" ? viewOf(req.path) : undefined;
+    const engine = o.engine();
+    if (engine === null) return;
+    if (req.route === "file") return reconcileFile(req, engine);
+    const open = viewOf(req.path);
     if (open === undefined) return;
     const [view, st] = open;
     status(req.path, "reconciling");
@@ -85,11 +125,11 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       : null;
     const ctx: PassContext = { caretLine: caret, deletedIds, origin: st.origin };
     st.origin = "other";
-    const pass = await o.engine.pass(req.path, req.source, ctx);
+    const pass = await engine.pass(req.path, req.source, ctx);
     const current = view.state.doc.toString();
     if (contentHash(current) !== pass.sourceRevision) {
       // The user typed meanwhile: nothing is written; the pass runs again on the new document.
-      o.engine.abandoned(pass);
+      engine.abandoned(pass);
       for (const id of deletedIds) st.deletedIds.add(id);
       coordinator.editorChanged(req.path, current);
       return;
@@ -99,7 +139,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         changes: pass.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
         annotations: [sectionWrite.of(pass.sourceRevision), Transaction.addToHistory.of(false)],
       });
-    await o.engine.written(pass, view.state.doc.toString());
+    await engine.written(pass, view.state.doc.toString());
     o.onPass?.(req.path, pass);
     status(req.path, st.scheduler.dirty ? "edited" : "idle");
   };
@@ -185,7 +225,10 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
 
   return {
     extension: [plugin, events],
-    remoteChanged: (path) => coordinator.remoteChanged(path),
+    remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
+    fileChanged: (path, content) => coordinator.fileChanged(path, content),
+    renamed: (oldPath, newPath) => coordinator.renamed(oldPath, newPath),
+    deleted: (path) => coordinator.deleted(path),
     views,
   };
 }
