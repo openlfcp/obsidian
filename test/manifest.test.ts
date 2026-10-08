@@ -52,8 +52,15 @@ describe("manifest", () => {
     expect(json("versions.json")[manifest.version]).toBe(manifest.minAppVersion);
   });
 
-  it("targets the Obsidian API it is typed against", () => {
-    const api = json("node_modules/obsidian/package.json").version;
-    expect(manifest.minAppVersion).toBe(api);
+  it("never needs an Obsidian newer than its minimum (its typed API is that version or an older patch)", () => {
+    // The newest typings on npm are 1.13.1 (an Insider build); the minimum is
+    // the first public 1.13 release, 1.13.4 (0.3.2). Same minor, older patch:
+    // every API the plugin is typed against exists in the minimum version.
+    const [aMajor, aMinor, aPatch] = json("node_modules/obsidian/package.json")
+      .version.split(".")
+      .map(Number);
+    const [mMajor, mMinor, mPatch] = manifest.minAppVersion.split(".").map(Number);
+    expect([aMajor, aMinor]).toEqual([mMajor, mMinor]);
+    expect(aPatch).toBeLessThanOrEqual(mPatch);
   });
 });
