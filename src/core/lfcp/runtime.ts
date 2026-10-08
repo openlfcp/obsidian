@@ -10,6 +10,7 @@
 // in storage and survive it.
 
 import {
+  type CommitBinding,
   createQueuedDataUnit,
   DataUnitApplier,
   dekResolver,
@@ -19,6 +20,7 @@ import {
   ProfileCheckpointer,
   type ResourcePhase,
   type ResourceRefusal,
+  type Receipt as SectionReceipt,
   SyncClient,
   type SyncEvent,
   saveControlChain,
@@ -46,6 +48,11 @@ import {
   SharedObjectsDataProfile,
   SharedObjectsReplica,
 } from "@openlfcp/shared-objects";
+import {
+  SECTIONS_PROFILE_ID,
+  SectionReplica,
+  SharedSectionsDataProfile,
+} from "@openlfcp/shared-objects/sections";
 import {
   dekSecretRef,
   type LfcpStorage,
@@ -247,6 +254,14 @@ interface Opened {
   binding?: Parameters<SyncClient["open"]>[0];
 }
 
+/** An opened shared-sections Resource. */
+interface OpenedSection {
+  readonly resourceId: ResourceId;
+  readonly profile: SharedSectionsDataProfile;
+  readonly url: string;
+  readonly checkpointer: ProfileCheckpointer;
+}
+
 export class LfcpRuntime {
   readonly #env: RuntimeEnv;
   #install: Install;
@@ -254,6 +269,7 @@ export class LfcpRuntime {
   #outbound: OutboundQueue | null = null;
   readonly #pool = new Map<string, Pooled>();
   readonly #opened = new Map<string, Opened>();
+  readonly #sections = new Map<string, OpenedSection>();
   readonly #phases = new Map<string, ResourcePhase>();
   readonly #errors = new Map<string, string>();
   /** Terminal refusals by the server (POST-017), per Resource. */
@@ -802,50 +818,8 @@ export class LfcpRuntime {
     readonly endpoints: readonly string[];
     readonly coordinatorUrl: string;
   }): Promise<ResourceId> {
-    const { storage, secrets, principal } = this.#ready();
-    const R = generateResourceId();
-    const dek = generateResourceDEK();
-    const epoch0 = dataEpoch(0n);
-    const genesis = signControlRecord(
-      { resourceId: R, controlSeq: 0n, prevControlId: null },
-      {
-        type: "GENESIS",
-        dataProfile: PROFILE_ID,
-        owner: principal.signer.descriptor,
-        dekCommitment: dekCommitment(R, epoch0, dek),
-        endpoints: options.endpoints.map((url, n) => ({ url, priority: BigInt(n) })),
-        coordinatorUrl: options.coordinatorUrl,
-      },
-      principal.signer,
-    );
-    const chain = validateControlChain([genesis.bytes]);
-    if (chain.kind !== "linear") throw new Error("the Genesis does not validate");
-    const ref = dekSecretRef(R, epoch0);
-    await secrets.put(ref, exportSecretKeyBytes(dek));
-    const saved = await saveControlChain(storage, chain, null);
-    if (!saved.ok) throw new Error("the Resource was not stored");
-    const epochs = await storage.control.epochs(R);
-    const r = await storage.commit([
-      ...epochs.map((e) => ({
-        op: "put-epoch" as const,
-        resourceId: R,
-        epoch: { ...e, dekRef: ref },
-      })),
-      {
-        op: "put-resource",
-        row: {
-          resourceId: R,
-          dataProfile: PROFILE_ID,
-          localPrincipal: {
-            principalId: principal.id,
-            signingKeyRef: principalKeySecretRef(principal.id, "signing"),
-            agreementKeyRef: principalKeySecretRef(principal.id, "agreement"),
-          },
-          labels: { name: options.name },
-        },
-      },
-    ]);
-    if (!r.ok) throw new Error("the Resource was not stored");
+    const { storage, principal } = this.#ready();
+    const { R, chain, dek } = await this.#genesis(options, PROFILE_ID);
     const { replica, change } = SharedObjectsReplica.create({
       resource: R,
       principal: principal.id,
@@ -874,6 +848,151 @@ export class LfcpRuntime {
       () => [opened.checkpointer.write()],
     );
     return R;
+  }
+
+  /**
+   * A new shared-sections Resource (MVP 0.2), owned by this vault's identity:
+   * its Genesis and row, without a first unit. The section itself
+   * (section.create and its import) is one operation committed once the
+   * Resource is open (SDK-SECTIONS-INTEGRATION-01 §3.1).
+   */
+  createSectionResource(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+  }): Promise<ResourceId> {
+    return this.#engine(async () => (await this.#genesis(options, SECTIONS_PROFILE_ID)).R);
+  }
+
+  /**
+   * Opens a stored shared-sections Resource: its replica restored from its
+   * checkpoint, a session on its coordinator, and the commit binding through
+   * which local batches are committed with receipts.
+   */
+  openSection(resource: ResourceId): Promise<SharedSectionsDataProfile> {
+    return this.#engine(async () => (await this.#openSection(resource)).profile);
+  }
+
+  async #openSection(resource: ResourceId): Promise<OpenedSection> {
+    const key = toHex(resource);
+    const existing = this.#sections.get(key);
+    if (existing !== undefined) return existing;
+    const { storage, principal } = this.#ready();
+    const row = await storage.resources.get(resource);
+    if (row === undefined) throw new Error("unknown Resource");
+    if (row.dataProfile !== SECTIONS_PROFILE_ID) throw new UnsupportedProfileError(row.dataProfile);
+    const route = await storage.resources.route(resource);
+    const url = route?.coordinatorUrl;
+    if (url === undefined) throw new Error("no known route for this Resource");
+    const options = { resource, principal: principal.id };
+    const checkpoint = await storage.profileState.checkpoint(resource);
+    const profile =
+      checkpoint === undefined
+        ? new SharedSectionsDataProfile(SectionReplica.empty(options))
+        : SharedSectionsDataProfile.restore(checkpoint as never, options);
+    const checkpointer = new ProfileCheckpointer(
+      storage,
+      { checkpoint: () => profile.checkpoint() as never },
+      { minIntervalMs: 2000 },
+    );
+    const applier = new DataUnitApplier({
+      storage,
+      dek: dekResolver(storage, this.#ready().secrets, resource),
+      handlers: [
+        {
+          dataProfile: profile.dataProfile,
+          codecFor: (u) => profile.codecFor(u) as never,
+          apply: (u, v) => profile.apply(u, v as never),
+          applyBatch: (units) => profile.applyBatch(units as never),
+          exclude: (ids) => profile.exclude(ids),
+          has: (id) => profile.has(id),
+          reset: () => profile.reset(),
+        },
+      ],
+    });
+    const binding = {
+      resourceId: resource,
+      applier,
+      checkpointer,
+      commit: profile.commitBinding(principal.id) as CommitBinding<unknown>,
+    };
+    this.#session(url).client.open(binding);
+    const opened: OpenedSection = { resourceId: resource, profile, url, checkpointer };
+    this.#sections.set(key, opened);
+    return opened;
+  }
+
+  /** An open shared-sections Resource's profile, synchronously (the section snapshot rule). */
+  sectionProfile(resource: ResourceId): SharedSectionsDataProfile | undefined {
+    return this.#sections.get(toHex(resource))?.profile;
+  }
+
+  /** Commits a batch on a shared-sections Resource through its session (§3.1): a durable receipt. */
+  commitSection(
+    resource: ResourceId,
+    intents: readonly unknown[],
+    options: { readonly operationId: string },
+  ): Promise<SectionReceipt> {
+    return this.#engine(async () => {
+      const opened = await this.#openSection(resource);
+      return this.#session(opened.url).client.commit(resource, intents, options);
+    });
+  }
+
+  /** A new Resource's Genesis, epoch-0 DEK and row, owned by this vault's identity (§15). */
+  async #genesis(
+    options: {
+      readonly name: string;
+      readonly endpoints: readonly string[];
+      readonly coordinatorUrl: string;
+    },
+    dataProfile: string,
+  ) {
+    const { storage, secrets, principal } = this.#ready();
+    const R = generateResourceId();
+    const dek = generateResourceDEK();
+    const epoch0 = dataEpoch(0n);
+    const genesis = signControlRecord(
+      { resourceId: R, controlSeq: 0n, prevControlId: null },
+      {
+        type: "GENESIS",
+        dataProfile,
+        owner: principal.signer.descriptor,
+        dekCommitment: dekCommitment(R, epoch0, dek),
+        endpoints: options.endpoints.map((url, n) => ({ url, priority: BigInt(n) })),
+        coordinatorUrl: options.coordinatorUrl,
+      },
+      principal.signer,
+    );
+    const chain = validateControlChain([genesis.bytes]);
+    if (chain.kind !== "linear") throw new Error("the Genesis does not validate");
+    const ref = dekSecretRef(R, epoch0);
+    await secrets.put(ref, exportSecretKeyBytes(dek));
+    const saved = await saveControlChain(storage, chain, null);
+    if (!saved.ok) throw new Error("the Resource was not stored");
+    const epochs = await storage.control.epochs(R);
+    const r = await storage.commit([
+      ...epochs.map((e) => ({
+        op: "put-epoch" as const,
+        resourceId: R,
+        epoch: { ...e, dekRef: ref },
+      })),
+      {
+        op: "put-resource",
+        row: {
+          resourceId: R,
+          dataProfile,
+          localPrincipal: {
+            principalId: principal.id,
+            signingKeyRef: principalKeySecretRef(principal.id, "signing"),
+            agreementKeyRef: principalKeySecretRef(principal.id, "agreement"),
+          },
+          labels: { name: options.name },
+        },
+      },
+    ]);
+    if (!r.ok) throw new Error("the Resource was not stored");
+    return { R, chain, dek };
   }
 
   #session(url: string): Pooled {
@@ -964,11 +1083,12 @@ export class LfcpRuntime {
     // After a trap the engine cannot save: the stored units are replayed at the next start.
     if (this.#trapped === null)
       await Promise.allSettled(
-        [...this.#opened.values()]
+        [...this.#opened.values(), ...this.#sections.values()]
           .filter((o) => o.checkpointer.dirty)
           .map((o) => o.checkpointer.flush(now)),
       );
     this.#opened.clear();
+    this.#sections.clear();
     this.#install.storage?.close();
     this.#lock?.release();
     this.#lock = null;

@@ -244,8 +244,21 @@ receipt are stored in one transaction), and the receipts' store
 `OperationIdReusedError` become `CommitRefused` with the same code; any
 other error leaves the outcome unknown, for the journal to ask the
 receipt. Unit IDs are hex in the port's receipt. Write access comes from
-the runtime (`SectionResources.canWrite`). Not wired into the plugin yet:
-the runtime opens no sections Resource so far.
+the runtime (`SectionResources.canWrite`).
+
+The runtime (`src/core/lfcp/runtime.ts`) creates a shared-sections Resource
+(`createSectionResource`: its Genesis with the sections profile and its
+row, no first unit; the section and its import are one committed
+operation), opens it (`openSection`: the replica restored from its
+checkpoint, the applier, the commit binding and a checkpointer, flushed at
+stop), reads its profile synchronously (`sectionProfile`, for the snapshot
+rule) and commits batches through its session (`commitSection`). The 0.1
+paths keep refusing such a Resource (`UnsupportedProfileError`). The
+plugin does not use any of this yet.
+`test/core/lfcp/runtime-sections.test.ts` checks it offline: a commit with
+a receipt and its queued units, a restart restoring the section and
+finding the receipt, and the engine on the runtime with its records in the
+install database.
 `test/core/lfcp/section-port.test.ts` runs it on an offline `SyncClient`
 with the sections profile, as sdk-ts's own conformance test does: the
 snapshot, a durable receipt found again and released, the refusals, and
