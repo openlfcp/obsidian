@@ -226,6 +226,28 @@ revision they were computed for, outside the undo history, else the pass
 is abandoned and runs again on the new document. The native harness runs
 it on the fake SDK (`specs/section-sync.e2e.mjs`).
 
+## Editor rules from the fixtures (LFCP-02-047)
+
+- **Enter after a Task with a child-line ref** (§4.1, MS27, MS28): the
+  editor would put the new line between the Task and its ref, so the ref
+  would bind the new line. `keepRefWithTask` moves the insertion past the
+  Task's subtree, applied by a transaction filter in the same transaction
+  (one undo step). Obsidian's list Enter replaces the line's last
+  character (host fact H9), so the filter first reduces the change to what
+  it adds.
+- **Deletion** (§7): the editor reports a bound node as deleted only when
+  a user transaction removed every one of its lines (`classifyRemoval`);
+  removing only its marker or ref is `NODE_BINDING_LOST`, and a lost
+  binding suspends the section's publication until it is repaired.
+- **Shared comments** (§4.5): under `section_comments: shared`, a comment
+  new since the base gets a `raw` marker on its own line and is published
+  as a raw node (`commentBlocks`); the base remembers the comments kept
+  local, which stay local after the switch.
+
+The whole Markdown corpus runs through the product adapter
+(`test/support/sections-fixtures.ts`): see
+[sections-fixtures-and-privacy.md](../devel/reports/sections-fixtures-and-privacy.md).
+
 ## Several projections (LFCP-02-045)
 
 Each projection has its own base, by projection ID, never by note path

@@ -23,6 +23,7 @@
 | [devel/reports/legacy-client-and-other-profiles.md](devel/reports/legacy-client-and-other-profiles.md) | developers | LFCP-02-004 evidence: how 0.3.x meets a collaboration of another profile, what 0.3.2 changes, minimum version and downgrade |
 | [devel/reports/marker-hiding-spike.md](devel/reports/marker-hiding-spike.md) | developers | LFCP-02-048 spike: hiding binding lines in Live Preview (state field, block decorations), Reading view, cost at W200, the recommendation |
 | [devel/reports/host-and-platform-baseline.md](devel/reports/host-and-platform-baseline.md) | developers | LFCP-02-005 evidence: environments, host facts, baselines, the platform matrix (V4) and a proposal for the native harness in CI |
+| [devel/reports/sections-fixtures-and-privacy.md](devel/reports/sections-fixtures-and-privacy.md) | developers | LFCP-02-047 evidence: the Markdown fixture corpus through the product adapter (48/48, also by the spec's verifier), what it changed, the shared plaintext checks |
 | [devel/release.md](devel/release.md) | release | Releasing the plugin: the bare version tag, the release workflow, the owner's tag and BRAT steps (POST-011) |
 | [devel/community-submission.md](devel/community-submission.md) | release | Draft community directory submission: the community-plugins.json entry, the PR text, the owner's checklist (POST-011) |
 | [releases/0.3.2.md](releases/0.3.2.md) | everyone | Release notes of Shared Tasks 0.3.2: Obsidian 1.13.4, joining newer collaborations safely, the revert fix, a server that repairs itself (the GitHub release body) |
