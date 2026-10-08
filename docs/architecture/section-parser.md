@@ -17,6 +17,8 @@ inside a section).
 | --- | --- |
 | `grammar.ts` | The spelling of the markers, and nothing else: `parseBoundary`, `parseNodeMarker`, `parseSectionRef` and their formatters. The only file to change while the grammar is a draft |
 | `parser.ts` | `parseSections(markdown): SectionScan`: boundaries (pass 1), then the nodes of each valid section (pass 2) |
+| `text.ts` | Text positions (LFCP-02-036): UTF-16 offsets ↔ Unicode scalar positions (SSP §10), lone surrogates refused, `diffText` (one edit, in scalars) |
+| `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 
 ```ts
 interface SectionScan {
@@ -55,6 +57,34 @@ The parser does not read Markdown a second way:
   (§5, M2). A node's parent is the nearest open Task or item whose content
   column is at or left of the node's column. Paragraphs and raw nodes take
   no children.
+
+## Text and the source map (LFCP-02-036)
+
+The profile's Text intents count Unicode scalars; the note, the editor and
+CodeMirror count UTF-16 code units (SSP §10). `text.ts` converts exactly and
+refuses an offset inside a surrogate pair or a lone surrogate (invalid in
+shared text, SSP §4).
+
+`nodeSource(markdown, node)` builds a node's Text as the profile holds it
+(24's answers for LFCP-02-010, to be frozen in MARKDOWN-SECTIONS-01 §5):
+
+| Kind | Text |
+| --- | --- |
+| paragraph | its lines without the marker line, each stripped to the node's column, joined with LF |
+| item | the inline text after the list marker, then its continuation lines stripped to the content column, joined with LF |
+| raw | the block's lines stripped to the content column, joined with LF, no final LF |
+| task | none: its fields are scalars, read from the Task line by the 0.1 rules |
+
+Text line breaks are LF whatever the note uses; CRLF is local presentation.
+A tab that reaches past the stripped column leaves its remainder as spaces,
+which are part of the Text and map back to the tab.
+
+The source map is a list of segments, one per line, from Text positions to
+note offsets. `textEditToDoc` turns a Text edit (a remote one, to project)
+into a note change: a line break in the inserted text becomes the note's
+line ending plus the node's continuation indentation. The tests check that
+a projected edit, read back, gives the same Text as the edit applied to the
+Text, with CRLF, Cyrillic and emoji.
 
 ## Fail closed
 
@@ -125,6 +155,10 @@ it to warn that this private text travels with the shared heading (§3).
   extensions.
 
 ## Tests
+
+`test/core/sections/source-map.test.ts`: scalar conversion with emoji
+(a ZWJ sequence counts its scalars), lone surrogates, `diffText`, tab
+stripping, the Text of each kind, position round trips and projected edits.
 
 `test/core/sections/parser.test.ts`: the grammar module (round trip,
 whitespace rule, malformed markers); boundaries (M4, the packet's
