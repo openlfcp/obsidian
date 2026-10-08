@@ -132,7 +132,14 @@ export function preflight(markdown: string, range: ShareRange): SharePreview {
     }
   // The range must end on a block boundary: the next line is blank, a heading or the end.
   const after = lines[last + 1]?.text;
-  if (after !== undefined && !isBlank(after) && heading(after) === null && last >= first)
+  const lastText = lines[last]?.text ?? "";
+  if (
+    after !== undefined &&
+    !isBlank(after) &&
+    !isBlank(lastText) &&
+    heading(after) === null &&
+    last >= first
+  )
     problems.push({ code: "PARTIAL_BLOCK", line: last + 1 });
 
   // The range parsed as the section it would become.

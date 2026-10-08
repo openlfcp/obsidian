@@ -81,6 +81,10 @@ describe("preflight", () => {
     expect(preflight(nested, { headingLine: 0, lastLine: 3 }).problems).toEqual([
       { code: "NESTED_HEADING", line: 2 },
     ]);
+    // A range that ends on a blank line ends on a block boundary.
+    expect(
+      preflight(lines("## Launch", "One", "", "Two"), { headingLine: 0, lastLine: 2 }).problems,
+    ).toEqual([]);
     const cut = lines("## Launch", "A paragraph", "goes on here");
     expect(preflight(cut, { headingLine: 0, lastLine: 1 }).problems).toEqual([
       { code: "PARTIAL_BLOCK", line: 2 },
