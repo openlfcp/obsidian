@@ -17,13 +17,23 @@ import {
   rebuildFromNote,
   recovery,
 } from "../../../src/core/sections/journal";
+import type { Receipt } from "../../../src/core/sections/port";
 
 const R = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const id = (n: number) => `019a2f85-7b31-7c42-b85a-fc843e2f4${n.toString(16).padStart(3, "0")}`;
 const S = parseSectionRef(`lfcp1:${R}#section:${id(1)}`) as SectionRef;
+const receipt = (unit: string): Receipt => ({
+  operationId: "op-1",
+  unitIds: [unit],
+  affectedNodeIds: [],
+  modelRevision: "heads-1",
+  intentsHash: "00",
+  durable: true,
+});
 const captured: JournalEntry = {
   operationId: "op-1",
   projectionId: "p-1",
+  resource: R,
   phase: "captured",
   sourceHash: "h0",
   allocatedIds: {},
@@ -33,30 +43,47 @@ describe("journal phases (ARCHITECTURE-02 §5)", () => {
   it("move forward only; IDs and the receipt are never replaced", () => {
     const ids = advance(captured, "ids-allocated", { allocatedIds: { 4: id(9) } });
     expect(() => advance(ids, "committed")).toThrow(JournalError); // no receipt
-    const committed = advance(ids, "committed", { receipt: "unit-abc" });
+    const committed = advance(ids, "committed", { receipt: receipt("unit-abc") });
     expect(() => advance(committed, "ids-allocated")).toThrow(JournalError);
-    expect(() => advance(committed, "projected", { receipt: "unit-other" })).toThrow(JournalError);
+    expect(() => advance(committed, "projected", { receipt: receipt("unit-other") })).toThrow(
+      JournalError,
+    );
     expect(() => advance(committed, "projected", { allocatedIds: { 4: id(10) } })).toThrow(
       JournalError,
     );
     const done = advance(advance(committed, "projected", { patchedHash: "h1" }), "done");
     expect(done).toMatchObject({
       phase: "done",
-      receipt: "unit-abc",
+      receipt: receipt("unit-abc"),
       allocatedIds: { 4: id(9) },
       patchedHash: "h1",
     });
     expect(() => advance(done, "abandoned")).toThrow(JournalError);
   });
 
+  it("keep the batch recorded with the IDs: a retry submits exactly it", () => {
+    const batch = [{ intent: "node.delete" as const, id: id(9) }];
+    const ids = advance(captured, "ids-allocated", { allocatedIds: { 4: id(9) }, intents: batch });
+    expect(ids.intents).toEqual(batch);
+    expect(() =>
+      advance(ids, "committed", {
+        receipt: receipt("unit-abc"),
+        intents: [{ intent: "node.restore", id: id(9) }],
+      }),
+    ).toThrow(JournalError);
+    expect(
+      advance(ids, "committed", { receipt: receipt("unit-abc"), intents: batch }).intents,
+    ).toEqual(batch);
+  });
+
   it("recovery follows the crash table: re-evaluate, query, project existing IDs, finish", () => {
     expect(recovery(captured)).toEqual({ kind: "re-evaluate", allocatedIds: {} });
     const ids = advance(captured, "ids-allocated", { allocatedIds: { 4: id(9) } });
     expect(recovery(ids)).toEqual({ kind: "query-receipt" });
-    const committed = advance(ids, "committed", { receipt: "unit-abc" });
+    const committed = advance(ids, "committed", { receipt: receipt("unit-abc") });
     expect(recovery(committed)).toEqual({
       kind: "project",
-      receipt: "unit-abc",
+      receipt: receipt("unit-abc"),
       allocatedIds: { 4: id(9) },
     });
     expect(recovery(advance(committed, "projected", { patchedHash: "h1" }))).toEqual({

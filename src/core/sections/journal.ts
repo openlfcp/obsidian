@@ -1,7 +1,8 @@
 // Local records of shared-section projections (LFCP-02-038): the
 // reconciliation journal, pending local candidates, and what a rebuild may
 // recover. Interfaces and an in-memory store only; the install-database
-// adapter and the SDK's durable receipts (LFCP-02-025) come later. Pure.
+// adapter comes later. Pure. The receipt is the SDK's (port.ts, contract
+// §3.2); commit.ts drives an operation through these phases (LFCP-02-039).
 //
 // Everything here is local and private: source snapshots, candidates and
 // paths never enter shared payloads, and diagnosticView() is the only shape
@@ -9,6 +10,7 @@
 
 import type { SectionRef } from "./grammar";
 import { parseSections } from "./parser";
+import type { Receipt, SectionIntent } from "./port";
 
 /**
  * A reconciliation's phases, in order (OBSIDIAN-SECTIONS-ARCHITECTURE-02 §5):
@@ -22,14 +24,21 @@ export type Phase = (typeof PHASES)[number] | "abandoned";
 export interface JournalEntry {
   readonly operationId: string;
   readonly projectionId: string;
+  /** The Resource (base64url) the operation commits to: a restart asks its receipt there. */
+  readonly resource: string;
   readonly phase: Phase;
   /** SHA-256 of the section's source when captured, and after the projection patch. */
   readonly sourceHash: string;
   readonly patchedHash?: string;
   /** IDs allocated for new nodes, by their line at capture: reused on every retry. */
   readonly allocatedIds: Readonly<Record<number, string>>;
-  /** The SDK's durable commit receipt (LFCP-02-025), once committed. */
-  readonly receipt?: string;
+  /**
+   * The batch, recorded with the IDs: a retry after a crash submits exactly
+   * it again under the same operation ID (contract §3.3, §3.4).
+   */
+  readonly intents?: readonly SectionIntent[];
+  /** The SDK's durable commit receipt (contract §3.2), once committed. */
+  readonly receipt?: Receipt;
   /** Why the operation stopped, when abandoned. */
   readonly reason?: string;
 }
@@ -65,10 +74,11 @@ export function advance(
   entry: JournalEntry,
   phase: Phase,
   extra: {
-    receipt?: string;
+    receipt?: Receipt;
     patchedHash?: string;
     reason?: string;
     allocatedIds?: Record<number, string>;
+    intents?: readonly SectionIntent[];
   } = {},
 ): JournalEntry {
   if (entry.phase === "done" || entry.phase === "abandoned")
@@ -79,8 +89,18 @@ export function advance(
     );
   if (phase === "committed" && extra.receipt === undefined && entry.receipt === undefined)
     throw new JournalError("a commit needs its durable receipt");
-  if (entry.receipt !== undefined && extra.receipt !== undefined && extra.receipt !== entry.receipt)
+  if (
+    entry.receipt !== undefined &&
+    extra.receipt !== undefined &&
+    JSON.stringify(extra.receipt) !== JSON.stringify(entry.receipt)
+  )
     throw new JournalError("a receipt is never replaced");
+  if (
+    entry.intents !== undefined &&
+    extra.intents !== undefined &&
+    JSON.stringify(extra.intents) !== JSON.stringify(entry.intents)
+  )
+    throw new JournalError("a recorded batch is never replaced");
   const ids = extra.allocatedIds ?? {};
   for (const [line, id] of Object.entries(ids))
     if (entry.allocatedIds[Number(line)] !== undefined && entry.allocatedIds[Number(line)] !== id)
@@ -90,6 +110,7 @@ export function advance(
     phase,
     allocatedIds: { ...entry.allocatedIds, ...ids },
     ...(extra.receipt === undefined ? {} : { receipt: extra.receipt }),
+    ...(extra.intents === undefined ? {} : { intents: extra.intents }),
     ...(extra.patchedHash === undefined ? {} : { patchedHash: extra.patchedHash }),
     ...(extra.reason === undefined ? {} : { reason: extra.reason }),
   };
@@ -104,7 +125,7 @@ export type Recovery =
   /** Committed, markers not written: project the existing IDs, never new ones. */
   | {
       readonly kind: "project";
-      readonly receipt: string;
+      readonly receipt: Receipt;
       readonly allocatedIds: Readonly<Record<number, string>>;
     }
   /** Patched, not finished: finish when the source still has the patched hash; else compare. */
@@ -120,7 +141,7 @@ export function recovery(entry: JournalEntry): Recovery {
     case "committed":
       return {
         kind: "project",
-        receipt: entry.receipt as string,
+        receipt: entry.receipt as Receipt,
         allocatedIds: entry.allocatedIds,
       };
     case "projected":
