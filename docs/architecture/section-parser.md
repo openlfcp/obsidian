@@ -27,6 +27,7 @@ inside a section).
 | `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents in the shape of sdk-ts's `SectionReplica` (the section ID as the root's parent, `createdBy` on new nodes), `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
 | `input.ts` | When typing becomes a reconciliation (`ReconcileScheduler`) and which new content waits (`transientCandidates`), LFCP-02-043 |
 | `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
+| `markers.ts` | Bindings for nodes that just got their IDs: node markers and child-line Task refs (`bindingChanges`) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
@@ -192,6 +193,18 @@ into one batch, and commits it through the port (contract §3, §7.4–§7.7):
    decides (§3.4). With one, the pass is committed; without one, it is
    `save-failed` (SI17, `LOCAL_SAVE_FAILED`) and the entry stays
    `ids-allocated` for a retry.
+
+The IDs are written into the note by `markers.ts`: a paragraph's or raw
+block's marker on the line before it, at its indentation; an item's after
+its last line, at its content column; a Task's ref on its child line, at
+its content column, as 0.1's `attachRef` writes it. Only lines are added
+(no Text changes, line endings kept), and a node no longer there unbound is
+reported as missed, its ID kept in the journal. A new node's new children
+bind on the next pass. Inside sections every new Task ref goes on its child
+line for now: the canonical inline form (the ref before the Tasks fields,
+spec bb4ba6f) needs the ref scanner to accept a ref that is not at the end
+of its line (MS42–MS45), so the "on the task line" setting does not apply
+to sections yet.
 
 After a restart, `resumeOperation` follows the journal's crash table: an
 entry at `ids-allocated` asks for its receipt and either projects the
@@ -418,6 +431,11 @@ notes and the editor route while open (a lagging or external file event
 ignored), split views, repeated notifications, coalescing during a pass
 with every trigger, one slow note not delaying another, a failed pass,
 rename while queued, deletion.
+
+`test/core/sections/markers.test.ts`: each kind bound where the parser
+reads it with the same Text, pass by pass for nested new nodes; continuation
+lines before children; CRLF and tabs; nested Tasks at their content
+column; missed bindings.
 
 `test/core/sections/commit.test.ts` (against the fake port, mock
 evidence): one batch per pass with IDs before the commit and chained new
