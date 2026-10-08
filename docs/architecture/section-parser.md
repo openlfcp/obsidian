@@ -6,7 +6,7 @@ is pure (text in, structure out) and Obsidian-free. In this first step it is
 **not wired into the plugin**; nothing in 0.3.x calls it.
 
 The grammar is spec `integration/MARKDOWN-SECTIONS-01.md` (Working Draft,
-spec `3a13ba2`, LFCP-02-007), with the owner's decisions M1 (Task refs on
+spec `2d1a829`, LFCP-02-007), with the owner's decisions M1 (Task refs on
 their own child line), M2 (tabs), M4 (start marker right after the
 heading), M5 (a marker on every node) and M6 (raw blocks, no headings
 inside a section).
@@ -47,6 +47,9 @@ The parser does not read Markdown a second way:
   parser only adds the section's context: a Task line in the region is a
   `task` node, bound when it has a ref; a ref to another Resource is
   `FOREIGN_RESOURCE_REF`.
+- **Item continuations.** An item's paragraph goes on in continuation
+  lines, lazy ones included (CommonMark); its `item` marker follows the last
+  of them (§4.2), since an HTML comment interrupts a paragraph.
 - **Indentation.** `indentWidth` and `visualWidth` (`src/core/refs/lines.ts`,
   `scanner.ts`) measure visual columns, tabs to the next multiple of four
   (§5, M2). A node's parent is the nearest open Task or item whose content
@@ -83,22 +86,19 @@ callout, or an HTML block, bound by a `<!-- lfcp-node: raw:<id> -->` line
 right above it. Its extent:
 
 - a fence, or any other run of literal lines: the run;
-- an HTML block: through a multi-line comment's own lines, blank ones
-  included (the lexer marks them literal), then down to the line before the
-  next blank line or node marker. **Open question for 007:** §4.4 says "the
-  line before the next blank line", which would cut a multi-line HTML
-  comment at its first blank line. The parser keeps the comment whole until
-  007 decides;
+- an HTML block that is not a comment: down to the line before the next
+  blank line or node marker;
 - a table or a blockquote: down to the line before the next blank line or
   node marker.
 
-## Obsidian comments (§4.5)
+## Comments (§4.5)
 
-A `%%` comment inside a section is not shared (spec `3a13ba2`, the
-orchestrator's decision). The parser reports it as a local block
-(`localBlocks`) with `SECTION_UNSUPPORTED_SYNTAX`, detail
-`obsidian-comment`, severity warning ("Obsidian comments can't be shared;
-move them out of the section"). It is not a node and does not block the
+A comment inside a section, Obsidian's `%%` or an HTML comment that is not
+an LFCP marker, is not shared (spec `3a13ba2`, `2d1a829`). The parser
+reports it as a local block (`localBlocks`) with `SECTION_UNSUPPORTED_SYNTAX`,
+detail `obsidian-comment` or `html-comment`, severity warning ("Comments
+can't be shared; move them out of the section"). Its extent is the comment
+itself, blank lines inside it included (the lexer marks them literal). It is not a node and does not block the
 section: the rest syncs. Keeping it next to the line it follows when a
 remote patch arrives, and pausing the projection when a remote change
 removes or moves its neighbours, is the adapter's work (fixture MS30).

@@ -62,7 +62,7 @@ export interface SectionDiagnostic {
   /** 0-based line. */
   readonly line: number;
   /** Which unsupported syntax (SECTION_UNSUPPORTED_SYNTAX): each has its own message and effect. */
-  readonly detail?: "heading" | "unclosed-fence" | "obsidian-comment";
+  readonly detail?: "heading" | "unclosed-fence" | "obsidian-comment" | "html-comment";
 }
 
 export type SectionNodeKind = "task" | MarkedNodeKind;
@@ -110,7 +110,10 @@ export interface SectionScan {
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const LIST_ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+|$)/;
 const TABLE = /^[ \t]*\|/;
-const HTML_BLOCK = /^[ \t]*<(?!!--\s*lfcp-)/;
+/** An HTML block that is not a comment (§4.4: raw). */
+const HTML_BLOCK = /^[ \t]*<(?!!--)/;
+/** An HTML comment that is not an LFCP marker (§4.5: local). */
+const HTML_COMMENT = /^[ \t]*<!--(?![ \t]*\/?lfcp-)/;
 const OBSIDIAN_COMMENT = /^[ \t]*%%/;
 const FENCE_OPEN = /^[ \t]*(`{3,}|~{3,})/;
 
@@ -318,6 +321,23 @@ function parseBody(
     return j;
   };
 
+  /** Whether line `j` continues the paragraph above it (no blank line, no new block). */
+  const continues = (j: number) => {
+    const u = text(j);
+    return (
+      kinds[j] === "other" &&
+      !isBlank(u) &&
+      !refLines.has(j) &&
+      parseNodeMarker(u) === null &&
+      !LIST_ITEM.test(u) &&
+      heading(u, kinds[j]) === null &&
+      !TABLE.test(u) &&
+      !HTML_BLOCK.test(u) &&
+      !HTML_COMMENT.test(u) &&
+      !OBSIDIAN_COMMENT.test(u)
+    );
+  };
+
   let pendingId: { kind: MarkedNodeKind; id: string; line: number } | null = null;
   for (let i = r.start + 1; i < r.end; i++) {
     const t = text(i);
@@ -355,19 +375,21 @@ function parseBody(
       blocked = true;
       continue;
     }
-    // An Obsidian comment (§4.5): not shared, kept where it is. Its lines:
-    // the opening line and the literal lines the lexer gives its body.
-    if (OBSIDIAN_COMMENT.test(t)) {
+    // A comment, Obsidian's or HTML's (§4.5, spec 2d1a829): not shared,
+    // kept where it is. Its lines: the opening line and the literal lines
+    // the lexer gives its body (blank ones included).
+    const obsidian = OBSIDIAN_COMMENT.test(t);
+    if (obsidian || HTML_COMMENT.test(t)) {
       let to = i;
       while (to + 1 < r.end && kinds[to + 1] === "literal") to++;
       localBlocks.push({ from: i, to });
-      note("SECTION_UNSUPPORTED_SYNTAX", i, "obsidian-comment");
+      note("SECTION_UNSUPPORTED_SYNTAX", i, obsidian ? "obsidian-comment" : "html-comment");
       if (lead !== null) note("NODE_KIND_MISMATCH", lead.line);
       i = to;
       continue;
     }
     // Raw blocks (§4.4, M6): fences and other literal runs, tables,
-    // blockquotes and callouts, HTML.
+    // blockquotes and callouts, HTML that is not a comment.
     const comment = HTML_BLOCK.test(t);
     if (kinds[i] === "literal" || kinds[i] === "blockquote" || TABLE.test(t) || comment) {
       let to: number;
@@ -378,15 +400,8 @@ function parseBody(
         to = i;
         while (to + 1 < r.end && kinds[to + 1] === "literal") to++;
       } else if (comment) {
-        // An HTML block: through a multi-line comment's own lines (blank
-        // ones included: the lexer marks them literal), then down to a blank line.
-        to = i;
-        while (
-          to + 1 < r.end &&
-          (kinds[to + 1] === "literal" ||
-            (!isBlank(text(to + 1)) && parseNodeMarker(text(to + 1)) === null))
-        )
-          to++;
+        // An HTML block: down to the line before a blank line or a node marker.
+        to = blockEnd(i, () => true);
       } else {
         const blockquote = kinds[i] === "blockquote";
         to = blockEnd(i, (j) => (blockquote ? kinds[j] === "blockquote" : kinds[j] !== "literal"));
@@ -413,11 +428,18 @@ function parseBody(
     if (item !== null) {
       const column = indentWidth(item[1] as string);
       const contentColumn = visualWidth(`${item[1]}${item[2]}${item[3] || " "}`);
-      const next = i + 1 < r.end ? parseNodeMarker(text(i + 1)) : null;
+      // The item's paragraph goes on in continuation lines, lazy ones too
+      // (CommonMark; its Text joins them with LF). Its marker follows them.
+      let last = i;
+      while (last + 1 < r.end && continues(last + 1)) last++;
+      const next = last + 1 < r.end ? parseNodeMarker(text(last + 1)) : null;
       const bound = next?.kind === "item" && indentWidth(next.indent) === contentColumn;
-      place(node("item", bound ? next.nodeId : null, i, bound ? i + 1 : i, column), contentColumn);
+      place(
+        node("item", bound ? next.nodeId : null, i, bound ? last + 1 : last, column),
+        contentColumn,
+      );
       if (lead !== null) note("NODE_KIND_MISMATCH", lead.line);
-      if (bound) i += 1;
+      i = bound ? last + 1 : last;
       continue;
     }
     // A paragraph: text lines down to a blank line or the next block.

@@ -303,4 +303,37 @@ describe("nodes", () => {
     const o = parseSections(lines("## S", start, formatNodeMarker("item", id(2)), end));
     expect(o.diagnostics.map((d) => d.code)).toEqual(["NODE_BINDING_ORPHAN"]);
   });
+
+  it("§4.5 (spec 2d1a829): an HTML comment is local too, blank lines inside it included", () => {
+    const text = lines(
+      "## S",
+      start,
+      "<!-- private",
+      "",
+      "still private -->",
+      "<div>shared</div>",
+      end,
+    );
+    const scan = parseSections(text);
+    expect(scan.sections[0]?.localBlocks).toEqual([{ from: 2, to: 4 }]);
+    expect(shape(scan.sections[0]?.nodes ?? [])).toEqual(["raw:new"]);
+    expect(scan.diagnostics).toEqual([
+      { code: "SECTION_UNSUPPORTED_SYNTAX", severity: "warning", line: 2, detail: "html-comment" },
+    ]);
+  });
+
+  it("§4.2: an item's continuation lines belong to it; its marker follows the last one", () => {
+    const text = lines(
+      "## S",
+      start,
+      "- Check details",
+      "  and the bank",
+      "lazy",
+      `  ${formatNodeMarker("item", id(4))}`,
+      end,
+    );
+    const [s] = parseSections(text).sections;
+    expect(shape(s?.nodes ?? [])).toEqual(["item:004"]);
+    expect(s?.nodes[0]?.lines).toEqual({ from: 2, to: 5 });
+  });
 });
