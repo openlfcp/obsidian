@@ -151,6 +151,23 @@ export class CollabCommands {
     return c;
   }
 
+  /**
+   * Rewrites a note through the mutation guard: `next` returns the new
+   * content, or null to leave the note as it is. Resolves to what was
+   * written, or null.
+   */
+  async #rewrite(path: string, next: (data: string) => string | null): Promise<string | null> {
+    let written: string | null = null;
+    await this.#env.notes.rewrite(path, (data) => {
+      const out = next(data);
+      if (out === null) return data;
+      this.#env.guard.expect(path, out);
+      written = out;
+      return out;
+    });
+    return written;
+  }
+
   async #run(what: string, body: () => Promise<void>): Promise<void> {
     try {
       await body();
@@ -302,22 +319,10 @@ export class CollabCommands {
       const lineText = splitLines(note.text)[at.state.task.line]?.text ?? "";
       const shared = await collab.share(R, at.state);
       const placement = this.#env.placement();
-      let attached = true;
-      await this.#env.notes.rewrite(note.path, (data) => {
-        const next = attachToTask(
-          data,
-          lineText,
-          at.state.task.line,
-          refOf(R, shared.objectId),
-          placement,
-        );
-        if (next === null) {
-          attached = false;
-          return data;
-        }
-        this.#env.guard.expect(note.path, next);
-        return next;
-      });
+      const attached =
+        (await this.#rewrite(note.path, (data) =>
+          attachToTask(data, lineText, at.state.task.line, refOf(R, shared.objectId), placement),
+        )) !== null;
       const warnings = shared.warnings.length === 0 ? "" : ` ${shared.warnings.join(" ")}`;
       p.notice(
         attached
@@ -371,12 +376,10 @@ export class CollabCommands {
       });
       let attached = 0;
       if (pending.length > 0)
-        await this.#env.notes.rewrite(note.path, (data) => {
+        await this.#rewrite(note.path, (data) => {
           const out = attachAll(data, pending, this.#env.placement());
           attached = out.attached;
-          if (out.attached === 0) return data;
-          this.#env.guard.expect(note.path, out.markdown);
-          return out.markdown;
+          return out.attached === 0 ? null : out.markdown;
         });
       const shared = result.shared.length;
       const warnings = [...new Set(result.shared.flatMap((s) => s.warnings))];
@@ -431,13 +434,13 @@ export class CollabCommands {
         if (task !== undefined) tasks.push({ objectId: t.objectId, task });
       }
       let inserted = 0;
-      await this.#env.notes.rewrite(note.path, (data) => {
+      await this.#rewrite(note.path, (data) => {
         // Tasks placed while this command ran are not inserted twice.
         const still = new Set(tasksToInsert(data, R, missing).map((t) => t.objectId));
         const units = tasks.filter((t) => still.has(t.objectId));
         inserted = units.length;
-        if (inserted === 0) return data;
-        const next = insertAtLine(data, note.line, (indent, eol) =>
+        if (inserted === 0) return null;
+        return insertAtLine(data, note.line, (indent, eol) =>
           units
             .map((t) =>
               renderNewTaskLine(t.task, {
@@ -449,8 +452,6 @@ export class CollabCommands {
             )
             .join(""),
         );
-        this.#env.guard.expect(note.path, next);
-        return next;
       });
       p.notice(`Shared Tasks: ${plural(inserted, "shared task")} inserted.`);
     });
@@ -480,18 +481,16 @@ export class CollabCommands {
       if (objectId === null) return;
       const task = (await collab.profileTask(R, objectId)) ?? null;
       if (task === null) throw new Abort();
-      await this.#env.notes.rewrite(note.path, (data) => {
-        const next = insertAtLine(data, note.line, (indent, eol) =>
+      await this.#rewrite(note.path, (data) =>
+        insertAtLine(data, note.line, (indent, eol) =>
           renderNewTaskLine(task, {
             placement: unitPlacement(this.#env.placement()),
             ref: refOf(R, objectId),
             indent,
             eol,
           }),
-        );
-        this.#env.guard.expect(note.path, next);
-        return next;
-      });
+        ),
+      );
       p.notice("Shared Tasks: shared task inserted.");
     });
   }
@@ -569,13 +568,11 @@ export class CollabCommands {
         return;
       }
       const key = `${toHex(at.ref.resourceId)}#${at.ref.objectId}`;
-      await this.#env.notes.rewrite(note.path, (data) => {
+      await this.#rewrite(note.path, (data) => {
         const now = taskAt(data, at.ref.taskLine);
         if (now.kind !== "bound" || `${toHex(now.ref.resourceId)}#${now.ref.objectId}` !== key)
           throw new Error("The note changed; nothing was detached.");
-        const next = detachExact(data, now.ref);
-        this.#env.guard.expect(note.path, next);
-        return next;
+        return detachExact(data, now.ref);
       });
       p.notice(
         "Shared Tasks: the task is no longer shared in this note. The shared task itself is unchanged.",
