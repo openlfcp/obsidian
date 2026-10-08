@@ -31,7 +31,7 @@ function harnessProcesses() {
           ],
           { encoding: "utf8" },
         )
-      : execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" });
+      : execFileSync("ps", ["-eo", "pid=,args="], { encoding: "utf8" });
   return rows
     .split(/\r?\n/)
     .map((line) => /^\s*(\d+)\s+(.*)$/.exec(line))
