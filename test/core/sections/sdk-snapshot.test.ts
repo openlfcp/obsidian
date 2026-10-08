@@ -45,9 +45,15 @@ describe("fromSdkSnapshot", () => {
       title: "Launch",
       ready: true,
       nodes: {
-        [T]: { kind: "task", parent: null, lifecycle: "active" },
+        [T]: { kind: "task", parent: null, lifecycle: "active", listStyle: "bullet" },
         [P]: { kind: "paragraph", parent: T, lifecycle: "active", text: "Draft" },
-        [X]: { kind: "item", parent: null, lifecycle: "active", text: "Check" },
+        [X]: {
+          kind: "item",
+          parent: null,
+          lifecycle: "active",
+          text: "Check",
+          listStyle: "bullet",
+        },
       },
       order: { "": [T, X], [T]: [P] },
       problems: [],
@@ -105,7 +111,12 @@ describe("the engine's batches against the real replica", () => {
       lifecycle: "active",
       text: "More",
     });
-    expect(s?.nodes[id(101)]).toEqual({ kind: "task", parent: null, lifecycle: "active" });
+    expect(s?.nodes[id(101)]).toEqual({
+      kind: "task",
+      parent: null,
+      lifecycle: "active",
+      listStyle: "bullet",
+    });
     expect(s?.order[""]).toEqual([X, T, id(101)]);
     expect(s?.order[T]).toEqual([P, id(100)]);
   });

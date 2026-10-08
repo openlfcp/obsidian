@@ -34,6 +34,7 @@ export function fromSdkSnapshot(s: SdkSnapshot, sectionId: string): SectionSnaps
       lifecycle: n.deleted ? "deleted" : "active",
       ...(n.hidden ? { hidden: true } : {}),
       ...(n.text === undefined ? {} : { text: n.text }),
+      ...(n.listStyle === undefined ? {} : { listStyle: n.listStyle }),
     };
   }
   const order: Record<string, string[]> = {};

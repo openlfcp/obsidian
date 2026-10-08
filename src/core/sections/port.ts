@@ -20,6 +20,8 @@ export interface ModelNode {
   readonly hidden?: boolean;
   /** The Text (paragraph, item, raw), LF line breaks; absent for Tasks. */
   readonly text?: string;
+  /** Items and Tasks: ordered or bullet list membership (§4.2). */
+  readonly listStyle?: ListStyle;
 }
 
 /**

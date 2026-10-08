@@ -33,6 +33,7 @@ inside a section).
 | `sdk-snapshot.ts` | sdk-ts's `SectionReplica.snapshot()` in the port's terms (`fromSdkSnapshot`) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
+| `structure.ts` | Nodes a collaborator created or moved, written into the note (`planStructure`) |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
 
 ```ts
@@ -330,6 +331,37 @@ note (null): the caller plans again from the current note rather than
 shifting old offsets. `patch.base` is the projection's base once the patch
 is written, and an applied patch planned again is empty.
 
+## Nodes a collaborator created or moved (`structure.ts`)
+
+`planStructure` writes the model's new and moved nodes into the note, on
+the note after the Text patches (the engine's last layer). It takes the
+nodes `unprojected` lists: new ones, a new parent, or a new place among
+siblings (the longest run that kept its order stays, so a swap moves one
+node).
+
+- New nodes go in the model's preorder: after their visible predecessor's
+  subtree, or first under their parent (after its own lines, or the start
+  marker), so a new parent's new children follow it.
+- Each kind in its binding form (§4): a Task as 0.1 renders a new one,
+  its ref on the child line (it waits while its Shared Objects Task is not
+  here: `no-task`); an item with its marker after its text; a paragraph
+  or raw block after its marker. Children at the parent's content column,
+  under a tab-indented parent one more tab (M2); an ordered run numbered
+  from 1 (§5).
+- Paragraphs and raw blocks are set apart by a blank line, except as a
+  Task's or item's first child (§6) and next to the boundaries (MS41).
+- A moved node takes its subtree, re-indented for its new parent, with
+  the blank line after it; not when anything in it changed here
+  (`local-edit`) or a local comment sits in it (`private-text`).
+- Nothing structural under a model problem (`frozen`, MS14); a node whose
+  predecessor or parent is not in the note yet waits (`no-anchor`).
+
+The engine composes the layers (resumed bindings, new bindings, Text
+patches, structure) with `composeChanges` into one list against the source
+read. When a later layer cuts into text an earlier one just inserted, that
+layer waits for the next pass. A property test checks the composition
+against applying the lists in turn.
+
 ## The plugin's own writes (LFCP-02-042)
 
 Feedback is prevented by the base, not by ignoring events. A write (a
@@ -539,6 +571,16 @@ nodes; a failed save (SI17) and its retry; a crash before the commit,
 after it (before the journal knew) and after the source write, each with
 exactly one change; `OPERATION_ID_REUSED`; read-only and revoked access;
 the refusal codes.
+
+`test/core/sections/structure.test.ts`: MS41 byte for byte (its note
+checked against spec `mvp-0.2-baseline.1`); a Task under its parent as 0.1
+renders it, waiting for its Task; a paragraph as a first child; a new
+parent with new ordered children; tab indentation; a predecessor not in
+the note yet; a subtree moved and re-indented; a swap moving one node; a
+local edit or a model problem holding a move. Each result parses back to
+the model's tree. `compose.test.ts`: 3000 random cases against applying in
+turn. `engine.test.ts` also projects a paragraph and a Task added
+remotely, and a remote move, with nothing sent back.
 
 `test/core/sections/writes.test.ts`: own writes by operation ID and by
 content, once; older writes consumed; abandon and rename; typing

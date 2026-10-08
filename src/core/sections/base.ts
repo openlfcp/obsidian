@@ -202,7 +202,7 @@ function reduceMoves(
   return out;
 }
 
-function longestCommonSubsequence(a: readonly string[], b: readonly string[]): string[] {
+export function longestCommonSubsequence(a: readonly string[], b: readonly string[]): string[] {
   const dp = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--)
     for (let j = b.length - 1; j >= 0; j--)

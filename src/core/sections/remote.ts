@@ -26,7 +26,7 @@ import {
 } from "../projection/render";
 import { isBlank, splitLines } from "../refs/lines";
 import { scanRefs } from "../refs/scanner";
-import { markdownState, type NodeState, ROOT, type SectionState } from "./base";
+import { longestCommonSubsequence, markdownState, type NodeState, type SectionState } from "./base";
 import type { LineRange, ParsedSection, SectionNode } from "./parser";
 import type { SectionSnapshot } from "./port";
 import { type DocChange, lineStarts, nodeSource, textEditToDoc } from "./source-map";
@@ -264,33 +264,37 @@ export function planRemote(
 }
 
 /** Active model nodes this note does not show where the model has them: created, or moved. */
-function unprojected(base: SectionState, note: SectionState, model: SectionSnapshot): string[] {
-  const out: string[] = [];
-  const after = (
-    order: SectionState["order"],
-    parent: string | null,
-    id: string,
-    keep: (i: string) => boolean,
-  ) => {
-    const siblings = (order[parent ?? ROOT] ?? []).filter(keep);
-    const at = siblings.indexOf(id);
-    return at > 0 ? siblings[at - 1] : null;
+export function unprojected(
+  base: SectionState,
+  note: SectionState,
+  model: SectionSnapshot,
+): string[] {
+  const out = new Set<string>();
+  const visible = (id: string) => {
+    const m = model.nodes[id];
+    return m !== undefined && m.lifecycle === "active" && m.hidden !== true;
   };
   for (const [id, m] of Object.entries(model.nodes)) {
-    if (m.lifecycle !== "active") continue;
+    if (!visible(id)) continue;
     const was = base.nodes[id];
     if (was === undefined) {
-      if (note.nodes[id] === undefined) out.push(id);
-      continue;
-    }
-    const both = (i: string) => base.nodes[i] !== undefined && model.nodes[i] !== undefined;
-    if (
-      was.parent !== m.parent ||
-      after(base.order, m.parent, id, both) !== after(model.order, m.parent, id, both)
-    )
-      out.push(id);
+      if (note.nodes[id] === undefined) out.add(id);
+    } else if (was.parent !== m.parent) out.add(id);
   }
-  return out.sort();
+  // Among siblings that stayed under their parent, the longest run that kept
+  // its order stays; the others moved (as reduceMoves does for local edits).
+  const parents = new Set([...Object.keys(model.order), ...Object.keys(base.order)]);
+  for (const key of parents) {
+    const stayed = (id: string) =>
+      visible(id) &&
+      base.nodes[id] !== undefined &&
+      base.nodes[id]?.parent === model.nodes[id]?.parent;
+    const now = (model.order[key] ?? []).filter(stayed);
+    const was = (base.order[key] ?? []).filter((id) => now.includes(id));
+    const keep = new Set(longestCommonSubsequence(was, now));
+    for (const id of now) if (!keep.has(id)) out.add(id);
+  }
+  return [...out].sort();
 }
 
 /**

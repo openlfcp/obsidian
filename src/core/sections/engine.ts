@@ -47,6 +47,7 @@ import { type ParsedSection, parseSections } from "./parser";
 import type { NewSectionTask, SectionIntent, SectionSnapshot } from "./port";
 import { planRemote, type RemotePlan } from "./remote";
 import { type DocChange, lineStarts } from "./source-map";
+import { planStructure, type StructurePlan } from "./structure";
 import { planTaskFields } from "./task-fields";
 import { type ChangeOrigin, compensate, SessionLedger } from "./undo";
 
@@ -96,6 +97,8 @@ export interface SectionResult {
   readonly base?: StoredBase;
   /** Committed operations whose bindings these changes write (resumed ones first). */
   readonly entries: readonly JournalEntry[];
+  /** Nodes the model created or moved, as written or deferred this pass. */
+  readonly structure?: StructurePlan;
 }
 
 export interface NotePass {
@@ -153,27 +156,62 @@ export function applyChanges(text: string, changes: readonly DocChange[]): strin
 }
 
 /**
- * Changes against `after` (the text once the insertion-only `inserted` are
- * applied) moved back onto the original text, merged with `inserted`.
- * A change that touches an inserted span is not mappable: null.
+ * `second` (changes against the text `first` produces) composed with
+ * `first` into one list against the original text. An insertion at the
+ * edge of one of `first`'s spans stays on its side of it; a change covering
+ * such a span replaces it. A change that cuts into text `first` inserted
+ * is not mappable: null (the caller writes `first` alone and plans again).
  */
-function composeOverInsertions(
-  inserted: readonly DocChange[],
-  later: readonly DocChange[],
+export function composeChanges(
+  first: readonly DocChange[],
+  second: readonly DocChange[],
 ): DocChange[] | null {
-  const out: DocChange[] = [...inserted];
-  for (const c of later) {
-    let shift = 0;
-    for (const i of inserted) {
-      const at = i.from + shift; // where the insertion sits in `after`
-      const end = at + i.insert.length;
-      if (c.to <= at) break;
-      if (c.from < end) return null;
-      shift += i.insert.length;
-    }
-    out.push({ from: c.from - shift, to: c.to - shift, insert: c.insert });
+  const spans = [...first].sort((a, b) => a.from - b.from);
+  // Where each of `first`'s changes sits in the intermediate text.
+  const at: { a: number; b: number; c: DocChange }[] = [];
+  let delta = 0;
+  for (const c of spans) {
+    at.push({ a: c.from + delta, b: c.from + delta + c.insert.length, c });
+    delta += c.insert.length - (c.to - c.from);
   }
-  return out.sort((a, b) => a.from - b.from || (a.to === a.from ? -1 : 1));
+  /**
+   * An intermediate position on the original text, as the start or the end
+   * of a range: a range never takes in text that `first` removed.
+   */
+  const map = (p: number, role: "from" | "to"): number | null => {
+    let shift = 0;
+    for (const s of at) {
+      if (p < s.a) return p - shift;
+      if (p === s.a) return s.b === s.a && role === "from" ? s.c.to : s.c.from;
+      if (p < s.b) return null;
+      if (p === s.b) return s.c.to;
+      shift += s.c.insert.length - (s.c.to - s.c.from);
+    }
+    return p - shift;
+  };
+  const dropped = new Set<DocChange>();
+  const out: { c: DocChange; rank: number }[] = [];
+  for (const c of second) {
+    const covered = at.filter((s) => s.a >= c.from && s.b <= c.to && c.to > c.from);
+    for (const s of at)
+      if (!covered.includes(s) && c.from < s.b && c.to > s.a && s.b > s.a) return null;
+    const from = map(c.from, "from");
+    const to = c.to === c.from ? from : map(c.to, "to");
+    if (from === null || to === null) return null;
+    for (const s of covered) dropped.add(s.c);
+    // An insertion at the start of a span goes before it, at its end after it.
+    const startEdge = at.some((s) => s.a === c.from && s.b > s.a);
+    out.push({
+      c: {
+        from: Math.min(from, ...covered.map((s) => s.c.from)),
+        to: Math.max(to, ...covered.map((s) => s.c.to)),
+        insert: c.insert,
+      },
+      rank: c.to === c.from ? (startEdge ? 0 : 2) : 3,
+    });
+  }
+  for (const c of spans) if (!dropped.has(c)) out.push({ c, rank: c.to === c.from ? 1 : 3 });
+  return out.sort((x, y) => x.c.from - y.c.from || x.rank - y.rank).map((x) => x.c);
 }
 
 /** The section `ref` in `markdown`, at or after the line `near` had (the same projection). */
@@ -470,7 +508,7 @@ export class SectionEngine {
       );
     }
     const md1 = applyChanges(md0, markerChanges);
-    const ownChanges = composeOverInsertions(resumedChanges, markerChanges) ?? resumedChanges;
+    const ownChanges = composeChanges(resumedChanges, markerChanges) ?? resumedChanges;
     const section1 = sectionLike(md1, ref, section0);
 
     // 4. Remote changes, from the model as it is after the commit.
@@ -481,13 +519,41 @@ export class SectionEngine {
         : planRemote(md1, section1, localBase, after, (taskId) =>
             this.deps.tasks(resource, taskId),
           );
-    const composed =
-      remote?.kind === "patch" ? composeOverInsertions(ownChanges, remote.changes) : null;
+    const composed = remote?.kind === "patch" ? composeChanges(ownChanges, remote.changes) : null;
     // A remote change over a fresh binding cannot happen (the binding is new
     // to the model too); if it did, the bindings go first and the remote
     // projection waits for the next pass.
     const projected = remote?.kind === "patch" && composed !== null;
-    const base = projected && remote?.kind === "patch" ? remote.base : localBase;
+    let base = projected && remote?.kind === "patch" ? remote.base : localBase;
+    let changes = projected && composed !== null ? composed : ownChanges;
+
+    // 5. Nodes the model created or moved (structure.ts), over the Text patches.
+    let structure: StructurePlan | undefined;
+    if (projected && remote?.kind === "patch") {
+      const md2 = applyChanges(md1, remote.changes);
+      const section2 = sectionLike(md2, ref, section0);
+      if (section2 !== undefined) {
+        structure = planStructure(md2, section2, base, after, {
+          resourceId: ref.resourceId,
+          task: (taskId) => this.deps.tasks(resource, taskId)?.view?.task,
+        });
+        const all =
+          structure.changes.length === 0 ? null : composeChanges(changes, structure.changes);
+        const md3 = all === null ? undefined : applyChanges(md2, structure.changes);
+        const section3 = md3 === undefined ? undefined : sectionLike(md3, ref, section0);
+        if (all !== null && md3 !== undefined && section3 !== undefined) {
+          // The placed nodes as the note now shows them; the order as the note has it.
+          const shown = markdownState(md3, section3).state;
+          const nodes = { ...base.nodes };
+          for (const id of structure.placed) {
+            const n = shown.nodes[id];
+            if (n !== undefined) nodes[id] = n;
+          }
+          base = { ...base, nodes, order: shown.order };
+          changes = all;
+        }
+      }
+    }
     const affected = new Set(local.kind === "committed" ? local.receipt.affectedNodeIds : []);
     const nodeRevisions: Record<string, string | null> = {};
     for (const [id, n] of Object.entries(base.nodes)) {
@@ -506,9 +572,10 @@ export class SectionEngine {
         lost,
         held,
         entries,
+        ...(structure === undefined ? {} : { structure }),
         base: { locator, state: base, revision: after.revision, nodeRevisions },
       },
-      changes: projected && composed !== null ? composed : ownChanges,
+      changes,
     };
   }
 }

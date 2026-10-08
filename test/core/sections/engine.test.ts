@@ -291,3 +291,60 @@ describe("Task fields inside a section", () => {
     expect(h.port.changes).toEqual([]);
   });
 });
+
+describe("nodes a collaborator created or moved", () => {
+  it("a paragraph and a Task added remotely appear in the note; nothing goes back", async () => {
+    const T = id(20);
+    const N = id(21);
+    const me = principalId(new Uint8Array(32).fill(4));
+    const { replica } = SharedObjectsReplica.create({
+      resource: resourceId(fromBase64url(R)),
+      principal: me,
+    });
+    replica.apply(createTask({ id: T as never, title: "Call Anna", createdBy: me }).intent);
+    const h = await seeded(note(BODY), (_r, taskId) =>
+      taskId === T ? { view: replica.task(T) } : undefined,
+    );
+    h.port.remote(R, (s) => {
+      s.state = {
+        ...s.state,
+        nodes: {
+          ...s.state.nodes,
+          [N]: { kind: "paragraph", parent: null, text: "From Bob" },
+          [T]: { kind: "task", parent: null },
+        },
+        order: { ...s.state.order, "": [P, N, Q, T] },
+      };
+    });
+    const { out } = await h.run(note(BODY));
+    expect(out).toBe(
+      note([
+        ...BODY.slice(0, 2),
+        "",
+        formatNodeMarker("paragraph", N),
+        "From Bob",
+        "",
+        ...BODY.slice(3),
+        "",
+        "- [ ] Call Anna",
+        `  <!-- lfcp-ref: lfcp1:${R}#task:${T} -->`,
+      ]),
+    );
+    expect(h.port.changes).toEqual([]);
+    const again = await h.run(out);
+    expect(again.pass.changes).toEqual([]);
+    expect(h.port.changes).toEqual([]);
+  });
+
+  it("a node moved remotely moves in the note", async () => {
+    const h = await seeded();
+    h.port.remote(R, (s) => {
+      s.state = { ...s.state, order: { ...s.state.order, "": [Q, P] } };
+    });
+    const { out } = await h.run(note(BODY));
+    expect(out).toBe(note([...BODY.slice(3), "", ...BODY.slice(0, 2)]));
+    const again = await h.run(out);
+    expect(again.pass.changes).toEqual([]);
+    expect(h.port.changes).toEqual([]);
+  });
+});
