@@ -5,6 +5,7 @@
 
 import { toBase64url } from "@openlfcp/core";
 import { afterEach, describe, expect, it } from "vitest";
+import { plainError } from "../../../src/core/collab/messages";
 import { statusView } from "../../../src/core/collab/view";
 import {
   LfcpRuntime,
@@ -41,6 +42,10 @@ describe("a Resource of another Data Profile (0.3.2)", () => {
     expect(await r.supportsResource(R)).toBe(false);
     await expect(r.openResource(R)).rejects.toBeInstanceOf(UnsupportedProfileError);
     await expect(r.profileOf(R)).rejects.toThrow(NEEDS_NEWER_VERSION);
+    // Its own words, not those of the server's §62 PROFILE_UNSUPPORTED.
+    expect(plainError(await r.profileOf(R).catch((e: unknown) => e))).toBe(
+      `${NEEDS_NEWER_VERSION}.`,
+    );
     await expect(
       r.writeIntent(R, { type: "task.complete", object_id: TASK } as never),
     ).rejects.toBeInstanceOf(UnsupportedProfileError);

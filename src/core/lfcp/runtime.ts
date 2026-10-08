@@ -99,7 +99,8 @@ export const NEEDS_NEWER_VERSION =
  * plugin's shared sections, say): it is never opened, merged or written.
  */
 export class UnsupportedProfileError extends Error {
-  readonly code = "PROFILE_UNSUPPORTED";
+  /** Not the §62 PROFILE_UNSUPPORTED, which is a server's refusal: the server is not involved here. */
+  readonly code = "NEWER_VERSION_NEEDED";
   constructor(readonly dataProfile: string) {
     super(NEEDS_NEWER_VERSION);
     this.name = "UnsupportedProfileError";

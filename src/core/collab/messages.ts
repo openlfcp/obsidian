@@ -3,6 +3,8 @@
 // error codes. No message ever contains an invitation URI, a secret or key
 // material: callers pass codes, never the inputs that failed.
 
+import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
+
 const WIRE: Readonly<Record<string, string>> = {
   PROTOCOL_UNSUPPORTED: "The server does not speak a compatible version of LFCP.",
   MALFORMED_MESSAGE: "The server rejected a malformed request. Update the plugin and try again.",
@@ -39,6 +41,7 @@ const CLIENT: Readonly<Record<string, string>> = {
   PROFILE_INVALID: "The task cannot be shared as it is (it is not a valid shared task).",
   OBJECT_ID_COLLISION: "Another shared object already uses this ID.",
   SEQUENCE_REUSE: "Writing is paused on this device (its local state is behind).",
+  NEWER_VERSION_NEEDED: `${NEEDS_NEWER_VERSION}.`,
 };
 
 /** The text for a §62 or SDK code; unknown codes are named as they are. */
