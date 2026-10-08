@@ -47,6 +47,9 @@ export function refusalText(refusal: { readonly code: string; readonly url: stri
       return `No access on ${refusal.url}: this device's identity may no longer read this collaboration (${refusal.code})`;
     case "RESOURCE_TOMBSTONED":
       return `Deleted on ${refusal.url} (${refusal.code})`;
+    // ADR 0008: the server lost the collaboration and does not let this device host it again.
+    case "HOSTING_DENIED":
+      return `Not hosted by ${refusal.url}, and this device may not host it again: ask the owner to host it again (${refusal.code})`;
     default:
       return `Refused by ${refusal.url} (${refusal.code})`;
   }

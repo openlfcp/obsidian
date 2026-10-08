@@ -24,6 +24,8 @@ const WIRE: Readonly<Record<string, string>> = {
   STALE_DATA_EPOCH: "A change was made with an outdated key and was refused.",
   MISSING_DEPENDENCY: "Something this step needs is missing on the server or on this device.",
   ACTOR_EQUIVOCATION: "Conflicting changes were sent under one sequence number.",
+  // ADR 0008: the server lacks a change this one follows; the SDK re-supplies it and retries.
+  UNKNOWN_PREVIOUS: "Waiting for the server to catch up with earlier changes; they are sent again.",
   RATE_LIMITED: "The server asks to slow down. Try again in a moment.",
   QUOTA_EXCEEDED: "The server's storage quota for this collaboration is used up.",
   MESSAGE_TOO_LARGE: "A change is larger than the server accepts.",

@@ -40,6 +40,9 @@ describe("a collaboration the server refused (POST-017)", () => {
     expect(refusalText({ code: "RESOURCE_TOMBSTONED", url: URL })).toBe(
       `Deleted on ${URL} (RESOURCE_TOMBSTONED)`,
     );
+    expect(refusalText({ code: "HOSTING_DENIED", url: URL })).toBe(
+      `Not hosted by ${URL}, and this device may not host it again: ask the owner to host it again (HOSTING_DENIED)`,
+    );
     expect(refusalText({ code: "MALFORMED_MESSAGE", url: URL })).toBe(
       `Refused by ${URL} (MALFORMED_MESSAGE)`,
     );
