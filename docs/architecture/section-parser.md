@@ -18,6 +18,7 @@ inside a section).
 | `grammar.ts` | The spelling of the markers, and nothing else: `parseBoundary`, `parseNodeMarker`, `parseSectionRef` and their formatters. The only file to change while the grammar is a draft |
 | `parser.ts` | `parseSections(markdown): SectionScan`: boundaries (pass 1), then the nodes of each valid section (pass 2) |
 | `text.ts` | Text positions (LFCP-02-036): UTF-16 offsets ↔ Unicode scalar positions (SSP §10), lone surrogates refused, `diffText` (one edit, in scalars) |
+| `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 
 ```ts
@@ -85,6 +86,31 @@ into a note change: a line break in the inserted text becomes the note's
 line ending plus the node's continuation indentation. The tests check that
 a projected edit, read back, gives the same Text as the edit applied to the
 Text, with CRLF, Cyrillic and emoji.
+
+## Three-way bases (LFCP-02-037)
+
+The 0.1 rule carries over: a projection keeps a base, what the note showed
+at its last reconciliation. The note differing from the base is the user's
+edit; the shared state differing from it is a remote change to render. The
+shared state compared is the snapshot taken with the note's read (the 0.3.2
+fix, [projection.md](projection.md)).
+
+- `markdownState(markdown, section)` gives the note's state: bound nodes
+  with parent, order and Text, plus the unbound candidates (kind, parent,
+  bound sibling before it, Text, line) for the adapter to bind or report.
+- `planSection(base, note, shared)` gives the user's edits: section title,
+  Text edits (scalar positions, against the base Text), moves and missing
+  nodes. With no base (first sight), the note is compared with the shared
+  snapshot, and nothing can be missing. Moves are minimal: a reparented node
+  moves; among siblings, the longest run that kept its relative order stays
+  and the rest move. A node missing from the note is **reported, not
+  deleted** (MARKDOWN-SECTIONS-01 §7); a kind change is refused
+  (`NODE_KIND_MISMATCH`). Task fields stay with the 0.1 field planner.
+- Bases are stored **per projection ID**, not per note path (OP-24): a note
+  can hold several projections, and a rename changes only their locator.
+  `MemorySectionBaseStore` serves the tests; the install-database adapter,
+  under the key `section-base:<projection ID>`, comes with the journal
+  (LFCP-02-038).
 
 ## Fail closed
 
@@ -155,6 +181,11 @@ it to warn that this private text travels with the shared heading (§3).
   extensions.
 
 ## Tests
+
+`test/core/sections/base.test.ts`: the note's state and unbound
+candidates, user edits vs. remote changes, first sight against the
+snapshot, minimal moves and reparenting, missing nodes, title and kind
+changes, the store by projection ID across a rename.
 
 `test/core/sections/source-map.test.ts`: scalar conversion with emoji
 (a ZWJ sequence counts its scalars), lone surrogates, `diffText`, tab
