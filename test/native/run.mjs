@@ -75,7 +75,8 @@ const wdio = spawn(
     path.join(here, "node_modules/@wdio/cli/bin/wdio.js"),
     "run",
     path.join(here, "wdio.conf.mjs"),
-    ...process.argv.slice(2),
+    // `pnpm test -- --spec …` passes the "--" on; WebdriverIO would ignore what follows it.
+    ...process.argv.slice(2).filter((a, i) => !(i === 0 && a === "--")),
   ],
   { stdio: "inherit", cwd: here },
 );
