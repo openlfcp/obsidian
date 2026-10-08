@@ -6,6 +6,7 @@
 | [architecture/local-state.md](architecture/local-state.md) | developers | Where LFCP state, secrets and the install marker live, eviction, the Automerge wasm choice (LFCP-059) |
 | [architecture/projection.md](architecture/projection.md) | developers | Markdown → Shared Object projection: glyphs, owned fields, conflicts, re-association, echo guard (LFCP-061) |
 | [architecture/collaboration.md](architecture/collaboration.md) | developers | The collaboration commands: SDK flows, invite presets, secrets, exact-byte detach, offline and blocked states (LFCP-065) |
+| [architecture/decisions/0001-codemirror-transactions-for-sections.md](architecture/decisions/0001-codemirror-transactions-for-sections.md) | developers | ADR 0001 (proposed, MVP 0.2): CodeMirror transactions for shared sections in open notes, the file path for the rest; spikes S1–S6 |
 | [demos/two-vault-demo.md](demos/two-vault-demo.md) | everyone | The canonical two-vault demo in real Obsidian, step by step with expected results (LFCP-072) |
 | [assets/shared-tasks-demo.gif](assets/shared-tasks-demo.gif) | everyone | The demo animation shown in the README: a task ticked in one vault updates in the other (synthetic notes) |
 | [guides/user-guide.md](guides/user-guide.md) | everyone | Step-by-step user guide: install, create, share, invite, join, many tasks at once, offline, conflicts, troubleshooting |
