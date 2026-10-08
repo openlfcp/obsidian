@@ -26,6 +26,7 @@ inside a section).
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 | `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents in the shape of sdk-ts's `SectionReplica` (the section ID as the root's parent, `createdBy` on new nodes), `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
 | `input.ts` | When typing becomes a reconciliation (`ReconcileScheduler`) and which new content waits (`transientCandidates`), LFCP-02-043 |
+| `share.ts` | "Share section…": the proposed range, the preflight preview (exact content, counts, budgets, problems, warnings) and revalidation (`proposeRange`, `preflight`, `revalidate`), LFCP-02-049 |
 | `stores.ts` | The bases and the journal in the install database: `KeyValueSectionBaseStore`, `KeyValueSectionJournalStore` over the plugin's local state |
 | `engine.ts` | One reconciliation pass of a note's sections: all of the above put together (`SectionEngine.pass`, `written`) |
 | `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
@@ -225,6 +226,25 @@ pass goes through the coordinator; its changes are dispatched only onto the
 revision they were computed for, outside the undo history, else the pass
 is abandoned and runs again on the new document. The native harness runs
 it on the fake SDK (`specs/section-sync.e2e.mjs`).
+
+## Sharing a section: range and preflight (LFCP-02-049)
+
+`proposeRange` takes a heading's content down to the next heading of the
+same or a higher level (blank lines trimmed); the user may end it earlier,
+on a block boundary only. `preflight` parses the range as the section it
+would become (the same parser, around throwaway markers), so the preview is
+exactly what would be shared, every child text included, with counts and
+the number of changes the import takes under the authoring budgets (SSP
+§16.2: 8,192 Text operations, 256 nodes per change). Problems block the
+share: a heading inside (offer to split, M6), an unclosed fence, an end
+that cuts a block, bindings already there, broken refs, and 0.1 shared
+Tasks, which take the explicit import path instead (UX §3). Warnings do not
+block: everything inside, future additions included, will be shared;
+comments stay local; private text under the heading after the range (H5,
+MS36, also for an existing section through `sectionPreview`). `revalidate`
+lets an approved preview commit only onto the same note, or the same
+content moved by an edit elsewhere (UX02); a changed range is previewed
+again.
 
 ## Editor rules from the fixtures (LFCP-02-047)
 
