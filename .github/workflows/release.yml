@@ -31,8 +31,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: obsidian
-      # The same checkout as CI: spec at the tag in spec.lock; the SDK comes
-      # from npm at the versions locked in pnpm-lock.yaml.
+      # A release is built from the @openlfcp/* npm packages only, as the
+      # community directory's review reproduces it. A commit with the
+      # development pin (sdk-ts.lock, link: dependencies) is refused.
+      - name: The SDK comes from npm
+        run: node scripts/check-release-deps.mjs
+      # Spec at the tag in spec.lock, as in CI.
       - id: spec-lock
         run: echo "tag=$(jq -er .tag spec.lock)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
