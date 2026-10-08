@@ -11,7 +11,7 @@ palette its name starts with "Shared Tasks:".
 
 ### 1. Check your Obsidian version
 
-Shared Tasks needs Obsidian **1.13.1 or later**. Check it in Settings →
+Shared Tasks needs Obsidian **1.13.4 or later**. Check it in Settings →
 About. Update Obsidian first if it is older.
 
 ### 2. Install the plugin

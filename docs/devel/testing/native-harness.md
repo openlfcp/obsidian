@@ -59,7 +59,7 @@ downloads Obsidian. Later runs take about 20 seconds for both versions.
 
 | Version | Why |
 | --- | --- |
-| 1.13.4 | The earliest **public** build at or above the manifest's `minAppVersion` 1.13.1. 1.13.1 itself was an Insider-only beta (`isBeta` in obsidian-launcher's version list): it cannot be downloaded without an Obsidian Insiders account, and the harness uses none |
+| 1.13.4 | The manifest's `minAppVersion` since 0.3.2, and the earliest **public** 1.13 build. The earlier minimum, 1.13.1, was an Insider-only beta (`isBeta` in obsidian-launcher's version list): it cannot be downloaded without an Obsidian Insiders account, and the harness uses none |
 | 1.14.4 | The latest public build (also the version the owner tests with by hand) |
 
 The app and the installer are the same version, as for a fresh install.

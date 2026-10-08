@@ -1,8 +1,8 @@
 {
   "id": "shared-tasks",
   "name": "Shared Tasks",
-  "version": "0.3.1",
-  "minAppVersion": "1.13.1",
+  "version": "0.3.2",
+  "minAppVersion": "1.13.4",
   "description": "Share tasks between vaults, end-to-end encrypted, without uploading your notes.",
   "author": "OpenLFCP",
   "authorUrl": "https://github.com/openlfcp",

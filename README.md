@@ -14,7 +14,7 @@ Website: [openlfcp.org](https://openlfcp.org)
 
 ## Quick start
 
-1. **Install.** In Obsidian 1.13.1 or later, open Settings → Community
+1. **Install.** In Obsidian 1.13.4 or later, open Settings → Community
    plugins → Browse, search for "Shared Tasks", install it and enable it.
 2. **Share.** Run "Shared Tasks: Create collaboration". Put the cursor on
    a task and run "Shared Tasks: Share task under cursor".
@@ -39,7 +39,7 @@ Step by step, with everyday use and troubleshooting:
 
 ## Install
 
-Shared Tasks needs Obsidian 1.13.1 or later.
+Shared Tasks needs Obsidian 1.13.4 or later.
 
 **From Community plugins (recommended):**
 1. Settings → Community plugins. If "Restricted mode" is on, turn it off.
@@ -162,7 +162,7 @@ and the value to keep; both notes then show it.
 
 ## Compatibility
 
-- Obsidian 1.13.1 or later.
+- Obsidian 1.13.4 or later.
 - Tested by hand on macOS with Obsidian 1.14.4: the two-vault demo, on a
   build before 0.2.0
   ([record](docs/devel/testing/platform-smoke-runs.md)); the 0.2.0 BRAT

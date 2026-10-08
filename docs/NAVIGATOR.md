@@ -25,7 +25,7 @@
 | [devel/reports/host-and-platform-baseline.md](devel/reports/host-and-platform-baseline.md) | developers | LFCP-02-005 evidence: environments, host facts, baselines, the platform matrix (V4) and a proposal for the native harness in CI |
 | [devel/release.md](devel/release.md) | release | Releasing the plugin: the bare version tag, the release workflow, the owner's tag and BRAT steps (POST-011) |
 | [devel/community-submission.md](devel/community-submission.md) | release | Draft community directory submission: the community-plugins.json entry, the PR text, the owner's checklist (POST-011) |
-| [releases/0.3.2.md](releases/0.3.2.md) | everyone | Release notes of Shared Tasks 0.3.2 (draft): the fix for a collaborator's change undone right after sharing (the GitHub release body) |
+| [releases/0.3.2.md](releases/0.3.2.md) | everyone | Release notes of Shared Tasks 0.3.2: Obsidian 1.13.4, joining newer collaborations safely, the revert fix, a server that repairs itself (the GitHub release body) |
 | [releases/0.3.1.md](releases/0.3.1.md) | everyone | Release notes of Shared Tasks 0.3.1: smaller main.js, declarative settings, three attested release files, the SDK from npm (the GitHub release body) |
 | [releases/0.3.0.md](releases/0.3.0.md) | everyone | Release notes of Shared Tasks 0.3.0: share selected tasks, insert all tasks from a collaboration, created_at (the GitHub release body) |
 | [releases/0.2.1.md](releases/0.2.1.md) | everyone | Release notes of Shared Tasks 0.2.1: the refused-collaboration notice, offline hosting, review clean-ups (the GitHub release body) |

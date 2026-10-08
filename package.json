@@ -1,6 +1,6 @@
 {
   "name": "openlfcp-obsidian",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "OpenLFCP Obsidian adapter and product UI.",
   "license": "Apache-2.0",
