@@ -246,3 +246,63 @@ export function revalidate(
   const proposed = first === undefined ? null : proposeRange(markdown, first);
   return { kind: "changed", preview: proposed === null ? null : preflight(markdown, proposed) };
 }
+
+/** What the share preview says, in the user's words (UX §3); the modal only lays it out. */
+export interface ShareMessages {
+  readonly heading: string;
+  /** The persistent sentence (UX §3). */
+  readonly scope: string;
+  readonly counts: string;
+  /** Blocking: Share is unavailable while any is listed. */
+  readonly problems: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** One blocking problem in the user's words. */
+function problemText(x: ShareProblem): string {
+  switch (x.code) {
+    case "NOT_A_HEADING":
+      return "Put the cursor on a heading (or under one): a section starts at a heading.";
+    case "NESTED_HEADING":
+      return `Line ${x.line + 1} is a heading inside the section. Share each part as its own section, or end the section before it.`;
+    case "UNCLOSED_FENCE":
+      return `A code block from line ${x.line + 1} is not closed. Close it before sharing.`;
+    case "PARTIAL_BLOCK":
+      return `The section would end in the middle of a paragraph or list item (line ${x.line + 1}). End it at a blank line.`;
+    case "ALREADY_BOUND":
+      return `Line ${x.line + 1} is already part of a shared section.`;
+    case "LEGACY_SHARED_TASKS":
+      return `${plural(x.lines.length, "task is", "tasks are")} already shared in another collaboration. Import creates new shared tasks; existing collaborations continue separately.`;
+    case "BROKEN_REF":
+      return `The shared task marker on line ${x.line + 1} is damaged. Repair it before sharing.`;
+  }
+}
+
+export function shareMessages(p: SharePreview): ShareMessages {
+  const problems = p.problems.map(problemText);
+  const warnings = p.warnings.flatMap((w): string[] => {
+    if (w === "local-comments")
+      return ["Comments (%% … %% and <!-- … -->) in this section stay on this device."];
+    if (w === "private-text-before-next-heading")
+      return [
+        "The text after the section, under the same heading, stays private, but Obsidian folds, drags and embeds it with the heading.",
+      ];
+    return [];
+  });
+  const c = p.counts;
+  const parts = [
+    plural(c.tasks, "task"),
+    plural(c.paragraphs, "paragraph"),
+    plural(c.items, "list item"),
+    ...(c.raw > 0 ? [plural(c.raw, "other block")] : []),
+  ];
+  return {
+    heading: `Share section "${p.title}"`,
+    scope: "Everything inside this section, including future additions, will be shared.",
+    counts: `${parts.join(", ")}${p.changes > 1 ? `; sent in ${p.changes} parts` : ""}.`,
+    problems,
+    warnings,
+  };
+}

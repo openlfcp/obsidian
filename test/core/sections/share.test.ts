@@ -9,6 +9,7 @@ import {
   proposeRange,
   revalidate,
   sectionPreview,
+  shareMessages,
 } from "../../../src/core/sections/share";
 
 const BEFORE = "PRIVATE_BEFORE_8f3a: budget and personal thoughts.";
@@ -161,5 +162,36 @@ describe("an existing section (MS36)", () => {
     const s = parseSections(md).sections[0];
     if (s === undefined) throw new Error("no section");
     expect(sectionPreview(s)).toEqual(["private-text-before-next-heading"]);
+  });
+});
+
+describe("the preview's words", () => {
+  it("say what is shared, what blocks it and what stays private", () => {
+    const md = lines(
+      "## Launch",
+      "- [ ] One",
+      "Two",
+      "",
+      "%% mine %%",
+      "",
+      "Private.",
+      "",
+      "## Next",
+    );
+    const p = preflight(md, { headingLine: 0, lastLine: 5 });
+    const m = shareMessages(p);
+    expect(m.heading).toBe('Share section "Launch"');
+    expect(m.scope).toBe(
+      "Everything inside this section, including future additions, will be shared.",
+    );
+    expect(m.counts).toBe("1 task, 1 paragraph, 0 list items.");
+    expect(m.problems).toEqual([]);
+    expect(m.warnings).toHaveLength(2);
+    const nested = shareMessages(
+      preflight(lines("## A", "### B"), { headingLine: 0, lastLine: 1 }),
+    );
+    expect(nested.problems).toEqual([
+      "Line 2 is a heading inside the section. Share each part as its own section, or end the section before it.",
+    ]);
   });
 });
