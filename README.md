@@ -209,7 +209,8 @@ payment.
 ## What the plugin accesses
 
 - **Your notes, locally.** At startup the plugin looks through every
-  Markdown note of the vault for `lfcp-ref` markers, using Obsidian's
+  Markdown note of the vault for its markers (`lfcp-` comments: task refs,
+  and the boundaries and node markers of shared sections), using Obsidian's
   content cache. Notes with a marker are synchronized; notes without one are
   not touched. Afterwards it reacts to note changes as you make them. None
   of your notes leaves the vault: only the shared tasks you chose go out,

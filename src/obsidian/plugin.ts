@@ -398,7 +398,7 @@ export default class OpenLfcpPlugin extends Plugin {
    * one (their edits sent, their bound Tasks rendered field by field); notes
    * without refs are not touched.
    *
-   * Every Markdown note is looked at, locally, for an `lfcp-ref`: a note
+   * Every Markdown note is looked at, locally, for an `lfcp-` marker: a note
    * may have gained or changed refs while the plugin was off (vault sync,
    * another editor), which a stored index of ref notes would miss. The look
    * uses `cachedRead` (Obsidian's content cache, no disk read for files it
@@ -407,7 +407,8 @@ export default class OpenLfcpPlugin extends Plugin {
   async reconcile(): Promise<void> {
     for (const file of this.app.vault.getMarkdownFiles()) {
       const text = await this.app.vault.cachedRead(file);
-      if (text.includes("lfcp-ref")) this.#report([await this.writer.syncNote(file.path)]);
+      // Any LFCP marker (refs, section boundaries, node markers), not only refs (OP-14).
+      if (text.includes("lfcp-")) this.#report([await this.writer.syncNote(file.path)]);
     }
   }
 
