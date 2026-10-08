@@ -1,9 +1,10 @@
 # ADR 0001: CodeMirror transactions for shared sections
 
-- **Status:** Proposed (draft for MVP 0.2, wave W2). The direction is the
-  owner's decision M3 of 2026-10-08 (`workbook: reviews/mvp-0.2/summary.md`
-  §2). Spikes S1–S6 ran on 2026-10-08 ("Verification and evidence"); IME
-  and the Tasks plugin's own edits are still open.
+- **Status:** Accepted, 2026-10-08 (orchestrator, on the owner's decision
+  M3, `workbook: reviews/mvp-0.2/summary.md` §2), after spikes S1–S6
+  ("Verification and evidence"). **Condition:** the manual IME check
+  ([../../devel/testing/ime-checklist.md](../../devel/testing/ime-checklist.md))
+  passes before the first 0.4 beta (LFCP-02-069).
 - **Scope:** shared sections only (`org.openlfcp.shared-sections.v1`).
   Standalone shared Tasks keep the file path of 0.1–0.3
   ([../projection.md](../projection.md)).
@@ -177,7 +178,7 @@ and are asserted, so a later Obsidian that changes one fails there.
 
 | ID | Question | Evidence | Consequence |
 | --- | --- | --- | --- |
-| S1 | Does a `ViewPlugin` see every edit, with a usable `userEvent`? | Every gesture arrives. `userEvent`: typing and Enter in a list `input.type` (Enter's transaction already contains the list continuation `\n- [ ] `); Backspace `delete.backward`; paste `input.paste`; undo `undo`; move line `move.line`; the toggle checklist command, a checkbox click in Live Preview and the Editor API: none; `vault.process` on the open note: `set` | Classify by our origin annotation only (§2). **Open:** IME composition (WebDriver cannot drive an IME; manual check) and the Tasks plugin's own edits (needs a pinned Tasks plugin in the harness) |
+| S1 | Does a `ViewPlugin` see every edit, with a usable `userEvent`? | Every gesture arrives. `userEvent`: typing and Enter in a list `input.type` (Enter's transaction already contains the list continuation `\n- [ ] `); Backspace `delete.backward`; paste `input.paste`; undo `undo`; move line `move.line`; the toggle checklist command, a checkbox click in Live Preview and the Editor API: none; `vault.process` on the open note: `set` | Classify by our origin annotation only (§2). The Obsidian Tasks plugin 8.4.0's own edits (toggling done, a recurring Task's next occurrence) also carry no `userEvent` (`specs/tasks-plugin.e2e.mjs`), so the rule holds for them. IME composition: manual check before the first beta ([ime-checklist.md](../../devel/testing/ime-checklist.md)) |
 | S2 | How is a marker joined to the user's undo step? | A `transactionFilter` appending the marker to the user's transaction: one undo removes text and marker, one redo restores both. A separate dispatch right after, with the same `userEvent`: undo removes only the marker | Use the transaction filter (§3) |
 | S3 | Two views of one note | A change dispatched in one view reaches the other at once, as `userEvent: "set"`, without our annotation; both documents equal | Coordinator rule refined (§4) |
 | S4 | `vault.process` on an open note | Applied to the buffer within ~5 ms; the cursor is mapped (line 2 → 3 after a line inserted above); unsaved typing in the buffer is kept and merged with the external write (the disk lacks it until the next save) | Obsidian merges external writes into an open buffer, so the closed-file path stays safe when a view opens meanwhile. Remote patches into an open note still go through `dispatch` (§3), for `addToHistory` and the annotation |
@@ -192,7 +193,11 @@ and are asserted, so a later Obsidian that changes one fails there.
 - Two write paths coexist in one note, split by section ranges. Tests must
   cover a note with both a section and standalone Tasks, open and closed.
 - Undo, IME and multi-view behavior become our responsibility for section
-  regions. S1–S6 ran; IME and the Tasks plugin's edits stay open before
-  the implementation tasks freeze.
+  regions. S1–S6 ran; IME is checked by hand before the first beta.
+- Found with the Tasks plugin (host fact H6 in
+  [../../devel/testing/obsidian-host-facts.md](../../devel/testing/obsidian-host-facts.md)):
+  Tasks appends `✅` after an inline ref, so an inline ref does not stay
+  last on the line. That bears on the Markdown grammar (decision M1), not
+  on this ADR; it is reported to the orchestrator.
 - The 0.1 statement in [../projection.md](../projection.md) stays true for
   standalone Tasks; that document will link here once this ADR is accepted.
