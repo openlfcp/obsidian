@@ -48,6 +48,11 @@ export interface Settings {
   showSharingMetadata: boolean;
   /** New comments in shared sections: local (default) or shared. */
   sectionComments: SectionComments;
+  /**
+   * Development preview of shared sections (MVP 0.2), off by default and not
+   * in the settings tab: set in data.json only, until sync statuses (026).
+   */
+  sectionsPreview: boolean;
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */
   settingsVersion: number;
 }
@@ -57,6 +62,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   defaultServer: PROJECT_SERVER,
   showSharingMetadata: false,
   sectionComments: "local",
+  sectionsPreview: false,
   settingsVersion: SETTINGS_VERSION,
 };
 
@@ -96,6 +102,7 @@ export function normalizeSettings(stored: unknown): Settings {
     sectionComments: isSectionComments(data.sectionComments)
       ? data.sectionComments
       : DEFAULT_SETTINGS.sectionComments,
+    sectionsPreview: data.sectionsPreview === true,
     settingsVersion: SETTINGS_VERSION,
   };
 }

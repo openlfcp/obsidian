@@ -253,8 +253,20 @@ operation), opens it (`openSection`: the replica restored from its
 checkpoint, the applier, the commit binding and a checkpointer, flushed at
 stop), reads its profile synchronously (`sectionProfile`, for the snapshot
 rule) and commits batches through its session (`commitSection`). The 0.1
-paths keep refusing such a Resource (`UnsupportedProfileError`). The
-plugin does not use any of this yet.
+paths keep refusing such a Resource (`UnsupportedProfileError`).
+
+The plugin runs all of it only behind the `sectionsPreview` development
+flag (`data.json`, off by default, not in the settings tab) through
+`src/obsidian/sections-host.ts`: the editor extension, the engine on
+`SdkSectionPort` and the install database, the section Resources opened at
+start, the notes that hold a section (found with `cachedRead`, as the
+startup reconciliation finds refs), vault events, and a pass on every note
+of a Resource whose model changed. Closed notes are written by
+`vault.process`, only onto the source the pass read (`SectionFiles`). Known
+gaps of the preview: Task fields in a section are not rendered or sent (no
+TaskView for section Tasks in the SDK yet), write access is not checked
+(contract §6), there is no sync status (026) and no command to share a
+section. `test/native/specs/section-preview.e2e.mjs` runs it in Obsidian.
 `test/core/lfcp/runtime-sections.test.ts` checks it offline: a commit with
 a receipt and its queued units, a restart restoring the section and
 finding the receipt, and the engine on the runtime with its records in the

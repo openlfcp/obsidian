@@ -34,6 +34,7 @@ import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
 import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
 import { sectionPresentationExtension, setShowMetadata } from "./section-presentation";
+import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
 
@@ -126,6 +127,15 @@ export default class OpenLfcpPlugin extends Plugin {
     const sections = sectionPresentationExtension(() => this.settings.showSharingMetadata);
     this.#sectionViews = sections.views;
     this.registerEditorExtension(sections.extension);
+    // Development preview of shared sections (data.json only, off by default).
+    if (this.settings.sectionsPreview) {
+      this.sections = new SectionsHost(this.app, (path, e) => {
+        new Notice(
+          `Shared Tasks: a shared section in ${path} could not be processed (${e instanceof Error ? e.message : String(e)}).`,
+        );
+      });
+      this.registerEditorExtension(this.sections.editor.extension);
+    }
     this.#starting = this.#startRuntime();
   }
 
@@ -206,6 +216,11 @@ export default class OpenLfcpPlugin extends Plugin {
           if (entry.state !== "unsupported")
             void runtime.openResource(entry.resourceId).catch(() => undefined);
       this.app.workspace.onLayoutReady(() => this.#enqueue(() => this.reconcile()));
+      const status = runtime.status;
+      if (this.sections !== null && status.kind === "ready")
+        this.app.workspace.onLayoutReady(
+          () => void this.sections?.start(runtime, status.principalId).catch(() => undefined),
+        );
       return runtime;
     } catch (e) {
       this.runtimeError = e instanceof Error ? e.message : String(e);
@@ -234,6 +249,7 @@ export default class OpenLfcpPlugin extends Plugin {
         this.conflicts.rename(c.oldPath, c.path);
       }
       if (c.kind === "delete") this.conflicts.forget(c.path);
+      if (this.sections !== null) await this.sections.vaultChange(c);
     }
     this.#report(await this.writer.handleChanges(batch));
   }
@@ -469,6 +485,9 @@ export default class OpenLfcpPlugin extends Plugin {
   override async onExternalSettingsChange(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
   }
+
+  /** The shared sections preview (null unless `sectionsPreview` is on). */
+  sections: SectionsHost | null = null;
 
   #sectionViews: ReadonlySet<EditorView> = new Set();
 

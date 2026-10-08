@@ -1,0 +1,102 @@
+// The shared sections preview in Shared Tasks itself (`sectionsPreview` on):
+// the plugin's runtime, the real SDK, its install database. A section
+// Resource is created and its section committed locally (no server: the
+// session never connects), then typing in a note becomes a commit in the
+// section's replica, with the new paragraph's marker written. The flag is
+// switched off again at the end.
+
+const SECTION_ID = "268a166f-4891-7243-840e-e7fea9fe6390";
+const FILE = "preview.md";
+
+/** Shared Tasks restarted with `sectionsPreview` set, runtime ready. */
+async function restartWith(preview) {
+  await browser.executeObsidian(async ({ app }, preview) => {
+    const plugin = app.plugins.plugins["shared-tasks"];
+    plugin.settings.sectionsPreview = preview;
+    await plugin.saveData(plugin.settings);
+    await app.plugins.disablePlugin("shared-tasks");
+    await app.plugins.enablePlugin("shared-tasks");
+    const p = app.plugins.plugins["shared-tasks"];
+    for (let i = 0; i < 100 && p.runtime?.status.kind !== "ready"; i++)
+      await new Promise((r) => setTimeout(r, 50));
+  }, preview);
+}
+
+const replicaText = () =>
+  browser.executeObsidian(({ app }) => {
+    const p = app.plugins.plugins["shared-tasks"];
+    const snap = p.runtime.sectionProfile(window.__lfcpPreviewR)?.replica.snapshot();
+    return snap === undefined
+      ? null
+      : Object.values(snap.nodes)
+          .map((n) => n.text)
+          .filter((t) => t !== undefined);
+  });
+
+describe("shared sections preview in Shared Tasks (real SDK, no server)", () => {
+  after(async () => {
+    await restartWith(false);
+  });
+
+  it("typing in a section becomes a commit in the section's replica", async () => {
+    await restartWith(true);
+    // A section Resource of this vault, and its section, committed locally.
+    const note = await browser.executeObsidian(async ({ app }, sectionId) => {
+      const runtime = app.plugins.plugins["shared-tasks"].runtime;
+      const url = "ws://127.0.0.1:9/v1/ws";
+      const R = await runtime.createSectionResource({ name: "Preview", endpoints: [url], coordinatorUrl: url });
+      await runtime.openSection(R);
+      await runtime.commitSection(
+        R,
+        [{ intent: "section.create", sectionId, title: "Joint launch", createdBy: runtime.status.principalId }],
+        { operationId: "create" },
+      );
+      window.__lfcpPreviewR = R;
+      const b64 = btoa(String.fromCharCode(...R)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const ref = `lfcp1:${b64}#section:${sectionId}`;
+      return ["Private intro.", "", "## Joint launch", `<!-- lfcp-section: ${ref} -->`, `<!-- /lfcp-section: ${ref} -->`, "", "Private outro.", ""].join("\n");
+    }, SECTION_ID);
+    // The plugin opens the Resource and finds the note at start.
+    await browser.executeObsidian(async ({ app }, file, note) => {
+      await app.vault.create(file, note);
+    }, FILE, note);
+    await restartWith(true);
+    await browser.executeObsidian(async ({ app, obsidian }, file) => {
+      const leaf = app.workspace.getLeaf(false);
+      await leaf.openFile(app.vault.getFileByPath(file), { state: { mode: "source", source: false } });
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      for (let i = 0; i < 40 && !view.editor.hasFocus(); i++) {
+        view.editor.focus();
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      view.editor.setCursor({ line: 3, ch: view.editor.getLine(3).length });
+    }, FILE);
+    // The note's base is seeded (the empty section shows the model).
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(async ({ app }, file) => {
+          const v = await app.plugins.plugins["shared-tasks"].runtime.localState.get(
+            `section-projections:${file}`,
+          );
+          return Array.isArray(v) && v.length > 0;
+        }, FILE),
+      { timeout: 8000, timeoutMsg: "base seeded" },
+    );
+    await browser.keys(["Enter", "D", "r", "a", "f", "t"]);
+    await browser.executeObsidian(({ app, obsidian }) => {
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.cm.contentDOM.blur();
+    });
+    await browser.waitUntil(async () => (await replicaText())?.includes("Draft") === true, {
+      timeout: 8000,
+      timeoutMsg: "committed into the replica",
+    });
+    const text = await browser.executeObsidian(({ app, obsidian }) =>
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getValue(),
+    );
+    console.log(`EVIDENCE ${JSON.stringify({ id: "SECTIONS-PREVIEW", text })}`);
+    expect(text).toMatch(/<!-- lfcp-node: paragraph:[0-9a-f-]{36} -->\nDraft\n/);
+    expect(text.startsWith("Private intro.\n")).toBe(true);
+    expect(text.endsWith("Private outro.\n")).toBe(true);
+  });
+});

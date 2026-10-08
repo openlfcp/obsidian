@@ -23,6 +23,7 @@ describe("settings", () => {
       defaultServer: "wss://a.example/ws",
       showSharingMetadata: false,
       sectionComments: "local",
+      sectionsPreview: false,
       settingsVersion: SETTINGS_VERSION,
     });
     expect(
@@ -44,6 +45,7 @@ describe("settings", () => {
       defaultServer: PROJECT_SERVER,
       showSharingMetadata: false,
       sectionComments: "local",
+      sectionsPreview: false,
       settingsVersion: 2,
     });
     expect(normalizeSettings({ refPlacement: "inline" }).defaultServer).toBe(PROJECT_SERVER);

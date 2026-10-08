@@ -98,6 +98,7 @@ touch it either.
 | `specs/section-metadata.e2e.mjs` | LFCP-02-048 in Shared Tasks itself: a section's binding lines hidden in Live Preview, standalone refs kept, the boundary line, "Show or hide sharing metadata" |
 | `specs/marker-hiding.e2e.mjs` | LFCP-02-048 spike: hiding binding lines in Live Preview with the test-only plugin `plugins/marker-spike` (installed disabled, enabled by this spec); results in [../reports/marker-hiding-spike.md](../reports/marker-hiding-spike.md) |
 | `specs/section-sync.e2e.mjs` | LFCP-02-041..043: the section engine in the editor on a fake SDK, in Live Preview and Source mode: typing becomes one batch after the idle (status "edited" first), a collaborator's change arrives while the user types (both kept, the caret where it was), an emoji selection typed over (scalar positions), a new paragraph gets its ID and marker; through `plugins/section-sync` |
+| `specs/section-preview.e2e.mjs` | The shared sections preview in Shared Tasks itself (`sectionsPreview` on, real SDK, no server): a section Resource created and its section committed locally; typing in a note becomes a commit in the section's replica and the new paragraph's marker is written; the flag is switched off again |
 | `specs/baseline-0.3.e2e.mjs` | Baselines of the 0.3 plugin: start, "Share selected tasks" with 200 Tasks, edit → queued, change → render. Prints `METRIC {…}` lines; results in [obsidian-host-facts.md](obsidian-host-facts.md) |
 
 Each run also installs the Obsidian Tasks plugin 8.4.0 (released
