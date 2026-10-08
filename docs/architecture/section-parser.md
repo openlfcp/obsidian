@@ -18,6 +18,7 @@ inside a section).
 | `grammar.ts` | The spelling of the markers, and nothing else: `parseBoundary`, `parseNodeMarker`, `parseSectionRef` and their formatters. The only file to change while the grammar is a draft |
 | `parser.ts` | `parseSections(markdown): SectionScan`: boundaries (pass 1), then the nodes of each valid section (pass 2) |
 | `text.ts` | Text positions (LFCP-02-036): UTF-16 offsets ↔ Unicode scalar positions (SSP §10), lone surrogates refused, `diffText` (one edit, in scalars) |
+| `rules.ts` | Context-aware delete, detach, duplicate and cut/paste (LFCP-02-046) |
 | `undo.ts` | Native undo/redo as compensating intents (LFCP-02-044): `compensate` with the session ledger |
 | `journal.ts` | Local records (LFCP-02-038): the reconciliation journal, pending candidates, the diagnostics view, rebuild from a note |
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
@@ -160,6 +161,28 @@ The marker of a node created by typing joins the user's undo step (S2), so
 one undo removes text and marker together, which is what makes the
 "created in this session" case reliable.
 
+## Delete, detach, duplicate, cut and paste (LFCP-02-046)
+
+Pure rules for MARKDOWN-SECTIONS-01 §7 and §10:
+
+- `detachSection` removes every binding of one projection (boundary lines,
+  node markers, child-line refs, inline refs) and keeps the readable text
+  and the line endings. No shared change follows (fixture MS10-detach,
+  byte for byte).
+- `readableSection` is the "Copy readable text" output: the heading and the
+  content without bindings, LF, the note unchanged (fixture MS25, byte for
+  byte).
+- `classifyRemoval` calls a missing node a **delete** only when the editor
+  transaction removed every line the node owned, marker and ref included
+  (MS10-delete). With only its marker gone (MS21), or with no transaction
+  (an external edit, MS18), it is `NODE_BINDING_LOST`, and the text stays.
+- `duplicates` keeps the identity on the occurrence the base knew and
+  offers "Duplicate as new" for the others; with no base, none is the
+  original (MS08).
+- `pasteDecision`: a same-session paste of a cut into the same section is a
+  move; into another section or Resource, an explicit copy with new
+  identities; without a matching cut, nothing is inferred.
+
 ## Fail closed
 
 A damaged boundary (missing, mismatched, overlapping, or a start marker not
@@ -229,6 +252,11 @@ it to warn that this private text travels with the shared heading (§3).
   extensions.
 
 ## Tests
+
+`test/core/sections/rules.test.ts`: detach with inline refs, CRLF and a
+last line without an ending; the readable copy; delete vs. lost; duplicates
+with and without a base; paste decisions. MS10-detach and MS25 were also
+checked byte for byte against spec `1e87206`.
 
 `test/core/sections/undo.test.ts`: origins, a text undo as a new edit,
 compensating delete and restore for undo and redo, and the cases left to
