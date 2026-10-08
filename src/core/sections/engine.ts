@@ -518,6 +518,13 @@ export class SectionEngine {
       ...new Set([...comp.deletes, ...comp.lost.filter((id) => ctx.deletedIds.has(id))]),
     ];
     const lost = comp.lost.filter((id) => !ctx.deletedIds.has(id));
+    if (lost.length > 0)
+      // NODE_BINDING_LOST (§7, MS18, MS21): the section's publication is
+      // suspended until the binding is repaired; the base stays as it was.
+      return {
+        result: { projectionId, section: ref, lost, held: [], entries },
+        changes: resumedChanges,
+      };
     const revisionOf = (id: string) =>
       stored.nodeRevisions?.[id] === undefined ? stored.revision : stored.nodeRevisions[id];
     const held = plan.textEdits.filter((e) => revisionOf(e.nodeId) === null).map((e) => e.nodeId);

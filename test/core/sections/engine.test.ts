@@ -373,3 +373,14 @@ describe("MS45 in a pass: the canonical inline form", () => {
     expect(out).toBe(md);
   });
 });
+
+describe("a lost binding suspends the section (§7, MS18, MS21)", () => {
+  it("publishes nothing, not even other edits, until the binding is repaired", async () => {
+    const h = await seeded();
+    // Q's marker removed by an external edit, and P edited: nothing goes out.
+    const edited = note([BODY[0] as string, "Draft v2", "", "Notes"]);
+    const { pass } = await h.run(edited);
+    expect(pass.sections[0]?.lost).toEqual([Q]);
+    expect(h.port.changes).toEqual([]);
+  });
+});
