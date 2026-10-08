@@ -24,7 +24,8 @@ inside a section).
 | `journal.ts` | Local records (LFCP-02-038): the reconciliation journal, pending candidates, the diagnostics view, rebuild from a note |
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
-| `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: for now the section snapshot (`SectionSnapshot`, `ModelNode`, `SectionProblem`); tests use a fake until the SDK provides it |
+| `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: the snapshot, the profile's intents, `commit`/`receiptOf`/`releaseReceipt` with the `Receipt`, refusals (`CommitRefused`) and `canWrite`. Tests use a fake (`test/core/sections/fake-port.ts`) until the SDK provides it |
+| `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
 
@@ -118,6 +119,42 @@ fix, [projection.md](projection.md)).
   `MemorySectionBaseStore` serves the tests; the install-database adapter,
   under the key `section-base:<projection ID>`, comes with the journal
   (LFCP-02-038).
+
+## Committing local edits (LFCP-02-039)
+
+`commitPass(deps, pass)` turns one reconciliation pass of one projection
+(the plan of `planSection`, the deletes and restores that `rules.ts` and
+`undo.ts` decided, the unbound nodes the transaction shows were inserted)
+into one batch, and commits it through the port (contract §3, §7.4–§7.7):
+
+1. Nothing to send: nothing happens. No write access (`canWrite`, §6):
+   the section's source is kept as a `read-only` or `access-revoked`
+   candidate, and nothing is journaled or sent.
+2. The entry is captured, then the new IDs (UUIDv7, by the candidate's
+   line) **and the batch** are written to the journal (`ids-allocated`)
+   before the commit, so every retry submits exactly the same batch under
+   the same operation ID. Consecutive new nodes follow each other (`after`
+   is the previous new ID); a new node's children bind on a later pass.
+3. `commit` resolves with a durable receipt: `committed`, and the
+   receipt's `modelRevision` becomes the projection's base; the caller
+   writes the markers for the IDs, then `markProjected` and `finish`
+   (which releases the receipt, §3.5).
+4. A refusal (`CommitRefused`) abandons the entry: `STALE_BASE` plans again
+   from a new snapshot, `SECTION_IMPORTING` waits, `NOT_WRITABLE` and the
+   profile's codes keep the source as a candidate (`read-only`,
+   `rejected`). Any other error leaves the outcome unknown: the receipt
+   decides (§3.4). With one, the pass is committed; without one, it is
+   `save-failed` (SI17, `LOCAL_SAVE_FAILED`) and the entry stays
+   `ids-allocated` for a retry.
+
+After a restart, `resumeOperation` follows the journal's crash table: an
+entry at `ids-allocated` asks for its receipt and either projects the
+existing IDs or resubmits the recorded batch under the same operation ID;
+`committed` projects the existing IDs, never new ones; `projected`
+finishes when the source still has the patched hash. A Task is therefore
+created once however often a pass is retried. `localStatus` gives the
+indicator's local part: `LOCAL_EDIT` until a receipt exists (SI02), then
+`SAVED_LOCAL`.
 
 ## Remote changes into the note (LFCP-02-040)
 
@@ -322,6 +359,13 @@ title changes in UTF-16, CRLF and indentation of new lines, local edits
 deferred, deletion with its blank line, edited or commented deleted nodes
 kept, created and moved nodes listed, a stale revision refused, a second
 pass empty, and the three skips.
+
+`test/core/sections/commit.test.ts` (against the fake port, mock
+evidence): one batch per pass with IDs before the commit and chained new
+nodes; a failed save (SI17) and its retry; a crash before the commit,
+after it (before the journal knew) and after the source write, each with
+exactly one change; `OPERATION_ID_REUSED`; read-only and revoked access;
+the refusal codes.
 
 `test/core/sections/writes.test.ts`: own writes by operation ID and by
 content, once; older writes consumed; abandon and rename; typing
