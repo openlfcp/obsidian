@@ -11,6 +11,8 @@ that changes one of them fails there first.
 | H1 | Obsidian 1.13.1 (the manifest's `minAppVersion`) was an Insider-only beta. The first public 1.13 build is 1.13.4, the latest public build is 1.14.4 | obsidian-launcher's version list, 2026-10-08 | `obsidian-versions.json` in the harness cache: `isBeta: true` for 1.13.0–1.13.3 | The harness tests 1.13.4 and 1.14.4. Whether to raise `minAppVersion` is the owner's decision |
 | H2 | "Indent using tabs" is on by default: `app.vault.getConfig("useTab") === true` in a new vault | 1.13.4, 1.14.4, macOS | asserted (`host-facts`) | Nested lists typed with Tab use tabs. The section grammar must accept tabs (decision M2) |
 | H3 | In Live Preview, an HTML comment on its own line or at the end of a Task line stays visible as source text when the cursor is elsewhere | 1.13.4, 1.14.4, macOS | asserted (`host-facts`): both `lfcp-ref` lines render with their text | Hiding per-node markers in Live Preview (decision M5) is the plugin's work (editor decorations); Obsidian does not do it |
+| H4 | Dragging a heading in the Outline view moves the heading with every line down to the next heading of the same or a higher level. A comment line right **above** a heading belongs to the previous heading's lines and stays behind | 1.13.4, 1.14.4, macOS | asserted (`host-facts`), drag by DOM drag events in the Outline. With the marker above `## Shared`, dragging `## Other` above `## Shared` left the start marker in place: the private `## Other` section ended up between the section markers. With the marker right below `## Shared`, it moved with its heading and the region stayed intact | Confirms decision M4 (start marker right after the heading). The parser must still fail closed when a heading moves away from its marker |
+| H5 | Folding a heading hides every line down to the next heading of the same or a higher level, including an end marker and any private text after it | 1.13.4, 1.14.4, macOS | asserted (`host-facts`): folding `## Shared` folds lines 4–10, "Private tail." included | Obsidian's heading model does not know the section boundary: private text after the end marker folds, drags and embeds (`![[note#Shared]]`) with the shared heading. Share and insert should warn about private text between the end marker and the next heading (review finding OP-05) |
 
 ## 0.3 baselines
 
@@ -59,6 +61,4 @@ original scenario in a real Obsidian).
 
 Still to establish (LFCP-02-005, ADR 0001 spikes S1–S6):
 
-- dragging a heading in the Outline view, and folding, with a section start
-  marker next to the heading (decision M4);
 - transactions, undo grouping, multiple views and IME for ADR 0001.
