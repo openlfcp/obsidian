@@ -5,18 +5,19 @@
 //   block's indentation;
 // - item: a node marker after the item's last line, at its content column
 //   (where the parser looks for it);
-// - task: a child-line Task ref at the Task's content column, as 0.1's
-//   attachRef writes it. The canonical inline form inside sections (the ref
-//   before the Tasks fields, spec bb4ba6f) needs the ref scanner to accept
-//   a ref that is not at the end of the line (MS42–MS45); until then every
-//   new Task ref in a section is written on its child line.
+// - task: by the binding placement setting (§4.1): a child-line Task ref
+//   at the Task's content column, as 0.1's attachRef writes it (the
+//   default), or inline in the canonical form inside sections, before the
+//   Task's Tasks fields.
 //
 // The changes only add lines: no Text changes, every line ending kept.
 
+import { fieldsStart } from "../projection/task-text";
 import type { Line } from "../refs/lines";
 import { splitLines } from "../refs/lines";
 import { parseTaskLine, visualWidth } from "../refs/scanner";
 import { formatRefComment } from "../refs/serializer";
+import type { RefPlacement } from "../settings";
 import { formatNodeMarker } from "./grammar";
 import type { ParsedSection, SectionNode, SectionNodeKind } from "./parser";
 import { type DocChange, lineStarts, nodeSource } from "./source-map";
@@ -52,6 +53,7 @@ export function bindingChanges(
   section: ParsedSection,
   bindings: readonly NewBinding[],
   resourceId: Uint8Array,
+  placement: RefPlacement = "child-line",
 ): { changes: DocChange[]; missed: NewBinding[] } {
   const lines = splitLines(markdown);
   const starts = lineStarts(lines);
@@ -89,8 +91,16 @@ export function bindingChanges(
         missed.push(b);
         continue;
       }
-      const pad = " ".repeat(task.contentColumn - visualWidth(task.indent));
       const comment = formatRefComment({ resourceId, objectType: "task", objectId: b.id });
+      if (placement === "inline") {
+        const at =
+          (starts[node.lines.from] ?? 0) +
+          task.textStart +
+          fieldsStart(first.text.slice(task.textStart));
+        changes.push({ from: at, to: at, insert: ` ${comment}` });
+        continue;
+      }
+      const pad = " ".repeat(task.contentColumn - visualWidth(task.indent));
       changes.push(after(node.lines.from, `${task.indent}${pad}${comment}`));
     }
   }

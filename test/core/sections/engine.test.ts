@@ -348,3 +348,28 @@ describe("nodes a collaborator created or moved", () => {
     expect(h.port.changes).toEqual([]);
   });
 });
+
+describe("MS45 in a pass: the canonical inline form", () => {
+  const T = id(30);
+  const REF = `<!-- lfcp-ref: lfcp1:${R}#task:${T} -->`;
+  const late = `- [ ] Water plants 🔁 every week 📅 2026-10-08 ${REF}`;
+  const canonical = `- [ ] Water plants ${REF} 🔁 every week 📅 2026-10-08`;
+
+  it("moves an idle line's ref before its Tasks fields; nothing is published", async () => {
+    const h = await seeded(note([late, "", ...BODY]));
+    // Seeding only records the base; the next pass moves the ref, and the one after is empty.
+    const { out } = await h.run(note([late, "", ...BODY]));
+    expect(out).toBe(note([canonical, "", ...BODY]));
+    expect(h.port.changes).toEqual([]);
+    expect((await h.run(out)).pass.changes).toEqual([]);
+  });
+
+  it("leaves the line under the caret", async () => {
+    const h = setup(note([late, "", ...BODY]));
+    const md = note([late, "", ...BODY]);
+    const caretLine = md.split("\n").indexOf(late);
+    await h.run(md, { ...CTX, caretLine });
+    const { out } = await h.run(md, { ...CTX, caretLine });
+    expect(out).toBe(md);
+  });
+});

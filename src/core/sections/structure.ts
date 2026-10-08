@@ -23,6 +23,7 @@
 import type { Task } from "@openlfcp/shared-objects";
 import { renderNewTaskLine } from "../projection/render";
 import { isBlank, splitLines } from "../refs/lines";
+import type { RefPlacement } from "../settings";
 import { markdownState, ROOT, type SectionState } from "./base";
 import { formatNodeMarker } from "./grammar";
 import type { LineRange, ParsedSection, SectionNode } from "./parser";
@@ -87,6 +88,8 @@ export function planStructure(
   opts: {
     readonly resourceId: Uint8Array;
     readonly task: (taskId: string) => Task | undefined;
+    /** Where a new Task's ref goes (§4.1): its child line (default) or inline, canonically. */
+    readonly placement?: RefPlacement;
   },
 ): StructurePlan {
   const noteState = markdownState(markdown, section).state;
@@ -187,7 +190,8 @@ export function planStructure(
     const task = opts.task(id);
     if (task === undefined) return "no-task";
     const rendered = renderNewTaskLine(task, {
-      placement: "child",
+      placement: opts.placement === "inline" ? "inline" : "child",
+      inSection: true,
       ref: { resourceId: opts.resourceId, objectType: "task", objectId: id },
       indent,
       marker,

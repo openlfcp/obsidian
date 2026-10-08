@@ -28,6 +28,7 @@ import { suspectReassociation } from "./reassociation";
 import {
   DATE_FIELD_EMOJI,
   type DateField,
+  fieldsStart,
   glyphOfStatus,
   isObsidianTag,
   PRIORITY_EMOJI,
@@ -361,12 +362,16 @@ function renderLine(
   issues: RenderIssue[],
 ): { line: string; text: string; glyphBefore: string; glyphAfter: string } | null {
   const head = p.parts.taskHead;
+  // Inside a section, an inline ref may be followed by a Tasks suffix
+  // (MARKDOWN-SECTIONS-01 §4.1): taskText holds it as if it stood before.
+  const tasksSuffix = p.tasksSuffix ?? "";
+  const before = p.taskText.slice(0, p.taskText.length - tasksSuffix.length);
   const suffix =
     p.placement === "inline"
-      ? `${p.parts.taskGap}${p.comment.text}${p.parts.refTrail}`
+      ? `${p.parts.taskGap}${p.comment.text}${tasksSuffix}${p.parts.refTrail}`
       : p.parts.taskGap;
   // Defensive: only rewrite a line whose pieces reassemble exactly.
-  if (glyph === undefined || head + p.taskText + suffix !== lineText) return null;
+  if (glyph === undefined || head + before + suffix !== lineText) return null;
   // ST-1: an unowned glyph ([>], [?], …) is the user's local presentation:
   // never overwritten, as no intent was ever sent for it.
   const owned = statusOfGlyph(glyph);
@@ -377,6 +382,13 @@ function renderLine(
   const bracket = head.indexOf("[");
   const nextHead = `${head.slice(0, bracket + 1)}${glyphAfter}${head.slice(bracket + 2)}`;
   const text = renderTaskText(p.taskText, task, issues);
+  if (p.tasksSuffix !== undefined) {
+    // The canonical inline form: the ref before the first Tasks field.
+    const at = fieldsStart(text);
+    const gap = p.parts.taskGap === "" ? " " : p.parts.taskGap;
+    const line = `${nextHead}${text.slice(0, at)}${gap}${p.comment.text}${text.slice(at)}${p.parts.refTrail}`;
+    return { line, text, glyphBefore: glyph, glyphAfter };
+  }
   return { line: nextHead + text + suffix, text, glyphBefore: glyph, glyphAfter };
 }
 
@@ -389,6 +401,11 @@ export interface NewTaskLineOptions {
   readonly marker?: string;
   /** The line ending of every written line (default "\n"). */
   readonly eol?: string;
+  /**
+   * Inside a shared section: an inline ref goes before the Tasks fields, the
+   * canonical form there (MARKDOWN-SECTIONS-01 §4.1), not at the line's end.
+   */
+  readonly inSection?: boolean;
 }
 
 /**
@@ -406,6 +423,10 @@ export function renderNewTaskLine(task: Task, o: NewTaskLineOptions): string {
   const text = renderTaskText("", task, []).trimStart();
   const line = `${indent}${marker} [${glyph}] ${text}`;
   const comment = formatRefComment(o.ref);
+  if (o.placement === "inline" && o.inSection === true) {
+    const at = fieldsStart(text);
+    return `${indent}${marker} [${glyph}] ${text.slice(0, at)} ${comment}${text.slice(at)}${eol}`;
+  }
   return o.placement === "inline"
     ? `${line} ${comment}${eol}`
     : `${line}${eol}${indent}${" ".repeat(marker.length + 1)}${comment}${eol}`;

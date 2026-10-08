@@ -23,6 +23,7 @@ import { SectionEngine } from "../core/sections/engine";
 import { parseSections } from "../core/sections/parser";
 import type { NewSectionTask } from "../core/sections/port";
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
+import type { RefPlacement } from "../core/settings";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
 
@@ -48,6 +49,8 @@ export class SectionsHost {
   constructor(
     private readonly app: App,
     onError: (path: string, error: unknown) => void,
+    /** The binding placement setting for new Task refs (§4.1). */
+    private readonly refPlacement: () => RefPlacement,
   ) {
     this.editor = sectionEditorExtension({
       engine: () => this.#engine,
@@ -83,6 +86,7 @@ export class SectionsHost {
       // No TaskView for section Tasks in the SDK yet: their fields are left alone.
       tasks: () => undefined,
       newTask: (line, id) => newSectionTask(line, principal, id),
+      refPlacement: this.refPlacement,
     });
     for (const entry of await runtime.registry())
       if (entry.profile === SECTIONS_PROFILE_ID) {

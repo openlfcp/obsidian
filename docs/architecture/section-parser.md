@@ -75,6 +75,15 @@ The parser does not read Markdown a second way:
   `LFCP_REF_NOT_AT_LINE_END` and blocks the Task (MS44). Section code reads
   refs through `scanSectionRefs`, which passes the sections' lines to
   `scanRefs`.
+- **The canonical inline form.** Under the inline binding placement, new
+  Task refs in a section go before the Task's Tasks fields
+  (`markers.ts`; a Task a collaborator added, `structure.ts` through
+  0.1's `renderNewTaskLine` with `inSection`), and the 0.1 renderer keeps
+  that form when it renders a Task with a suffix (the ref before the first
+  field; tags stay before it). An idle Task line whose inline ref sits at
+  the end after Tasks fields gets the canonical form in the engine's last
+  layer (`inline.ts`, MS45): only when the line is not under the caret and
+  still matches the base, as a source rewrite that publishes nothing.
 - **Item continuations.** An item's paragraph goes on in continuation
   lines, lazy ones included (CommonMark); its `item` marker follows the last
   of them (§4.2), since an HTML comment interrupts a paragraph.
@@ -332,15 +341,12 @@ into one batch, and commits it through the port (contract §3, §7.4–§7.7):
 
 The IDs are written into the note by `markers.ts`: a paragraph's or raw
 block's marker on the line before it, at its indentation; an item's after
-its last line, at its content column; a Task's ref on its child line, at
-its content column, as 0.1's `attachRef` writes it. Only lines are added
-(no Text changes, line endings kept), and a node no longer there unbound is
-reported as missed, its ID kept in the journal. A new node's new children
-bind on the next pass. Inside sections every new Task ref goes on its child
-line for now: the canonical inline form (the ref before the Tasks fields,
-spec bb4ba6f) needs the ref scanner to accept a ref that is not at the end
-of its line (MS42–MS45), so the "on the task line" setting does not apply
-to sections yet.
+its last line, at its content column; a Task's ref by the binding
+placement setting: on its child line, at its content column, as 0.1's
+`attachRef` writes it (the default), or inline before its Tasks fields (the
+canonical form inside sections, §4.1). No Text changes, line endings kept;
+a node no longer there unbound is reported as missed, its ID kept in the
+journal. A new node's new children bind on the next pass.
 
 After a restart, `resumeOperation` follows the journal's crash table: an
 entry at `ids-allocated` asks for its receipt and either projects the

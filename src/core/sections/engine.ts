@@ -21,6 +21,7 @@ import { type PrincipalId, toBase64url } from "@openlfcp/core";
 import { contentHash } from "../projection/guard";
 import type { RenderTarget } from "../projection/render";
 import { splitLines } from "../refs/lines";
+import type { RefPlacement } from "../settings";
 import type { UnboundNode } from "./base";
 import {
   markdownState,
@@ -40,10 +41,11 @@ import {
   resumeOperation,
 } from "./commit";
 import { type SectionRef, sameSection } from "./grammar";
+import { canonicalInline } from "./inline";
 import { transientCandidates } from "./input";
 import { advance, type JournalEntry } from "./journal";
 import { bindingChanges, type NewBinding } from "./markers";
-import { type ParsedSection, parseSections } from "./parser";
+import { type ParsedSection, parseSections, type SectionNode } from "./parser";
 import type { NewSectionTask, SectionIntent, SectionSnapshot } from "./port";
 import { planRemote, type RemotePlan } from "./remote";
 import { type DocChange, lineStarts } from "./source-map";
@@ -60,6 +62,8 @@ export interface EngineDeps extends CommitDeps {
   readonly tasks: (resource: string, taskId: string) => RenderTarget | undefined;
   /** A new Task's fields from its line (as planShare reads it), with its new ID. */
   readonly newTask: (lineText: string, id: string) => NewSectionTask;
+  /** The binding placement setting for new Task refs (§4.1); child-line by default. */
+  readonly refPlacement?: () => RefPlacement;
 }
 
 /** What the host knows about the edits since the last pass. */
@@ -272,6 +276,10 @@ export class SectionEngine {
 
   constructor(private readonly deps: EngineDeps) {}
 
+  #placement(): RefPlacement {
+    return this.deps.refPlacement?.() ?? "child-line";
+  }
+
   /** One pass over a note's sections, on `source` as just read. */
   async pass(path: string, source: string, ctx: PassContext): Promise<NotePass> {
     const scan = parseSections(source);
@@ -421,7 +429,13 @@ export class SectionEngine {
       );
       entries.push(r.entry);
     }
-    const resumedChanges = bindingChanges(source, section, resumed, ref.resourceId).changes;
+    const resumedChanges = bindingChanges(
+      source,
+      section,
+      resumed,
+      ref.resourceId,
+      this.#placement(),
+    ).changes;
     const md0 = applyChanges(source, resumedChanges);
     const section0 = sectionLike(md0, ref, section);
     if (section0 === undefined) return skip("blocked");
@@ -499,7 +513,13 @@ export class SectionEngine {
       for (const b of bindings) this.#ledger.created(b.id);
       for (const id of deletes) this.#ledger.deleted(id);
       for (const id of comp.restores) this.#ledger.restored(id);
-      markerChanges = bindingChanges(md0, section0, bindings, ref.resourceId).changes;
+      markerChanges = bindingChanges(
+        md0,
+        section0,
+        bindings,
+        ref.resourceId,
+        this.#placement(),
+      ).changes;
       const lineOf = new Map(bindings.map((b) => [b.id, lineText0(b.line)]));
       // A Task whose fields were sent: its line as the note shows it is its base now.
       for (const i of fields.intents) lineOf.set(i.id, note.state.nodes[i.id]?.line ?? "");
@@ -536,6 +556,7 @@ export class SectionEngine {
         structure = planStructure(md2, section2, base, after, {
           resourceId: ref.resourceId,
           task: (taskId) => this.deps.tasks(resource, taskId)?.view?.task,
+          placement: this.#placement(),
         });
         const all =
           structure.changes.length === 0 ? null : composeChanges(changes, structure.changes);
@@ -552,6 +573,37 @@ export class SectionEngine {
           base = { ...base, nodes, order: shown.order };
           changes = all;
         }
+      }
+    }
+    // 6. MS45: an idle Task line whose inline ref sits after its Tasks fields
+    //    gets the canonical form (§4.1); a source rewrite, nothing published.
+    const final = applyChanges(source, changes);
+    const sectionF = sectionLike(final, ref, section0);
+    if (sectionF !== undefined) {
+      const linesF = splitLines(final);
+      const startsF = lineStarts(linesF);
+      const caretText = ctx.caretLine === null ? undefined : sourceLines[ctx.caretLine]?.text;
+      const moves: DocChange[] = [];
+      const nodes = { ...base.nodes };
+      const walk = (ns: readonly SectionNode[]) => {
+        for (const n of ns) {
+          walk(n.children);
+          if (n.kind !== "task" || n.id === null) continue;
+          const text = linesF[n.lines.from]?.text ?? "";
+          const was = nodes[n.id];
+          if (was?.line !== text || text === caretText) continue;
+          const canonical = canonicalInline(text);
+          if (canonical === null) continue;
+          const at = startsF[n.lines.from] ?? 0;
+          moves.push({ from: at, to: at + text.length, insert: canonical });
+          nodes[n.id] = { ...was, line: canonical };
+        }
+      };
+      walk(sectionF.nodes);
+      const all = moves.length === 0 ? null : composeChanges(changes, moves);
+      if (all !== null) {
+        changes = all;
+        base = { ...base, nodes };
       }
     }
     const affected = new Set(local.kind === "committed" ? local.receipt.affectedNodeIds : []);

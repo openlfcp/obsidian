@@ -310,6 +310,22 @@ export function segmentTaskText(text: string): SegmentedTaskText {
   return { description: end.slice(0, e), segments: reversed.reverse(), trailing };
 }
 
+/**
+ * Where a Task text's Tasks fields begin (dates, priority, recurrence, a
+ * block ID): after the description and its trailing tags, at the field's
+ * leading whitespace; the text's length when it has none. The canonical
+ * inline ref inside a section goes here (MARKDOWN-SECTIONS-01 §4.1).
+ */
+export function fieldsStart(text: string): number {
+  const { description, segments } = segmentTaskText(text);
+  let at = description.length;
+  for (const s of segments) {
+    if (s.kind !== "tag") return at;
+    at += s.raw.length;
+  }
+  return text.trimEnd().length;
+}
+
 /** Whether the text holds a wikilink, [[…]] with no ] inside (one linear pass). */
 export function hasWikilink(text: string): boolean {
   let firstOpen = -1; // the first "[[" since the last "]"

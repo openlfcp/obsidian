@@ -2,13 +2,17 @@
 // (MARKDOWN-SECTIONS-01 §4.1; MS42 and MS44 are copied from
 // MARKDOWN-SECTIONS-FIXTURES-01, spec mvp-0.2-baseline.1).
 
-import { principalId, resourceId } from "@openlfcp/core";
+import { fromBase64url, principalId, resourceId } from "@openlfcp/core";
 import { createTask, SharedObjectsReplica } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import { scanRefs } from "../../../src/core/refs/scanner";
 import { isTasksSuffix, suffixAmbiguous } from "../../../src/core/refs/tasks-suffix";
 import { markdownState } from "../../../src/core/sections/base";
+import { canonicalInline } from "../../../src/core/sections/inline";
+import { bindingChanges } from "../../../src/core/sections/markers";
 import { parseSections, scanSectionRefs } from "../../../src/core/sections/parser";
+import { applyRemote, planRemote } from "../../../src/core/sections/remote";
+import { planStructure } from "../../../src/core/sections/structure";
 import { planTaskFields, representLine } from "../../../src/core/sections/task-fields";
 
 const R = "LWB1c56f0jsstqrVjCb3kKmiY9K_7wig-OtGwO6EIfo";
@@ -110,5 +114,89 @@ describe("inside a section only", () => {
       "LFCP_REF_NOT_AT_LINE_END",
     );
     expect(parseSections(md).sections[0]?.blocked).toBe(true);
+  });
+});
+
+describe("the canonical inline form (§4.1)", () => {
+  const me = principalId(new Uint8Array(32).fill(4));
+  const view = (title: string, more: Record<string, unknown> = {}) => {
+    const { replica } = SharedObjectsReplica.create({
+      resource: resourceId(fromBase64url(R)),
+      principal: me,
+    });
+    replica.apply(createTask({ id: TASK as never, title, createdBy: me, ...more }).intent);
+    return replica;
+  };
+  const sectionOf = (md: string) => {
+    const s = parseSections(md).sections[0];
+    if (s === undefined) throw new Error("no section");
+    return s;
+  };
+
+  it("MS45: an inline ref after the Tasks fields moves before them", () => {
+    const line = `- [ ] Water plants 🔁 every week 📅 2026-10-08 ${REF}`;
+    expect(canonicalInline(line)).toBe(`- [ ] Water plants ${REF} 🔁 every week 📅 2026-10-08`);
+    // Already canonical, or no fields: nothing to move.
+    expect(canonicalInline(`- [ ] Water plants ${REF} 🔁 every week`)).toBeNull();
+    expect(canonicalInline(`- [ ] Water plants #home ${REF}`)).toBeNull();
+    expect(canonicalInline("- [ ] No ref 📅 2026-10-08")).toBeNull();
+  });
+
+  it("a collaborator's completion keeps the ref before the fields", () => {
+    const replica = view("Water plants", { due: "2026-10-08" });
+    replica.apply({ intent: "task.complete", id: TASK as never, completionDate: "2026-10-08" });
+    const md = note(`- [ ] Water plants ${REF} 🔁 every week 📅 2026-10-08`);
+    const base = markdownState(md, sectionOf(md)).state;
+    const snap = {
+      revision: "h2",
+      title: "Joint launch",
+      ready: true,
+      nodes: { [TASK]: { kind: "task" as const, parent: null, lifecycle: "active" as const } },
+      order: { "": [TASK] },
+      problems: [],
+    };
+    const p = planRemote(md, sectionOf(md), base, snap, () => ({ view: replica.task(TASK) }));
+    if (p.kind !== "patch") throw new Error(p.kind);
+    expect(applyRemote(md, p)).toBe(
+      note(`- [x] Water plants ${REF} 🔁 every week 📅 2026-10-08 ✅ 2026-10-08`),
+    );
+  });
+
+  it("a new Task's ref under the inline setting goes before its fields, and binds", () => {
+    const md = note("- [ ] Call Anna 📅 2026-11-01");
+    const s = sectionOf(md);
+    const [u] = markdownState(md, s).unbound;
+    const r = bindingChanges(
+      md,
+      s,
+      [{ line: u?.line ?? 0, kind: "task", id: TASK }],
+      fromBase64url(R),
+      "inline",
+    );
+    const out = r.changes.reduce((t, c) => t.slice(0, c.from) + c.insert + t.slice(c.to), md);
+    expect(out).toBe(note(`- [ ] Call Anna ${REF} 📅 2026-11-01`));
+    expect(scanSectionRefs(out).projections[0]?.objectId).toBe(TASK);
+    expect(parseSections(out).sections[0]?.blocked).toBe(false);
+  });
+
+  it("a Task a collaborator added, under the inline setting, is written canonically", () => {
+    const md = note("");
+    const base = markdownState(md, sectionOf(md)).state;
+    const replica = view("Call Anna", { due: "2026-11-01" });
+    const snap = {
+      revision: "h2",
+      title: "Joint launch",
+      ready: true,
+      nodes: { [TASK]: { kind: "task" as const, parent: null, lifecycle: "active" as const } },
+      order: { "": [TASK] },
+      problems: [],
+    };
+    const p = planStructure(md, sectionOf(md), base, snap, {
+      resourceId: fromBase64url(R),
+      task: () => replica.task(TASK)?.task,
+      placement: "inline",
+    });
+    const out = p.changes.reduce((t, c) => t.slice(0, c.from) + c.insert + t.slice(c.to), md);
+    expect(out).toContain(`- [ ] Call Anna ${REF} 📅 2026-11-01\n`);
   });
 });

@@ -129,11 +129,15 @@ export default class OpenLfcpPlugin extends Plugin {
     this.registerEditorExtension(sections.extension);
     // Development preview of shared sections (data.json only, off by default).
     if (this.settings.sectionsPreview) {
-      this.sections = new SectionsHost(this.app, (path, e) => {
-        new Notice(
-          `Shared Tasks: a shared section in ${path} could not be processed (${e instanceof Error ? e.message : String(e)}).`,
-        );
-      });
+      this.sections = new SectionsHost(
+        this.app,
+        (path, e) => {
+          new Notice(
+            `Shared Tasks: a shared section in ${path} could not be processed (${e instanceof Error ? e.message : String(e)}).`,
+          );
+        },
+        () => this.settings.refPlacement,
+      );
       this.registerEditorExtension(this.sections.editor.extension);
     }
     this.#starting = this.#startRuntime();
