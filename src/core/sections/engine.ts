@@ -47,6 +47,7 @@ import { advance, type JournalEntry } from "./journal";
 import { bindingChanges, type NewBinding } from "./markers";
 import { type ParsedSection, parseSections, type SectionNode } from "./parser";
 import type { NewSectionTask, SectionIntent, SectionSnapshot } from "./port";
+import { recurringCopyRepair } from "./recurrence";
 import { planRemote, type RemotePlan } from "./remote";
 import { type DocChange, lineStarts } from "./source-map";
 import { planStructure, type StructurePlan } from "./structure";
@@ -78,6 +79,12 @@ export interface PassContext {
   readonly deletedIds: ReadonlySet<string>;
   /** undo / redo / other, from the transactions' userEvent (undo.ts). */
   readonly origin: ChangeOrigin;
+  /**
+   * An external plugin edit since the last pass (a transaction without an
+   * editor userEvent): a recurring Task's next occurrence may carry a copied
+   * ref (MS43, recurrence.ts).
+   */
+  readonly external?: boolean;
 }
 
 export type SectionSkip =
@@ -282,6 +289,35 @@ export class SectionEngine {
 
   /** One pass over a note's sections, on `source` as just read. */
   async pass(path: string, source: string, ctx: PassContext): Promise<NotePass> {
+    if (ctx.external === true) {
+      // MS43: the Tasks plugin's next occurrence of a recurring Task loses
+      // its copied ref first; the pass then sees it as a new Task.
+      const repair = await this.#recurringRepairs(path, source);
+      if (repair.length > 0) {
+        const inner = await this.#pass(path, applyChanges(source, repair), ctx);
+        const changes = composeChanges(repair, inner.changes);
+        if (changes !== null)
+          return { ...inner, source, sourceRevision: contentHash(source), changes };
+      }
+    }
+    return this.#pass(path, source, ctx);
+  }
+
+  async #recurringRepairs(path: string, source: string): Promise<DocChange[]> {
+    const sections = parseSections(source).sections;
+    const out: DocChange[] = [];
+    for (const id of await this.deps.bases.projectionsOf(path)) {
+      const b = await this.deps.bases.load(id);
+      const section = sections.find(
+        (s) => b !== undefined && sameSection(s.ref, b.locator.section),
+      );
+      if (b === undefined || section === undefined) continue;
+      out.push(...recurringCopyRepair(source, section, b.state));
+    }
+    return out.sort((a, b) => a.from - b.from);
+  }
+
+  async #pass(path: string, source: string, ctx: PassContext): Promise<NotePass> {
     const scan = parseSections(source);
     // The snapshot rule: every snapshot now, before the first await.
     const snapshots = scan.sections.map((s) =>

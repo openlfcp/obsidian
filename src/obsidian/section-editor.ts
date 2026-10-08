@@ -61,6 +61,8 @@ interface ViewState {
   readonly scheduler: ReconcileScheduler;
   deletedIds: Set<string>;
   origin: ChangeOrigin;
+  /** A transaction without a userEvent (another plugin's edit) since the last pass. */
+  external: boolean;
 }
 
 const defaultTimer: Timer = {
@@ -123,8 +125,14 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     const caret = view.hasFocus
       ? view.state.doc.lineAt(view.state.selection.main.head).number - 1
       : null;
-    const ctx: PassContext = { caretLine: caret, deletedIds, origin: st.origin };
+    const ctx: PassContext = {
+      caretLine: caret,
+      deletedIds,
+      origin: st.origin,
+      external: st.external,
+    };
     st.origin = "other";
+    st.external = false;
     const pass = await engine.pass(req.path, req.source, ctx);
     const current = view.state.doc.toString();
     if (contentHash(current) !== pass.sourceRevision) {
@@ -171,6 +179,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         ),
         deletedIds: new Set(),
         origin: "other",
+        external: false,
       };
       views.set(view, this.st);
       this.#follow();
@@ -192,7 +201,9 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       for (const tr of u.transactions) {
         if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined) continue;
         edited = true;
-        const origin = originOf(tr.annotation(Transaction.userEvent));
+        const userEvent = tr.annotation(Transaction.userEvent);
+        if (userEvent === undefined) this.st.external = true;
+        const origin = originOf(userEvent);
         if (origin !== "other") this.st.origin = origin;
         tr.changes.iterChanges((fromA, toA) => {
           if (toA <= fromA) return;

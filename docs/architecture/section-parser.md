@@ -34,6 +34,8 @@ inside a section).
 | `sdk-snapshot.ts` | sdk-ts's `SectionReplica.snapshot()` in the port's terms (`fromSdkSnapshot`) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
+| `inline.ts` | The canonical inline form inside sections: an end-of-line ref moved before the Tasks fields (`canonicalInline`, MS45) |
+| `recurrence.ts` | A recurring Task's next occurrence written by the Tasks plugin with a copied ref (`recurringCopyRepair`, MS43) |
 | `structure.ts` | Nodes a collaborator created or moved, written into the note (`planStructure`) |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
 
@@ -84,6 +86,15 @@ The parser does not read Markdown a second way:
   the end after Tasks fields gets the canonical form in the engine's last
   layer (`inline.ts`, MS45): only when the line is not under the caret and
   still matches the base, as a source rewrite that publishes nothing.
+- **A recurring Task's next occurrence (MS43).** Completing a recurring
+  Task whose inline ref precedes its fields, the Tasks plugin writes the
+  next occurrence above it with a copy of the ref. After an external edit
+  (a transaction without a userEvent, which the editor extension reports
+  as `external`), `recurrence.ts` removes the copy from the open line when
+  the other line is the same Task, completed in this edit (open at the
+  base): the line is then new content and becomes a new Task in the
+  configured placement, in the same batch as the completion. Any other
+  copy stays `NODE_BINDING_DUPLICATE` and pauses the section.
 - **Item continuations.** An item's paragraph goes on in continuation
   lines, lazy ones included (CommonMark); its `item` marker follows the last
   of them (§4.2), since an HTML comment interrupts a paragraph.
