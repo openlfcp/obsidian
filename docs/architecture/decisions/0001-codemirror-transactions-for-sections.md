@@ -2,8 +2,8 @@
 
 - **Status:** Proposed (draft for MVP 0.2, wave W2). The direction is the
   owner's decision M3 of 2026-10-08 (`workbook: reviews/mvp-0.2/summary.md`
-  §2); the mechanisms below need the spikes in "Verification" before they
-  are accepted.
+  §2). Spikes S1–S6 ran on 2026-10-08 ("Verification and evidence"); IME
+  and the Tasks plugin's own edits are still open.
 - **Scope:** shared sections only (`org.openlfcp.shared-sections.v1`).
   Standalone shared Tasks keep the file path of 0.1–0.3
   ([../projection.md](../projection.md)).
@@ -75,8 +75,12 @@ duplicate intents.
 - `update(u)` does only cheap, synchronous work:
   - map the section source map through `u.changes` (`mapPos`);
   - mark touched sections as **editing** (status LOCAL_EDIT, SI02);
-  - record the transaction's `userEvent` and whether it carries our own
-    origin annotation.
+  - note whether the transaction carries our own origin annotation.
+
+  The origin annotation is the only reliable classifier. `userEvent` is a
+  hint at most: Obsidian's own edits (commands, checkbox clicks, the Editor
+  API) carry none, and external writes and other views arrive as `"set"`
+  (S1, S3).
 
   No parsing of whole sections, no SDK calls, no I/O in `update`.
 - Reconciliation runs later, outside `update`: after a short idle, at
@@ -109,12 +113,17 @@ overlapped meanwhile.
 | Write | Annotations | Undo history |
 | --- | --- | --- |
 | Remote projection patch | `lfcpOrigin.of(opId)`, `userEvent: "lfcp.remote"` | `addToHistory.of(false)`: a peer's edit never becomes the user's undo step |
-| Node marker / Task ref for new content | `lfcpOrigin.of(opId)`, `userEvent: "lfcp.bind"` | Joined to the user's edit that created the node, so undo removes both or neither (AR2 §7); the joining mechanism is spike S2 |
+| Node marker / Task ref for new content | `lfcpOrigin.of(opId)` on the appended spec | Joined to the user's edit that created the node, so undo removes both or neither (AR2 §7): an `EditorState.transactionFilter` appends the marker to the **user's own transaction** (S2). A separate dispatch, even in the same tick with the same `userEvent`, is its own undo step |
 | Status, boundary, badges | none: decorations only, no document change | none |
 
 The selection and cursor follow through CodeMirror's own change mapping.
 Remote patches are minimal: owned spans only, as the 0.3 renderer does for
 Task fields.
+
+A transaction filter runs synchronously inside the user's transaction, so
+the marker's node ID is allocated there (a local UUIDv7, no I/O) and
+journaled right after. A crash in between leaves a marker with an ID that
+was never published; recovery treats it as a new node with that ID.
 
 ### 4. One file, several views
 
@@ -122,8 +131,13 @@ Each `MarkdownView` has its own `EditorView`. Per file, the section engine
 keeps a single coordinator: it reads from and writes to one live view (the
 most recently focused one) and relies on Obsidian to propagate the change
 to the other views of the same file. Each view keeps its own decorations.
-If propagation does not behave like that (spike S3), the coordinator writes
-to each view with the same `opId` and the guard accepts each echo once.
+
+Obsidian does propagate, but as a `"set"` transaction **without** our
+annotation (S3), the same way an external write arrives (S1, S4). So the
+coordinator never extracts intents from a single transaction: any change
+it did not make, in any view, only marks the file for reconciliation, and
+reconciliation compares the coordinator view's document with the base. A
+mirrored change it made itself yields no difference and no intent.
 
 ### 5. Leaving the editor
 
@@ -153,16 +167,22 @@ its base on the next open or vault event, as today.
   change 0.3 behavior that has passed the golden suite and the directory
   review, with no user benefit in 0.2. It can be revisited after the pilot.
 
-## Verification (spikes before the ADR is accepted)
+## Verification and evidence
 
-| ID | Question | Pass condition |
-| --- | --- | --- |
-| S1 | Does a `ViewPlugin` see every edit, including IME, paste, drag-drop, Obsidian commands (move line, toggle checkbox) and the Tasks plugin's own edits, with a usable `userEvent`? | A log of transactions for each gesture on 1.13.1, macOS |
-| S2 | How do we join the marker insertion to the user's history event? Candidates: dispatch in the same tick with a matching `userEvent`, or `appendTransaction`-style filters (`EditorState.transactionFilter`) that add the marker to the user's own transaction | One undo removes the new item and its marker; one redo restores both |
-| S3 | Several views of one file and a popout window: does Obsidian propagate a dispatched change to the other views, and with which annotation? | Defined behavior, recorded; the coordinator rule in §4 confirmed or replaced |
-| S4 | `vault.process` / external modify of an open file: is the buffer replaced or merged, and is the cursor kept? | Recorded; it tells whether a closed-file write racing an opening view is safe |
-| S5 | Cost: `update` work and reconciliation of a 200-Task section (W200) | Keystroke-to-paint not worse than without the extension by more than the budget of LFCP-02-067 |
-| S6 | `transactionFilter` vs. Live Preview's own filters | No interference with list continuation, folding and checkbox clicks |
+The spikes run in the native harness ([../../devel/testing/native-harness.md](../../devel/testing/native-harness.md)):
+`test/native/specs/adr-0001-spikes.e2e.mjs`, through a test-only plugin
+(`test/native/plugins/cm-spike`) that uses the same public API as this
+design. Results agree on Obsidian 1.13.4 and 1.14.4 (macOS, 2026-10-08)
+and are asserted, so a later Obsidian that changes one fails there.
+
+| ID | Question | Evidence | Consequence |
+| --- | --- | --- | --- |
+| S1 | Does a `ViewPlugin` see every edit, with a usable `userEvent`? | Every gesture arrives. `userEvent`: typing and Enter in a list `input.type` (Enter's transaction already contains the list continuation `\n- [ ] `); Backspace `delete.backward`; paste `input.paste`; undo `undo`; move line `move.line`; the toggle checklist command, a checkbox click in Live Preview and the Editor API: none; `vault.process` on the open note: `set` | Classify by our origin annotation only (§2). **Open:** IME composition (WebDriver cannot drive an IME; manual check) and the Tasks plugin's own edits (needs a pinned Tasks plugin in the harness) |
+| S2 | How is a marker joined to the user's undo step? | A `transactionFilter` appending the marker to the user's transaction: one undo removes text and marker, one redo restores both. A separate dispatch right after, with the same `userEvent`: undo removes only the marker | Use the transaction filter (§3) |
+| S3 | Two views of one note | A change dispatched in one view reaches the other at once, as `userEvent: "set"`, without our annotation; both documents equal | Coordinator rule refined (§4) |
+| S4 | `vault.process` on an open note | Applied to the buffer within ~5 ms; the cursor is mapped (line 2 → 3 after a line inserted above); unsaved typing in the buffer is kept and merged with the external write (the disk lacks it until the next save) | Obsidian merges external writes into an open buffer, so the closed-file path stays safe when a view opens meanwhile. Remote patches into an open note still go through `dispatch` (§3), for `addToHistory` and the annotation |
+| S5 | Cost while typing in a 200-Task note | A recording `ViewPlugin`: 40 updates, ~0.003 ms each | `update` work is negligible; the cost budget belongs to reconciliation (LFCP-02-067) |
+| S6 | A transaction filter vs. Live Preview | An active filter leaves list continuation (Enter), checkbox clicks and heading folding unchanged | No interference found |
 
 ## Consequences
 
@@ -172,6 +192,7 @@ its base on the next open or vault event, as today.
 - Two write paths coexist in one note, split by section ranges. Tests must
   cover a note with both a section and standalone Tasks, open and closed.
 - Undo, IME and multi-view behavior become our responsibility for section
-  regions; spikes S1–S4 come before the implementation tasks freeze.
+  regions. S1–S6 ran; IME and the Tasks plugin's edits stay open before
+  the implementation tasks freeze.
 - The 0.1 statement in [../projection.md](../projection.md) stays true for
   standalone Tasks; that document will link here once this ADR is accepted.

@@ -88,7 +88,15 @@ touch it either.
 | --- | --- |
 | `specs/smoke.e2e.mjs` | The plugin is enabled, registers its commands, and its runtime reaches `ready` |
 | `specs/host-facts.e2e.mjs` | Obsidian host facts that MVP 0.2 designs rely on; see [obsidian-host-facts.md](obsidian-host-facts.md) |
+| `specs/projection-race.e2e.mjs` | Regression (0.3.2): a collaborator's change arriving right after sharing and editing is not sent back |
+| `specs/adr-0001-spikes.e2e.mjs` | ADR 0001 spikes S1–S6: CodeMirror transactions, undo grouping, several views, external writes, cost, Live Preview; through the test-only plugin `plugins/cm-spike` |
 | `specs/baseline-0.3.e2e.mjs` | Baselines of the 0.3 plugin: start, "Share selected tasks" with 200 Tasks, edit → queued, change → render. Prints `METRIC {…}` lines; results in [obsidian-host-facts.md](obsidian-host-facts.md) |
+
+Besides the plugin under test, each run installs `plugins/cm-spike`: a
+test-only plugin (never shipped) that records CodeMirror transactions and
+exposes `window.__lfcpSpike` to the specs. It uses only the public API the
+plugin itself would (`registerEditorExtension`, the app's `@codemirror`
+modules), since a page script cannot load those modules.
 
 Specs are plain ES modules run by Mocha. The `browser` and `expect` globals
 come from WebdriverIO. `browser.executeObsidian(({ app, obsidian }) => …)`

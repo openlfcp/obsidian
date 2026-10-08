@@ -1,0 +1,9 @@
+{
+  "id": "lfcp-cm-spike",
+  "name": "LFCP CodeMirror spike (test only)",
+  "version": "0.0.0",
+  "minAppVersion": "1.13.1",
+  "description": "Native harness only: records CodeMirror transactions and runs the ADR 0001 spikes.",
+  "author": "OpenLFCP",
+  "isDesktopOnly": true
+}

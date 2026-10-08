@@ -59,6 +59,12 @@ Regression tests: `test/core/projection/writer.test.ts` (the race,
 deterministic) and `test/native/specs/projection-race.e2e.mjs` (the
 original scenario in a real Obsidian).
 
-Still to establish (LFCP-02-005, ADR 0001 spikes S1–S6):
+The ADR 0001 spikes (transactions, undo grouping, several views, external
+writes, cost, Live Preview) are recorded in the ADR's evidence table:
+[../../architecture/decisions/0001-codemirror-transactions-for-sections.md](../../architecture/decisions/0001-codemirror-transactions-for-sections.md).
 
-- transactions, undo grouping, multiple views and IME for ADR 0001.
+Still to establish (LFCP-02-005):
+
+- IME composition in an open note (manual: WebDriver cannot drive an IME);
+- the Obsidian Tasks plugin's own edits (a pinned Tasks plugin in the
+  harness).

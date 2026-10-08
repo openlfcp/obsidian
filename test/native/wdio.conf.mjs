@@ -37,7 +37,8 @@ export const config = {
     browserVersion: version,
     "wdio:obsidianOptions": {
       installerVersion: version,
-      plugins: [path.resolve(here, "../..")],
+      // The plugin under test, and the ADR 0001 spike plugin (harness only).
+      plugins: [path.resolve(here, "../.."), path.join(here, "plugins/cm-spike")],
       vault: path.join(here, "vaults/basic"),
     },
   })),
