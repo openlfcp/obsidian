@@ -28,6 +28,8 @@ export interface Settings {
   refPlacement: RefPlacement;
   /** The sync server offered by default when creating a collaboration; empty offers none. */
   defaultServer: string;
+  /** Show the binding lines of shared sections in Live Preview (hidden by default, M5). */
+  showSharingMetadata: boolean;
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */
   settingsVersion: number;
 }
@@ -35,6 +37,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   refPlacement: "child-line",
   defaultServer: PROJECT_SERVER,
+  showSharingMetadata: false,
   settingsVersion: SETTINGS_VERSION,
 };
 
@@ -67,6 +70,10 @@ export function normalizeSettings(stored: unknown): Settings {
       server === undefined || (server === "" && !versioned)
         ? DEFAULT_SETTINGS.defaultServer
         : server,
+    showSharingMetadata:
+      typeof data.showSharingMetadata === "boolean"
+        ? data.showSharingMetadata
+        : DEFAULT_SETTINGS.showSharingMetadata,
     settingsVersion: SETTINGS_VERSION,
   };
 }

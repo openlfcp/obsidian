@@ -1,3 +1,8 @@
+/* OpenLFCP: the quiet boundary along a shared section's lines (LFCP-02-048). */
+.openlfcp-section-line {
+  box-shadow: inset 2px 0 0 var(--background-modifier-border-hover);
+}
+
 /* OpenLFCP: a bound Task whose shared fields have concurrent values (LFCP-062). */
 .openlfcp-conflict {
   box-shadow: inset 3px 0 0 var(--text-warning);

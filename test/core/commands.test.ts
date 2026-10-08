@@ -14,6 +14,7 @@ describe("commands", () => {
       "Resource status",
       "Detach shared task",
       "Resolve shared task conflict",
+      "Show or hide sharing metadata",
     ]);
     const ids = COMMANDS.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);

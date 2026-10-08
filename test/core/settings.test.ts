@@ -21,6 +21,7 @@ describe("settings", () => {
     ).toEqual({
       refPlacement: "inline",
       defaultServer: "wss://a.example/ws",
+      showSharingMetadata: false,
       settingsVersion: SETTINGS_VERSION,
     });
     expect(
@@ -40,6 +41,7 @@ describe("settings", () => {
     expect(normalizeSettings({ refPlacement: "inline", defaultServer: "" })).toEqual({
       refPlacement: "inline",
       defaultServer: PROJECT_SERVER,
+      showSharingMetadata: false,
       settingsVersion: 2,
     });
     expect(normalizeSettings({ refPlacement: "inline" }).defaultServer).toBe(PROJECT_SERVER);

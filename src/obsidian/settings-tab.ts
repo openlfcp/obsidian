@@ -50,6 +50,11 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         },
       },
       {
+        name: "Show sharing metadata",
+        desc: "Show the lines that bind a shared section (its start and end markers, and the marker under each task, paragraph and item) in Live Preview. Hidden by default; Source mode always shows them.",
+        control: { type: "toggle", key: "showSharingMetadata" },
+      },
+      {
         name: "Default server",
         desc: "The sync server offered when you create a collaboration. It is not your identity and does not own your collaborations. Default: the OpenLFCP project server (beta). Clear it to type a server each time.",
         control: { type: "text", key: "defaultServer", placeholder: "wss://…" },
@@ -60,10 +65,15 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
   override getControlValue(key: string): unknown {
     if (key === "refPlacement") return this.plugin.settings.refPlacement;
     if (key === "defaultServer") return this.plugin.settings.defaultServer;
+    if (key === "showSharingMetadata") return this.plugin.settings.showSharingMetadata;
     return undefined;
   }
 
   override async setControlValue(key: string, value: unknown): Promise<void> {
+    if (key === "showSharingMetadata" && typeof value === "boolean") {
+      await this.plugin.setShowSharingMetadata(value);
+      return;
+    }
     if (key === "refPlacement" && isRefPlacement(value)) this.plugin.settings.refPlacement = value;
     else if (key === "defaultServer" && typeof value === "string")
       this.plugin.settings.defaultServer = value;

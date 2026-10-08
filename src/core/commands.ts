@@ -35,4 +35,9 @@ export const COMMANDS: readonly CommandSpec[] = [
     name: "Resolve shared task conflict",
     implementedBy: "LFCP-065",
   },
+  {
+    id: "toggle-sharing-metadata",
+    name: "Show or hide sharing metadata",
+    implementedBy: "LFCP-02-048",
+  },
 ];

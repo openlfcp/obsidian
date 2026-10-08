@@ -86,6 +86,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(stored).toEqual({
       refPlacement: "child-line",
       defaultServer: "wss://sync.example/v1/ws",
+      showSharingMetadata: false,
       settingsVersion: 2,
     });
     const dump = JSON.stringify(stored);
@@ -303,7 +304,8 @@ describe("plugin lifecycle (LFCP-059)", () => {
       await settle(plugin);
       expect(host.statusBar[0]?.text).toBe("Shared Tasks: 1 shared task has a conflict");
       expect(plugin.conflicts.marks("n.md")).toMatchObject([{ fields: ["due"] }]);
-      expect(host.editorExtensions).toHaveLength(1);
+      // The conflict decoration and the shared-section presentation (LFCP-02-048).
+      expect(host.editorExtensions).toHaveLength(2);
       expect(app.vault.files.get("n.md")).not.toMatch(/<{7}|={7}|>{7}|conflict/i);
       host.unload();
       await plugin.stopRuntime();

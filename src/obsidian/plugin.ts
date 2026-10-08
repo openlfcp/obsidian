@@ -15,6 +15,7 @@
 // next save). Conflicts show in the status bar and as an editor line
 // decoration, never in the text.
 
+import type { EditorView } from "@codemirror/view";
 import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { MarkdownView, Notice, Plugin, type TAbstractFile, type TFile } from "obsidian";
 import { CollabCommands, type Prompter } from "../core/collab/commands";
@@ -32,6 +33,7 @@ import { normalizeSettings, type Settings } from "../core/settings";
 import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
 import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
+import { sectionPresentationExtension, setShowMetadata } from "./section-presentation";
 import { OpenLfcpSettingTab } from "./settings-tab";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
 
@@ -99,6 +101,8 @@ export default class OpenLfcpPlugin extends Plugin {
       "resource-status": () => ui.resourceStatus(),
       "detach-shared-task": () => ui.detachSharedTask(),
       "resolve-shared-conflict": () => ui.resolveConflictUnderCursor(),
+      "toggle-sharing-metadata": () =>
+        this.setShowSharingMetadata(!this.settings.showSharingMetadata),
     };
     for (const command of COMMANDS) {
       const run = handlers[command.id];
@@ -119,6 +123,9 @@ export default class OpenLfcpPlugin extends Plugin {
       if (this.needsRestart === null) bar.setText(this.conflicts.summary());
     });
     this.registerEditorExtension(conflictDecorations(this.conflicts));
+    const sections = sectionPresentationExtension(() => this.settings.showSharingMetadata);
+    this.#sectionViews = sections.views;
+    this.registerEditorExtension(sections.extension);
     this.#starting = this.#startRuntime();
   }
 
@@ -461,6 +468,15 @@ export default class OpenLfcpPlugin extends Plugin {
   // data.json changed outside the plugin, e.g. through vault sync.
   override async onExternalSettingsChange(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
+  }
+
+  #sectionViews: ReadonlySet<EditorView> = new Set();
+
+  /** Shows or hides the binding lines of shared sections in every open editor (M5). */
+  async setShowSharingMetadata(show: boolean): Promise<void> {
+    this.settings.showSharingMetadata = show;
+    await this.saveSettings();
+    for (const view of this.#sectionViews) view.dispatch({ effects: setShowMetadata.of(show) });
   }
 
   async saveSettings(): Promise<void> {
