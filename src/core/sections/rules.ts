@@ -4,7 +4,13 @@
 
 import { joinLines, type Line, splitLines } from "../refs/lines";
 import { parseNodeMarker, type SectionRef, sameSection } from "./grammar";
-import { type LineRange, type ParsedSection, type SectionNode, scanSectionRefs } from "./parser";
+import {
+  type LineRange,
+  type ParsedSection,
+  parseSections,
+  type SectionNode,
+  scanSectionRefs,
+} from "./parser";
 
 /** The note's lines that only carry bindings of `section`, and its inline refs. */
 function bindingsOf(markdown: string, section: ParsedSection) {
@@ -125,4 +131,52 @@ export function pasteDecision(
   if (cut === null || pastedIds.length === 0 || !pastedIds.every((id) => cut.ids.includes(id)))
     return "not-a-cut";
   return sameSection(cut.section, into) ? "move" : "copy-with-new-identities";
+}
+
+/**
+ * Enter at the end of a Task line whose ref is on its child line
+ * (MARKDOWN-SECTIONS-01 §4.1, MS27, MS28): the editor inserts the new line
+ * between the Task and its ref, so the ref would bind the new line and the
+ * Task would look new. The insertion moves past the Task's subtree (its ref,
+ * its children), keeping the ref with its Task, in the same transaction.
+ * Null when `change` is not such an insertion in a section of `before`.
+ */
+export function keepRefWithTask(
+  before: string,
+  change: { readonly from: number; readonly to: number; readonly insert: string },
+): { readonly from: number; readonly to: number; readonly insert: string } | null {
+  if (change.to !== change.from || !/^\r?\n/.test(change.insert)) return null;
+  const lines = splitLines(before);
+  let at = 0;
+  let line = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const end = at + (lines[i]?.text.length ?? 0);
+    if (change.from === end) {
+      line = i;
+      break;
+    }
+    at = end + (lines[i]?.eol.length ?? 0);
+  }
+  if (line < 0) return null;
+  const p = scanSectionRefs(before).projections.find(
+    (x) => x.taskLine === line && x.placement === "child",
+  );
+  if (p === undefined) return null;
+  const node = parseSections(before)
+    .sections.flatMap((s) => [...walkNodes(s.nodes)])
+    .find((n) => n.id === p.objectId && n.lines.from === line);
+  if (node === undefined) return null;
+  let last = node.lines.to;
+  for (const d of walkNodes(node.children)) last = Math.max(last, d.lines.to);
+  let end = 0;
+  for (let i = 0; i <= last; i++)
+    end += (lines[i]?.text.length ?? 0) + (i < last ? (lines[i]?.eol.length ?? 0) : 0);
+  return { from: end, to: end, insert: change.insert };
+}
+
+function* walkNodes(nodes: readonly SectionNode[]): Generator<SectionNode> {
+  for (const n of nodes) {
+    yield n;
+    yield* walkNodes(n.children);
+  }
 }

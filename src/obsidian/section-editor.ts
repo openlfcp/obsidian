@@ -14,7 +14,7 @@
 //   the pass is abandoned and runs again on the new document (§3).
 // - Our writes stay out of the user's undo history (addToHistory false).
 
-import { Annotation, type Extension, Transaction } from "@codemirror/state";
+import { Annotation, EditorState, type Extension, Transaction } from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
 import { contentHash } from "../core/projection/guard";
@@ -27,7 +27,7 @@ import {
 } from "../core/sections/engine";
 import { ReconcileScheduler, type Timer } from "../core/sections/input";
 import { parseSections, type SectionNode } from "../core/sections/parser";
-import { classifyRemoval } from "../core/sections/rules";
+import { classifyRemoval, keepRefWithTask } from "../core/sections/rules";
 import { type ChangeOrigin, originOf } from "../core/sections/undo";
 
 /** The plugin's own writes into a note, by pass (ADR 0001 §2). */
@@ -258,6 +258,42 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   }
 
   const plugin = ViewPlugin.fromClass(SectionSync);
+  // MS27, MS28: Enter at the end of a Task line whose ref is on its child
+  // line goes past the Task's subtree, in the same transaction (one undo step).
+  const enter = EditorState.transactionFilter.of((tr) => {
+    if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined || !tr.isUserEvent("input"))
+      return tr;
+    let only: { from: number; to: number; insert: string } | null = null;
+    let count = 0;
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      count++;
+      only = { from: fromA, to: toA, insert: inserted.toString() };
+    });
+    const raw = only as { from: number; to: number; insert: string } | null;
+    if (count !== 1 || raw === null) return tr;
+    // Obsidian's list Enter replaces the line's last character ("t" with
+    // "t\n- [ ] "): reduce the change to what it adds.
+    const removed = tr.startState.doc.sliceString(raw.from, raw.to);
+    let head = 0;
+    while (head < removed.length && removed[head] === raw.insert[head]) head++;
+    const change =
+      head === removed.length
+        ? { from: raw.from + head, to: raw.from + head, insert: raw.insert.slice(head) }
+        : raw;
+    if (change.to !== change.from || !/^\r?\n/.test(change.insert)) return tr;
+    const before = tr.startState.doc.toString();
+    if (!before.includes("lfcp-section:")) return tr;
+    const kept = keepRefWithTask(before, change);
+    if (kept === null) return tr;
+    // The caret where it would be on the new line, moved with it.
+    const offset = tr.newSelection.main.head - (change.from + change.insert.length);
+    return {
+      changes: kept,
+      selection: { anchor: kept.from + kept.insert.length + Math.max(0, offset) },
+      userEvent: tr.annotation(Transaction.userEvent) ?? "input",
+      scrollIntoView: true,
+    };
+  });
   const events = EditorView.domEventHandlers({
     compositionstart: (_e, view) => {
       view.plugin(plugin)?.st.scheduler.compositionStart();
@@ -271,7 +307,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   });
 
   return {
-    extension: [plugin, events],
+    extension: [plugin, events, enter],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
     renamed: (oldPath, newPath) => coordinator.renamed(oldPath, newPath),

@@ -17,6 +17,7 @@ import {
   classifyRemoval,
   detachSection,
   duplicates,
+  keepRefWithTask,
   pasteDecision,
   readableSection,
 } from "../../../src/core/sections/rules";
@@ -117,5 +118,45 @@ describe("cut and paste (§10)", () => {
     );
     expect(pasteDecision(null, S, [id(3)])).toBe("not-a-cut");
     expect(pasteDecision({ section: S, ids: [id(3)] }, S, [id(3), id(7)])).toBe("not-a-cut");
+  });
+});
+
+describe("Enter after a Task with a child-line ref (§4.1, MS27, MS28)", () => {
+  const md = (lines: string[]) => `${lines.join("\n")}\n`;
+  const doc = md([
+    "## Launch",
+    formatBoundary("start", S),
+    "- [ ] Child",
+    `  ${ref(3)}`,
+    `  ${formatNodeMarker("paragraph", id(4))}`,
+    "  Draft",
+    formatBoundary("end", S),
+  ]);
+  const endOf = (text: string) => doc.indexOf(text) + text.length;
+
+  it("moves the new line past the Task's ref and children", () => {
+    const kept = keepRefWithTask(doc, {
+      from: endOf("- [ ] Child"),
+      to: endOf("- [ ] Child"),
+      insert: "\n- [ ] ",
+    });
+    expect(kept).toEqual({ from: endOf("  Draft"), to: endOf("  Draft"), insert: "\n- [ ] " });
+  });
+
+  it("leaves any other edit alone", () => {
+    const inline = md([
+      "## Launch",
+      formatBoundary("start", S),
+      `- [ ] Inline ${ref(2)}`,
+      formatBoundary("end", S),
+    ]);
+    const at = inline.indexOf(ref(2)) + ref(2).length;
+    expect(keepRefWithTask(inline, { from: at, to: at, insert: "\n- [ ] " })).toBeNull();
+    expect(
+      keepRefWithTask(doc, { from: endOf("  Draft"), to: endOf("  Draft"), insert: "\nmore" }),
+    ).toBeNull();
+    expect(
+      keepRefWithTask(doc, { from: endOf("- [ ] Child"), to: endOf("- [ ] Child"), insert: "x" }),
+    ).toBeNull();
   });
 });

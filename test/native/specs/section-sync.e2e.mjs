@@ -172,3 +172,86 @@ describe("LFCP-02-041..043: shared sections in the editor (fake SDK)", () => {
     });
   }
 });
+
+describe("LFCP-02-047 in the editor: Enter after a Task, and deletion (fake SDK)", () => {
+  const T = "84cf3237-3432-7041-881f-c34897689010";
+  const REF = `<!-- lfcp-ref: lfcp1:${R}#task:${T} -->`;
+  const TASKS = [
+    "Private intro.",
+    "",
+    "## Joint launch",
+    `<!-- lfcp-section: ${SEC} -->`,
+    "- [ ] Prepare contract",
+    `  ${REF}`,
+    `  <!-- lfcp-node: paragraph:${P} -->`,
+    "  Draft contract",
+    "",
+    `<!-- lfcp-node: paragraph:${Q} -->`,
+    "Notes",
+    `<!-- /lfcp-section: ${SEC} -->`,
+    "",
+    "Private outro.",
+    "",
+  ].join("\n");
+
+  before(async () => {
+    await browser.executeObsidian(async ({ app }) => {
+      await app.plugins.enablePlugin("lfcp-section-sync");
+    });
+  });
+  after(async () => {
+    await browser.executeObsidian(async ({ app }) => {
+      await app.plugins.disablePlugin("lfcp-section-sync");
+    });
+  });
+
+  it("MS27/28: Enter at the end of a Task line keeps its ref and child with it", async () => {
+    const file = "enter.md";
+    const resource = await browser.execute((note) => window.__lfcpSectionSync.host(note), TASKS);
+    await open(file, TASKS, false, 4);
+    await browser.execute((f) => window.__lfcpSectionSync.sync(f), file);
+    await until(async () => (await sync()).passes.some((p) => p.path === file), "seed pass");
+    await browser.execute(() => window.__lfcpSpike?.clear());
+    await browser.keys(["Enter"]);
+    const text = await doc();
+    const log = await browser.execute(() => (window.__lfcpSpike?.log ?? []).map((e) => ({ userEvent: e.userEvent, changes: e.changes })));
+    console.log(`EVIDENCE ${JSON.stringify({ id: "ENTER-TX", log })}`);
+    const lines = text.split("\n");
+    // The ref still follows its Task; the new line comes after the Task's subtree.
+    expect(lines[4]).toBe("- [ ] Prepare contract");
+    expect(lines[5]).toBe(`  ${REF}`);
+    expect(lines[8]).toMatch(/^- \[ \] ?$/);
+    const caret = await browser.executeObsidian(({ app, obsidian }) =>
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getCursor(),
+    );
+    expect(caret.line).toBe(8);
+    // One undo removes the new line: the note is back as it was.
+    await browser.executeObsidian(({ app, obsidian }) => {
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.undo();
+    });
+    expect(await doc()).toBe(TASKS);
+    expect((await model(resource)).nodes[T]).toBeDefined();
+  });
+
+  it("a paragraph removed with its marker is deleted (§7)", async () => {
+    const file = "delete.md";
+    const resource = await browser.execute((note) => window.__lfcpSectionSync.host(note), TASKS);
+    await open(file, TASKS, true, 9);
+    await browser.execute((f) => window.__lfcpSectionSync.sync(f), file);
+    await until(async () => (await sync()).passes.some((p) => p.path === file), "seed pass");
+    const start = (await sync()).port.changes.length;
+    // Select Q's marker and text (lines 9-10) with the line before, and delete them.
+    await browser.executeObsidian(({ app, obsidian }) => {
+      const e = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor;
+      e.setSelection({ line: 8, ch: e.getLine(8).length }, { line: 10, ch: e.getLine(10).length });
+    });
+    await browser.keys(["Backspace"]);
+    await browser.executeObsidian(({ app, obsidian }) => {
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.cm.contentDOM.blur();
+    });
+    await until(async () => (await sync()).port.changes.length > start, "deletion committed");
+    const last = (await sync()).port.changes.at(-1);
+    expect(last.intents).toEqual([{ intent: "node.delete", id: Q }]);
+    expect((await model(resource)).nodes[Q]).toBeUndefined();
+  });
+});
