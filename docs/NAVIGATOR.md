@@ -20,6 +20,7 @@
 | [devel/testing/platform-smoke.md](devel/testing/platform-smoke.md) | release | Desktop platform smoke (LFCP-068): the CI matrix and the manual checklist per OS |
 | [devel/testing/platform-smoke-runs.md](devel/testing/platform-smoke-runs.md) | release | Records of platform smoke runs per OS, with the current status by platform (LFCP-068) |
 | [devel/reports/legacy-client-and-other-profiles.md](devel/reports/legacy-client-and-other-profiles.md) | developers | LFCP-02-004 evidence: how 0.3.x meets a collaboration of another profile, what 0.3.2 changes, minimum version and downgrade |
+| [devel/reports/host-and-platform-baseline.md](devel/reports/host-and-platform-baseline.md) | developers | LFCP-02-005 evidence: environments, host facts, baselines, the platform matrix (V4) and a proposal for the native harness in CI |
 | [devel/release.md](devel/release.md) | release | Releasing the plugin: the bare version tag, the release workflow, the owner's tag and BRAT steps (POST-011) |
 | [devel/community-submission.md](devel/community-submission.md) | release | Draft community directory submission: the community-plugins.json entry, the PR text, the owner's checklist (POST-011) |
 | [releases/0.3.2.md](releases/0.3.2.md) | everyone | Release notes of Shared Tasks 0.3.2 (draft): the fix for a collaborator's change undone right after sharing (the GitHub release body) |
