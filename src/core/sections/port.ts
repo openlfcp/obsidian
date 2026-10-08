@@ -5,6 +5,7 @@
 // adapter of the same shape. Names follow the contract; anything the SDK
 // cannot establish is `unknown`, never a default (§2).
 
+import type { PrincipalId } from "@openlfcp/core";
 import type { SectionNodeKind } from "./parser";
 
 /** A node of the section model as the SDK snapshot shows it. */
@@ -89,7 +90,7 @@ export type SectionIntent =
       readonly after: string | null;
       readonly text: string;
       /** The Principal creating the node. */
-      readonly createdBy: string;
+      readonly createdBy: PrincipalId;
       /** item.create only. */
       readonly listStyle?: ListStyle;
     }

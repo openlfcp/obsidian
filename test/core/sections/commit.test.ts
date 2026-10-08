@@ -3,6 +3,7 @@
 // replaces it with LFCP-02-012..016). Crashes before the commit, after it
 // and after the source write; SI02 and SI17.
 
+import { principalId } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
 import type { SectionPlan, UnboundNode } from "../../../src/core/sections/base";
 import {
@@ -53,7 +54,7 @@ const task = (line: number, after: string | null): UnboundNode => ({
 });
 
 const SECTION = id(1);
-const ME = "principal-me";
+const ME = principalId(new Uint8Array(32).fill(4));
 const pass = (over: Partial<LocalPass> = {}): LocalPass => ({
   projectionId: "p-1",
   resource: R,

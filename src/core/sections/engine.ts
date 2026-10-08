@@ -17,7 +17,7 @@
 // The note changes come back as one list against the source read; the host
 // writes them through its route and calls `written` (or `abandoned`).
 
-import { toBase64url } from "@openlfcp/core";
+import { type PrincipalId, toBase64url } from "@openlfcp/core";
 import { contentHash } from "../projection/guard";
 import type { RenderTarget } from "../projection/render";
 import { splitLines } from "../refs/lines";
@@ -52,7 +52,7 @@ import { type ChangeOrigin, compensate, SessionLedger } from "./undo";
 export interface EngineDeps extends CommitDeps {
   readonly bases: SectionBaseStore;
   /** The local Principal, the creator of new nodes. */
-  readonly createdBy: string;
+  readonly createdBy: PrincipalId;
   readonly newProjectionId: () => string;
   /** The 0.1 render target of a Task in a Resource (base64url). */
   readonly tasks: (resource: string, taskId: string) => RenderTarget | undefined;

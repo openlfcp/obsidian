@@ -11,6 +11,7 @@
 // under a new operation ID. An edit that may not be sent (read-only,
 // revoked, refused) is kept as a labeled local candidate, never written.
 
+import type { PrincipalId } from "@openlfcp/core";
 import {
   type NodeState,
   ROOT,
@@ -41,7 +42,7 @@ export interface LocalPass {
   /** The section's ID: the parent of its root nodes in intents. */
   readonly sectionId: string;
   /** The local Principal, the creator of new nodes. */
-  readonly createdBy: string;
+  readonly createdBy: PrincipalId;
   /** SHA-256 of the section's source when captured. */
   readonly sourceHash: string;
   /** The section's private source, kept as a candidate when the edit cannot be sent. */

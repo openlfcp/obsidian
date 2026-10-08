@@ -4,6 +4,7 @@
 // projection, both at once, a crash between commit and bindings, transient
 // input, deletion versus a lost binding, and access.
 
+import { principalId } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
 import { MemorySectionBaseStore, markdownState } from "../../../src/core/sections/base";
 import { applyChanges, type PassContext, SectionEngine } from "../../../src/core/sections/engine";
@@ -66,7 +67,7 @@ function setup(initial = note(BODY)) {
     bases,
     newNodeId: () => id(nodeId++),
     newOperationId: () => `op-${++op}`,
-    createdBy: "me",
+    createdBy: principalId(new Uint8Array(32).fill(4)),
     newProjectionId: () => `projection-${++projection}`,
     tasks: () => undefined,
     newTask: (line, taskId) => ({
