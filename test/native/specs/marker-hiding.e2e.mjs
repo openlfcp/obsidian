@@ -41,6 +41,11 @@ async function open(file, text, line = 0) {
       const view = leaf.view;
       view.editor.focus();
       view.editor.setCursor({ line, ch: 0 });
+      // Keys sent before the editor has focus are lost (a flake on 1.13.4).
+      for (let i = 0; i < 40 && !view.editor.hasFocus(); i++) {
+        view.editor.focus();
+        await new Promise((r) => setTimeout(r, 50));
+      }
     },
     file,
     text,
@@ -122,9 +127,13 @@ describe("LFCP-02-048 spike: hiding binding lines", () => {
     // ArrowDown from the Task line: where does the caret land?
     await open("m3.md", NOTE, 4);
     await browser.keys(["ArrowDown"]);
-    const arrowLine = await browser.executeObsidian(
-      ({ app, obsidian }) => app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getCursor().line,
-    );
+    const caretLine = () =>
+      browser.executeObsidian(
+        ({ app, obsidian }) => app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getCursor().line,
+      );
+    // Wait for the caret to move rather than a fixed time; a caret that never moves fails below.
+    await browser.waitUntil(async () => (await caretLine()) !== 4, { timeout: 3000 }).catch(() => {});
+    const arrowLine = await caretLine();
 
     // Checkbox click and fold, with the markers hidden.
     await open("m4.md", NOTE, 0);
