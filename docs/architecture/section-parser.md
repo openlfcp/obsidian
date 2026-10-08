@@ -25,6 +25,7 @@ inside a section).
 | `base.ts` | Three-way bases (LFCP-02-037): `markdownState`, `planSection`, and the base store by projection ID |
 | `source-map.ts` | A node's Text extracted from the note, and the map between Text positions and note offsets: `nodeSource`, `textToDoc`, `docToText`, `textEditToDoc` (LFCP-02-036) |
 | `port.ts` | What the section engine needs from the SDK, in the names of SDK-SECTIONS-INTEGRATION-01: for now the section snapshot (`SectionSnapshot`, `ModelNode`, `SectionProblem`); tests use a fake until the SDK provides it |
+| `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
 | `remote.ts` | Remote changes into the note (LFCP-02-040): `planRemote` (minimal, three-way patches of owned spans) and `applyRemote` (only to the revision planned for) |
 
 ```ts
@@ -151,6 +152,31 @@ uses) and the snapshot's. `applyRemote` refuses another revision of the
 note (null): the caller plans again from the current note rather than
 shifting old offsets. `patch.base` is the projection's base once the patch
 is written, and an applied patch planned again is empty.
+
+## The plugin's own writes (LFCP-02-042)
+
+Feedback is prevented by the base, not by ignoring events. A write (a
+remote patch, a marker insertion) is recorded with the base it leads to,
+and the next pass compares the note with that base three-way: the write's
+own content gives no intent, and anything else in the same note (the
+user's typing, the Tasks plugin's ✅) does. No time window, and no events
+ignored while a write is in flight.
+
+- `GeneratedWrites` knows a write by its operation ID (an editor
+  transaction carries it as an annotation) or by the exact content it
+  produces (a file event, SHA-256 as the 0.1 mutation guard). Seeing one
+  consumes it and every older write of the note; a repeated notification
+  is then an ordinary event that plans nothing.
+- The host confirms a write once it landed (the transaction was
+  dispatched, the file's read-modify-write resolved) or abandons it (stale
+  revision, failed write).
+- While a write is pending, `pendingBase` compares each node (and the
+  title) with the base the note shows for it: the written one or the prior
+  one. A node changed from both was edited: on top of the write once it is
+  confirmed, so the edit does not repeat the remote change; over the prior
+  value otherwise, so a write lost to an external one never turns into an
+  intent that reverts the remote change (the 0.3.1 race, for sections). A
+  node the write removed stays in the base while the note still shows it.
 
 ## Journal and local records (LFCP-02-038)
 
@@ -296,6 +322,12 @@ title changes in UTF-16, CRLF and indentation of new lines, local edits
 deferred, deletion with its blank line, edited or commented deleted nodes
 kept, created and moved nodes listed, a stale revision refused, a second
 pass empty, and the three skips.
+
+`test/core/sections/writes.test.ts`: own writes by operation ID and by
+content, once; older writes consumed; abandon and rename; typing
+elsewhere and on top of a confirmed write; a write lost to an external
+one (shown to revert against the written base, and not against
+`pendingBase`); title, removal and marker insertion without intents.
 
 `test/core/sections/rules.test.ts`: detach with inline refs, CRLF and a
 last line without an ending; the readable copy; delete vs. lost; duplicates
