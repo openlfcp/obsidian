@@ -68,6 +68,22 @@ export function bindingChanges(
   };
   for (const b of bindings) {
     const node = unboundAt(section.nodes, b.line, b.kind);
+    // A local comment being shared (§4.5): a raw marker on its own line before it.
+    if (
+      node === undefined &&
+      b.kind === "raw" &&
+      section.localBlocks.some((x) => x.from === b.line)
+    ) {
+      const line = lines[b.line] as Line;
+      const indent = /^[ \t]*/.exec(line.text)?.[0] ?? "";
+      const at = starts[b.line] ?? 0;
+      changes.push({
+        from: at,
+        to: at,
+        insert: `${formatNodeMarker("raw", b.id, indent)}${line.eol === "" ? newline : line.eol}`,
+      });
+      continue;
+    }
     if (node === undefined) {
       missed.push(b);
       continue;

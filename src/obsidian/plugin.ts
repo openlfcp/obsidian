@@ -137,6 +137,7 @@ export default class OpenLfcpPlugin extends Plugin {
           );
         },
         () => this.settings.refPlacement,
+        () => this.settings.sectionComments,
       );
       this.registerEditorExtension(this.sections.editor.extension);
     }

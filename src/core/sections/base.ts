@@ -10,7 +10,7 @@
 // Bases are stored per projection ID, not per path (review finding OP-24):
 // a note can hold several projections, and a rename must not lose them.
 
-import { splitLines } from "../refs/lines";
+import { indentWidth, splitLines } from "../refs/lines";
 import type { SectionRef } from "./grammar";
 import type { ParsedSection, SectionNode, SectionNodeKind } from "./parser";
 import { nodeSource } from "./source-map";
@@ -36,6 +36,12 @@ export interface SectionState {
   readonly nodes: Readonly<Record<string, NodeState>>;
   /** Child IDs in order, per parent ID; "" is the section's root. */
   readonly order: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The comments kept local at the last reconciliation, by text (§4.5): a
+   * `shared` section comments setting shares new comments only, never the
+   * ones kept local before.
+   */
+  readonly localComments?: readonly string[];
 }
 
 /** New content in the note without a binding yet (§7: the adapter decides new vs lost). */
@@ -99,6 +105,62 @@ export function markdownState(
   };
   walk(section.nodes, null);
   return { state: { title: section.heading.title, nodes, order }, unbound };
+}
+
+/** A comment kept local in a section (§4.5), where it stands in the tree. */
+export interface CommentBlock {
+  readonly lines: { readonly from: number; readonly to: number };
+  /** Its source, stripped to its parent's content column, LF line breaks. */
+  readonly text: string;
+  readonly parent: string | null;
+  /** The bound sibling it follows, or null. */
+  readonly after: string | null;
+}
+
+/** The section's local comments with their place among the nodes. */
+export function commentBlocks(markdown: string, section: ParsedSection): CommentBlock[] {
+  const lines = splitLines(markdown);
+  const out: CommentBlock[] = [];
+  for (const block of section.localBlocks) {
+    const indent = indentWidth(lines[block.from]?.text ?? "");
+    // The innermost Task or item that contains it, at a column left of it.
+    let parent: SectionNode | null = null;
+    let siblings: readonly SectionNode[] = section.nodes;
+    for (;;) {
+      const container: SectionNode | undefined = [...siblings]
+        .reverse()
+        .find((n) => n.lines.from < block.from && (n.kind === "task" || n.kind === "item"));
+      if (
+        container === undefined ||
+        container.id === null ||
+        !(indent > container.column) ||
+        subtreeEnd(container) < block.from - 1
+      )
+        break;
+      parent = container;
+      siblings = container.children;
+    }
+    const before = siblings.filter((n) => n.id !== null && n.lines.from < block.from).at(-1);
+    const column = parent === null ? 0 : indentWidth(lines[parent.lines.from]?.text ?? "") + 2;
+    const text: string[] = [];
+    for (let l = block.from; l <= block.to; l++) {
+      const t = lines[l]?.text ?? "";
+      text.push(t.slice(Math.min(column, indentWidth(t))));
+    }
+    out.push({
+      lines: block,
+      text: text.join("\n"),
+      parent: parent?.id ?? null,
+      after: before?.id ?? null,
+    });
+  }
+  return out;
+}
+
+function subtreeEnd(n: SectionNode): number {
+  let to = n.lines.to;
+  for (const c of n.children) to = Math.max(to, subtreeEnd(c));
+  return to;
 }
 
 /** What a pass sends, as profile intents in the adapter's terms (SSP §11). */

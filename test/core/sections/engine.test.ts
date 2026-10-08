@@ -59,7 +59,11 @@ const stateOf = (md: string) => {
 
 const CTX: PassContext = { caretLine: null, deletedIds: new Set(), origin: "other" };
 
-function setup(initial = note(BODY), tasks: EngineDeps["tasks"] = () => undefined) {
+function setup(
+  initial = note(BODY),
+  tasks: EngineDeps["tasks"] = () => undefined,
+  extra: Partial<EngineDeps> = {},
+) {
   const port = new FakeSectionPort();
   port.host(R, SID, stateOf(initial));
   const journal = new MemorySectionJournalStore();
@@ -76,6 +80,7 @@ function setup(initial = note(BODY), tasks: EngineDeps["tasks"] = () => undefine
     createdBy: principalId(new Uint8Array(32).fill(4)),
     newProjectionId: () => `projection-${++projection}`,
     tasks,
+    ...extra,
     newTask: (line, taskId) => ({
       id: taskId,
       title: line.replace(/^[ \t]*[-*+][ \t]+\[.\][ \t]*/, "").trim(),
@@ -371,6 +376,26 @@ describe("MS45 in a pass: the canonical inline form", () => {
     await h.run(md, { ...CTX, caretLine });
     const { out } = await h.run(md, { ...CTX, caretLine });
     expect(out).toBe(md);
+  });
+});
+
+describe("comments under the section comments setting (§4.5)", () => {
+  it("a comment kept local stays local after the switch to shared; a new one becomes a raw node", async () => {
+    let setting: "local" | "shared" = "local";
+    const withOld = note([...BODY, "", "%% kept local %%"]);
+    const h = setup(withOld, undefined, { sectionComments: () => setting });
+    await h.run(withOld);
+    setting = "shared";
+    const withNew = note([...BODY, "", "%% kept local %%", "", "%% now shared %%"]);
+    const { out } = await h.run(withNew);
+    expect(h.port.changes).toHaveLength(1);
+    expect(h.port.changes[0]?.intents).toMatchObject([
+      { intent: "raw.create", text: "%% now shared %%" },
+    ]);
+    expect(out).toContain(
+      `%% kept local %%\n\n${formatNodeMarker("raw", id(100))}\n%% now shared %%`,
+    );
+    expect((await h.run(out)).pass.changes).toEqual([]);
   });
 });
 

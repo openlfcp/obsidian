@@ -23,7 +23,7 @@ import { SectionEngine } from "../core/sections/engine";
 import { parseSections } from "../core/sections/parser";
 import type { NewSectionTask } from "../core/sections/port";
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
-import type { RefPlacement } from "../core/settings";
+import type { RefPlacement, SectionComments } from "../core/settings";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
 
@@ -51,6 +51,8 @@ export class SectionsHost {
     onError: (path: string, error: unknown) => void,
     /** The binding placement setting for new Task refs (§4.1). */
     private readonly refPlacement: () => RefPlacement,
+    /** The section comments setting (§4.5). */
+    private readonly sectionComments: () => SectionComments,
   ) {
     this.editor = sectionEditorExtension({
       engine: () => this.#engine,
@@ -87,6 +89,7 @@ export class SectionsHost {
       tasks: () => undefined,
       newTask: (line, id) => newSectionTask(line, principal, id),
       refPlacement: this.refPlacement,
+      sectionComments: this.sectionComments,
     });
     for (const entry of await runtime.registry())
       if (entry.profile === SECTIONS_PROFILE_ID) {

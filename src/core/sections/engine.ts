@@ -21,9 +21,10 @@ import { type PrincipalId, toBase64url } from "@openlfcp/core";
 import { contentHash } from "../projection/guard";
 import type { RenderTarget } from "../projection/render";
 import { splitLines } from "../refs/lines";
-import type { RefPlacement } from "../settings";
+import type { RefPlacement, SectionComments } from "../settings";
 import type { UnboundNode } from "./base";
 import {
+  commentBlocks,
   markdownState,
   planSection,
   ROOT,
@@ -65,6 +66,8 @@ export interface EngineDeps extends CommitDeps {
   readonly newTask: (lineText: string, id: string) => NewSectionTask;
   /** The binding placement setting for new Task refs (§4.1); child-line by default. */
   readonly refPlacement?: () => RefPlacement;
+  /** The section comments setting (§4.5): new comments local (default) or shared as raw nodes. */
+  readonly sectionComments?: () => SectionComments;
 }
 
 /** What the host knows about the edits since the last pass. */
@@ -278,6 +281,12 @@ function relocate(
   return out;
 }
 
+/** The texts of the comments a note's section keeps local (§4.5), for the base. */
+function localCommentsOf(markdown: string, ref: SectionRef, near: ParsedSection): string[] {
+  const s = sectionLike(markdown, ref, near);
+  return s === undefined ? [] : commentBlocks(markdown, s).map((c) => c.text);
+}
+
 /** The prefix of a provisional projection ID (a section occurrence without a base). */
 const PENDING = "pending:";
 
@@ -442,7 +451,14 @@ export class SectionEngine {
           projectionId: seeded,
           section: ref,
           ...none,
-          base: { locator, state: note.state, revision: snap.revision },
+          base: {
+            locator,
+            state: {
+              ...note.state,
+              localComments: commentBlocks(source, section).map((c) => c.text),
+            },
+            revision: snap.revision,
+          },
         },
         changes: [],
       };
@@ -535,7 +551,25 @@ export class SectionEngine {
     );
     const caret = ctx.caretLine === null ? null : shiftLine(ctx.caretLine, source, resumedChanges);
     const transient = transientCandidates(note.unbound, lineText0, caret);
-    const creations = note.unbound.filter((u) => !transient.has(u.line));
+    // §4.5: under the `shared` section comments setting, a comment new since
+    // the base becomes a raw node; the ones kept local before stay local.
+    const keptLocal = new Set(baseState.localComments ?? []);
+    const sharedComments: UnboundNode[] =
+      this.deps.sectionComments?.() === "shared"
+        ? commentBlocks(md0, section0)
+            .filter((c) => !keptLocal.has(c.text))
+            .map((c) => ({
+              kind: "raw",
+              parent: c.parent,
+              after: c.after,
+              text: c.text,
+              line: c.lines.from,
+            }))
+        : [];
+    const creations = [
+      ...note.unbound.filter((u) => !transient.has(u.line)),
+      ...sharedComments,
+    ].sort((a, b) => a.line - b.line);
     const local = await commitPass(this.deps, {
       projectionId,
       resource,
@@ -697,7 +731,15 @@ export class SectionEngine {
         held,
         entries,
         ...(structure === undefined ? {} : { structure }),
-        base: { locator, state: base, revision: after.revision, nodeRevisions },
+        base: {
+          locator,
+          state: {
+            ...base,
+            localComments: localCommentsOf(applyChanges(source, changes), ref, section0),
+          },
+          revision: after.revision,
+          nodeRevisions,
+        },
       },
       changes,
     };
