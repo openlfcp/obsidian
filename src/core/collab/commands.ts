@@ -117,6 +117,7 @@ const STATE_TEXT: Readonly<Record<RegistryEntry["state"], string>> = {
   locked: "writing paused on this device",
   error: "sync error",
   refused: "not syncing: the server refused it",
+  recovering: "waiting for the server to recover access",
   control_conflict: "BLOCKED: history forked",
   unsupported: "needs a newer version of Shared Tasks",
 };

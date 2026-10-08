@@ -79,3 +79,25 @@ describe("a collaboration the server refused (POST-017)", () => {
     );
   });
 });
+
+describe("access recovery after a server restore (LFCP-02-106)", () => {
+  const authFailed = { code: "AUTHORIZATION_FAILED", url: URL };
+
+  it("shows waiting while the client re-supplies the records, even over an old refusal", () => {
+    expect(syncRow(status({ state: "recovering", refusal: null, phase: "OPENING" }))).toBe(
+      "Waiting for the server to recover access",
+    );
+    expect(syncRow(status({ state: "recovering", refusal: authFailed }))).toBe(
+      "Waiting for the server to recover access",
+    );
+  });
+
+  it("recovered: the usual state; ended: the refusal's own text again", () => {
+    expect(syncRow(status({ state: "available", refusal: null, phase: "LIVE" }))).toBe(
+      "In sync (live)",
+    );
+    expect(syncRow(status({ state: "refused", refusal: authFailed }))).toBe(
+      refusalText(authFailed),
+    );
+  });
+});

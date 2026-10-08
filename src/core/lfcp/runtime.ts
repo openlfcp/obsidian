@@ -193,6 +193,11 @@ export type RegistryState =
   | "error"
   /** The server refused the Resource for good (POST-017): see RegistryEntry.refusal. */
   | "refused"
+  /**
+   * LFCP-02-106: the server refused access, and this device re-supplies the
+   * Control Records that grant it (a restored server may have lost them).
+   */
+  | "recovering"
   | "control_conflict"
   /** Another Data Profile than Shared Objects: never opened here (needs a newer plugin). */
   | "unsupported";
@@ -274,6 +279,8 @@ export class LfcpRuntime {
   readonly #errors = new Map<string, string>();
   /** Terminal refusals by the server (POST-017), per Resource. */
   readonly #refusals = new Map<string, ResourceRefusal>();
+  /** Resources whose access the client is recovering (LFCP-02-106). */
+  readonly #recovering = new Set<string>();
   readonly #listeners = new Set<(e: SyncEvent) => void>();
   #stopped = false;
   #writes: Promise<void> = Promise.resolve();
@@ -421,13 +428,15 @@ export class LfcpRuntime {
             ? "control_conflict"
             : this.#install.kind === "locked"
               ? "locked"
-              : refusal !== null
-                ? "refused"
-                : this.#errors.has(key)
-                  ? "error"
-                  : phase === "LIVE"
-                    ? "available"
-                    : "offline";
+              : this.#recovering.has(key)
+                ? "recovering"
+                : refusal !== null
+                  ? "refused"
+                  : this.#errors.has(key)
+                    ? "error"
+                    : phase === "LIVE"
+                      ? "available"
+                      : "offline";
       out.push(
         Object.freeze({
           resourceId: R,
@@ -1035,6 +1044,12 @@ export class LfcpRuntime {
           .update(`refused-reported:${key}`, () => undefined)
           .catch(() => undefined);
       }
+    } else if (e.type === "access-recovery") {
+      // LFCP-02-106: started → waiting; recovered → opens as usual; ended → the refusal stands.
+      const key = toHex(e.resourceId);
+      if (e.outcome === "started") this.#recovering.add(key);
+      else this.#recovering.delete(key);
+      if (e.outcome === "recovered") this.#refusals.delete(key);
     } else if (e.type === "resource-refused") {
       this.#refusals.set(toHex(e.resourceId), e.refusal);
     } else if (e.type === "epoch-reconciled" && e.outbound.length > 0) {

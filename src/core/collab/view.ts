@@ -28,6 +28,7 @@ const SYNC: Readonly<Record<ResourceStatus["state"], string>> = {
   locked: "Writing is paused on this device",
   error: "Sync error: retrying",
   refused: "Not syncing: refused by the server",
+  recovering: "Waiting for the server to recover access",
   control_conflict: "Blocked",
   unsupported: "Not syncing: this version of Shared Tasks cannot read this collaboration",
 };
@@ -87,11 +88,13 @@ export function statusView(s: ResourceStatus): StatusView {
     {
       label: "Sync",
       value:
-        s.refusal === null
-          ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
-          : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
-            ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
-            : refusalText(s.refusal),
+        s.state === "recovering"
+          ? SYNC.recovering
+          : s.refusal === null
+            ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
+            : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
+              ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
+              : refusalText(s.refusal),
     },
     {
       label: "Hosting",
