@@ -176,6 +176,20 @@ line. The inline ref is left out of what the line represents, wherever it
 stands. Remote Task changes are rendered by `remote.ts` with the 0.1
 renderer.
 
+## In the editor (`src/obsidian/section-editor.ts`)
+
+`sectionEditorExtension` is the CodeMirror side, not registered by the
+plugin until the SDK binding is: a `ViewPlugin` per editor sees every
+transaction (ADR 0001 S1). In `update` it only notes the bindings a user
+transaction removed (the IDs in the removed marker and ref comments, for
+`deletedIds`), the undo or redo origin, and tells the scheduler; our own
+writes carry the `sectionWrite` annotation and are never taken for the
+user's. Composition and blur reach the scheduler through DOM events. A
+pass goes through the coordinator; its changes are dispatched only onto the
+revision they were computed for, outside the undo history, else the pass
+is abandoned and runs again on the new document. The native harness runs
+it on the fake SDK (`specs/section-sync.e2e.mjs`).
+
 ## Typing and IME (LFCP-02-043)
 
 Per ADR 0001 §2, reconciliation runs outside the editor's update.
