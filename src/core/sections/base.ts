@@ -235,6 +235,15 @@ export interface ProjectionLocator {
 export interface StoredBase {
   readonly locator: ProjectionLocator;
   readonly state: SectionState;
+  /** The model revision it was reconciled with (contract §7.3). */
+  readonly revision?: string;
+  /**
+   * Per node, the model revision at which the model's Text equals the
+   * base's: the `base` of the node's next text.edit. Absent: `revision`.
+   * Null: no such revision is known (a merged value the note does not show
+   * yet), so the node's Text edits wait until it is projected.
+   */
+  readonly nodeRevisions?: Readonly<Record<string, string | null>>;
 }
 
 /** Bases by projection ID (local state, never synced; OP-24). */

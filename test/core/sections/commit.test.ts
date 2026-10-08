@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { SectionPlan, UnboundNode } from "../../../src/core/sections/base";
 import {
+  applyBatch,
   type CommitDeps,
   commitPass,
   finish,
@@ -266,5 +267,59 @@ describe("edits that may not be sent stay local candidates", () => {
       expect(port.changes).toEqual([]);
       expect((await journal.get("op-1"))?.phase).toBe("abandoned");
     }
+  });
+});
+
+describe("applyBatch: the base a committed batch leads to", () => {
+  it("applies title, creations after their sibling, Text edits, moves and deletions", () => {
+    const base = {
+      title: "Launch",
+      nodes: {
+        [id(5)]: { kind: "paragraph" as const, parent: null, text: "Draft" },
+        [id(6)]: { kind: "item" as const, parent: null, text: "Item" },
+        [id(8)]: { kind: "paragraph" as const, parent: null, text: "Gone" },
+      },
+      order: { "": [id(5), id(6), id(8)] },
+    };
+    const out = applyBatch(
+      base,
+      [
+        { intent: "section.set_title", title: "Launch plan" },
+        {
+          intent: "paragraph.create",
+          id: id(100),
+          parent: SECTION,
+          after: id(5),
+          text: "New",
+          createdBy: ME,
+        },
+        {
+          intent: "task.create_in_section",
+          task: { id: id(101), title: "Call" },
+          parent: id(6),
+          after: null,
+        },
+        {
+          intent: "text.edit",
+          id: id(5),
+          edits: [{ index: 5, deleteCount: 0, insert: " v2" }],
+          base: "h",
+        },
+        { intent: "node.move", id: id(6), parent: SECTION, after: null },
+        { intent: "node.delete", id: id(8) },
+      ],
+      SECTION,
+      (taskId) => (taskId === id(101) ? "- [ ] Call" : undefined),
+    );
+    expect(out).toEqual({
+      title: "Launch plan",
+      nodes: {
+        [id(5)]: { kind: "paragraph", parent: null, text: "Draft v2" },
+        [id(6)]: { kind: "item", parent: null, text: "Item" },
+        [id(100)]: { kind: "paragraph", parent: null, text: "New" },
+        [id(101)]: { kind: "task", parent: id(6), line: "- [ ] Call" },
+      },
+      order: { "": [id(6), id(5), id(100)], [id(6)]: [id(101)] },
+    });
   });
 });

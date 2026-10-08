@@ -11,7 +11,13 @@
 // under a new operation ID. An edit that may not be sent (read-only,
 // revoked, refused) is kept as a labeled local candidate, never written.
 
-import type { SectionPlan, UnboundNode } from "./base";
+import {
+  type NodeState,
+  ROOT,
+  type SectionPlan,
+  type SectionState,
+  type UnboundNode,
+} from "./base";
 import {
   advance,
   type JournalEntry,
@@ -26,6 +32,7 @@ import {
   type SectionIntent,
   type SectionPort,
 } from "./port";
+import { applyTextEdit } from "./text";
 
 /** One reconciliation pass's decided edits of one projection. */
 export interface LocalPass {
@@ -41,6 +48,8 @@ export interface LocalPass {
   readonly sourceText: string;
   /** The modelRevision of the projection's base: text.edit indices are against it (§7.5). */
   readonly baseRevision: string;
+  /** A node's own base revision, when it differs from `baseRevision` (StoredBase.nodeRevisions). */
+  readonly textBase?: (nodeId: string) => string | undefined;
   readonly plan: SectionPlan;
   /** node.delete and node.restore, as rules.ts and undo.ts decided them. */
   readonly deletes?: readonly string[];
@@ -137,7 +146,12 @@ export function intentsOf(
   }
   for (const id of pass.restores ?? []) intents.push({ intent: "node.restore", id });
   for (const { nodeId, edit } of plan.textEdits)
-    intents.push({ intent: "text.edit", id: nodeId, edits: [edit], base: pass.baseRevision });
+    intents.push({
+      intent: "text.edit",
+      id: nodeId,
+      edits: [edit],
+      base: pass.textBase?.(nodeId) ?? pass.baseRevision,
+    });
   for (const m of plan.moves)
     intents.push({
       intent: "node.move",
@@ -318,4 +332,82 @@ export async function finish(deps: CommitDeps, entry: JournalEntry): Promise<Jou
   await deps.journal.put(done);
   await deps.port.releaseReceipt(entry.resource, entry.operationId);
   return done;
+}
+
+/**
+ * The projection's base once `intents` are committed: the batch applied to
+ * the base it was planned against (not the note, which may hold later
+ * edits). `lines` gives the note line of a new Task, by ID.
+ */
+export function applyBatch(
+  state: SectionState,
+  intents: readonly SectionIntent[],
+  sectionId: string,
+  taskLine: (id: string) => string | undefined = () => undefined,
+): SectionState {
+  const nodes: Record<string, NodeState> = { ...state.nodes };
+  const order: Record<string, string[]> = Object.fromEntries(
+    Object.entries(state.order).map(([k, v]) => [k, [...v]]),
+  );
+  let title = state.title;
+  const parentOf = (p: string) => (p === sectionId ? null : p);
+  const unplace = (id: string) => {
+    for (const list of Object.values(order)) {
+      const at = list.indexOf(id);
+      if (at >= 0) list.splice(at, 1);
+    }
+  };
+  const place = (id: string, parent: string | null, after: string | null) => {
+    const key = parent ?? ROOT;
+    const list = order[key] ?? [];
+    list.splice(after === null ? 0 : list.indexOf(after) + 1, 0, id);
+    order[key] = list;
+  };
+  for (const i of intents) {
+    switch (i.intent) {
+      case "section.set_title":
+        title = i.title;
+        break;
+      case "text.edit": {
+        const n = nodes[i.id];
+        if (n?.text === undefined) break;
+        let text = n.text;
+        // Edits are against the base Text, sorted: apply from the end.
+        for (const e of [...i.edits].reverse()) text = applyTextEdit(text, e);
+        nodes[i.id] = { ...n, text };
+        break;
+      }
+      case "node.move": {
+        const n = nodes[i.id];
+        if (n === undefined) break;
+        unplace(i.id);
+        nodes[i.id] = { ...n, parent: parentOf(i.parent) };
+        place(i.id, parentOf(i.parent), i.after);
+        break;
+      }
+      case "node.delete":
+        unplace(i.id);
+        delete nodes[i.id];
+        break;
+      case "node.restore":
+        // Its content comes back with the next snapshot; nothing to apply here.
+        break;
+      case "task.create_in_section": {
+        const line = taskLine(i.task.id);
+        nodes[i.task.id] = {
+          kind: "task",
+          parent: parentOf(i.parent),
+          ...(line === undefined ? {} : { line }),
+        };
+        place(i.task.id, parentOf(i.parent), i.after);
+        break;
+      }
+      default: {
+        const kind = i.intent.slice(0, i.intent.indexOf(".")) as NodeState["kind"];
+        nodes[i.id] = { kind, parent: parentOf(i.parent), text: i.text };
+        place(i.id, parentOf(i.parent), i.after);
+      }
+    }
+  }
+  return { title, nodes, order };
 }
