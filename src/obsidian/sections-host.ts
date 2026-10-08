@@ -14,14 +14,11 @@ import { generateObjectId, type PrincipalId, type ResourceId } from "@openlfcp/c
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
-import { planShare } from "../core/collab/markdown";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { SdkSectionPort } from "../core/lfcp/section-port";
-import { scanRefs } from "../core/refs";
 import { newProjectionId } from "../core/sections/base";
 import { SectionEngine } from "../core/sections/engine";
 import { parseSections } from "../core/sections/parser";
-import type { NewSectionTask } from "../core/sections/port";
 import {
   preflight,
   proposeRange,
@@ -30,6 +27,7 @@ import {
   type ShareRange,
 } from "../core/sections/share";
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
+import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
@@ -37,15 +35,6 @@ import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
 const SECTION_MARK = "lfcp-section:";
-
-/** A new section Task from its line, as 0.1 shares one (planShare's fields). */
-function newSectionTask(line: string, principal: PrincipalId, id: string): NewSectionTask {
-  const state = scanRefs(line).tasks[0];
-  if (state === undefined) throw new Error("not a Task line");
-  const create = planShare(state, principal, id as never).intents[0];
-  if (create?.intent !== "task.create") throw new Error("no task.create");
-  return create.task;
-}
 
 export class SectionsHost {
   #engine: SectionEngine | null = null;

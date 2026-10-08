@@ -4,12 +4,15 @@
 // the same local pieces (🔁, unowned priority, an unowned glyph); only the
 // planner's inputs come from the section's base instead of 0.1's.
 
+import type { PrincipalId } from "@openlfcp/core";
 import type { TaskView } from "@openlfcp/shared-objects";
+import { planShare } from "../collab/markdown";
 import { type FieldIssue, planIntents, type Represented } from "../projection/intents";
 import { parseTaskText, statusOfGlyph } from "../projection/task-text";
+import { scanRefs } from "../refs";
 import { parseTaskLine } from "../refs/scanner";
 import type { SectionState } from "./base";
-import type { TaskFieldIntent } from "./port";
+import type { NewSectionTask, TaskFieldIntent } from "./port";
 
 /** An inline Task ref anywhere on the line (at the end, or before the Tasks fields). */
 const INLINE_REF = /[ \t]*<!--[ \t]+lfcp-ref:[^>]*-->/;
@@ -44,4 +47,13 @@ export function planTaskFields(
     for (const issue of plan.issues) issues.push({ taskId: id, issue });
   }
   return { intents, issues };
+}
+
+/** A new section Task from its line, as 0.1 shares one (planShare's fields). */
+export function newSectionTask(line: string, principal: PrincipalId, id: string): NewSectionTask {
+  const state = scanRefs(line).tasks[0];
+  if (state === undefined) throw new Error("not a Task line");
+  const create = planShare(state, principal, id as never).intents[0];
+  if (create?.intent !== "task.create") throw new Error("no task.create");
+  return create.task;
 }
