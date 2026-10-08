@@ -150,6 +150,8 @@ export function check(root) {
 
   for (const file of [...walk(join(root, "src")), ...walk(join(root, "test"))]) {
     const path = rel(file);
+    // The native harness is its own package, run inside Obsidian (docs/devel/testing/native-harness.md).
+    if (path.startsWith("test/native/")) continue;
     const inAdapter = ADAPTER_DIRS.some((d) => path.startsWith(d));
     const inSrc = path.startsWith("src/");
     const { specs, globals } = scan(file);
