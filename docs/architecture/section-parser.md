@@ -317,8 +317,11 @@ never closes: `SECTION_BOUNDARY_MISSING` plus `SECTION_UNSUPPORTED_SYNTAX`
 (detail `unclosed-fence`) at the fence.
 
 Problems inside a valid region mark it `blocked`: a heading, a duplicate
-ID, a foreign Task ref or a malformed node marker. The adapter then pauses
-that section's projection (§8), and the other sections continue.
+ID, a foreign Task ref, a malformed node marker, or a Task ref no Task owns
+any more (`NODE_BINDING_ORPHAN`: its line was edited into something else
+while typing, MS17-transient). Such a ref is never part of a block's Text.
+The adapter then pauses that section's projection (§8), and the other
+sections continue.
 
 ## For the 0.1 Task engine (ADR 0001 §1)
 

@@ -371,3 +371,36 @@ describe("nodes", () => {
     expect(scan.claimed.at(-1)?.to).toBeGreaterThanOrEqual(8);
   });
 });
+
+describe("a Task ref no Task owns (MS17-transient)", () => {
+  it("is a broken binding that pauses the section, never Text of the line it ends up under", () => {
+    for (const md of [
+      // The checkbox damaged while typing: the child-line ref is left under an item.
+      lines("## Launch", start, "- [ Prepare contract", `  ${ref(2)}`, end),
+      // The same with an inline ref.
+      lines("## Launch", start, `- [ Prepare contract ${ref(2)}`, end),
+      // A paragraph line with a ref.
+      lines("## Launch", start, "Prepare contract", ref(2), end),
+    ]) {
+      const scan = parseSections(md);
+      const [s] = scan.sections;
+      expect(s?.blocked, md).toBe(true);
+      expect(scan.diagnostics.map((d) => d.code)).toContain("NODE_BINDING_ORPHAN");
+      expect(JSON.stringify(s?.nodes)).not.toContain('"to":3');
+    }
+  });
+
+  it("leaves a Task's own refs alone", () => {
+    const md = lines(
+      "## Launch",
+      start,
+      "- [ ] Prepare contract",
+      `  ${ref(2)}`,
+      `- [ ] Inline ${ref(3)}`,
+      end,
+    );
+    const scan = parseSections(md);
+    expect(scan.sections[0]?.blocked).toBe(false);
+    expect(shape(scan.sections[0]?.nodes ?? [])).toEqual(["task:002", "task:003"]);
+  });
+});

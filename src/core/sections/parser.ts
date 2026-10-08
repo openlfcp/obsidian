@@ -115,6 +115,8 @@ const HTML_BLOCK = /^[ \t]*<(?!!--)/;
 /** An HTML comment that is not an LFCP marker (§4.5: local). */
 const HTML_COMMENT = /^[ \t]*<!--(?![ \t]*\/?lfcp-)/;
 const OBSIDIAN_COMMENT = /^[ \t]*%%/;
+/** A Task ref comment anywhere on a line (MARKDOWN-REFS-01 spelling). */
+const TASK_REF = /<!--[ \t]+lfcp-ref:/;
 const FENCE_OPEN = /^[ \t]*(`{3,}|~{3,})/;
 
 const ERROR: ReadonlySet<SectionDiagnosticCode> = new Set([
@@ -326,6 +328,8 @@ function parseBody(
       j + 1 < r.end &&
       !isBlank(text(j + 1)) &&
       parseNodeMarker(text(j + 1)) === null &&
+      // A Task ref is a binding, never part of a block's text.
+      !(kinds[j + 1] !== "literal" && TASK_REF.test(text(j + 1))) &&
       keep(j + 1)
     )
       j++;
@@ -339,6 +343,7 @@ function parseBody(
       kinds[j] === "other" &&
       !isBlank(u) &&
       !refLines.has(j) &&
+      !TASK_REF.test(u) &&
       parseNodeMarker(u) === null &&
       !LIST_ITEM.test(u) &&
       heading(u, kinds[j]) === null &&
@@ -353,6 +358,14 @@ function parseBody(
   for (let i = r.start + 1; i < r.end; i++) {
     const t = text(i);
     if (refLines.has(i)) continue; // a child-line Task ref, owned by its Task
+    if (kinds[i] !== "literal" && TASK_REF.test(t) && parseTaskLine(t, i) === undefined) {
+      // A Task ref no Task owns any more (its line was edited into
+      // something else, MS17-transient): a broken binding, never Text.
+      // Publication pauses until it is repaired (§7, MS21).
+      note("NODE_BINDING_ORPHAN", i);
+      blocked = true;
+      continue;
+    }
     if (isBlank(t)) {
       if (pendingId?.kind === "paragraph") {
         // §4.3: an empty saved paragraph keeps its marker and identity.
