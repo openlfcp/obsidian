@@ -6,7 +6,7 @@ is pure (text in, structure out) and Obsidian-free. In this first step it is
 **not wired into the plugin**; nothing in 0.3.x calls it.
 
 The grammar is spec `integration/MARKDOWN-SECTIONS-01.md` (Working Draft,
-spec `0a17f17`, LFCP-02-007), with the owner's decisions M1 (Task refs on
+spec `3a13ba2`, LFCP-02-007), with the owner's decisions M1 (Task refs on
 their own child line), M2 (tabs), M4 (start marker right after the
 heading), M5 (a marker on every node) and M6 (raw blocks, no headings
 inside a section).
@@ -27,6 +27,7 @@ interface SectionScan {
 interface ParsedSection {
   ref; heading: { line; level; title }; startLine; endLine;
   nodes: SectionNode[];            // tree: kind task | item | paragraph | raw, id or null
+  localBlocks: LineRange[];        // Obsidian comments, kept in place, not shared (§4.5)
   privateTail: LineRange | null;   // H5
   blocked: boolean;                // something in the region pauses projection
 }
@@ -60,7 +61,7 @@ right after a heading, M4) yields **no section**. It yields only a
 diagnostic. Nothing infers a wider or a narrower region (§9). An unclosed
 fence inside a region hides the end marker from the lexer, so the region
 never closes: `SECTION_BOUNDARY_MISSING` plus `SECTION_UNSUPPORTED_SYNTAX`
-at the fence.
+(detail `unclosed-fence`) at the fence.
 
 Problems inside a valid region mark it `blocked`: a heading, a duplicate
 ID, a foreign Task ref or a malformed node marker. The adapter then pauses
@@ -78,21 +79,30 @@ in a `claimed` range, before grouping.
 ## Raw blocks (M6, §4.4)
 
 A raw node is a fence (through its closing fence), a table, a blockquote or
-callout, an HTML block or an Obsidian `%%` comment, bound by a
-`<!-- lfcp-node: raw:<id> -->` line right above it. Its extent:
+callout, or an HTML block, bound by a `<!-- lfcp-node: raw:<id> -->` line
+right above it. Its extent:
 
 - a fence, or any other run of literal lines: the run;
-- a comment (`%%` or HTML): through the comment's own lines, blank ones
+- an HTML block: through a multi-line comment's own lines, blank ones
   included (the lexer marks them literal), then down to the line before the
   next blank line or node marker. **Open question for 007:** §4.4 says "the
-  line before the next blank line", which would cut a multi-line comment at
-  its first blank line. The parser keeps the comment whole until 007
-  decides;
+  line before the next blank line", which would cut a multi-line HTML
+  comment at its first blank line. The parser keeps the comment whole until
+  007 decides;
 - a table or a blockquote: down to the line before the next blank line or
   node marker.
 
-A `%%` comment in a section is shared content (§4.4). The share and insert
-previews must show it as such (LFCP-02-049).
+## Obsidian comments (§4.5)
+
+A `%%` comment inside a section is not shared (spec `3a13ba2`, the
+orchestrator's decision). The parser reports it as a local block
+(`localBlocks`) with `SECTION_UNSUPPORTED_SYNTAX`, detail
+`obsidian-comment`, severity warning ("Obsidian comments can't be shared;
+move them out of the section"). It is not a node and does not block the
+section: the rest syncs. Keeping it next to the line it follows when a
+remote patch arrives, and pausing the projection when a remote change
+removes or moves its neighbours, is the adapter's work (fixture MS30).
+Markers inside a comment stay literal.
 
 ## Private tail (H5)
 
@@ -121,6 +131,6 @@ whitespace rule, malformed markers); boundaries (M4, the packet's
 marker-above-heading form rejected, missing, mismatched and overlapping
 markers, markers in fences and comments, the private tail); nodes (M1
 child-line refs and nesting, M2 tabs, M6 raw blocks of each kind, a heading
-inside a region, an unclosed fence, `%%` comments, duplicate, foreign,
+inside a region, an unclosed fence, `%%` comments kept local, duplicate, foreign,
 malformed, orphan and kind-mismatched markers, an empty paragraph). The
 byte-exact fixtures of LFCP-02-010 replace the inline cases when they land.

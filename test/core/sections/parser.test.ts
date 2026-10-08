@@ -244,10 +244,12 @@ describe("nodes", () => {
     expect(shape(s?.nodes ?? [])).toEqual(["paragraph:002"]);
   });
 
-  it("§4.4: an Obsidian comment is a raw block, shared; markers inside it are literal", () => {
+  it("§4.5: an Obsidian comment is not shared: kept in place, the rest of the section syncs", () => {
     const text = lines(
       "## S",
       start,
+      "- [ ] One",
+      `  ${ref(2)}`,
       "%% a note to self %%",
       "",
       "%%",
@@ -255,12 +257,32 @@ describe("nodes", () => {
       "",
       "still the comment",
       "%%",
+      "- [ ] Two",
+      `  ${ref(3)}`,
       end,
     );
     const scan = parseSections(text);
-    expect(scan.diagnostics).toEqual([]);
-    expect(shape(scan.sections[0]?.nodes ?? [])).toEqual(["raw:new", "raw:new"]);
-    expect(scan.sections[0]?.nodes[1]?.lines).toEqual({ from: 4, to: 8 });
+    const [s] = scan.sections;
+    expect(s?.blocked).toBe(false);
+    expect(shape(s?.nodes ?? [])).toEqual(["task:002", "task:003"]);
+    expect(s?.localBlocks).toEqual([
+      { from: 4, to: 4 },
+      { from: 6, to: 10 },
+    ]);
+    expect(scan.diagnostics).toEqual([
+      {
+        code: "SECTION_UNSUPPORTED_SYNTAX",
+        severity: "warning",
+        line: 4,
+        detail: "obsidian-comment",
+      },
+      {
+        code: "SECTION_UNSUPPORTED_SYNTAX",
+        severity: "warning",
+        line: 6,
+        detail: "obsidian-comment",
+      },
+    ]);
   });
 
   it("§4.4: an unclosed fence hides the end marker and fails closed", () => {
@@ -268,7 +290,7 @@ describe("nodes", () => {
     expect(scan.sections).toEqual([]);
     expect(scan.diagnostics.map((d) => [d.code, d.line])).toEqual([
       ["SECTION_BOUNDARY_MISSING", 1],
-      ["SECTION_UNSUPPORTED_SYNTAX", 2],
+      ["SECTION_UNSUPPORTED_SYNTAX", 2], // detail "unclosed-fence"
     ]);
     expect(scan.claimed).toEqual([{ from: 0, to: 6 }]);
   });

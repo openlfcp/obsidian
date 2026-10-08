@@ -61,6 +61,8 @@ export interface SectionDiagnostic {
   readonly severity: "error" | "warning" | "info";
   /** 0-based line. */
   readonly line: number;
+  /** Which unsupported syntax (SECTION_UNSUPPORTED_SYNTAX): each has its own message and effect. */
+  readonly detail?: "heading" | "unclosed-fence" | "obsidian-comment";
 }
 
 export type SectionNodeKind = "task" | MarkedNodeKind;
@@ -86,6 +88,11 @@ export interface ParsedSection {
   readonly privateTail: LineRange | null;
   /** Problems inside the region that pause its projection (nested headings, broken bindings). */
   readonly blocked: boolean;
+  /**
+   * Obsidian comments (`%%`) inside the region (§4.5): kept in place, never
+   * extracted or shared; the rest of the section syncs around them.
+   */
+  readonly localBlocks: LineRange[];
 }
 
 export interface SectionScan {
@@ -132,8 +139,14 @@ export function parseSections(markdown: string): SectionScan {
   const lines = splitLines(markdown);
   const kinds = lineKinds(lines);
   const diagnostics: SectionDiagnostic[] = [];
-  const note = (code: SectionDiagnosticCode, line: number) =>
-    diagnostics.push({ code, severity: severity(code), line });
+  const note: Note = (code, line, detail) =>
+    diagnostics.push({
+      code,
+      // An Obsidian comment stays local; the section is not paused for it.
+      severity: detail === "obsidian-comment" ? "warning" : severity(code),
+      line,
+      ...(detail === undefined ? {} : { detail }),
+    });
   const claimed: LineRange[] = [];
   const regions: { ref: SectionRef; start: number; end: number; headingLine: number }[] = [];
 
@@ -190,7 +203,7 @@ export function parseSections(markdown: string): SectionScan {
         FENCE_OPEN.test(lines[i]?.text ?? "") &&
         kinds.slice(i).every((k) => k === "literal")
       ) {
-        note("SECTION_UNSUPPORTED_SYNTAX", i);
+        note("SECTION_UNSUPPORTED_SYNTAX", i, "unclosed-fence");
         break;
       }
     fail(Math.max(0, o.start - 1));
@@ -212,6 +225,7 @@ export function parseSections(markdown: string): SectionScan {
       nodes: body.nodes,
       privateTail: privateTail(lines, kinds, r.end, h.level),
       blocked: body.blocked,
+      localBlocks: body.localBlocks,
     } satisfies ParsedSection;
   });
   for (const s of sections)
@@ -242,6 +256,12 @@ function privateTail(
   return from < 0 ? null : { from, to };
 }
 
+type Note = (
+  code: SectionDiagnosticCode,
+  line: number,
+  detail?: SectionDiagnostic["detail"],
+) => void;
+
 interface Open {
   readonly node: SectionNode;
   /** Children start at this column or deeper; -1 for nodes that take none. */
@@ -253,9 +273,10 @@ function parseBody(
   kinds: readonly LineKind[],
   refs: ReturnType<typeof scanRefs>,
   r: { ref: SectionRef; start: number; end: number },
-  note: (code: SectionDiagnosticCode, line: number) => void,
-): { nodes: SectionNode[]; blocked: boolean } {
+  note: Note,
+): { nodes: SectionNode[]; blocked: boolean; localBlocks: LineRange[] } {
   const roots: SectionNode[] = [];
+  const localBlocks: LineRange[] = [];
   const stack: Open[] = [];
   const seen = new Set<string>();
   let blocked = false;
@@ -330,13 +351,24 @@ function parseBody(
     pendingId = null;
     const from = lead?.line ?? i;
     if (kinds[i] !== "literal" && heading(t, kinds[i]) !== null) {
-      note("SECTION_UNSUPPORTED_SYNTAX", i);
+      note("SECTION_UNSUPPORTED_SYNTAX", i, "heading");
       blocked = true;
       continue;
     }
+    // An Obsidian comment (§4.5): not shared, kept where it is. Its lines:
+    // the opening line and the literal lines the lexer gives its body.
+    if (OBSIDIAN_COMMENT.test(t)) {
+      let to = i;
+      while (to + 1 < r.end && kinds[to + 1] === "literal") to++;
+      localBlocks.push({ from: i, to });
+      note("SECTION_UNSUPPORTED_SYNTAX", i, "obsidian-comment");
+      if (lead !== null) note("NODE_KIND_MISMATCH", lead.line);
+      i = to;
+      continue;
+    }
     // Raw blocks (§4.4, M6): fences and other literal runs, tables,
-    // blockquotes and callouts, HTML, Obsidian comments.
-    const comment = OBSIDIAN_COMMENT.test(t) || HTML_BLOCK.test(t);
+    // blockquotes and callouts, HTML.
+    const comment = HTML_BLOCK.test(t);
     if (kinds[i] === "literal" || kinds[i] === "blockquote" || TABLE.test(t) || comment) {
       let to: number;
       if (kinds[i] === "literal") {
@@ -346,8 +378,8 @@ function parseBody(
         to = i;
         while (to + 1 < r.end && kinds[to + 1] === "literal") to++;
       } else if (comment) {
-        // Through a multi-line comment's own lines (blank ones included:
-        // the lexer marks them literal), then down to a blank line.
+        // An HTML block: through a multi-line comment's own lines (blank
+        // ones included: the lexer marks them literal), then down to a blank line.
         to = i;
         while (
           to + 1 < r.end &&
@@ -406,7 +438,7 @@ function parseBody(
       place(node("paragraph", pendingId.id, pendingId.line, pendingId.line, 0), -1);
     else note("NODE_BINDING_ORPHAN", pendingId.line);
   }
-  return { nodes: roots, blocked };
+  return { nodes: roots, blocked, localBlocks };
 }
 
 function node(

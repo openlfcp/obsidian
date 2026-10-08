@@ -1,7 +1,7 @@
 // The spelling of shared-section markers (MVP 0.2), and nothing else.
 //
 // Source: spec integration/MARKDOWN-SECTIONS-01.md §2–§4 (Working Draft,
-// spec 0a17f17, LFCP-02-007), with the owner's decisions M1 (Task refs on
+// spec 3a13ba2, LFCP-02-007), with the owner's decisions M1 (Task refs on
 // their own child line), M4 (the start marker on the line right after the
 // section's heading) and M6 (raw blocks). Until the grammar is frozen, this
 // file is the one place to change: everything else in src/core/sections
