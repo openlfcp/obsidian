@@ -16,6 +16,7 @@ import type { MutationGuard } from "../projection/guard";
 import { renderNewTaskLine } from "../projection/render";
 import type { ObjectRef } from "../refs";
 import { splitLines } from "../refs/lines";
+import { type SectionContext, sectionContext } from "../sections/context";
 import type { RefPlacement } from "../settings";
 import {
   attachAll,
@@ -155,6 +156,24 @@ export class CollabCommands {
         "Shared Tasks: not ready yet (starting, or writing is paused on this device).",
       );
     return c;
+  }
+
+  /**
+   * Task 100 (shared sections): the 0.1 commands act outside sections only.
+   * True, after one notice, when `line`…`to` is inside a section, crosses
+   * its boundary, or touches a damaged one. Checked before any dialog.
+   */
+  #refuseInSection(text: string, from: number, to: number, inside: string): boolean {
+    const ctx: SectionContext = sectionContext(text, { from, to });
+    if (ctx === "outside") return false;
+    this.#env.prompter.notice(
+      ctx === "inside"
+        ? `Shared Tasks: ${inside}`
+        : ctx === "crossing"
+          ? "Shared Tasks: the selection crosses a shared section's boundary. Select lines on one side of it."
+          : "Shared Tasks: a shared section's boundary here needs repair first. Nothing was changed.",
+    );
+    return true;
   }
 
   /**
@@ -313,6 +332,15 @@ export class CollabCommands {
         p.notice("Shared Tasks: put the cursor on a task line (- [ ] …) to share it.");
         return;
       }
+      if (
+        this.#refuseInSection(
+          note.text,
+          note.line,
+          note.line,
+          "this task is in a shared section: everything inside it is shared, including new tasks.",
+        )
+      )
+        return;
       if (at.kind === "bound") {
         p.notice("Shared Tasks: this task is already shared; nothing new was created.");
         return;
@@ -359,6 +387,13 @@ export class CollabCommands {
         );
         return;
       }
+      const inside = "these lines are in a shared section: everything inside it is shared already.";
+      if (
+        note.selection !== undefined
+          ? this.#refuseInSection(note.text, range.from, range.to, inside)
+          : this.#refuseInSection(note.text, note.line, note.line, inside)
+      )
+        return;
       const plan = planBatchShare(note.text, range);
       const n = plan.share.length;
       if (n === 0) {
@@ -419,6 +454,15 @@ export class CollabCommands {
         p.notice("Shared Tasks: open a note to insert shared tasks into.");
         return;
       }
+      if (
+        this.#refuseInSection(
+          note.text,
+          note.line,
+          note.line,
+          "put the cursor outside the shared section to insert tasks here.",
+        )
+      )
+        return;
       const R = await this.#pickResource(collab, "Insert all tasks from…", { blockedOk: true });
       if (R === null) return;
       const all = await collab.insertCandidates(R);
@@ -476,6 +520,15 @@ export class CollabCommands {
         p.notice("Shared Tasks: open a note to insert a shared task into.");
         return;
       }
+      if (
+        this.#refuseInSection(
+          note.text,
+          note.line,
+          note.line,
+          "put the cursor outside the shared section to insert tasks here.",
+        )
+      )
+        return;
       const R = await this.#pickResource(collab, "Insert a task from…", { blockedOk: true });
       if (R === null) return;
       const tasks = await collab.tasks(R);
@@ -576,6 +629,15 @@ export class CollabCommands {
         );
         return;
       }
+      if (
+        this.#refuseInSection(
+          note.text,
+          note.line,
+          note.line,
+          "inside a shared section, a single task cannot be made private. Delete it to remove it for everyone, or detach the whole section here.",
+        )
+      )
+        return;
       const key = `${toHex(at.ref.resourceId)}#${at.ref.objectId}`;
       await this.#rewrite(note.path, (data) => {
         const now = taskAt(data, at.ref.taskLine);

@@ -515,4 +515,49 @@ describe("insertAtLine", () => {
     await s.commands.detachSharedTask();
     expect(s.written).toHaveLength(2);
   });
+
+  it("task 100: inside a shared section the 0.1 commands refuse, before any dialog or write", async () => {
+    const s = await setup();
+    await created(s);
+    const R = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
+    const sec = `lfcp1:${R}#section:019a2f85-7b31-7c42-b85a-fc843e2f4001`;
+    const note = [
+      "- [ ] Outside",
+      "## Shared",
+      `<!-- lfcp-section: ${sec} -->`,
+      "- [ ] Inside",
+      `  <!-- lfcp-ref: lfcp1:${R}#task:019a2f85-7b31-7c42-b85a-fc843e2f4002 -->`,
+      `<!-- /lfcp-section: ${sec} -->`,
+      "",
+    ].join("\n");
+    s.notes.files.set("n.md", note);
+    s.prompter.notices.length = 0;
+    s.prompter.asked.length = 0;
+    for (const run of [
+      () => s.commands.shareTaskUnderCursor(),
+      () => s.commands.shareSelectedTasks(),
+      () => s.commands.insertSharedObject(),
+      () => s.commands.insertAllTasks(),
+      () => s.commands.detachSharedTask(),
+    ]) {
+      s.notes.open("n.md", 3);
+      await run();
+    }
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.notes.files.get("n.md")).toBe(note);
+    expect(s.prompter.notices).toEqual([
+      "Shared Tasks: this task is in a shared section: everything inside it is shared, including new tasks.",
+      "Shared Tasks: these lines are in a shared section: everything inside it is shared already.",
+      "Shared Tasks: put the cursor outside the shared section to insert tasks here.",
+      "Shared Tasks: put the cursor outside the shared section to insert tasks here.",
+      "Shared Tasks: inside a shared section, a single task cannot be made private. Delete it to remove it for everyone, or detach the whole section here.",
+    ]);
+    // A selection across the boundary is refused as a whole.
+    s.prompter.notices.length = 0;
+    s.notes.open("n.md", 0, { from: 0, to: 3 });
+    await s.commands.shareSelectedTasks();
+    expect(s.prompter.notices).toEqual([
+      "Shared Tasks: the selection crosses a shared section's boundary. Select lines on one side of it.",
+    ]);
+  });
 });

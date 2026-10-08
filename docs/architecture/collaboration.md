@@ -29,6 +29,18 @@ order, its heading and Tasks added to it later stay local; shared sections
 need the protocol (NEXT-001). Headings inside HTML or `%%` comments still
 count as headings.
 
+## Inside shared sections (0.4, task 100)
+
+The commands above act on shared Tasks outside shared sections. Inside a
+section, everything is shared with the section, so they refuse, with one
+notice and before any dialog or write: "Share task under cursor", "Share
+selected tasks" (also a selection that crosses a section's boundary),
+"Insert shared object", "Insert all tasks from collaboration" and "Detach
+shared task". A damaged section boundary counts as inside. With the cursor
+under a heading, "Share selected tasks" never takes the Tasks of a section
+under it. Outside sections they behave exactly as in 0.3. Analysis:
+`workbook: mvp-0.2/notes/legacy-commands-in-sections.md`.
+
 ## Presets
 
 | Preset | Grant abilities | Claimant gets |
