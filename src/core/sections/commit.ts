@@ -32,6 +32,7 @@ import {
   type Receipt,
   type SectionIntent,
   type SectionPort,
+  type TaskFieldIntent,
 } from "./port";
 import { applyTextEdit } from "./text";
 
@@ -62,6 +63,8 @@ export interface LocalPass {
   readonly creations?: readonly UnboundNode[];
   /** A new Task's fields from its line (as planShare builds them), with its new ID. */
   readonly newTask?: (candidate: UnboundNode, id: string) => NewSectionTask;
+  /** Field and lifecycle edits of bound Tasks (the 0.1 planner's, task-fields.ts). */
+  readonly taskIntents?: readonly TaskFieldIntent[];
 }
 
 export interface CommitDeps {
@@ -160,6 +163,7 @@ export function intentsOf(
       parent: m.parent ?? pass.sectionId,
       after: m.after,
     });
+  intents.push(...(pass.taskIntents ?? []));
   for (const id of pass.deletes ?? []) intents.push({ intent: "node.delete", id });
   return { intents, ids: allocated };
 }
@@ -403,10 +407,19 @@ export function applyBatch(
         place(i.task.id, parentOf(i.parent), i.after);
         break;
       }
-      default: {
+      case "paragraph.create":
+      case "item.create":
+      case "raw.create": {
         const kind = i.intent.slice(0, i.intent.indexOf(".")) as NodeState["kind"];
         nodes[i.id] = { kind, parent: parentOf(i.parent), text: i.text };
         place(i.id, parentOf(i.parent), i.after);
+        break;
+      }
+      default: {
+        // A Task field edit: the Task's line as the note shows it is its base now.
+        const n = nodes[i.id];
+        const line = taskLine(i.id);
+        if (n !== undefined && line !== undefined) nodes[i.id] = { ...n, line };
       }
     }
   }

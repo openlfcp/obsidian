@@ -6,6 +6,7 @@
 // cannot establish is `unknown`, never a default (§2).
 
 import type { PrincipalId } from "@openlfcp/core";
+import type { ReplicaIntent } from "@openlfcp/shared-objects";
 import type { SectionNodeKind } from "./parser";
 
 /** A node of the section model as the SDK snapshot shows it. */
@@ -103,7 +104,12 @@ export type SectionIntent =
       readonly parent: string;
       readonly after: string | null;
       readonly listStyle?: ListStyle;
-    };
+    }
+  /** A Task field or lifecycle intent of 0.1 on a Task of the section (SSP §2). */
+  | TaskFieldIntent;
+
+/** The 0.1 Task intents a section batch carries: every one but task.create. */
+export type TaskFieldIntent = Exclude<ReplicaIntent, { intent: "task.create" }>;
 
 /** A durable local commit's receipt (contract §3.2). */
 export interface Receipt {

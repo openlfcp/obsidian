@@ -29,6 +29,7 @@ inside a section).
 | `engine.ts` | One reconciliation pass of a note's sections: all of the above put together (`SectionEngine.pass`, `written`) |
 | `coordinator.ts` | One source per note across editor views, file events and renames; passes coalesced per note (LFCP-02-041) |
 | `markers.ts` | Bindings for nodes that just got their IDs: node markers and child-line Task refs (`bindingChanges`) |
+| `task-fields.ts` | Task field edits inside sections: the 0.1 planner on section Tasks (`planTaskFields`, `representLine`) |
 | `sdk-snapshot.ts` | sdk-ts's `SectionReplica.snapshot()` in the port's terms (`fromSdkSnapshot`) |
 | `commit.ts` | Local edits into durable shared updates, exactly once (LFCP-02-039): `commitPass`, `resumeOperation`, `markProjected`, `finish`, `localStatus` |
 | `writes.ts` | The plugin's own writes (LFCP-02-042): `GeneratedWrites` by operation ID and exact content, and `pendingBase` while a write is pending |
@@ -166,9 +167,14 @@ names it. A node whose own edit was merged with a concurrent one and not
 projected yet has none, and its next Text edits wait until it is projected,
 so indices are never sent against a revision whose Text differs.
 
-Not wired yet: Task field edits inside a section (checkbox, dates, title)
-need the 0.1 field planner (`projection/intents.ts`) run on section Tasks;
-remote Task changes are already rendered (`remote.ts`).
+Task fields inside a section (checkbox, title, dates, priority, tags) are
+the 0.1 planner's (`projection/intents.ts`), run by `task-fields.ts` on
+each section Task whose line the user changed since the base, three-way
+against the base line: its 0.1 Task intents join the section's batch (the
+SDK's section intents include them), and the base takes the Task's new
+line. The inline ref is left out of what the line represents, wherever it
+stands. Remote Task changes are rendered by `remote.ts` with the 0.1
+renderer.
 
 ## Typing and IME (LFCP-02-043)
 
@@ -488,6 +494,11 @@ seeding and MS11, one batch for a Text edit with a new paragraph and Task
 and their bindings, a transient Task, deletion versus a lost binding,
 read-only, remote projection alone and with local edits, and a crash
 between the commit and the bindings (one Task, the same ID).
+
+`test/core/sections/task-fields.test.ts`: a Task line read with its inline
+ref at the end or before the fields; only the changed field sent; an
+unknown Task reported. `engine.test.ts` also ticks a section Task
+(`task.complete`, the note kept) and renders a collaborator's completion.
 
 `test/core/sections/input.test.ts`: idle, the cap while typing, no pass
 during a composition and one at its end, blur, dispose; transient

@@ -4,10 +4,16 @@
 // projection, both at once, a crash between commit and bindings, transient
 // input, deletion versus a lost binding, and access.
 
-import { principalId } from "@openlfcp/core";
+import { fromBase64url, principalId, resourceId } from "@openlfcp/core";
+import { complete, createTask, SharedObjectsReplica, type Task } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import { MemorySectionBaseStore, markdownState } from "../../../src/core/sections/base";
-import { applyChanges, type PassContext, SectionEngine } from "../../../src/core/sections/engine";
+import {
+  applyChanges,
+  type EngineDeps,
+  type PassContext,
+  SectionEngine,
+} from "../../../src/core/sections/engine";
 import {
   formatBoundary,
   formatNodeMarker,
@@ -53,7 +59,7 @@ const stateOf = (md: string) => {
 
 const CTX: PassContext = { caretLine: null, deletedIds: new Set(), origin: "other" };
 
-function setup(initial = note(BODY)) {
+function setup(initial = note(BODY), tasks: EngineDeps["tasks"] = () => undefined) {
   const port = new FakeSectionPort();
   port.host(R, SID, stateOf(initial));
   const journal = new MemorySectionJournalStore();
@@ -69,7 +75,7 @@ function setup(initial = note(BODY)) {
     newOperationId: () => `op-${++op}`,
     createdBy: principalId(new Uint8Array(32).fill(4)),
     newProjectionId: () => `projection-${++projection}`,
-    tasks: () => undefined,
+    tasks,
     newTask: (line, taskId) => ({
       id: taskId,
       title: line.replace(/^[ \t]*[-*+][ \t]+\[.\][ \t]*/, "").trim(),
@@ -86,8 +92,8 @@ function setup(initial = note(BODY)) {
 }
 
 /** Set up and seed the base with a first pass on the model's own note. */
-async function seeded(initial = note(BODY)) {
-  const h = setup(initial);
+async function seeded(initial = note(BODY), tasks?: EngineDeps["tasks"]) {
+  const h = setup(initial, tasks);
   const { pass, out } = await h.run(initial);
   expect(pass.sections[0]?.base).toBeDefined();
   expect(out).toBe(initial);
@@ -235,5 +241,53 @@ describe("a crash between the commit and the bindings", () => {
     const again = await h.run(out);
     expect(again.pass.changes).toEqual([]);
     expect(h.port.changes).toHaveLength(1);
+  });
+});
+
+describe("Task fields inside a section", () => {
+  const T = id(9);
+  const REF = `  <!-- lfcp-ref: lfcp1:${R}#task:${T} -->`;
+  const withTask = (line: string) => note([line, REF, "", ...BODY]);
+  const me = principalId(new Uint8Array(32).fill(4));
+
+  function tasks() {
+    const { replica } = SharedObjectsReplica.create({
+      resource: resourceId(fromBase64url(R)),
+      principal: me,
+    });
+    replica.apply(createTask({ id: T as never, title: "Contract", createdBy: me }).intent);
+    return replica;
+  }
+
+  it("ticking a Task's checkbox sends task.complete, and the note keeps it", async () => {
+    const replica = tasks();
+    const h = await seeded(withTask("- [ ] Contract"), (_r, taskId) =>
+      taskId === T ? { view: replica.task(T) } : undefined,
+    );
+    h.port.onTaskIntents = (intents) => {
+      for (const i of intents) replica.apply(i as never);
+    };
+    const ticked = withTask("- [x] Contract");
+    const { out } = await h.run(ticked);
+    expect(h.port.changes[0]?.intents.map((i) => i.intent)).toContain("task.complete");
+    expect(replica.task(T)?.task?.status).toBe("done");
+    expect(out).toBe(ticked);
+    const again = await h.run(out);
+    expect(again.pass.changes).toEqual([]);
+    expect(h.port.changes).toHaveLength(1);
+  });
+
+  it("a collaborator's completion is rendered onto the line, and sends nothing back", async () => {
+    const replica = tasks();
+    const h = await seeded(withTask("- [ ] Contract"), (_r, taskId) =>
+      taskId === T ? { view: replica.task(T) } : undefined,
+    );
+    replica.apply(complete(replica.task(T)?.task as Task).intent);
+    h.port.remote(R, () => {});
+    const { out } = await h.run(withTask("- [ ] Contract"));
+    expect(out).toBe(withTask("- [x] Contract"));
+    const again = await h.run(out);
+    expect(again.pass.changes).toEqual([]);
+    expect(h.port.changes).toEqual([]);
   });
 });

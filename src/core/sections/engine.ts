@@ -47,6 +47,7 @@ import { type ParsedSection, parseSections } from "./parser";
 import type { NewSectionTask, SectionIntent, SectionSnapshot } from "./port";
 import { planRemote, type RemotePlan } from "./remote";
 import { type DocChange, lineStarts } from "./source-map";
+import { planTaskFields } from "./task-fields";
 import { type ChangeOrigin, compensate, SessionLedger } from "./undo";
 
 export interface EngineDeps extends CommitDeps {
@@ -403,6 +404,11 @@ export class SectionEngine {
     const revisionOf = (id: string) =>
       stored.nodeRevisions?.[id] === undefined ? stored.revision : stored.nodeRevisions[id];
     const held = plan.textEdits.filter((e) => revisionOf(e.nodeId) === null).map((e) => e.nodeId);
+    const fields = planTaskFields(
+      note.state,
+      baseState,
+      (taskId) => this.deps.tasks(resource, taskId)?.view,
+    );
     const caret = ctx.caretLine === null ? null : shiftLine(ctx.caretLine, source, resumedChanges);
     const transient = transientCandidates(note.unbound, lineText0, caret);
     const creations = note.unbound.filter((u) => !transient.has(u.line));
@@ -420,6 +426,7 @@ export class SectionEngine {
       restores: comp.restores,
       creations,
       newTask: (c, id) => this.deps.newTask(lineText0(c.line), id),
+      taskIntents: fields.intents,
     });
     const resumedBase: StoredBase = {
       locator,
@@ -456,6 +463,8 @@ export class SectionEngine {
       for (const id of comp.restores) this.#ledger.restored(id);
       markerChanges = bindingChanges(md0, section0, bindings, ref.resourceId).changes;
       const lineOf = new Map(bindings.map((b) => [b.id, lineText0(b.line)]));
+      // A Task whose fields were sent: its line as the note shows it is its base now.
+      for (const i of fields.intents) lineOf.set(i.id, note.state.nodes[i.id]?.line ?? "");
       localBase = applyBatch(baseState, local.entry.intents ?? [], ref.sectionId, (id) =>
         lineOf.get(id),
       );

@@ -44,6 +44,8 @@ export class FakeSectionPort implements SectionPort {
   readonly #receipts = new Map<string, { receipt: Receipt; key: string }>();
   readonly #faults: Fault[] = [];
   access: WriteAccess = { allowed: true };
+  /** Where task.* intents go (the Shared Objects replica that renders section Tasks). */
+  onTaskIntents: (intents: readonly SectionIntent[]) => void = () => {};
   snapshots = new Map<string, SectionSnapshot>();
 
   /** The next commits meet these faults, in order. */
@@ -122,6 +124,9 @@ export class FakeSectionPort implements SectionPort {
     if (fault?.kind === "refuse") throw new CommitRefused(fault.code);
     if (!this.access.allowed) throw new CommitRefused("NOT_WRITABLE");
     this.changes.push({ operationId, intents });
+    this.onTaskIntents(
+      intents.filter((i) => i.intent.startsWith("task.") && i.intent !== "task.create_in_section"),
+    );
     const model = this.sections.get(resource);
     if (model !== undefined) {
       for (const i of intents)
