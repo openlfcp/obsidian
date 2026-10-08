@@ -244,7 +244,11 @@ comments stay local; private text under the heading after the range (H5,
 MS36, also for an existing section through `sectionPreview`). `revalidate`
 lets an approved preview commit only onto the same note, or the same
 content moved by an edit elsewhere (UX02); a changed range is previewed
-again.
+again. Behind the preview flag, the command "Share section…"
+(`SectionsHost.shareSection`, `src/obsidian/ui/share-section.ts`) shows it
+in one scrollable dialog, with the words of `shareMessages`; Share is
+unavailable while a problem is listed. Creating the section from an
+approved preview is LFCP-02-050.
 
 ## Editor rules from the fixtures (LFCP-02-047)
 

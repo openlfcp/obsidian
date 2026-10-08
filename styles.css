@@ -7,3 +7,19 @@
 .openlfcp-conflict {
   box-shadow: inset 3px 0 0 var(--text-warning);
 }
+
+/* OpenLFCP: the exact content a "Share section" preview would share (LFCP-02-049). */
+.openlfcp-share-content {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-monospace);
+  font-size: var(--font-smaller);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: var(--size-4-2);
+}
+
+.openlfcp-share-problem {
+  color: var(--text-error);
+}

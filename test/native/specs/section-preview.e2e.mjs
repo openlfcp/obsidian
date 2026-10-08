@@ -100,3 +100,76 @@ describe("shared sections preview in Shared Tasks (real SDK, no server)", () => 
     expect(text.endsWith("Private outro.\n")).toBe(true);
   });
 });
+
+describe("Share section… preview (LFCP-02-049, flag on)", () => {
+  before(async () => {
+    await restartWith(true);
+  });
+  after(async () => {
+    await restartWith(false);
+  });
+
+  /** Opens `file` with `text`, caret on `line`, runs the command and returns what the dialog shows. */
+  async function preview(file, text, line) {
+    return browser.executeObsidian(
+      async ({ app, obsidian }, file, text, line) => {
+        if (app.vault.getFileByPath(file) === null) await app.vault.create(file, text);
+        else await app.vault.adapter.write(file, text);
+        const leaf = app.workspace.getLeaf(false);
+        await leaf.openFile(app.vault.getFileByPath(file), { state: { mode: "source", source: true } });
+        app.workspace.setActiveLeaf(leaf, { focus: true });
+        const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        for (let i = 0; i < 40 && view.editor.getValue() !== text; i++)
+          await new Promise((r) => setTimeout(r, 50));
+        view.editor.setCursor({ line, ch: 0 });
+        app.commands.executeCommandById("shared-tasks:share-section");
+        let modal = null;
+        for (let i = 0; i < 40 && modal === null; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          modal = document.querySelector(".modal-container .modal");
+        }
+        const boxes = [...modal.querySelectorAll(".openlfcp-share-content")].map((b) => b.textContent);
+        const problems = [...modal.querySelectorAll(".openlfcp-share-problem")].map((p) => p.textContent);
+        const share = [...modal.querySelectorAll("button")].find((b) => b.textContent === "Share");
+        const result = {
+          heading: modal.querySelector("h3")?.textContent,
+          boxes,
+          problems,
+          shareDisabled: share?.disabled === true,
+        };
+        [...modal.querySelectorAll("button")].find((b) => b.textContent === "Cancel")?.click();
+        return result;
+      },
+      file,
+      text,
+      line,
+    );
+  }
+
+  it("shows exactly the range under the heading; private text stays outside", async () => {
+    const note = [
+      "PRIVATE_BEFORE_8f3a: budget and personal thoughts.",
+      "",
+      "## Launch",
+      "- [ ] Prepare contract",
+      "  Draft contract",
+      "",
+      "## Other",
+      "PRIVATE_AFTER_71c2: do not transmit.",
+      "",
+    ].join("\n");
+    const shown = await preview("share-range.md", note, 3);
+    console.log(`EVIDENCE ${JSON.stringify({ id: "SHARE-PREVIEW", shown })}`);
+    expect(shown.heading).toBe('Share section "Launch"');
+    expect(shown.boxes).toEqual(["- [ ] Prepare contract\n  Draft contract"]);
+    expect(shown.problems).toEqual([]);
+    expect(shown.shareDisabled).toBe(false);
+  });
+
+  it("a heading inside blocks the share, with a reason", async () => {
+    const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
+    const shown = await preview("share-nested.md", note, 0);
+    expect(shown.problems).toHaveLength(1);
+    expect(shown.shareDisabled).toBe(true);
+  });
+});

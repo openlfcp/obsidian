@@ -13,7 +13,7 @@
 import { generateObjectId, type PrincipalId, type ResourceId } from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
-import { type App, MarkdownView, TFile } from "obsidian";
+import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import { planShare } from "../core/collab/markdown";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { SdkSectionPort } from "../core/lfcp/section-port";
@@ -22,10 +22,18 @@ import { newProjectionId } from "../core/sections/base";
 import { SectionEngine } from "../core/sections/engine";
 import { parseSections } from "../core/sections/parser";
 import type { NewSectionTask } from "../core/sections/port";
+import {
+  preflight,
+  proposeRange,
+  revalidate,
+  type SharePreview,
+  type ShareRange,
+} from "../core/sections/share";
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
 import type { RefPlacement, SectionComments } from "../core/settings";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
+import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
 const SECTION_MARK = "lfcp-section:";
@@ -101,6 +109,38 @@ export class SectionsHost {
       if (!text.includes(SECTION_MARK)) continue;
       this.#index(file.path, text);
       this.editor.remoteChanged(file.path, text);
+    }
+  }
+
+  /**
+   * "Share section…" (LFCP-02-049): the heading at or above the cursor
+   * proposes the range; the preview shows exactly what would be shared. An
+   * approved preview is revalidated against the note as it is then (UX02):
+   * a changed range is shown again. Returns the approved preview, or null.
+   */
+  async shareSection(editor: Editor): Promise<SharePreview | null> {
+    const md = editor.getValue();
+    let line = editor.getCursor().line;
+    let range: ShareRange | null = null;
+    for (; line >= 0 && range === null; line--) range = proposeRange(md, line);
+    if (range === null) {
+      new Notice("Shared Tasks: put the cursor on or under a heading to share its section.");
+      return null;
+    }
+    let preview = preflight(md, range);
+    let note: string | undefined;
+    for (;;) {
+      const modal = new ShareSectionModal(this.app, preview, note);
+      modal.open();
+      if (!(await modal.result)) return null;
+      const now = revalidate(editor.getValue(), preview);
+      if (now.kind !== "changed") return now.preview;
+      if (now.preview === null) {
+        new Notice("Shared Tasks: the section's heading is gone. Nothing was shared.");
+        return null;
+      }
+      preview = now.preview;
+      note = "The note changed while the preview was open. Review the section again.";
     }
   }
 
