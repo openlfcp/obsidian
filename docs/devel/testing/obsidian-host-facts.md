@@ -13,6 +13,7 @@ that changes one of them fails there first.
 | H3 | In Live Preview, an HTML comment on its own line or at the end of a Task line stays visible as source text when the cursor is elsewhere | 1.13.4, 1.14.4, macOS | asserted (`host-facts`): both `lfcp-ref` lines render with their text | Hiding per-node markers in Live Preview (decision M5) is the plugin's work (editor decorations); Obsidian does not do it |
 | H4 | Dragging a heading in the Outline view moves the heading with every line down to the next heading of the same or a higher level. A comment line right **above** a heading belongs to the previous heading's lines and stays behind | 1.13.4, 1.14.4, macOS | asserted (`host-facts`), drag by DOM drag events in the Outline. With the marker above `## Shared`, dragging `## Other` above `## Shared` left the start marker in place: the private `## Other` section ended up between the section markers. With the marker right below `## Shared`, it moved with its heading and the region stayed intact | Confirms decision M4 (start marker right after the heading). The parser must still fail closed when a heading moves away from its marker |
 | H5 | Folding a heading hides every line down to the next heading of the same or a higher level, including an end marker and any private text after it | 1.13.4, 1.14.4, macOS | asserted (`host-facts`): folding `## Shared` folds lines 4–10, "Private tail." included | Obsidian's heading model does not know the section boundary: private text after the end marker folds, drags and embeds (`![[note#Shared]]`) with the shared heading. Share and insert should warn about private text between the end marker and the next heading (review finding OP-05) |
+| H6 | The Obsidian Tasks plugin 8.4.0, toggling a Task done, appends `✅ <date>` at the end of the line, **after an inline `lfcp-ref` comment**. A child-line ref is untouched. A recurring Task gets its next occurrence on a new line **above**, unbound; the child-line ref stays with the done one. Its edits carry no `userEvent` | 1.14.4, macOS | asserted (`tasks-plugin`) | An inline ref is then not last on the line (`LFCP_REF_NOT_AT_LINE_END` in 0.1): **decision M1 (inline refs inside sections) conflicts with Tasks**. Child-line placement is what keeps Tasks working; this is why 0.1 chose it |
 
 ## 0.3 baselines
 
@@ -63,8 +64,5 @@ The ADR 0001 spikes (transactions, undo grouping, several views, external
 writes, cost, Live Preview) are recorded in the ADR's evidence table:
 [../../architecture/decisions/0001-codemirror-transactions-for-sections.md](../../architecture/decisions/0001-codemirror-transactions-for-sections.md).
 
-Still to establish (LFCP-02-005):
-
-- IME composition in an open note (manual: WebDriver cannot drive an IME);
-- the Obsidian Tasks plugin's own edits (a pinned Tasks plugin in the
-  harness).
+Still to establish (LFCP-02-005): IME composition in an open note, by hand
+([ime-checklist.md](ime-checklist.md)).

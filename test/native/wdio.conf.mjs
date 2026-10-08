@@ -38,7 +38,12 @@ export const config = {
     "wdio:obsidianOptions": {
       installerVersion: version,
       // The plugin under test, and the ADR 0001 spike plugin (harness only).
-      plugins: [path.resolve(here, "../.."), path.join(here, "plugins/cm-spike")],
+      // Obsidian Tasks 8.4.0 (2026-08-25), installed disabled; specs/tasks-plugin enables it.
+      plugins: [
+        path.resolve(here, "../.."),
+        path.join(here, "plugins/cm-spike"),
+        { id: "obsidian-tasks-plugin", version: "8.4.0", enabled: false },
+      ],
       vault: path.join(here, "vaults/basic"),
     },
   })),
