@@ -26,10 +26,50 @@ import {
   type SectionEngine,
 } from "../core/sections/engine";
 import { ReconcileScheduler, type Timer } from "../core/sections/input";
+import { parseSections, type SectionNode } from "../core/sections/parser";
+import { classifyRemoval } from "../core/sections/rules";
 import { type ChangeOrigin, originOf } from "../core/sections/undo";
 
 /** The plugin's own writes into a note, by pass (ADR 0001 §2). */
 export const sectionWrite = Annotation.define<string>();
+
+/**
+ * Bound nodes a user transaction removed with every one of their lines (a
+ * deletion, rules.ts, §7); a node only partly removed (its marker, its ref)
+ * is not one: it is NODE_BINDING_LOST. Parsed only when the removed text
+ * holds a binding comment.
+ */
+function removedWithEveryLine(tr: Transaction): string[] {
+  const removed: { from: number; to: number }[] = [];
+  let bindings = false;
+  tr.changes.iterChanges((fromA, toA) => {
+    if (toA <= fromA) return;
+    removed.push({ from: fromA, to: toA });
+    if (BINDING_ID.test(tr.startState.doc.sliceString(fromA, toA))) bindings = true;
+    BINDING_ID.lastIndex = 0;
+  });
+  if (!bindings) return [];
+  const doc = tr.startState.doc;
+  // A line is removed when the removed text covers all of it (its content, not only its ending).
+  const lines: { from: number; to: number }[] = [];
+  for (const r of removed) {
+    const a = doc.lineAt(r.from);
+    const b = doc.lineAt(Math.max(r.from, r.to - 1));
+    for (let n = a.number; n <= b.number; n++) {
+      const line = doc.line(n);
+      if (r.from <= line.from && r.to >= line.to) lines.push({ from: n - 1, to: n - 1 });
+    }
+  }
+  const out: string[] = [];
+  const walk = (ns: readonly SectionNode[]) => {
+    for (const n of ns) {
+      if (n.id !== null && classifyRemoval(n, lines) === "delete") out.push(n.id);
+      walk(n.children);
+    }
+  };
+  for (const s of parseSections(doc.toString()).sections) walk(s.nodes);
+  return out;
+}
 
 /** IDs in the binding comments of a removed text: node markers and Task refs. */
 const BINDING_ID =
@@ -205,11 +245,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         if (userEvent === undefined) this.st.external = true;
         const origin = originOf(userEvent);
         if (origin !== "other") this.st.origin = origin;
-        tr.changes.iterChanges((fromA, toA) => {
-          if (toA <= fromA) return;
-          for (const m of tr.startState.doc.sliceString(fromA, toA).matchAll(BINDING_ID))
-            if (m[1] !== undefined) this.st.deletedIds.add(m[1]);
-        });
+        for (const id of removedWithEveryLine(tr)) this.st.deletedIds.add(id);
       }
       if (edited) this.st.scheduler.edit(this.view.composing);
     }
