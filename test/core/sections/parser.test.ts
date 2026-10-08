@@ -104,7 +104,7 @@ describe("boundaries (M4, fail closed)", () => {
     const T = parseSectionRef(`lfcp1:${R}#section:${id(7)}`) as SectionRef;
     expect(
       parseSections(lines("## A", start, formatBoundary("end", T))).diagnostics.map((d) => d.code),
-    ).toEqual(["SECTION_BOUNDARY_MISSING", "SECTION_BOUNDARY_MISMATCH"]);
+    ).toEqual(["SECTION_BOUNDARY_MISMATCH"]); // one cause, one diagnostic (fixture MS19)
     const nested = parseSections(lines("## A", start, "## B", formatBoundary("start", T), end));
     expect(nested.sections).toEqual([]);
     expect(nested.diagnostics.map((d) => d.code)).toContain("SECTION_BOUNDARY_OVERLAP");
@@ -335,5 +335,39 @@ describe("nodes", () => {
     const [s] = parseSections(text).sections;
     expect(shape(s?.nodes ?? [])).toEqual(["item:004"]);
     expect(s?.nodes[0]?.lines).toEqual({ from: 2, to: 5 });
+  });
+
+  it("an item marker indented with tabs past the content column still binds (fixture MS31)", () => {
+    // "\t- " has its content at column 6; the marker's "\t\t" reaches column 8.
+    const text = lines(
+      "## S",
+      start,
+      "\t- Check details",
+      `\t\t${formatNodeMarker("item", id(4))}`,
+      end,
+    );
+    const scan = parseSections(text);
+    expect(scan.diagnostics).toEqual([]);
+    expect(shape(scan.sections[0]?.nodes ?? [])).toEqual(["item:004"]);
+  });
+
+  it("an overlap is one diagnostic: the end markers it leaves are not MISSING (fixture MS22)", () => {
+    const text = lines(
+      "## A",
+      start,
+      "- [ ] One",
+      "## B",
+      start,
+      "- [ ] Two",
+      end,
+      "",
+      end,
+      "",
+      "Private.",
+    );
+    const scan = parseSections(text);
+    expect(scan.sections).toEqual([]);
+    expect(scan.diagnostics.map((d) => d.code)).toEqual(["SECTION_BOUNDARY_OVERLAP"]);
+    expect(scan.claimed.at(-1)?.to).toBeGreaterThanOrEqual(8);
   });
 });

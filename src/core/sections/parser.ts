@@ -154,7 +154,10 @@ export function parseSections(markdown: string): SectionScan {
   const regions: { ref: SectionRef; start: number; end: number; headingLine: number }[] = [];
 
   // Pass 1: boundaries. Markers in literal contexts or blockquotes are text.
-  let open: { ref: SectionRef; start: number; damaged: boolean } | null = null;
+  /** `reported`: a boundary error is already named for it; the end of the note adds no MISSING. */
+  let open: { ref: SectionRef; start: number; damaged: boolean; reported: boolean } | null = null;
+  /** End markers still owed by starts reported as OVERLAP: theirs, not new errors. */
+  let owed = 0;
   const fail = (from: number) => {
     claimed.push({ from, to: lines.length - 1 });
   };
@@ -170,15 +173,22 @@ export function parseSections(markdown: string): SectionScan {
       if (open !== null) {
         note("SECTION_BOUNDARY_OVERLAP", i);
         open.damaged = true;
+        open.reported = true;
+        owed++;
         return;
       }
       const above = i > 0 ? heading(lines[i - 1]?.text ?? "", kinds[i - 1]) : null;
       if (above === null) note("SECTION_HEADING_INVALID", i);
-      open = { ref: marker.ref, start: i, damaged: above === null };
+      open = { ref: marker.ref, start: i, damaged: above === null, reported: false };
       return;
     }
     // An end marker.
     if (open === null) {
+      if (owed > 0) {
+        owed--;
+        claimed.push({ from: i, to: i });
+        return;
+      }
       note("SECTION_BOUNDARY_MISSING", i);
       claimed.push({ from: i, to: i });
       return;
@@ -186,6 +196,7 @@ export function parseSections(markdown: string): SectionScan {
     if (!sameSection(open.ref, marker.ref)) {
       note("SECTION_BOUNDARY_MISMATCH", i);
       open.damaged = true;
+      open.reported = true;
       return;
     }
     // A damaged region claims its lines (heading included) and yields no section.
@@ -197,8 +208,8 @@ export function parseSections(markdown: string): SectionScan {
     open = null;
   });
   if (open !== null) {
-    const o = open as { start: number };
-    note("SECTION_BOUNDARY_MISSING", o.start);
+    const o = open as { start: number; reported: boolean };
+    if (!o.reported) note("SECTION_BOUNDARY_MISSING", o.start);
     // A fence opened in the region and never closed hid the end marker (§4.4, §9).
     for (let i = o.start + 1; i < lines.length; i++)
       if (
@@ -433,7 +444,10 @@ function parseBody(
       let last = i;
       while (last + 1 < r.end && continues(last + 1)) last++;
       const next = last + 1 < r.end ? parseNodeMarker(text(last + 1)) : null;
-      const bound = next?.kind === "item" && indentWidth(next.indent) === contentColumn;
+      // At the item's content column, or up to three columns deeper (a tab
+      // can reach past it), as the 0.1 scanner places a child-line ref.
+      const width = next === null ? -1 : indentWidth(next.indent);
+      const bound = next?.kind === "item" && width >= contentColumn && width < contentColumn + 4;
       place(
         node("item", bound ? next.nodeId : null, i, bound ? last + 1 : last, column),
         contentColumn,
