@@ -97,6 +97,7 @@ touch it either.
 | `specs/tasks-plugin.e2e.mjs` | The Obsidian Tasks plugin (8.4.0) next to Shared Tasks: the lines it writes when toggling a Task (plain, inline ref, child-line ref, recurring) and its transactions |
 | `specs/section-metadata.e2e.mjs` | LFCP-02-048 in Shared Tasks itself: a section's binding lines hidden in Live Preview, standalone refs kept, the boundary line, "Show or hide sharing metadata" |
 | `specs/marker-hiding.e2e.mjs` | LFCP-02-048 spike: hiding binding lines in Live Preview with the test-only plugin `plugins/marker-spike` (installed disabled, enabled by this spec); results in [../reports/marker-hiding-spike.md](../reports/marker-hiding-spike.md) |
+| `specs/section-sync.e2e.mjs` | LFCP-02-041..043: the section engine in the editor on a fake SDK, in Live Preview and Source mode: typing becomes one batch after the idle (status "edited" first), a collaborator's change arrives while the user types (both kept, the caret where it was), an emoji selection typed over (scalar positions), a new paragraph gets its ID and marker; through `plugins/section-sync` |
 | `specs/baseline-0.3.e2e.mjs` | Baselines of the 0.3 plugin: start, "Share selected tasks" with 200 Tasks, edit → queued, change → render. Prints `METRIC {…}` lines; results in [obsidian-host-facts.md](obsidian-host-facts.md) |
 
 Each run also installs the Obsidian Tasks plugin 8.4.0 (released
@@ -108,6 +109,16 @@ test-only plugin (never shipped) that records CodeMirror transactions and
 exposes `window.__lfcpSpike` to the specs. It uses only the public API the
 plugin itself would (`registerEditorExtension`, the app's `@codemirror`
 modules), since a page script cannot load those modules.
+
+`plugins/section-sync` (installed disabled; `specs/section-sync` enables
+it) is built from TypeScript, unlike the spikes:
+`test/native/section-sync/main.ts` bundles the section engine, the editor
+extension (`src/obsidian/section-editor.ts`) and the fake SDK port
+(`test/core/sections/fake-port.ts`) into its `main.js`
+(`scripts/build-native-harness.mjs`, run by `pnpm native`; the bundle is
+gitignored). It exposes `window.__lfcpSectionSync`. Mock SDK on a real
+host: the SDK binding replaces the fake; IME stays the manual
+[checklist](ime-checklist.md).
 
 Specs are plain ES modules run by Mocha. The `browser` and `expect` globals
 come from WebdriverIO. `browser.executeObsidian(({ app, obsidian }) => …)`

@@ -44,6 +44,8 @@ export const config = {
         path.join(here, "plugins/cm-spike"),
         // LFCP-02-048 spike, installed disabled; specs/marker-hiding enables it.
         { path: path.join(here, "plugins/marker-spike"), enabled: false },
+        // LFCP-02-041..043: the section engine on a fake SDK, installed disabled; specs/section-sync enables it.
+        { path: path.join(here, "plugins/section-sync"), enabled: false },
         { id: "obsidian-tasks-plugin", version: "8.4.0", enabled: false },
       ],
       vault: path.join(here, "vaults/basic"),

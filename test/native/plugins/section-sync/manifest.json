@@ -1,0 +1,9 @@
+{
+  "id": "lfcp-section-sync",
+  "name": "LFCP section sync harness (test only)",
+  "version": "0.0.0",
+  "minAppVersion": "1.13.1",
+  "description": "Native harness only: the section engine in the editor on a fake SDK (LFCP-02-041..043).",
+  "author": "OpenLFCP",
+  "isDesktopOnly": true
+}
