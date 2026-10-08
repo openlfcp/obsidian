@@ -64,7 +64,12 @@ const text = () =>
 
 describe("LFCP-02-048 spike: hiding binding lines", () => {
   before(async () => {
-    await browser.executeObsidian(({ app }) => app.plugins.enablePlugin("lfcp-marker-spike"));
+    await browser.executeObsidian(async ({ app }) => {
+      await app.plugins.enablePlugin("lfcp-marker-spike");
+      // Shared Tasks hides section bindings itself since LFCP-02-048: show
+      // them there, so this spike measures only its own mechanism.
+      await app.plugins.plugins["shared-tasks"].setShowSharingMetadata(true);
+    });
   });
 
   it("(1) hidden in Live Preview away from the selection; shown on the line, by the toggle and in Source mode", async () => {
