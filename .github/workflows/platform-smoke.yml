@@ -38,6 +38,11 @@ jobs:
       # Byte-exact fixtures and LF sources: never convert line endings.
       - name: Keep line endings as committed
         run: git config --global core.autocrlf false
+      # sdk-ts's upgrade fixtures keep the file names storage-node 0.1.3 wrote
+      # (secrets/<194 hex>), past Windows' MAX_PATH in the workspace.
+      - name: Allow long paths (Windows)
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
 
       - uses: actions/checkout@v4
         with:
