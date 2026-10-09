@@ -330,6 +330,59 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(notice).toContain("Host it first");
   });
 
+  it("the shared mark and status after the heading: the same in Live Preview and Reading, the note untouched (LFCP-02-058)", async () => {
+    const read = (mode) =>
+      browser.executeObsidian(
+        async ({ app, obsidian }, mode) => {
+          const leaf = app.workspace.getLeaf(false);
+          await leaf.openFile(app.vault.getFileByPath("share-create.md"), {
+            state: { mode, source: false },
+          });
+          const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+          let badge = null;
+          for (let i = 0; i < 60 && badge === null; i++) {
+            await new Promise((r) => setTimeout(r, 100));
+            badge = view.containerEl.querySelector(
+              mode === "preview" ? ".markdown-preview-view h2 .openlfcp-status" : ".cm-content .openlfcp-status",
+            );
+          }
+          return badge === null
+            ? null
+            : {
+                state: badge.dataset.state,
+                label: badge.getAttribute("aria-label"),
+                mark: badge.querySelectorAll(".openlfcp-status-mark path").length,
+                heading: badge.closest(mode === "preview" ? "h2" : ".cm-line")?.textContent?.startsWith("Launch") ?? false,
+              };
+        },
+        mode,
+      );
+    const before = await browser.executeObsidian(({ app }) => app.vault.adapter.read("share-create.md"));
+    const live = await read("source");
+    const reading = await read("preview");
+    // Status refreshes are UI only: no write, no change to the note.
+    const after = await browser.executeObsidian(async ({ app }) => {
+      let writes = 0;
+      const ref = app.vault.on("modify", () => writes++);
+      for (let i = 0; i < 5; i++) {
+        app.plugins.plugins["shared-tasks"].sections.scheduleStatus();
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      app.vault.offref(ref);
+      return { writes, text: await app.vault.adapter.read("share-create.md") };
+    });
+    console.log(`EVIDENCE ${JSON.stringify({ id: "STATUS-BADGE", live, reading, writes: after.writes })}`);
+    expect(live).not.toBeNull();
+    expect(live.mark).toBe(2);
+    expect(live.heading).toBe(true);
+    expect(reading).toEqual(live);
+    // Its server never answered: not current.
+    expect(live.state).not.toBe("CURRENT");
+    expect(live.label.startsWith("Shared section Launch, ")).toBe(true);
+    expect(after.writes).toBe(0);
+    expect(after.text).toBe(before);
+  });
+
   it("a heading inside blocks the share, with a reason", async () => {
     const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
     const shown = await preview("share-nested.md", note, 0);

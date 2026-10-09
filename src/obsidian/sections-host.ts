@@ -12,10 +12,13 @@
 
 import {
   fromBase64url,
+  fromHex,
   generateObjectId,
   generateResourceId,
   type PrincipalId,
   type ResourceId,
+  toBase64url,
+  toHex,
 } from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
@@ -38,8 +41,11 @@ import {
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
+import { observedFacts } from "../core/status/facts";
+import { type StatusView, statusView } from "../core/status/reducer";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
+import { ReadingBadges, sectionStatusExtension, setSectionStatuses } from "./section-status";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
 import { ShareSectionModal } from "./ui/share-section";
 
@@ -57,6 +63,15 @@ export class SectionsHost {
   /** Notes that hold a section, by the section's Resource (hex of its ID). */
   readonly #notes = new Map<string, Set<string>>();
   readonly editor: ReturnType<typeof sectionEditorExtension>;
+  /** Section status badges (LFCP-02-058): in editors, and in Reading view. */
+  readonly status = sectionStatusExtension(() => this.#statuses);
+  readonly reading = new ReadingBadges((key) => this.#statuses.get(key));
+  #statuses: ReadonlyMap<string, StatusView> = new Map();
+  #statusRevision = 0;
+  #statusDue: number | null = null;
+  #port: SdkSectionPort | null = null;
+  /** Section Resources whose session was LIVE in this run (hex). */
+  readonly #wasLive = new Set<string>();
 
   constructor(
     private readonly app: App,
@@ -108,6 +123,8 @@ export class SectionsHost {
       sectionComments: this.sectionComments,
     });
     this.#runtime = runtime;
+    this.#port = port;
+    runtime.on(() => this.scheduleStatus());
     this.#creation = new SectionCreation({
       host: {
         createSectionResource: (o) => runtime.createSectionResource(o),
@@ -255,7 +272,88 @@ export class SectionsHost {
     if (runtime === null || this.#watched.has(toKey(resource))) return;
     this.#watched.add(toKey(resource));
     const profile = await runtime.openSection(resource);
-    profile.onNodesChanged(() => void this.#remote(resource));
+    profile.onNodesChanged(() => {
+      void this.#remote(resource);
+      this.scheduleStatus();
+    });
+    this.scheduleStatus();
+  }
+
+  /** Recomputes the sections' statuses soon (several triggers make one pass). */
+  scheduleStatus(): void {
+    if (this.#statusDue !== null) return;
+    this.#statusDue = window.setTimeout(() => {
+      this.#statusDue = null;
+      void this.#refreshStatus().catch(() => undefined);
+    }, 250);
+  }
+
+  /**
+   * Each section's status from what the runtime shows (provisional facts:
+   * no acceptance is ever claimed, core/status/facts.ts); UI only.
+   */
+  async #refreshStatus(): Promise<void> {
+    const runtime = this.#runtime;
+    const port = this.#port;
+    const storage = runtime?.storage;
+    if (runtime === null || port === null || storage === null || storage === undefined) return;
+    const next = new Map<string, StatusView>();
+    for (const hex of this.#watched) {
+      const R = fromKey64(hex);
+      const replica = runtime.sectionProfile(R)?.replica;
+      const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
+        ?.id;
+      if (typeof sectionId !== "string") continue;
+      const r = toBase64url(R);
+      const phase = runtime.phase(R);
+      if (phase === "LIVE") this.#wasLive.add(hex);
+      const operations = (await storage.localMarks.list(`receipt:${hex}:`)).flatMap((m) => {
+        try {
+          const x = JSON.parse(m.value) as {
+            operationId: string;
+            unitIds: string[];
+            affectedNodeIds: string[];
+          };
+          return [{ id: x.operationId, unitIds: x.unitIds, nodeIds: x.affectedNodeIds }];
+        } catch {
+          return [];
+        }
+      });
+      const queued = new Set(
+        (await storage.outbound.list(R))
+          .filter((i) => i.kind === "data-unit")
+          .map((i) => toHex(i.itemId)),
+      );
+      const facts = observedFacts({
+        session: hex,
+        revision: ++this.#statusRevision,
+        load: runtime.sectionLoad(R),
+        phase,
+        wasLive: this.#wasLive.has(hex),
+        writable: port.canWrite(r).allowed,
+        problems: port.snapshot(r, sectionId)?.problems ?? [],
+        operations,
+        queued,
+        projections: [],
+      });
+      next.set(`${r}#${sectionId}`, statusView(facts));
+    }
+    const same =
+      next.size === this.#statuses.size &&
+      [...next].every(([k, v]) => {
+        const old = this.#statuses.get(k);
+        return (
+          old !== undefined &&
+          old.state === v.state &&
+          old.pendingBatches === v.pendingBatches &&
+          JSON.stringify(old.conditions) === JSON.stringify(v.conditions) &&
+          [...old.pendingNodeIds].join() === [...v.pendingNodeIds].join()
+        );
+      });
+    if (same) return;
+    this.#statuses = next;
+    for (const view of this.status.views) view.dispatch({ effects: setSectionStatuses.of(next) });
+    this.reading.update();
   }
 
   #openEditor(path: string): Editor | null {
@@ -403,6 +501,8 @@ const notifyFailure = (entry: CreationEntry) => (e: unknown) => {
 };
 
 const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
+
+const fromKey64 = (hex: string): ResourceId => fromHex(hex) as ResourceId;
 
 const toKey = (r: Uint8Array): string =>
   [...r].map((b) => b.toString(16).padStart(2, "0")).join("");
