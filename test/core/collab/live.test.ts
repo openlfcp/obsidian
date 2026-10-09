@@ -3,7 +3,9 @@
 // the real LFCP-053 claim flow, and see edits flow both ways. Skipped
 // without a server binary (test/support/live-server.ts).
 
-import { type ObjectId, type ResourceId, toHex } from "@openlfcp/core";
+import { fromHex, type ObjectId, type ResourceId, toHex } from "@openlfcp/core";
+import { checkChange } from "@openlfcp/shared-objects";
+import type { LfcpStorage } from "@openlfcp/storage";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { type JoinStage, taskAt } from "../../../src/core/collab";
 import { Collaboration } from "../../../src/core/collab/service";
@@ -52,6 +54,26 @@ const local = (line: string) => {
   if (at.kind !== "local") throw new Error(at.kind);
   return at.state;
 };
+
+/**
+ * Finding F3a (SPEC-PATCH-10): the reference corpus case CAN-4-rows-F3a
+ * (spec 4198c43, SHARED-OBJECTS-AUTOMERGE-REFERENCE-01.json), a change whose
+ * insert column has 13 rows for 3 operations. SDK 0.1.3 admitted it, and
+ * the save of a document holding it does not load ("mismatching heads"):
+ * F3A_SAVE is that save, written by Automerge 3.5.0 from the case's history
+ * and change.
+ */
+const F3A_SAVE =
+  "856f4a831015812300d00101206c9e962e697f0691ba727ddc378cc21f9b1d580e67f7b1e7f9612ebdab63c5" +
+  "83016374d314ba7c2b847c2701d3d60b1f4175e93c80f9fc21be0ba02cbf1adab7ca08010203021302230235" +
+  "154003430256020c0104020611041305150b21022307340342055607570580010202000201020302007e0843" +
+  "414e2e626173650a43414e2e6368616e67657e00017f0002070002040000020201020200057f0000047e0003" +
+  "7c016c016d01780179000206007a027f03017e030401017e0200040102007e24160214ac02790102060001";
+const F3A_CHANGE =
+  "856f4a836374d314018801018a5f1edbbe2f75a38292fe6b74ec7b61206aafc52b55b44732ec85d28a07d3a5" +
+  "206c9e962e697f0691ba727ddc378cc21f9b1d580e67f7b1e7f9612ebdab63c5830204000a43414e2e636861" +
+  "6e6765000a0102020411041304150734014202560457047002030002017f0200027f0000027f037e01780179" +
+  "00010d03017d241614ac0279020300";
 
 describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", () => {
   it("create, host, share, invite, join and sync; read-only and one-time invitations hold", async () => {
@@ -133,6 +155,73 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
       }
     }
     expect(toHex(R)).toHaveLength(64);
+  }, 60_000);
+
+  it("SPEC-PATCH-10: a checkpoint that does not load is rebuilt from the stored units, F3a refused", async () => {
+    const owner = await device();
+    const created = await owner.collab.create({ name: "Team", server: server.url });
+    const R: ResourceId = created.resourceId;
+    const { objectId } = await owner.collab.share(R, local("- [ ] Prepare API contract"));
+    const invite = await owner.collab.invite(R, "read-write");
+    // The victim: a device that is stopped and started again on the same storage.
+    const victim = new Device();
+    const store = new FakeLocal();
+    const { webSocket: _offline, ...env } = victim.env(store, { tickMs: 20 });
+    const first = await LfcpRuntime.start(env);
+    running.push(first);
+    const joined = await new Collaboration(first, { connectTimeoutMs: 5000, sleep }).join(
+      invite.link.reveal(),
+      { name: "Team" },
+    );
+    expect(joined.kind).toBe("joined");
+    await until(
+      "the task on the victim",
+      async () => (await first.profileOf(R)).replica.task(objectId)?.task,
+    );
+    await first.stop();
+    // What SDK 0.1.3 left after admitting F3a: a checkpoint whose state does not load.
+    const poisoner = await LfcpRuntime.start(env);
+    running.push(poisoner);
+    const storage = poisoner.storage as LfcpStorage;
+    const kept = await storage.profileState.checkpoint(R);
+    if (kept === undefined) throw new Error("no checkpoint");
+    expect(
+      (
+        await storage.commit([
+          { op: "put-profile-checkpoint", checkpoint: { ...kept, state: fromHex(F3A_SAVE) } },
+        ])
+      ).ok,
+    ).toBe(true);
+    await poisoner.stop();
+
+    const again = await LfcpRuntime.start(env);
+    running.push(again);
+    const rebuilt: string[] = [];
+    again.onCheckpointRebuilt((r) => rebuilt.push(toHex(r)));
+    await again.openResource(R);
+    expect(rebuilt).toEqual([toHex(R)]);
+    // The stored units come back through today's admission; nothing reinstalled.
+    const task = await until(
+      "the task rebuilt from the stored units",
+      async () => (await again.profileOf(R)).replica.task(objectId)?.task,
+    );
+    expect(task.title).toBe("Prepare API contract");
+    // F3a itself is refused before the engine.
+    expect(() => checkChange(fromHex(F3A_CHANGE))).toThrow(/§11\.3/);
+    // The next checkpoint loads: a later start does not rebuild again.
+    await until("a checkpoint that loads", async () => {
+      const cp = await again.storage?.profileState.checkpoint(R);
+      return cp !== undefined && toHex(cp.state) !== F3A_SAVE ? true : undefined;
+    });
+    await again.stop();
+    const last = await LfcpRuntime.start(env);
+    running.push(last);
+    const later: string[] = [];
+    last.onCheckpointRebuilt((r) => later.push(toHex(r)));
+    expect((await last.profileOf(R)).replica.task(objectId)?.task?.title).toBe(
+      "Prepare API contract",
+    );
+    expect(later).toEqual([]);
   }, 60_000);
 
   it("a collaboration the server does not host: refused once, shown in status, not retried (POST-017)", async () => {

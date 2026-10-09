@@ -188,6 +188,13 @@ export default class OpenLfcpPlugin extends Plugin {
       }
       this.runtime = runtime;
       runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
+      // SPEC-PATCH-10: a checkpoint an earlier version wrote that no longer loads.
+      runtime.onCheckpointRebuilt(() => {
+        new Notice(
+          "Shared Tasks: the saved state of a collaboration could not be opened, so it is being rebuilt from the changes stored on this device. Changes that are not valid are left out. Your notes are unchanged.",
+          0,
+        );
+      });
       this.#watchBlocked(runtime);
       this.#watchRefused(runtime);
       this.#watchObjects(runtime);
