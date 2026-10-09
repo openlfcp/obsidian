@@ -8,11 +8,14 @@
 // LFCP_REQUIRE_LIVE=1, which makes that an error.
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { guardChild } from "./reaper.mjs";
+import { requireExplicitServer } from "./server-pin.mjs";
+
+export { requireExplicitServer };
 
 const EXE = process.platform === "win32" ? "lfcp-server.exe" : "lfcp-server";
 const CANDIDATES = [
@@ -50,30 +53,6 @@ export function liveSkipReason(): string | null {
   const why = `no server binary in ${CANDIDATES.join(", ")} (build ../server into the shared target, or set LFCP_SERVER_BIN)`;
   console.warn(`live tests skipped: ${why}`);
   return why;
-}
-
-/** The server.lock commit, for the error messages. */
-function lockedServer(): string {
-  try {
-    const lock = JSON.parse(
-      readFileSync(resolve(import.meta.dirname, "../../server.lock"), "utf8"),
-    );
-    return typeof lock.commit === "string" ? lock.commit.slice(0, 7) : "unknown";
-  } catch {
-    return "unknown";
-  }
-}
-
-/** LFCP_REQUIRE_LIVE=1: LFCP_SERVER_BIN is set and exists, else a clear error. */
-export function requireExplicitServer(): string {
-  const bin = process.env.LFCP_SERVER_BIN;
-  if (bin === undefined)
-    throw new Error(
-      `LFCP_REQUIRE_LIVE=1 needs LFCP_SERVER_BIN: the lfcp-server built at server.lock (${lockedServer()}). A default location may hold another server's build, so none is used.`,
-    );
-  if (!existsSync(bin))
-    throw new Error(`LFCP_REQUIRE_LIVE=1 but LFCP_SERVER_BIN does not exist: ${bin}`);
-  return bin;
 }
 
 const freePort = (): Promise<number> =>

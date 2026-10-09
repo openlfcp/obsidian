@@ -20,8 +20,8 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { requireExplicitServer } from "./live-server";
 import { guardChild } from "./reaper.mjs";
+import { requireExplicitServer } from "./server-pin.mjs";
 
 const SERVER_DIR = resolve(
   process.env.LFCP_SERVER_DIR ?? resolve(import.meta.dirname, "../../../server"),
