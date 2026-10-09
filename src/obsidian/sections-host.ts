@@ -36,6 +36,7 @@ import { type InsertResult, renderSection, SectionInsertion } from "../core/sect
 import { advance } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { type ParsedSection, parseSections } from "../core/sections/parser";
+import { PassErrorNotices } from "../core/sections/pass-errors";
 import { CommitRefused, type ModelNode, type SectionSnapshot } from "../core/sections/port";
 import { applyRecovery, recoveryItems } from "../core/sections/recovery";
 import {
@@ -145,9 +146,16 @@ export class SectionsHost {
           return file === null ? null : this.app.vault.process(file, fn);
         },
       },
-      onError,
+      // D1: a failing note says so once, until it passes again.
+      onError: (path, error) => {
+        if (
+          this.#passErrors.shouldShow(path, error instanceof Error ? error.message : String(error))
+        )
+          onError(path, error);
+      },
       // SI12, SI16: each projection's pass result reaches its section's badge.
       onPass: (path, pass) => {
+        this.#passErrors.passed(path);
         let changed = false;
         for (const r of pass.sections)
           if (this.#projectionFacts.note(sectionKey(r.section), r)) changed = true;
@@ -163,6 +171,7 @@ export class SectionsHost {
   readonly #projectionFacts = new ProjectionFactsStore();
   /** C14: a lag no event resolves gets one pass per revision. */
   readonly #lags = new LagNudges();
+  readonly #passErrors = new PassErrorNotices();
   /** D1: each watched Resource's last section key, for its status when its model throws. */
   readonly #statusKeys = new Map<string, string>();
 
