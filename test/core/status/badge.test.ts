@@ -153,6 +153,29 @@ describe("facts from the SDK's status and local observations", () => {
     expect(done).toMatchObject({ state: "CURRENT", acceptedBatches: 1 });
   });
 
+  it("after a restart, queued units the SDK's batches do not know stay pending, never accepted (LFCP-02-066)", () => {
+    for (const phase of ["CLOSED", "OPENING", "LIVE"]) {
+      const v = statusView(
+        observedFacts({
+          ...observed,
+          phase,
+          wasLive: false,
+          sdk: sdk({ batches: [] }),
+          queuedUnits: 1,
+        }),
+      );
+      expect(v.state).not.toMatch(/ACCEPTED_CATCHING_UP|CURRENT/);
+      expect(v.pendingBatches).toBe(1);
+      // No stable identity: "pending changes", not a count (§4).
+      expect(v.pendingCounted).toBe(false);
+    }
+    // Units the SDK's batches account for are not counted twice.
+    const known = statusView(
+      observedFacts({ ...observed, sdk: sdk({ batches: [batch("x")] }), queuedUnits: 2 }),
+    );
+    expect(known.pendingBatches).toBe(1);
+  });
+
   it("before the first snapshot, importing, a skipped revision: never current", () => {
     expect(statusView(observedFacts({ ...observed, sdk: undefined })).state).toBe("LOADING");
     expect(

@@ -763,6 +763,10 @@ export class SectionsHost {
         projections: this.#projectionFacts.projections(`${toBase64url(R)}#${sectionId}`),
         failedOperations: this.#projectionFacts.failedOperations(`${toBase64url(R)}#${sectionId}`),
         sdk: this.#sdk.get(hex),
+        // LFCP-02-066: queued units stay pending across a restart, whatever the SDK's batches know.
+        queuedUnits:
+          (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit").length ??
+          0,
       });
       next.set(`${r}#${sectionId}`, statusView(facts));
     }

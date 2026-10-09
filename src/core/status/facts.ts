@@ -27,6 +27,12 @@ export interface ObservedSection {
   readonly sdk: SdkStatus | undefined;
   /** A local commit failed and was not retried yet (LOCAL_SAVE_FAILED). */
   readonly failedOperations?: readonly string[];
+  /**
+   * Data units in the outbound queue, not yet acknowledged (LFCP-02-066):
+   * after a restart the SDK's status no longer knows the batches they came
+   * from, but they are still pending; never "accepted" while they wait.
+   */
+  readonly queuedUnits?: number;
 }
 
 const SCALAR = /SCALAR|TITLE_CONFLICT|FIELD_CONFLICT/;
@@ -34,6 +40,19 @@ const SCALAR = /SCALAR|TITLE_CONFLICT|FIELD_CONFLICT/;
 export function observedFacts(o: ObservedSection): StatusFacts {
   const sdk = o.sdk;
   const batches = [...(sdk?.batches ?? [])];
+  // Queued units the SDK's batches do not account for: pending, without a stable identity (not counted, §4).
+  const unaccounted =
+    (o.queuedUnits ?? 0) -
+    batches.reduce((n, b) => n + b.unitIds.filter((u) => !b.acceptedUnitIds.includes(u)).length, 0);
+  if (unaccounted > 0)
+    batches.push({
+      id: "queued",
+      nodeIds: [],
+      durable: true,
+      unitIds: Array.from({ length: unaccounted }, (_, i) => `queued-${i}`),
+      acceptedUnitIds: [],
+      stable: false,
+    });
   for (const id of o.failedOperations ?? [])
     batches.push({
       id,
