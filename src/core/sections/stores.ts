@@ -95,6 +95,8 @@ const OPEN = "section-ops-open";
 const opKey = (operationId: string) => `section-op:${operationId}`;
 const candidateKey = (candidateId: string) => `section-candidate:${candidateId}`;
 const candidateIndex = (projectionId: string) => `section-candidates:${projectionId}`;
+/** Every candidate's ID, for the diagnostics counts (LFCP-02-065). */
+const ALL_CANDIDATES = "section-candidates";
 
 export class KeyValueSectionJournalStore implements SectionJournalStore {
   constructor(private readonly kv: KeyValue) {}
@@ -123,6 +125,17 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
   async putCandidate(candidate: PendingCandidate): Promise<void> {
     await this.kv.put(candidateKey(candidate.candidateId), candidate);
     await this.kv.update(candidateIndex(candidate.projectionId), added(candidate.candidateId));
+    await this.kv.update(ALL_CANDIDATES, added(candidate.candidateId));
+  }
+
+  /** Every candidate kept on this device (diagnostics show their reasons and sizes only). */
+  async allCandidates(): Promise<PendingCandidate[]> {
+    const out: PendingCandidate[] = [];
+    for (const id of list(await this.kv.get(ALL_CANDIDATES))) {
+      const c = await this.kv.get(candidateKey(id));
+      if (c !== undefined && c !== null) out.push(c as PendingCandidate);
+    }
+    return out;
   }
 
   async candidates(projectionId: string): Promise<PendingCandidate[]> {
@@ -139,5 +152,6 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
     await this.kv.put(candidateKey(candidateId), null);
     if (c !== undefined && c !== null)
       await this.kv.update(candidateIndex(c.projectionId), removed(candidateId));
+    await this.kv.update(ALL_CANDIDATES, removed(candidateId));
   }
 }
