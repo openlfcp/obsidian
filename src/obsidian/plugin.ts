@@ -260,6 +260,8 @@ export default class OpenLfcpPlugin extends Plugin {
           if (entry.state !== "unsupported")
             void runtime.openResource(entry.resourceId).catch(() => undefined);
       this.app.workspace.onLayoutReady(() => this.#enqueue(() => this.reconcile()));
+      // LFCP-02-110: a join whose claim went unanswered finishes, or asks.
+      if (runtime.status.kind === "ready") void this.#resumeJoins();
       const status = runtime.status;
       if (this.sections !== null && status.kind === "ready")
         this.app.workspace.onLayoutReady(
@@ -529,6 +531,48 @@ export default class OpenLfcpPlugin extends Plugin {
   // data.json changed outside the plugin, e.g. through vault sync.
   override async onExternalSettingsChange(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
+  }
+
+  /** Settles each join a restart interrupted; one that still cannot finish says so, with Retry and Give up. */
+  async #resumeJoins(): Promise<void> {
+    const collab = this.#collaboration();
+    if (collab === null) return;
+    for (const { resourceId, name } of await collab.pendingJoins().catch(() => [])) {
+      const settle = async (notice: Notice | null) => {
+        notice?.hide();
+        const out = await collab.resumeJoin(resourceId).catch((e: unknown) => ({
+          kind: "unavailable" as const,
+          message: e instanceof Error ? e.message : String(e),
+        }));
+        if (out.kind === "joined")
+          new Notice(`Shared Tasks: joined "${name}". Joining had not finished before.`);
+        else if (out.kind === "not-claimed")
+          new Notice(
+            `Shared Tasks: joining "${name}" did not go through, and the invitation was not used. Join again with the same link.`,
+          );
+        else if (out.kind === "unavailable") ask(out.message);
+        else if (out.kind === "refused")
+          new Notice(`Shared Tasks: joining "${name}" was refused. ${out.message}`);
+      };
+      const ask = (why: string) => {
+        const body = createFragment();
+        body.createDiv({ text: `Shared Tasks: joining "${name}" didn't finish. ${why}` });
+        const buttons = body.createDiv({ cls: "modal-button-container" });
+        const notice = new Notice(body, 0);
+        buttons
+          .createEl("button", { text: "Retry", cls: "mod-cta" })
+          .addEventListener("click", () => {
+            void settle(notice);
+          });
+        buttons.createEl("button", { text: "Give up" }).addEventListener("click", () => {
+          notice.hide();
+          void collab.abandonJoin(resourceId).then(() => {
+            new Notice(`Shared Tasks: stopped joining "${name}". Your notes are unchanged.`);
+          });
+        });
+      };
+      await settle(null);
+    }
   }
 
   /**
