@@ -143,6 +143,9 @@ online.
 One notice says how many tasks were shared. Each task is shared on its
 own. Tasks that are already shared are skipped.
 
+To share a section as a whole, with its order, nesting and text, see
+[Shared sections (preview)](shared-sections.md).
+
 ### Insert everything on the other side
 
 1. Bob opens a note and puts the cursor where the tasks should go.
