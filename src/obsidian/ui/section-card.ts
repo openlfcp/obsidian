@@ -22,6 +22,8 @@ export class SectionCardModal extends Modal {
     card: SectionCard,
     private readonly actions: readonly CardAction[],
     private readonly onClosed: () => void = () => undefined,
+    /** Per identity: set its local alias (a label of this device only). */
+    private readonly rowActions: { readonly alias?: (id: string, label: string) => void } = {},
   ) {
     super(app);
     this.#card = card;
@@ -56,9 +58,27 @@ export class SectionCardModal extends Modal {
     list(c.facts, "openlfcp-card-facts");
     el.createEl("h4", { text: "What is shared" });
     list(c.shared, "openlfcp-card-shared");
-    if (c.participants.length > 0) {
-      el.createEl("h4", { text: "People" });
-      list(c.participants, "openlfcp-card-people");
+    const access = c.access;
+    if (access !== undefined) {
+      el.createEl("h4", { text: access.heading });
+      el.createEl("p", { text: access.freshness, cls: "setting-item-description" });
+      if (!access.unknown) {
+        const ul = el.createEl("ul", { cls: "openlfcp-card-access" });
+        for (const row of access.rows) {
+          const li = ul.createEl("li");
+          li.createSpan({ text: `${row.label} (${row.role})` });
+          if (!row.you) li.createSpan({ text: ` · ${row.detail}`, cls: "openlfcp-card-identity" });
+          if (!row.you && this.rowActions.alias !== undefined)
+            li.createEl("button", {
+              text: "Name…",
+              cls: "openlfcp-card-row-action",
+            }).addEventListener("click", () => this.rowActions.alias?.(row.id, row.label));
+        }
+      }
+      list(access.invitations, "openlfcp-card-invitations");
+      list(access.pending, "openlfcp-card-pending");
+      if (access.inviteNote !== null)
+        el.createEl("p", { text: access.inviteNote, cls: "setting-item-description" });
     }
     const details = el.createEl("details", { cls: "openlfcp-card-technical" });
     details.createEl("summary", { text: "Technical details" });
@@ -79,5 +99,46 @@ export class SectionCardModal extends Modal {
     this.onClosed();
     if (this.#returnFocus instanceof HTMLElement && this.#returnFocus.isConnected)
       this.#returnFocus.focus();
+  }
+}
+
+/** A local name for an identity: a label of this device only, never sent or verified. */
+export class AliasModal extends Modal {
+  #done: (name: string | null) => void = () => undefined;
+  #value: string | null = null;
+  readonly result = new Promise<string | null>((r) => {
+    this.#done = r;
+  });
+
+  constructor(
+    app: App,
+    private readonly current: string,
+  ) {
+    super(app);
+  }
+
+  override onOpen(): void {
+    this.setTitle("Name this identity on this device");
+    this.contentEl.createEl("p", {
+      text: "A local label to recognise this identity. Only this device sees it; it is not a verified name. Leave it empty to remove it.",
+      cls: "setting-item-description",
+    });
+    const input = this.contentEl.createEl("input", { type: "text", value: this.current });
+    const buttons = this.contentEl.createDiv({ cls: "modal-button-container" });
+    const save = () => {
+      this.#value = input.value;
+      this.close();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") save();
+    });
+    buttons.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", save);
+    buttons.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+    input.focus();
+  }
+
+  override onClose(): void {
+    this.contentEl.empty();
+    this.#done(this.#value);
   }
 }

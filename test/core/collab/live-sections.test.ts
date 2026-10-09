@@ -29,6 +29,7 @@ import {
   KeyValueSectionJournalStore,
 } from "../../../src/core/sections/stores";
 import { newSectionTask } from "../../../src/core/sections/task-fields";
+import { accessView } from "../../../src/core/status/access";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 import { type LiveServer, liveSkipReason, startLiveServer } from "../../support/live-server";
 
@@ -316,6 +317,41 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
     expect(
       Object.values(owner.port.snapshot(toBase64url(R), sectionId)?.nodes ?? {}).map((n) => n.text),
     ).not.toContain("Reader's change");
+
+    // 060: who has access, from each vault's validated Control state.
+    const view = async (v: Awaited<ReturnType<typeof vault>>) => {
+      const mine = await v.runtime.sectionAccessState(R);
+      return accessView({
+        participants: (await v.collab.status(R)).participants,
+        mine: {
+          allowed: mine.allowed,
+          current: mine.current,
+          verifiedAt: mine.verifiedAt,
+          abilities: mine.abilities,
+          owner: mine.owner,
+          pendingControl: mine.pendingControl.map((p) => p.type),
+        },
+        aliases: {},
+        connected: true,
+        time: () => "now",
+      });
+    };
+    const ownerView = await until("both members on the owner's view", async () => {
+      const v = await view(owner);
+      return v.rows.length >= 3 ? v : undefined;
+    });
+    expect(ownerView.rows.map((r) => [r.you, r.role])).toEqual(
+      expect.arrayContaining([
+        [true, "owner"],
+        [false, "can edit"],
+        [false, "can read"],
+      ]),
+    );
+    expect(ownerView.rows.filter((r) => !r.you).every((r) => r.removable)).toBe(true);
+    expect(ownerView.canInvite).toBe(true);
+    const readerView = await view(reader);
+    expect(readerView.canInvite).toBe(false);
+    expect(readerView.rows.every((r) => !r.removable)).toBe(true);
 
     // One-time: the same link is refused for a third vault.
     const late = await vault();

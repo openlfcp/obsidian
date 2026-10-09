@@ -43,6 +43,7 @@ import {
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
+import { accessView } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { observedFacts } from "../core/status/facts";
 import { type StatusView, statusView } from "../core/status/reducer";
@@ -52,7 +53,7 @@ import { sectionEditorExtension } from "./section-editor";
 import { ReadingBadges, sectionStatusExtension, setSectionStatuses } from "./section-status";
 import { ImportSectionModal } from "./ui/import-section";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
-import { SectionCardModal } from "./ui/section-card";
+import { AliasModal, SectionCardModal } from "./ui/section-card";
 import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
@@ -350,17 +351,40 @@ export class SectionsHost {
         }
         void run(commands);
       };
-    const view = this.#statuses.get(key);
     const actions = [
-      ...(view?.readOnly === true
-        ? []
-        : [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]),
+      // Inviting is offered by the validated access (060), never by default.
+      ...(content.access?.canInvite === true
+        ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
+        : []),
       { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
     ];
     this.#card?.modal.close();
-    const modal = new SectionCardModal(this.app, content, actions, () => {
-      if (this.#card?.modal === modal) this.#card = null;
-    });
+    const modal = new SectionCardModal(
+      this.app,
+      content,
+      actions,
+      () => {
+        if (this.#card?.modal === modal) this.#card = null;
+      },
+      {
+        // A local alias: a label of this device for an identity, never sent.
+        alias: (id, label) => {
+          const ask = new AliasModal(this.app, label.startsWith("Member ") ? "" : label);
+          ask.open();
+          void ask.result.then(async (name) => {
+            if (name === null || this.#runtime === null) return;
+            await this.#runtime.localState.update(ALIASES, (v) => {
+              const all = { ...((v ?? {}) as Record<string, string>) };
+              if (name.trim() === "") delete all[id];
+              else all[id] = name.trim();
+              return all;
+            });
+            const fresh = await this.#cardContent(key, title);
+            if (fresh !== null) modal.update(fresh);
+          });
+        },
+      },
+    );
     this.#card = { key, title, modal };
     modal.open();
   }
@@ -380,14 +404,34 @@ export class SectionsHost {
       (n) => n.lifecycle === "active" && n.hidden !== true,
     );
     const count = (kind: string) => nodes.filter((n) => n.kind === kind).length;
+    const runtime = this.#runtime;
+    const mine = await runtime?.sectionAccessState(R).catch(() => undefined);
+    const aliases = ((await runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>;
+    const access = accessView({
+      participants: status?.participants ?? [],
+      mine:
+        mine === undefined || mine.verifiedAt === null
+          ? null
+          : {
+              allowed: mine.allowed,
+              ...(mine.reason === null ? {} : { reason: mine.reason }),
+              current: mine.current,
+              verifiedAt: mine.verifiedAt,
+              abilities: mine.abilities,
+              owner: mine.owner,
+              pendingControl: mine.pendingControl.map((p) => p.type),
+            },
+      aliases,
+      connected: runtime?.phase(R) === "LIVE",
+      time: (ms) => `at ${new Date(ms).toLocaleTimeString()}`,
+    });
     return sectionCard({
       title,
       view,
       resource: b64,
       sectionId,
-      ...(status === undefined
-        ? {}
-        : { participants: status.participants, hosting: status.hosting }),
+      ...(status === undefined ? {} : { hosting: status.hosting }),
+      access,
       counts: { tasks: count("task"), paragraphs: count("paragraph"), items: count("item") },
     });
   }
@@ -711,6 +755,9 @@ const notifyFailure = (entry: CreationEntry) => (e: unknown) => {
 };
 
 const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
+
+/** Local aliases of identities (Principal ID → label), in the plugin's local state. */
+const ALIASES = "identity-aliases";
 
 const fromKey64 = (hex: string): ResourceId => fromHex(hex) as ResourceId;
 

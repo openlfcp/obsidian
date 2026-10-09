@@ -442,6 +442,9 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(card.inNote).toBe(false);
     expect(card.text).toContain("What is shared");
     expect(card.text).toContain("You can edit this section.");
+    // 060: who has access, from the validated Control state.
+    expect(card.text).toContain("Identities with access");
+    expect(card.text).toContain("You (owner)");
     expect(card.buttons).toEqual(["Invite collaborator…", "Resource status"]);
     const closed = await close();
     expect(closed.open).toBe(false);

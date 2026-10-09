@@ -4,6 +4,7 @@
 // facts after. Every string is plain text: the card sets it as text, never
 // as markup, so a title or a name cannot inject anything.
 
+import type { AccessView } from "./access";
 import type { Condition, StatusView } from "./reducer";
 
 export interface CardInput {
@@ -13,13 +14,8 @@ export interface CardInput {
   /** The Resource (base64url) and section ID: shown shortened in the technical part. */
   readonly resource: string;
   readonly sectionId: string;
-  /** Participants from the validated Control state, when known. */
-  readonly participants?: readonly {
-    readonly id: string;
-    readonly you: boolean;
-    readonly owner: boolean;
-    readonly abilities: readonly string[];
-  }[];
+  /** Who has access, from the validated Control state (060). */
+  readonly access?: AccessView;
   /** What the model holds now (visible nodes by kind). */
   readonly counts?: { readonly tasks: number; readonly paragraphs: number; readonly items: number };
   readonly hosting?: "hosted" | "pending" | "unknown";
@@ -35,7 +31,8 @@ export interface SectionCard {
   readonly problems: readonly string[];
   /** What is shared, and what is not. */
   readonly shared: readonly string[];
-  readonly participants: readonly string[];
+  /** Who has access (060); absent when not known yet. */
+  readonly access?: AccessView;
   /** Secondary: identifiers and raw state names. */
   readonly technical: readonly string[];
 }
@@ -120,18 +117,13 @@ export function sectionCard(input: CardInput): SectionCard {
       `Now: ${plural(input.counts.tasks, "task", "tasks")}, ${plural(input.counts.paragraphs, "paragraph", "paragraphs")}, ${plural(input.counts.items, "list item", "list items")}.`,
     );
 
-  const participants = (input.participants ?? []).map((p) => {
-    const role = p.owner ? "owner" : p.abilities.includes("data/write") ? "can edit" : "can read";
-    return `${p.you ? "You" : `Member ${p.id}`} (${role})`;
-  });
-
   return {
     heading: `Shared section "${input.title}"`,
     status: v.label,
     facts,
     problems,
     shared,
-    participants,
+    ...(input.access === undefined ? {} : { access: input.access }),
     technical: [
       `State: ${v.state}`,
       `Resource: ${input.resource.slice(0, 12)}…`,

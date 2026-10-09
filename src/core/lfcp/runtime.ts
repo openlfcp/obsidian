@@ -10,6 +10,7 @@
 // in storage and survive it.
 
 import {
+  type AccessState,
   type CommitBinding,
   createQueuedDataUnit,
   DataUnitApplier,
@@ -1135,6 +1136,14 @@ export class LfcpRuntime {
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
       return this.#session(opened.url).client.canWrite(resource);
+    });
+  }
+
+  /** This vault's access to a Resource with its evidence (027): freshness, abilities, pending Control. */
+  sectionAccessState(resource: ResourceId): Promise<AccessState> {
+    return this.#engine(async () => {
+      const opened = await this.#openSection(resource);
+      return this.#session(opened.url).client.accessState(resource);
     });
   }
 

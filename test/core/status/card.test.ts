@@ -74,20 +74,16 @@ describe("the section card", () => {
     expect(c.technical.join(" ")).toContain("Conditions: access, scalar-conflict");
   });
 
-  it("participants and read-only, from the Control state; markup in a title is plain text", () => {
+  it("read-only, and markup in a title is plain text", () => {
     const c = sectionCard({
       title: '<img src=x onerror="alert(1)">',
       view: statusView({ ...base, access: "reader" }),
       resource: "r",
       sectionId: "s",
-      participants: [
-        { id: "a1b2c3d4", you: false, owner: true, abilities: ["data/read", "data/write"] },
-        { id: "e5f6a7b8", you: true, owner: false, abilities: ["data/read"] },
-      ],
       hosting: "hosted",
     });
     expect(c.heading).toBe('Shared section "<img src=x onerror="alert(1)">"');
-    expect(c.participants).toEqual(["Member a1b2c3d4 (owner)", "You (can read)"]);
     expect(c.facts).toContain("You can read this section, not edit it.");
+    expect(c.access).toBeUndefined();
   });
 });
