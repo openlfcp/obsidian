@@ -76,8 +76,8 @@ export function accessView(input: AccessInput): AccessView {
   const freshness = unknown
     ? "Access is unknown until this device checks with the server."
     : mine.current === false || !input.connected
-      ? `Access as last verified ${input.time(mine.verifiedAt as number)}; it may have changed.`
-      : `Access verified with the server ${input.time(mine.verifiedAt as number)}.`;
+      ? `Access as last verified ${input.time(mine.verifiedAt)}; it may have changed.`
+      : `Access verified with the server ${input.time(mine.verifiedAt)}.`;
   const mayRevoke = mine?.abilities.includes("capability/revoke") === true;
   const rows: AccessRow[] = unknown
     ? []
