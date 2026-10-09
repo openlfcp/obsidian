@@ -28,11 +28,14 @@ afterEach(() => {
 });
 
 /** A device with the platform WebSocket (online). */
-async function device() {
+async function device(snapshotEvery?: number) {
   const d = new Device();
   // The platform WebSocket: the device's offline factory is left out.
   const { webSocket: _offline, ...online } = d.env(new FakeLocal(), { tickMs: 20 });
-  const runtime = await LfcpRuntime.start(online);
+  const runtime = await LfcpRuntime.start({
+    ...online,
+    ...(snapshotEvery === undefined ? {} : { snapshotEvery }),
+  });
   running.push(runtime);
   return { runtime, collab: new Collaboration(runtime, { connectTimeoutMs: 5000, sleep }) };
 }
@@ -133,6 +136,39 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
       }
     }
     expect(toHex(R)).toHaveLength(64);
+  }, 60_000);
+
+  it("POST-007: the owner's plugin publishes a Snapshot of a 0.1 collaboration; a joiner loads it", async () => {
+    const owner = await device(3);
+    const published: string[] = [];
+    owner.runtime.on((e) => {
+      if (e.type === "snapshot-published") published.push(toHex(e.snapshotId));
+    });
+    const { resourceId: R } = await owner.collab.create({ name: "Team", server: server.url });
+    const ids: string[] = [];
+    for (const n of [1, 2, 3, 4])
+      ids.push((await owner.collab.share(R, local(`- [ ] Snapshot task ${n}`))).objectId);
+    await until(
+      "a Snapshot published",
+      async () => (published.length > 0 ? true : undefined),
+      20_000,
+    );
+    const joiner = await device();
+    const loaded: string[] = [];
+    joiner.runtime.on((e) => {
+      if (e.type === "snapshot-loaded") loaded.push(toHex(e.snapshotId));
+    });
+    const invite = await owner.collab.invite(R, "read-write");
+    expect(await joiner.collab.join(invite.link.reveal(), { name: "Team" })).toMatchObject({
+      kind: "joined",
+    });
+    for (const id of ids)
+      await until(
+        "the task on the joiner",
+        async () => (await joiner.runtime.profileOf(R)).replica.task(id)?.task,
+      );
+    expect(loaded.length).toBeGreaterThan(0);
+    expect(published).toContain(loaded[0]);
   }, 60_000);
 
   it("a collaboration the server does not host: refused once, shown in status, not retried (POST-017)", async () => {

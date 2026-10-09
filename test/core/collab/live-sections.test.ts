@@ -11,6 +11,7 @@ import {
   generateResourceId,
   type ResourceId,
   toBase64url,
+  toHex,
 } from "@openlfcp/core";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -57,10 +58,13 @@ const NOTE = [
 ].join("\n");
 
 /** A vault online, with its notes in memory and the section flows over its runtime. */
-async function vault(sections = true, serverUrl?: string) {
+async function vault(sections = true, serverUrl?: string, snapshotEvery?: number) {
   const d = new Device();
   const { webSocket: _offline, ...online } = d.env(new FakeLocal(), { tickMs: 20 });
-  const runtime = await LfcpRuntime.start(online);
+  const runtime = await LfcpRuntime.start({
+    ...online,
+    ...(snapshotEvery === undefined ? {} : { snapshotEvery }),
+  });
   running.push(runtime);
   const status = runtime.status;
   if (status.kind !== "ready") throw new Error(status.kind);
@@ -321,6 +325,110 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
     });
     expect(await late.runtime.hasResource(R)).toBe(false);
   }, 90_000);
+
+  it("POST-007: the owner's plugin publishes a Snapshot; a new member catches up from it and the tail", async () => {
+    const owner = await vault(true, undefined, 3);
+    const published: string[] = [];
+    owner.runtime.on((e) => {
+      if (e.type === "snapshot-published") published.push(toHex(e.snapshotId));
+    });
+    owner.files.set("Launch.md", NOTE);
+    const range = proposeRange(NOTE, 2);
+    if (range === null) throw new Error("no range");
+    const created = await owner.creation.run(
+      await owner.creation.prepare("Launch.md", NOTE, preflight(NOTE, range)),
+    );
+    expect(created.kind).toBe("hosted");
+    const R = fromB64(created.entry.resource);
+    const sectionId = created.entry.sectionId;
+    const b64 = toBase64url(R);
+    // A few edits: past the threshold, the plugin publishes a Snapshot (snapshot/publish: owner).
+    const paragraph = parseSections(owner.files.get("Launch.md") as string).sections[0]?.nodes[1]
+      ?.id as string;
+    for (const [n, word] of ["one", "two", "three", "four"].entries()) {
+      const snap = owner.port.snapshot(b64, sectionId);
+      const text = snap?.nodes[paragraph]?.text ?? "";
+      await owner.port.commit(
+        b64,
+        [
+          {
+            intent: "text.edit",
+            id: paragraph,
+            edits: [{ index: [...text].length, deleteCount: 0, insert: ` ${word}` }],
+            base: snap?.revision as string,
+          },
+        ],
+        { operationId: `edit-${n}` },
+      );
+    }
+    await until(
+      "a Snapshot published by the owner's plugin",
+      async () => (published.length > 0 ? true : undefined),
+      20_000,
+    );
+    // The tail after it: one more edit.
+    const snap = owner.port.snapshot(b64, sectionId);
+    await owner.port.commit(
+      b64,
+      [
+        {
+          intent: "text.edit",
+          id: paragraph,
+          edits: [
+            {
+              index: [...(snap?.nodes[paragraph]?.text ?? "")].length,
+              deleteCount: 0,
+              insert: " tail",
+            },
+          ],
+          base: snap?.revision as string,
+        },
+      ],
+      { operationId: "edit-tail" },
+    );
+    await until("the tail sent", async () =>
+      ((await owner.runtime.storage?.outbound.list(R)) ?? []).length === 0 ? true : undefined,
+    );
+
+    const member = await vault();
+    const loaded: string[] = [];
+    member.runtime.on((e) => {
+      if (e.type === "snapshot-loaded") loaded.push(toHex(e.snapshotId));
+    });
+    const invitation = await owner.collab.invite(R, "read-write");
+    const joined = await member.collab.join(invitation.link.reveal(), { name: "Launch" });
+    expect(joined).toMatchObject({ kind: "joined", section: { loaded: true } });
+    const expected = owner.port.snapshot(b64, sectionId)?.nodes[paragraph]?.text;
+    expect(expected).toBe("Draft the plan. one two three four tail");
+    await until("the section on the member", async () =>
+      member.port.snapshot(b64, sectionId)?.nodes[paragraph]?.text === expected ? true : undefined,
+    );
+    console.log(`EVIDENCE ${JSON.stringify({ id: "SNAPSHOT-JOIN", published, loaded })}`);
+    expect(loaded.length).toBeGreaterThan(0);
+    expect(published).toContain(loaded[0]);
+    // And the member writes on top.
+    const mine = member.port.snapshot(b64, sectionId);
+    await member.port.commit(
+      b64,
+      [
+        {
+          intent: "text.edit",
+          id: paragraph,
+          edits: [{ index: 0, deleteCount: 0, insert: "Mine: " }],
+          base: mine?.revision as string,
+        },
+      ],
+      { operationId: "member-edit" },
+    );
+    await until(
+      "the member's edit on the owner",
+      async () =>
+        owner.port.snapshot(b64, sectionId)?.nodes[paragraph]?.text?.startsWith("Mine: ") === true
+          ? true
+          : undefined,
+      20_000,
+    );
+  }, 120_000);
 
   it("offers no invitation before the section is hosted", async () => {
     const owner = await vault(true, "ws://127.0.0.1:9/v1/ws");

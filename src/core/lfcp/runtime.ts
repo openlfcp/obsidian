@@ -21,6 +21,7 @@ import {
   type ResourcePhase,
   type ResourceRefusal,
   type Receipt as SectionReceipt,
+  type SnapshotBinding,
   type StatusSnapshot,
   SyncClient,
   type SyncEvent,
@@ -102,6 +103,12 @@ export interface RuntimeEnv extends InstallEnv {
   initializeAutomerge?(): Promise<void>;
   /** How often the sync driver ticks (default 250 ms). */
   readonly tickMs?: number;
+  /**
+   * POST-007 (LFCP-02-097): a LIVE Resource gets a new Snapshot after this
+   * many merged units since the last one, published by a member holding
+   * `snapshot/publish` (default 200).
+   */
+  readonly snapshotEvery?: number;
 }
 
 /** The local encryption status (LFCP-02-098 §8). */
@@ -309,6 +316,15 @@ interface OpenedSection {
 export class LfcpRuntime {
   readonly #env: RuntimeEnv;
   #install: Install;
+  /** Resources (hex) this vault may publish Snapshots of (POST-007). */
+  readonly #publishers = new Set<string>();
+  /** This vault's own units per Resource (hex) since its last Snapshot (POST-007). */
+  readonly #ownUnits = new Map<string, number>();
+
+  #countOwn(resource: ResourceId, units: number): void {
+    const key = toHex(resource);
+    this.#ownUnits.set(key, (this.#ownUnits.get(key) ?? 0) + units);
+  }
   #lock: HeldLock | null;
   #outbound: OutboundQueue | null = null;
   readonly #pool = new Map<string, Pooled>();
@@ -864,7 +880,12 @@ export class LfcpRuntime {
    * session for the Resource is open.
    */
   writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null> {
-    const run = this.#writes.then(() => this.#engine(() => this.#write(resource, intent)));
+    const run = this.#writes
+      .then(() => this.#engine(() => this.#write(resource, intent)))
+      .then((unit) => {
+        if (unit !== null) this.#countOwn(resource, 1);
+        return unit;
+      });
     this.#writes = run.then(
       () => undefined,
       () => undefined,
@@ -1044,6 +1065,8 @@ export class LfcpRuntime {
       applier,
       checkpointer,
       commit: profile.commitBinding(principal.id) as CommitBinding<unknown>,
+      // LFCP-02-097: a joiner loads the section's Snapshot and fetches only the tail.
+      snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
     };
     this.#session(url).client.open(binding);
     const opened: OpenedSection = { resourceId: resource, profile, url, checkpointer };
@@ -1064,7 +1087,9 @@ export class LfcpRuntime {
   ): Promise<SectionReceipt> {
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
-      return this.#session(opened.url).client.commit(resource, intents, options);
+      const receipt = await this.#session(opened.url).client.commit(resource, intents, options);
+      this.#countOwn(resource, receipt.unitIds.length);
+      return receipt;
     });
   }
 
@@ -1163,8 +1188,25 @@ export class LfcpRuntime {
       outbound: new OutboundQueue({ storage: i.storage }),
       now: () => this.#env.timers.now(),
       ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
+      // POST-007: a Snapshot every `snapshotEvery` merged units, by a member who may publish one.
+      // The SDK counts the units merged from others; this vault's own are added here.
+      snapshotPolicy: (R, units) =>
+        units + (this.#ownUnits.get(toHex(R)) ?? 0) >= (this.#env.snapshotEvery ?? 200) &&
+        this.#publishers.has(toHex(R)),
     });
-    const unsubscribe = client.on((e) => this.#onEvent(e));
+    const unsubscribe = client.on((e) => {
+      this.#onEvent(e);
+      // Whether this vault may publish Snapshots, from the validated Control state.
+      if (e.type === "snapshot-published") this.#ownUnits.delete(toHex(e.resourceId));
+      if (e.type === "resource-state" && e.state === "LIVE")
+        void client
+          .accessState(e.resourceId)
+          .then((a) => {
+            if (a.abilities.includes("snapshot/publish")) this.#publishers.add(toHex(e.resourceId));
+            else this.#publishers.delete(toHex(e.resourceId));
+          })
+          .catch(() => undefined);
+    });
     client.start();
     const stopDriver = startSyncDriver(client, this.#env.timers, this.#env.tickMs ?? 250);
     const created: Pooled = { client, stopDriver, unsubscribe };
