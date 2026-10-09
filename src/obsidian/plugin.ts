@@ -22,7 +22,7 @@ import { CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
 import { rehostNotice } from "../core/collab/view";
 import { COMMANDS } from "../core/commands";
-import { LfcpRuntime, type RuntimeEnv } from "../core/lfcp/runtime";
+import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { ConflictRegistry } from "../core/projection/conflicts";
 import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
 import { MutationGuard } from "../core/projection/guard";
@@ -287,7 +287,10 @@ export default class OpenLfcpPlugin extends Plugin {
         );
       return runtime;
     } catch (e) {
-      this.runtimeError = e instanceof Error ? e.message : String(e);
+      const failure = startFailure(e);
+      this.runtimeError = failure.message;
+      // Newer sync data (a downgrade): said once, plainly; nothing is written or deleted.
+      if (failure.newerData) new Notice(`Shared Tasks: ${failure.message}`, 0);
       return null;
     }
   }

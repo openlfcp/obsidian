@@ -139,6 +139,26 @@ export function localStateLine(report: LocalStateReport | null): string {
     .join(" ");
 }
 
+/**
+ * Why the runtime could not start, in the user's words (LFCP-02-055). Local
+ * sync data written by a newer plugin (IndexedDB version 2 and later,
+ * MVP-0.2-COMPATIBILITY-AND-MIGRATION §11–§12) is left untouched: the notes
+ * stay readable and editable, sync waits for an update.
+ */
+export function startFailure(e: unknown): {
+  readonly newerData: boolean;
+  readonly message: string;
+} {
+  const raw = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  if (/written by a newer client|VersionError|newer than this code/i.test(raw))
+    return {
+      newerData: true,
+      message:
+        "This vault's sync data on this device was written by a newer version of Shared Tasks. Update the plugin to sync again. Your notes are not changed, and the sync data is left as it is.",
+    };
+  return { newerData: false, message: e instanceof Error ? e.message : String(e) };
+}
+
 /** What every refused call says once the profile engine trapped (needs-restart). */
 export const NEEDS_RESTART =
   "Shared Tasks needs an Obsidian restart: its sync engine stopped working";
