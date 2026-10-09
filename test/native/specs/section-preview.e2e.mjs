@@ -663,6 +663,95 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(result.origin).not.toContain("edited offline");
   });
 
+  it("copy paths: no plugin UI in either MIME type; readable and shared copies; cut sends nothing (LFCP-02-063)", async () => {
+    const out = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const { clipboard } = require("electron");
+      const read = () => ({ text: clipboard.readText(), html: clipboard.readHTML() });
+      const file = app.vault.getFileByPath("share-create.md");
+      const source = await app.vault.read(file);
+      // Reading view: a selection over the rendered note, badge included.
+      const leaf = app.workspace.getLeaf(false);
+      await leaf.openFile(file, { state: { mode: "preview" } });
+      let badge = null;
+      for (let i = 0; i < 60 && badge === null; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        badge = leaf.view.containerEl.querySelector(".markdown-preview-view h2 .openlfcp-status");
+      }
+      // From the section's heading to the end of the rendered note.
+      const range = document.createRange();
+      const h2 = badge.closest("h2");
+      const sizer = leaf.view.containerEl.querySelector(".markdown-preview-sizer");
+      range.setStartBefore(h2);
+      range.setEndAfter(sizer.lastElementChild);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      // A copy event as the browser sends it: what the clipboard gets is what the handlers set.
+      const data = new DataTransfer();
+      const copyEvent = new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true });
+      document.dispatchEvent(copyEvent);
+      const reading = {
+        text: data.getData("text/plain"),
+        html: data.getData("text/html"),
+        filtered: copyEvent.defaultPrevented,
+      };
+      // Live Preview: the editor's own copy of all the text.
+      await leaf.openFile(file, { state: { mode: "source", source: false } });
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      view.editor.focus();
+      view.editor.setSelection({ line: 0, ch: 0 }, { line: view.editor.lastLine(), ch: 0 });
+      // CodeMirror's own copy handler, given the event's DataTransfer (no OS gesture needed).
+      const cmEvent = (type) => {
+        const dt = new DataTransfer();
+        view.editor.cm.contentDOM.dispatchEvent(
+          new ClipboardEvent(type, { clipboardData: dt, bubbles: true, cancelable: true }),
+        );
+        return { text: dt.getData("text/plain"), html: dt.getData("text/html") };
+      };
+      const editor = cmEvent("copy");
+      // The two commands, with the cursor in the section.
+      view.editor.setCursor({ line: 4, ch: 0 });
+      app.commands.executeCommandById("shared-tasks:copy-readable-text");
+      await new Promise((r) => setTimeout(r, 300));
+      const readable = read();
+      app.commands.executeCommandById("shared-tasks:copy-shared-section");
+      await new Promise((r) => setTimeout(r, 300));
+      const shared = read();
+      // Cut the whole section: the projection goes, nothing shared is deleted.
+      const runtime = app.plugins.plugins["shared-tasks"].runtime;
+      const R = (await runtime.registry()).find((e) => e.localName === "Launch")?.resourceId;
+      const queued = async () =>
+        ((await runtime.storage.outbound.list(R)) ?? []).filter((i) => i.kind === "data-unit").length;
+      const before = await queued();
+      const lines = view.editor.getValue().split("\n");
+      const first = lines.findIndex((l) => l === "## Launch");
+      const last = lines.findIndex((l) => l.startsWith("<!-- /lfcp-section: "));
+      view.editor.setSelection({ line: first, ch: 0 }, { line: last + 1, ch: 0 });
+      const cut = cmEvent("cut");
+      await new Promise((r) => setTimeout(r, 3000));
+      const after = await queued();
+      const gone = !view.editor.getValue().includes("## Launch");
+      // Put it back for the specs that follow.
+      await app.vault.modify(file, source);
+      return { badge: badge !== null, reading, editor, readable, shared, source, before, after, cut, gone };
+    });
+    console.log(`EVIDENCE ${JSON.stringify({ id: "CLIPBOARD", reading: out.reading, readable: out.readable.text, before: out.before, after: out.after })}`);
+    expect(out.badge).toBe(true);
+    expect(out.reading.filtered).toBe(true);
+    expect(out.reading.text).toContain("Launch");
+    // The badge's own material, by its class, data, path and label (Obsidian's fold icons may be SVG too).
+    for (const t of [out.reading.text, out.reading.html, out.editor.html])
+      expect(t).not.toMatch(/openlfcp-status|data-lfcp-ui|M14 34 L22 42 L38 22|Shared section Launch/);
+    expect(out.editor.text).toBe(out.source);
+    expect(out.readable.text).not.toContain("lfcp-");
+    expect(out.readable.text).toContain("Draft the plan.");
+    expect(out.shared.text.startsWith("## Launch\n<!-- lfcp-section: ")).toBe(true);
+    expect(out.gone).toBe(true);
+    expect(out.cut.text.startsWith("## Launch\n<!-- lfcp-section: ")).toBe(true);
+    expect(out.after).toBe(out.before);
+  });
+
   it("a heading inside blocks the share, with a reason", async () => {
     const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
     const shown = await preview("share-nested.md", note, 0);

@@ -29,10 +29,12 @@ import { MutationGuard } from "../core/projection/guard";
 import { ProjectionNotices } from "../core/projection/notices";
 import { applyRepair } from "../core/projection/reassociation";
 import { type NoteIO, type NoteOutcome, ProjectionWriter } from "../core/projection/writer";
+import { readableText, sharedSectionText } from "../core/sections/clipboard";
 import { normalizeSettings, type Settings } from "../core/settings";
 import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
 import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
+import { filterUiFromCopy } from "./section-clipboard";
 import { sectionPresentationExtension, setShowMetadata } from "./section-presentation";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
@@ -169,6 +171,44 @@ export default class OpenLfcpPlugin extends Plugin {
                 ? undefined
                 : this.sections?.createSection(path, editor.getValue(), approved),
             );
+        },
+      });
+      // LFCP-02-063: no plugin UI in a copy of rendered content; the two copy commands.
+      this.registerDomEvent(document, "copy", (e) => {
+        filterUiFromCopy(e, document);
+      });
+      this.addCommand({
+        id: "copy-readable-text",
+        name: "Copy readable text (without sharing metadata)",
+        editorCallback: (editor) => {
+          const selected = editor.getSelection();
+          const text =
+            selected !== ""
+              ? selected
+              : (sharedSectionText(editor.getValue(), editor.getCursor().line) ?? "");
+          if (text === "") {
+            new Notice("Shared Tasks: select text, or put the cursor in a shared section.");
+            return;
+          }
+          void navigator.clipboard.writeText(readableText(text)).then(() => {
+            new Notice("Shared Tasks: copied without sharing metadata.");
+          });
+        },
+      });
+      this.addCommand({
+        id: "copy-shared-section",
+        name: "Copy shared section",
+        editorCallback: (editor) => {
+          const text = sharedSectionText(editor.getValue(), editor.getCursor().line);
+          if (text === null) {
+            new Notice("Shared Tasks: put the cursor in a shared section to copy it.");
+            return;
+          }
+          void navigator.clipboard.writeText(text).then(() => {
+            new Notice(
+              "Shared Tasks: shared section copied. Pasted into another note, it is another copy of the same section; it gives nobody access.",
+            );
+          });
         },
       });
       this.addCommand({
