@@ -338,7 +338,7 @@ export class LfcpRuntime {
   #install: Install;
   /** Resources (hex) this vault may publish Snapshots of (POST-007). */
   readonly #publishers = new Set<string>();
-  /** This vault's own units per Resource (hex) since its last Snapshot (POST-007). */
+  /** This vault's 0.1 units (writeIntent) per Resource (hex) since its last Snapshot (POST-007). */
   readonly #ownUnits = new Map<string, number>();
 
   #countOwn(resource: ResourceId, units: number): void {
@@ -1107,9 +1107,7 @@ export class LfcpRuntime {
   ): Promise<SectionReceipt> {
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
-      const receipt = await this.#session(opened.url).client.commit(resource, intents, options);
-      this.#countOwn(resource, receipt.unitIds.length);
-      return receipt;
+      return this.#session(opened.url).client.commit(resource, intents, options);
     });
   }
 
@@ -1209,7 +1207,8 @@ export class LfcpRuntime {
       now: () => this.#env.timers.now(),
       ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
       // POST-007: a Snapshot every `snapshotEvery` merged units, by a member who may publish one.
-      // The SDK counts the units merged from others; this vault's own are added here.
+      // The SDK counts merged units and those of sync.commit; the 0.1 writes
+      // (writeIntent queues its units directly) are added here.
       snapshotPolicy: (R, units) =>
         units + (this.#ownUnits.get(toHex(R)) ?? 0) >= (this.#env.snapshotEvery ?? 200) &&
         this.#publishers.has(toHex(R)),
