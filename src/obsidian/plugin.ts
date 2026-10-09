@@ -34,6 +34,7 @@ import { normalizeSettings, type Settings } from "../core/settings";
 import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
 import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
+import { LiveRegion } from "./live-region";
 import { filterUiFromCopy } from "./section-clipboard";
 import { sectionPresentationExtension, setShowMetadata } from "./section-presentation";
 import { SectionsHost } from "./sections-host";
@@ -137,6 +138,9 @@ export default class OpenLfcpPlugin extends Plugin {
     this.registerEditorExtension(sections.extension);
     // Development preview of shared sections (data.json only, off by default).
     if (this.settings.sectionsPreview) {
+      // LFCP-02-064: one live region for what is said once.
+      const live = new LiveRegion(document);
+      this.register(() => live.detach());
       this.sections = new SectionsHost(
         this.app,
         (path, e) => {
@@ -149,6 +153,7 @@ export default class OpenLfcpPlugin extends Plugin {
         () => this.#collaboration(),
         () => this.settings.defaultServer,
         () => ui,
+        (text) => live.announce(text),
       );
       this.registerEditorExtension(this.sections.editor.extension);
       // LFCP-02-058: the shared mark and sync status after each section heading.
@@ -209,6 +214,19 @@ export default class OpenLfcpPlugin extends Plugin {
               "Shared Tasks: shared section copied. Pasted into another note, it is another copy of the same section; it gives nobody access.",
             );
           });
+        },
+      });
+      // LFCP-02-064: every section action from the keyboard, without a Tab stop per row.
+      this.addCommand({
+        id: "open-section-details",
+        name: "Open shared section details",
+        editorCallback: (editor) => this.sections?.openCardAt(editor),
+      });
+      this.addCommand({
+        id: "next-section-problem",
+        name: "Go to next shared section problem",
+        editorCallback: (_editor, ctx) => {
+          if (ctx instanceof MarkdownView) this.sections?.nextProblem(ctx);
         },
       });
       this.addCommand({

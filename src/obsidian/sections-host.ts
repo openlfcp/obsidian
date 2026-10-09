@@ -54,6 +54,7 @@ import {
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
+import { Announcer } from "../core/status/a11y";
 import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { observedFacts } from "../core/status/facts";
@@ -62,7 +63,9 @@ import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
 import {
+  goToNextProblem,
   ReadingBadges,
+  sectionAtLine,
   sectionKey,
   sectionStatusExtension,
   setSectionStatuses,
@@ -101,6 +104,8 @@ export class SectionsHost {
   #card: { readonly key: string; readonly title: string; readonly modal: SectionCardModal } | null =
     null;
   #statuses: ReadonlyMap<string, StatusView> = new Map();
+  /** A new blocking condition is announced once (064). */
+  readonly #announcer = new Announcer();
   #statusDue: number | null = null;
   #port: SdkSectionPort | null = null;
   #journal: KeyValueSectionJournalStore | null = null;
@@ -125,6 +130,8 @@ export class SectionsHost {
       inviteTo(R: ResourceId): Promise<void>;
       resourceStatusOf(R: ResourceId): Promise<void>;
     } | null = () => null,
+    /** Says a short text once through the plugin's live region (064). */
+    private readonly announce: (text: string) => void = () => undefined,
   ) {
     this.editor = sectionEditorExtension({
       engine: () => this.#engine,
@@ -740,12 +747,38 @@ export class SectionsHost {
     if (same) return;
     this.#statuses = next;
     for (const view of this.status.views) view.dispatch({ effects: setSectionStatuses.of(next) });
+    const said = this.#announcer.next(next, (key) => {
+      const at = key.indexOf("#");
+      return port.snapshot(key.slice(0, at), key.slice(at + 1))?.title ?? "";
+    });
+    if (said.length > 0) this.announce(said.join(" "));
     this.reading.update();
     const card = this.#card;
     if (card !== null) {
       const content = await this.#cardContent(card.key, card.title);
       if (content !== null) card.modal.update(content);
     }
+  }
+
+  /** "Open shared section details" (064): the card of the section under the cursor. */
+  openCardAt(editor: Editor): void {
+    const at = sectionAtLine(editor.getValue(), editor.getCursor().line);
+    if (at === null) {
+      new Notice("Shared Tasks: put the cursor in a shared section to see its details.");
+      return;
+    }
+    void this.openCard(at.key, at.title);
+  }
+
+  /**
+   * "Go to next shared section problem" (064, UX09): the next row needing
+   * attention after the cursor, unfolded if a fold hides it, said once.
+   */
+  nextProblem(view: MarkdownView): void {
+    const cm = [...this.status.views].find((v) => view.containerEl.contains(v.dom));
+    const said = goToNextProblem(cm, this.#statuses);
+    if (said.found === 0) new Notice(`Shared Tasks: ${said.text}`);
+    this.announce(said.text);
   }
 
   #openEditor(path: string): Editor | null {

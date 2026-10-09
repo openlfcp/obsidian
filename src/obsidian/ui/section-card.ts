@@ -76,12 +76,14 @@ export class SectionCardModal extends Modal {
             li.createEl("button", {
               text: "Name…",
               cls: "openlfcp-card-row-action",
+              attr: { "aria-label": `Name ${row.label} on this device` },
             }).addEventListener("click", () => this.rowActions.alias?.(row.id, row.label));
           // Offered by the validated abilities, and only while removing can be done now.
           if (row.removable && access.removeNote === null && this.rowActions.remove !== undefined)
             li.createEl("button", {
               text: "Remove access…",
               cls: "openlfcp-card-row-action mod-warning",
+              attr: { "aria-label": `Remove access for ${row.label}` },
             }).addEventListener("click", () => this.rowActions.remove?.(row.principal, row.label));
         }
         if (access.removeNote !== null)

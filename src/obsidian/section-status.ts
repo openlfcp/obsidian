@@ -22,6 +22,7 @@ import { displayTooltip, type MarkdownPostProcessorContext } from "obsidian";
 import type { SectionRef } from "../core/sections/grammar";
 import { type ParsedSection, parseSections, type SectionNode } from "../core/sections/parser";
 import { sectionPresentation } from "../core/sections/presentation";
+import { blockingSignature, nextProblem, type ProblemAt } from "../core/status/a11y";
 import {
   type HeadingBadge,
   headingBadge,
@@ -346,4 +347,73 @@ export class ReadingBadges {
         renderBadge(badge, badgeOf(badge.dataset.title ?? "", this.status(key)));
       }
   }
+}
+
+/** The shared section a line is in (heading to end marker): its key and title. */
+export function sectionAtLine(
+  text: string,
+  line: number,
+): { readonly key: string; readonly title: string } | null {
+  const s = parseSections(text).sections.find((x) => line >= x.heading.line && line <= x.endLine);
+  return s === undefined ? null : { key: sectionKey(s.ref), title: s.heading.title };
+}
+
+/**
+ * The note's problems, one line each (LFCP-02-064): every row needing
+ * attention, folded or not, and the heading of a section needing attention
+ * that no row explains. Reached one at a time by a command, never as Tab stops.
+ */
+export function sectionProblems(
+  text: string,
+  statuses: ReadonlyMap<string, StatusView>,
+): ProblemAt[] {
+  if (!text.includes("lfcp-section")) return [];
+  const binding = new Set(sectionPresentation(text).bindingLines);
+  const out: ProblemAt[] = [];
+  for (const s of parseSections(text).sections) {
+    const view = statuses.get(sectionKey(s.ref));
+    if (view === undefined) continue;
+    const lines = [...rowCues(view, rows(s.nodes, binding))]
+      .filter(([, cue]) => cue === "attention")
+      .map(([line]) => line);
+    if (lines.length === 0 && blockingSignature(view) !== null) lines.push(s.heading.line);
+    for (const line of lines) out.push({ line, title: s.heading.title });
+  }
+  return out;
+}
+
+/** Moves the cursor to a line, unfolding what hides it, and scrolls it into view. */
+export function revealLine(view: EditorView, line: number): void {
+  const pos = view.state.doc.line(Math.min(line + 1, view.state.doc.lines)).from;
+  const effects: StateEffect<unknown>[] = [];
+  foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => {
+    if (pos > from && pos <= to) effects.push(unfoldEffect.of({ from, to }));
+  });
+  view.dispatch({ effects, selection: { anchor: pos }, scrollIntoView: true });
+  view.focus();
+}
+
+/**
+ * "Go to next shared section problem" in an editor (LFCP-02-064, UX09): the
+ * next problem after the cursor, unfolded if a fold hides it. Returns what
+ * to say once, and how many problems there are.
+ */
+export function goToNextProblem(
+  view: EditorView | undefined,
+  statuses: ReadonlyMap<string, StatusView>,
+): { readonly text: string; readonly found: number } {
+  const found =
+    view === undefined
+      ? null
+      : nextProblem(
+          sectionProblems(view.state.doc.toString(), statuses),
+          view.state.doc.lineAt(view.state.selection.main.head).number - 1,
+        );
+  if (view === undefined || found === null)
+    return { text: "No shared section problems in this note.", found: 0 };
+  revealLine(view, found.at.line);
+  return {
+    text: `Problem ${found.index} of ${found.total}, in shared section ${found.at.title}, line ${found.at.line + 1}. Open its details to resolve it.`,
+    found: found.total,
+  };
 }
