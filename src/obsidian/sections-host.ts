@@ -36,7 +36,7 @@ import { type InsertResult, renderSection, SectionInsertion } from "../core/sect
 import { advance } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { type ParsedSection, parseSections } from "../core/sections/parser";
-import { CommitRefused, type SectionSnapshot } from "../core/sections/port";
+import { CommitRefused, type ModelNode, type SectionSnapshot } from "../core/sections/port";
 import { applyRecovery, recoveryItems } from "../core/sections/recovery";
 import {
   adoptedBase,
@@ -59,6 +59,7 @@ import type { RefPlacement, SectionComments } from "../core/settings";
 import { Announcer } from "../core/status/a11y";
 import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
+import { collectStatuses } from "../core/status/collect";
 import { observedFacts } from "../core/status/facts";
 import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
 import { type StatusView, statusView } from "../core/status/reducer";
@@ -162,6 +163,8 @@ export class SectionsHost {
   readonly #projectionFacts = new ProjectionFactsStore();
   /** C14: a lag no event resolves gets one pass per revision. */
   readonly #lags = new LagNudges();
+  /** D1: each watched Resource's last section key, for its status when its model throws. */
+  readonly #statusKeys = new Map<string, string>();
 
   /** The runtime is ready: the engine on the real SDK, section Resources opened, their notes reconciled. */
   async start(runtime: LfcpRuntime, principal: PrincipalId): Promise<void> {
@@ -620,9 +623,14 @@ export class SectionsHost {
     const status = await this.collab()
       ?.status(R)
       .catch(() => undefined);
-    const nodes = Object.values(this.#port?.snapshot(b64, sectionId)?.nodes ?? {}).filter(
-      (n) => n.lifecycle === "active" && n.hidden !== true,
-    );
+    // D1: a model that throws when read still gets its card (its problem, no counts).
+    let model: Readonly<Record<string, ModelNode>> = {};
+    try {
+      model = this.#port?.snapshot(b64, sectionId)?.nodes ?? {};
+    } catch {
+      model = {};
+    }
+    const nodes = Object.values(model).filter((n) => n.lifecycle === "active" && n.hidden !== true);
     const count = (kind: string) => nodes.filter((n) => n.kind === kind).length;
     const runtime = this.#runtime;
     const mine = await runtime?.sectionAccessState(R).catch(() => undefined);
@@ -749,45 +757,51 @@ export class SectionsHost {
     const runtime = this.#runtime;
     const port = this.#port;
     if (runtime === null || port === null) return;
-    const next = new Map<string, StatusView>();
-    for (const hex of this.#watched) {
-      const R = fromKey64(hex);
-      const replica = runtime.sectionProfile(R)?.replica;
-      const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
-        ?.id;
-      if (typeof sectionId !== "string") continue;
-      const r = toBase64url(R);
-      const snapshot = port.snapshot(r, sectionId);
-      // C14: a model change no event announced is still projected, once a
-      // lag outlives the passes events started (no duplicate pass).
-      const key = `${r}#${sectionId}`;
-      if (
-        snapshot !== undefined &&
-        this.#lags.decide(
-          key,
-          snapshot.revision,
-          this.#projectionFacts.behind(key, snapshot.revision),
+    // D1: one section whose model throws shows attention; the others go on.
+    const next = await collectStatuses(
+      this.#watched,
+      async (hex) => {
+        const R = fromKey64(hex);
+        const replica = runtime.sectionProfile(R)?.replica;
+        const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
+          ?.id;
+        if (typeof sectionId !== "string") return null;
+        const r = toBase64url(R);
+        const snapshot = port.snapshot(r, sectionId);
+        // C14: a model change no event announced is still projected, once a
+        // lag outlives the passes events started (no duplicate pass).
+        const key = `${r}#${sectionId}`;
+        if (
+          snapshot !== undefined &&
+          this.#lags.decide(
+            key,
+            snapshot.revision,
+            this.#projectionFacts.behind(key, snapshot.revision),
+          )
         )
-      )
-        void this.#remote(R);
-      const phase = runtime.phase(R);
-      if (phase === "LIVE") this.#wasLive.add(hex);
-      const facts = observedFacts({
-        session: hex,
-        load: runtime.sectionLoad(R),
-        phase,
-        wasLive: this.#wasLive.has(hex),
-        problems: snapshot?.problems ?? [],
-        projections: this.#projectionFacts.projections(`${r}#${sectionId}`, snapshot?.revision),
-        failedOperations: this.#projectionFacts.failedOperations(`${toBase64url(R)}#${sectionId}`),
-        sdk: this.#sdk.get(hex),
-        // LFCP-02-066: queued units stay pending across a restart, whatever the SDK's batches know.
-        queuedUnits:
-          (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit").length ??
-          0,
-      });
-      next.set(`${r}#${sectionId}`, statusView(facts));
-    }
+          void this.#remote(R);
+        const phase = runtime.phase(R);
+        if (phase === "LIVE") this.#wasLive.add(hex);
+        const facts = observedFacts({
+          session: hex,
+          load: runtime.sectionLoad(R),
+          phase,
+          wasLive: this.#wasLive.has(hex),
+          problems: snapshot?.problems ?? [],
+          projections: this.#projectionFacts.projections(`${r}#${sectionId}`, snapshot?.revision),
+          failedOperations: this.#projectionFacts.failedOperations(
+            `${toBase64url(R)}#${sectionId}`,
+          ),
+          sdk: this.#sdk.get(hex),
+          // LFCP-02-066: queued units stay pending across a restart, whatever the SDK's batches know.
+          queuedUnits:
+            (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit")
+              .length ?? 0,
+        });
+        return { key: `${r}#${sectionId}`, view: statusView(facts) };
+      },
+      this.#statusKeys,
+    );
     const same =
       next.size === this.#statuses.size &&
       [...next].every(([k, v]) => {
