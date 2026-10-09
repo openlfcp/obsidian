@@ -109,7 +109,53 @@ if needed, validate only what a commit touches. The same work explains
 W200-H's growth. Until then the plugin cannot meet the W200 durable,
 remote and blocking budgets.
 
-## 5. Raw data
+## 5. After sdk-ts a3e205f
+
+The remediation of §4 is in sdk-ts:
+
+- 63a2d30 validates one revision once: a reader keeps each Automerge
+  answer for its pass (29,626 backend calls become 11,913 on W200), and a
+  validation is kept per document and per heads, so the commit no longer
+  validates the revision the last snapshot validated.
+- a3e205f validates a later revision only where its changes touched:
+  the facts of each node, placement and object are kept with the
+  validation, the entities `A.diff` names between the two heads are read
+  again, and the checks across entities are assembled from the facts.
+
+The result equals a validation in full. A seeded test compares the two at
+every revision of random histories: valid and invalid writes, concurrent
+edits, collisions and deletions. The sections corpus (SS01 to SS60) and
+the Automerge corpus (`CAN-*`, `REF-*`) pass unchanged. In sdk-ts, on
+W200, one edit and the snapshot after it took 791 ms before and take
+53 ms; a new revision's validation took 147 ms after 63a2d30 and takes
+6 ms.
+
+The same harness as §2 (fake IndexedDB, Node 24.4, Apple M-series),
+against sdk-ts a3e205f, gave these p95 values in ms:
+
+| Workload | Durable local update | Remote projection | Cached open | Card | Longest delay | Heap MiB | Checkpoint bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| W20 | 39 | 18 | 32 | 0.1 | 18 | 164 | 8,678 |
+| W100 | 115 | 78 | 106 | 0.1 | 89 | 400 | 34,847 |
+| W200 | 221 | 211 | 232 | 0.3 | 150 | 307 | 73,000 |
+| W200-H | 559 | 458 | 737 | 0.3 | 454 | 615 | 94,851 |
+| W2000 | 2,493 | 2,724 | 3,260 | 8.9 | 1,807 | 1,269 | 705,197 |
+
+- **W200 meets every budget** of plan §10:
+  - durable local update: 221 ms, budget 300 (before: 1,052);
+  - remote projection: 211 ms, budget 250 (before: 587);
+  - longest event-loop delay: 150 ms, under 200 (before: 768);
+  - cached open: 232 ms, budget 2,000; card: 0.3 ms, budget 200.
+- **W200-H is open for investigation.** It improved about threefold
+  (durable 1,551 → 559, remote 902 → 458, open 1,185 → 737). It is still
+  2.5 times fresh W200, above the plan's "investigate above twice" line.
+  As §2 notes, the cost follows the history: the retained placement slots
+  and the changes the SDK walks. This run did not separate the parts. The policy for history growth is the
+  owner's decision 112, and this remains open with it.
+- **W2000** remains not a supported size. A durable update now takes
+  2,493 ms (before: 11,013), and the longest blocking is 1,807 ms.
+
+## 6. Raw data
 
 The JSON of each run (`LFCP_PERF_OUT`) holds every metric's n, p50, p95
 and max, the workload spec, note sizes, queued units and checkpoint
