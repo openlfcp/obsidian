@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -8,6 +8,8 @@ export default defineConfig({
   },
   test: {
     include: ["test/**/*.test.ts"],
+    // The performance runs are opt-in (pnpm perf, vitest.perf.config.ts): no skip in the ordinary run.
+    exclude: [...configDefaults.exclude, "test/perf/**"],
     setupFiles: ["test/setup/window.ts"],
   },
 });
