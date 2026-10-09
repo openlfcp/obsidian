@@ -13,6 +13,7 @@
     "build": "tsc --noEmit -p tsconfig.json && node scripts/build.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check . && node scripts/check-boundaries.mjs && node scripts/check-boundaries.mjs --self-test",
+    "perf": "LFCP_PERF=1 vitest run test/perf",
     "test": "vitest run",
     "test:security": "vitest run test/e2e/security-vertical-slice.test.ts",
     "native": "pnpm run build && node scripts/build-native-harness.mjs && pnpm --dir test/native install --frozen-lockfile && pnpm --dir test/native test",
