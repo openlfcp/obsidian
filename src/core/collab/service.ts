@@ -21,16 +21,21 @@
 import {
   type AcceptedInvitation,
   type AcceptInvitationStage,
+  abandonInvitationClaim,
   acceptInvitation,
   createInvitation,
   dekResolver,
   type InvitationLink,
   loadControlChain,
+  pendingInvitationClaims,
+  resumeInvitationClaim,
   type SyncClient,
   type SyncEvent,
 } from "@openlfcp/client";
 import {
+  resourceId as asResourceId,
   type DataUnitId,
+  fromHex,
   type ObjectId,
   type ResourceId,
   toBase64url,
@@ -250,8 +255,15 @@ export class CollabError extends Error {
 const SHORT = 8;
 const short = (hex: string): string => hex.slice(0, SHORT);
 const hostingKey = (R: ResourceId): string => `collab-hosting:${toHex(R)}`;
-/** A claim sent without an answer (LFCP-02-051): the next attempt says what a refusal then means. */
-const uncertainClaimKey = (R: ResourceId): string => `collab-claim-uncertain:${toHex(R)}`;
+/**
+ * A join until it finishes: the local name it was given and the link's
+ * endpoint (a claim resumed after a restart has neither dialog nor link).
+ */
+interface JoinRecord {
+  readonly name: string;
+  readonly url: string;
+}
+const joinNameKey = (R: ResourceId): string => `collab-join-name:${toHex(R)}`;
 const WS_URL = /^wss?:\/\/[^\s/]+/i;
 
 export class Collaboration {
@@ -492,7 +504,10 @@ export class Collaboration {
         ? { kind: "already-member", resourceId: R }
         : { kind: "needs-newer-version", resourceId: R };
     }
-    const uncertain = ((await this.#runtime.localState.get(uncertainClaimKey(R))) ?? null) !== null;
+    await this.#runtime.localState.put(joinNameKey(R), {
+      name: options.name,
+      url: parseInviteUri(uri.trim()).endpoints[0] ?? "",
+    } satisfies JoinRecord);
     const accepted: AcceptedInvitation = await acceptInvitation({
       onProgress: (p) => stage(SDK_STAGE[p.stage]),
       link: uri.trim(),
@@ -507,32 +522,32 @@ export class Collaboration {
     });
     if (accepted.kind === "profile-unsupported")
       return { kind: "needs-newer-version", resourceId: R };
-    if (accepted.kind === "refused") {
-      if (uncertain && accepted.code === "AUTHORIZATION_FAILED") {
-        await this.#runtime.localState.put(uncertainClaimKey(R), null);
-        return {
-          kind: "refused",
-          code: accepted.code,
-          message:
-            "This invitation is already used, most likely by this device's earlier attempt that the server never confirmed. Ask for a new invitation; your notes are unchanged.",
-        };
-      }
+    if (accepted.kind === "refused")
       return { kind: "refused", code: accepted.code, message: plainCode(accepted.code) };
-    }
-    if (accepted.kind === "unavailable") {
-      // The claim went out and no answer came: it may have been accepted.
-      if (last === "claiming capability") {
-        await this.#runtime.localState.put(uncertainClaimKey(R), { at: this.#o.now() });
-        return {
-          kind: "unavailable",
-          message: `The server did not confirm the claim (${accepted.reason}). It may have gone through: join again with the same link when online. If it is then refused as used, ask for a new invitation.`,
-        };
-      }
-      return {
-        kind: "unavailable",
-        message: `The collaboration's server could not complete the join (${accepted.reason}). Joining needs a connection; try again when online.`,
-      };
-    }
+    if (accepted.kind === "unavailable")
+      // A claim sent without an answer is journaled by the SDK (LFCP-02-110):
+      // the same link, or the next start, settles it without spending it twice.
+      return last === "claiming capability"
+        ? {
+            kind: "unavailable",
+            message: `The server did not confirm the claim (${accepted.reason}). It is kept on this device: join again with the same link, or it finishes at the next start.`,
+          }
+        : {
+            kind: "unavailable",
+            message: `The collaboration's server could not complete the join (${accepted.reason}). Joining needs a connection; try again when online.`,
+          };
+    return this.#finishJoin(R, accepted.abilities, options.name, stage);
+  }
+
+  /** The claimed Resource stored and opened (a section: until it is loaded). */
+  async #finishJoin(
+    R: ResourceId,
+    granted: readonly bigint[],
+    name: string,
+    stage: (s: JoinStage) => void,
+  ): Promise<JoinOutcome> {
+    const c = this.#context();
+    const profiles = this.#o.sections ? [PROFILE_ID, SECTIONS_PROFILE_ID] : [PROFILE_ID];
     const chain = await loadControlChain(c.storage, R);
     if (chain?.kind !== "linear") throw new CollabError("INVALID_CONTROL_CHAIN");
     // Unreachable since the SDK checks before the claim (dataProfiles); kept as a guard.
@@ -550,16 +565,14 @@ export class Collaboration {
             signingKeyRef: principalKeySecretRef(id, "signing"),
             agreementKeyRef: principalKeySecretRef(id, "agreement"),
           },
-          labels: {
-            name: options.name.trim() === "" ? "Shared collaboration" : options.name.trim(),
-          },
+          labels: { name: name.trim() === "" ? "Shared collaboration" : name.trim() },
         },
       },
     ]);
     if (!r.ok) throw new CollabError("UNSUPPORTED_VALUE", "The collaboration could not be stored.");
     await this.#runtime.localState.put(hostingKey(R), "hosted");
-    await this.#runtime.localState.put(uncertainClaimKey(R), null);
-    const abilities = accepted.abilities.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`);
+    await this.#runtime.localState.put(joinNameKey(R), null);
+    const abilities = granted.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`);
     stage("synchronizing");
     const section = chain.state.dataProfile === SECTIONS_PROFILE_ID;
     if (section) await this.#runtime.openSection(R);
@@ -578,6 +591,72 @@ export class Collaboration {
     };
     for (; !loaded() && waited < until; waited += 50) await this.#o.sleep(50);
     return { kind: "joined", resourceId: R, abilities, section: { loaded: loaded() } };
+  }
+
+  /** Joins that did not finish: a claim sent and not settled (LFCP-02-110). */
+  async pendingJoins(): Promise<{ readonly resourceId: ResourceId; readonly name: string }[]> {
+    const c = this.#context();
+    const out: { resourceId: ResourceId; name: string }[] = [];
+    for (const j of await pendingInvitationClaims(c.storage)) {
+      const R = asResourceId(fromHex(j.resourceId));
+      const record = (await this.#runtime.localState.get(joinNameKey(R))) as JoinRecord | undefined;
+      out.push({ resourceId: R, name: record?.name ?? "Shared collaboration" });
+    }
+    return out;
+  }
+
+  /**
+   * Settles a journaled claim without its link (at start, or "Retry"):
+   * joined when it had landed; when it had not, the link is still unused.
+   */
+  async resumeJoin(R: ResourceId): Promise<JoinOutcome | { readonly kind: "not-claimed" }> {
+    const c = this.#context();
+    const journal = (await pendingInvitationClaims(c.storage)).find(
+      (j) => j.resourceId === toHex(R),
+    );
+    if (journal === undefined) return { kind: "not-claimed" };
+    const record = (await this.#runtime.localState.get(joinNameKey(R))) as JoinRecord | undefined;
+    if (record === undefined || record.url === "")
+      return {
+        kind: "unavailable",
+        message:
+          "This device does not know the collaboration's server: join again with the same link.",
+      };
+    const settled = await resumeInvitationClaim({
+      resourceId: R,
+      claimant: { signer: c.principal.signer },
+      storage: c.storage,
+      secrets: c.secrets,
+      url: record.url,
+      now: c.now,
+      ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
+      timeout: this.#o.sleep(this.#o.joinTimeoutMs),
+    });
+    const name = record.name;
+    switch (settled.kind) {
+      case "claimed":
+        return this.#finishJoin(R, settled.abilities, name, () => undefined);
+      case "not-claimed":
+      case "none":
+        await this.#runtime.localState.put(joinNameKey(R), null);
+        return { kind: "not-claimed" };
+      case "refused":
+        await this.#runtime.localState.put(joinNameKey(R), null);
+        return { kind: "refused", code: settled.code, message: plainCode(settled.code) };
+      case "unavailable":
+        return {
+          kind: "unavailable",
+          message: `The collaboration's server could not be reached (${settled.reason}). Joining finishes when it can.`,
+        };
+      default:
+        return { kind: "needs-newer-version", resourceId: R };
+    }
+  }
+
+  /** "Give up": the journaled claim is dropped; nothing joined is kept. */
+  async abandonJoin(R: ResourceId): Promise<void> {
+    await abandonInvitationClaim(this.#context().storage, R);
+    await this.#runtime.localState.put(joinNameKey(R), null);
   }
 
   /**
