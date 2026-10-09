@@ -154,6 +154,7 @@ click it, or press Enter on it, to open the section's details.
 | Offline; local updates will wait | No connection; your edits are kept |
 | Server confirmation unavailable | Sent, but the server could not confirm it |
 | Needs your attention | Something needs a decision: open the details |
+| Changes are not safely saved for sync | A change could not be saved on this device; nothing was sent for it. Keep the note open and try again |
 | Shared section · read-only | You can read this section, not edit it |
 
 The ticks follow a decision for the 0.4 design: ✓✓ means *shared* and
@@ -252,9 +253,11 @@ unchanged.`
 | *The server refused N updates (…). The text stays in your note.* | Your text is kept. Open the details for the reason. |
 | *Restart Obsidian to continue; your notes are not affected.* | Restart Obsidian. |
 
-The status icon does not yet report every problem in the note itself, such
-as a damaged boundary. If something looks wrong, run "Repair shared
-sections in this note".
+A problem in one copy of a section, such as a damaged boundary or a line
+that cannot be matched, sets that section's icon to "Needs your attention".
+The details name the copy, for example "One copy of this section has a
+damaged boundary or binding line." Run "Repair shared sections in this
+note" in that note to fix it. Other copies keep syncing meanwhile.
 
 ## Limits of the preview
 
