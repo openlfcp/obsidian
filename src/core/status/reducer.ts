@@ -75,6 +75,8 @@ export interface StatusFacts {
   readonly access: "writer" | "reader" | "unavailable-key" | "unknown" | "revoked";
   /** Control actions requested and not committed (SI14): shown as pending, never as done. */
   readonly pendingControl: readonly string[];
+  /** The Control view is behind the server's (027): access is being checked. */
+  readonly accessChecking?: boolean;
   readonly connection: "offline" | "connecting" | "connected" | "failed";
   readonly catchUp: "not-started" | "receiving" | "current-at-checkpoint" | "unknown";
   readonly problems: readonly ModelProblemFacts[];
@@ -94,6 +96,7 @@ export type Condition =
   | { readonly kind: "structural-conflict"; readonly nodeIds: readonly string[] }
   | { readonly kind: "scalar-conflict"; readonly nodeIds: readonly string[] }
   | { readonly kind: "loading" }
+  | { readonly kind: "access-checking" }
   | { readonly kind: "catching-up" }
   | { readonly kind: "local-edit" }
   | { readonly kind: "offline" }
@@ -182,6 +185,7 @@ export function statusView(facts: StatusFacts): StatusView {
   const loading =
     facts.replica === "not-loaded" || facts.replica === "importing" || facts.access === "unknown";
   if (loading) c.push({ kind: "loading" });
+  if (facts.accessChecking === true) c.push({ kind: "access-checking" });
   const catching =
     facts.catchUp !== "current-at-checkpoint" ||
     facts.projections.some((p) => p.application === "patch-pending");
@@ -232,7 +236,10 @@ export function statusView(facts: StatusFacts): StatusView {
     projectionPaused: facts.problems.some((p) => p.kind === "structural"),
     projections,
     readOnly,
-    label: STATE_LABEL[state],
+    label:
+      c[0]?.kind === "access-checking"
+        ? "Access being checked with the server"
+        : STATE_LABEL[state],
   };
 }
 
@@ -254,6 +261,7 @@ function primary(
     case "scalar-conflict":
       return "ATTENTION";
     case "loading":
+    case "access-checking":
       return "LOADING";
     case "catching-up":
       return o.allAccepted ? "ACCEPTED_CATCHING_UP" : "LOADING";

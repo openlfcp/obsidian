@@ -70,7 +70,8 @@ export function observedFacts(o: ObservedSection): StatusFacts {
         : sdk?.access === null || sdk?.access === undefined
           ? "unknown"
           : accessFact(sdk.access),
-    pendingControl: [],
+    pendingControl: sdk?.pendingControl ?? [],
+    accessChecking: sdk?.accessCurrent === false,
     connection: live || syncing ? "connected" : "offline",
     catchUp:
       syncing || sdk?.needsSnapshot === true || (o.load !== undefined && !o.load.loaded)

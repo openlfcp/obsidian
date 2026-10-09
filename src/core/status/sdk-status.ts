@@ -21,6 +21,10 @@ export interface SdkStatus {
   /** Batches whose ACK came without acceptance evidence (§4.1). */
   readonly unconfirmed: ReadonlySet<string>;
   readonly access: WriteAccess | null;
+  /** False while this device's Control view is behind the server's (027): access is being checked. */
+  readonly accessCurrent: boolean | null;
+  /** Our Control Records sent and not committed yet (SI14), by type: pending, never done. */
+  readonly pendingControl: readonly string[];
   readonly section: "ready" | "importing" | "unknown";
   /** A revision was skipped: ask statusSnapshot. */
   readonly needsSnapshot: boolean;
@@ -45,6 +49,15 @@ export function batchFacts(b: BatchStatus): BatchFacts {
   };
 }
 
+/** The access part of the stream (027): §6's answer, its freshness, our pending Control. */
+function accessFacts(a: StatusSnapshot["access"]) {
+  return {
+    access: portAccess(a),
+    accessCurrent: a.current,
+    pendingControl: a.pendingControl.map((p) => p.type),
+  };
+}
+
 const unconfirmedOf = (batches: readonly BatchStatus[]) =>
   new Set(batches.filter((b) => b.status === "evidence-unavailable").map((b) => b.operationId));
 
@@ -53,7 +66,7 @@ export function fromSnapshot(s: StatusSnapshot): SdkStatus {
     revision: s.revision,
     batches: s.batches.map(batchFacts),
     unconfirmed: unconfirmedOf(s.batches),
-    access: portAccess(s.access),
+    ...accessFacts(s.access),
     section: s.section,
     needsSnapshot: false,
   };
@@ -89,7 +102,7 @@ export function applySdkEvent(st: SdkStatus, e: StatusEvent): SdkStatus {
       };
     }
     case "access":
-      return { ...next, access: portAccess(e.access) };
+      return { ...next, ...accessFacts(e.access) };
     case "section-state":
       return { ...next, section: e.state };
     default:

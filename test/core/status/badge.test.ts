@@ -114,6 +114,8 @@ describe("facts from the SDK's status and local observations", () => {
     batches: [],
     unconfirmed: new Set(),
     access: { allowed: true },
+    accessCurrent: true,
+    pendingControl: [],
     section: "ready",
     needsSnapshot: false,
     ...b,
@@ -180,6 +182,22 @@ describe("facts from the SDK's status and local observations", () => {
     expect(state({ allowed: false, reason: "not-member" })).toBe("ATTENTION");
     expect(state({ allowed: false, reason: "key-unavailable" })).toBe("ATTENTION");
     expect(state(null)).toBe("LOADING");
+  });
+
+  it("027: a Control view behind the server's is 'being checked'; our pending Control is pending (SI14)", () => {
+    const checking = statusView(observedFacts({ ...observed, sdk: sdk({ accessCurrent: false }) }));
+    expect(checking).toMatchObject({
+      state: "LOADING",
+      label: "Access being checked with the server",
+    });
+    const revoking = statusView(
+      observedFacts({ ...observed, sdk: sdk({ pendingControl: ["GRANT_REVOKE"] }) }),
+    );
+    expect(revoking.state).toBe("SENDING");
+    expect(revoking.conditions).toContainEqual({
+      kind: "control-pending",
+      actions: ["GRANT_REVOKE"],
+    });
   });
 
   it("classifies model problems and a failed commit", () => {

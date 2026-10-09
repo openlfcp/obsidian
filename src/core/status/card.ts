@@ -100,6 +100,12 @@ export function sectionCard(input: CardInput): SectionCard {
   else
     facts.push("Current as last checked with the server. This does not mean others have seen it.");
   facts.push(v.readOnly ? "You can read this section, not edit it." : "You can edit this section.");
+  if (kinds.has("access-checking"))
+    facts.push(
+      "Access is being checked with the server: it may have changed since this device last saw it.",
+    );
+  if (kinds.has("control-pending"))
+    facts.push("A change to who has access is waiting for the server: it is not done yet.");
   if (input.hosting === "pending")
     facts.push("Not on its server yet: nobody can join until it is hosted.");
 

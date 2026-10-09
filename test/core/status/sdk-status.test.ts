@@ -20,8 +20,15 @@ const snapshot = {
   batches: [batch("pending", [])],
   received: { held: [], waiting: [], refused: [] },
   section: "ready",
-  // The WriteAccess part of the access (027 adds more fields; this reads only these).
-  access: { allowed: true, reason: null, controlHead: null, verifiedAt: null } as never,
+  // The access as 027 reports it (AccessState): only the fields the plugin reads.
+  access: {
+    allowed: true,
+    reason: null,
+    controlHead: null,
+    verifiedAt: null,
+    current: true,
+    pendingControl: [],
+  } as never,
 } as unknown as StatusSnapshot;
 
 describe("the SDK's status stream", () => {
@@ -73,9 +80,17 @@ describe("the SDK's status stream", () => {
     s = applySdkEvent(s, {
       revision: 7,
       kind: "access",
-      access: { allowed: false, reason: "revoked", controlHead: null, verifiedAt: 5 } as never,
+      access: {
+        allowed: false,
+        reason: "revoked",
+        controlHead: null,
+        verifiedAt: 5,
+        current: false,
+        pendingControl: [{ recordId: new Uint8Array(32), type: "GRANT_REVOKE" }],
+      } as never,
     });
     expect(s.access).toEqual({ allowed: false, reason: "revoked", verifiedAt: 5 });
+    expect(s).toMatchObject({ accessCurrent: false, pendingControl: ["GRANT_REVOKE"] });
     s = applySdkEvent(s, { revision: 8, kind: "received", fact: "held", unitIds: [u(9)] });
     expect(s.revision).toBe(8);
   });
