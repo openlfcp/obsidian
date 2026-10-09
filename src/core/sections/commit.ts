@@ -33,6 +33,7 @@ import {
   type SectionIntent,
   type SectionPort,
   type TaskFieldIntent,
+  type WriteAccess,
 } from "./port";
 import { applyTextEdit } from "./text";
 
@@ -206,11 +207,7 @@ export async function commitPass(
 
   const access = await deps.port.canWrite(pass.resource);
   if (!access.allowed) {
-    const kept = candidate(
-      pass,
-      operationId,
-      access.reason === "revoked" ? "access-revoked" : "read-only",
-    );
+    const kept = candidate(pass, operationId, deniedReason(access.reason));
     await deps.journal.putCandidate(kept);
     if (resume !== undefined)
       await deps.journal.put(advance(resume, "abandoned", { reason: kept.reason }));
@@ -281,14 +278,23 @@ async function refused(
   const kept = candidate(
     pass,
     entry.operationId,
-    error.code !== "NOT_WRITABLE"
-      ? "rejected"
-      : error.access === "revoked"
-        ? "access-revoked"
-        : "read-only",
+    error.code !== "NOT_WRITABLE" ? "rejected" : deniedReason(error.access),
   );
   await deps.journal.putCandidate(kept);
   return { kind: "kept", candidate: kept };
+}
+
+/**
+ * Why a write was not allowed, as the kept candidate records it. A server
+ * refusal (LFCP-02-115) names no cause: it is "access-refused", never
+ * read-only or revoked.
+ */
+function deniedReason(reason: WriteAccess["reason"]): PendingCandidate["reason"] {
+  return reason === "revoked"
+    ? "access-revoked"
+    : reason === "server-refused"
+      ? "access-refused"
+      : "read-only";
 }
 
 /** What a restart does with one unfinished entry (journal.recovery, contract §7.7). */

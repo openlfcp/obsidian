@@ -53,6 +53,8 @@ export interface PendingCandidate {
     | "base-unknown"
     | "read-only"
     | "access-revoked"
+    /** The server refuses this client the Resource; it says no reason (LFCP-02-115). */
+    | "access-refused"
     | "rejected";
   /** The exact local source of the affected region (private). */
   readonly sourceText: string;

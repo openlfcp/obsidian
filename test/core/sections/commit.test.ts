@@ -237,6 +237,7 @@ describe("edits that may not be sent stay local candidates", () => {
     for (const [reason, kept] of [
       ["read-only", "read-only"],
       ["revoked", "access-revoked"],
+      ["server-refused", "access-refused"],
     ] as const) {
       const { d, port, journal } = deps();
       port.access = { allowed: false, reason };
@@ -256,11 +257,12 @@ describe("edits that may not be sent stay local candidates", () => {
       ["SECTION_IMPORTING", { kind: "importing" }],
       ["NOT_WRITABLE", { kind: "kept", candidate: { reason: "read-only" } }],
       ["NOT_WRITABLE:revoked", { kind: "kept", candidate: { reason: "access-revoked" } }],
+      ["NOT_WRITABLE:server-refused", { kind: "kept", candidate: { reason: "access-refused" } }],
       ["PARENT_CYCLE", { kind: "kept", candidate: { reason: "rejected" } }],
     ] as const;
     for (const [given, expected] of cases) {
       const { d, port, journal } = deps();
-      const [code, access] = given.split(":") as [string, "revoked" | undefined];
+      const [code, access] = given.split(":") as [string, "revoked" | "server-refused" | undefined];
       port.fail({ kind: "refuse", code, ...(access === undefined ? {} : { access }) });
       const out = await commitPass(
         d,
