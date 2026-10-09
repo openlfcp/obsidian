@@ -41,6 +41,11 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         },
       },
       {
+        name: "Local encryption",
+        searchable: false,
+        render: (setting) => this.#encryption(setting),
+      },
+      {
         name: "Ref placement",
         desc: "Where new lfcp-ref markers go, for shared tasks and in shared sections: on the line after the task (recommended) or on the task line. On the task line, the marker goes before the Tasks plugin's dates and other fields, which that plugin needs to find them. Existing refs keep their placement.",
         control: {
@@ -91,6 +96,29 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       this.plugin.settings.defaultServer = value;
     else return;
     await this.plugin.saveSettings();
+  }
+
+  /**
+   * LFCP-02-098 §8: the local encryption status line, and rotation. Never
+   * key bytes or stored content.
+   */
+  #encryption(setting: Setting): void {
+    const runtime = this.plugin.runtime;
+    setting.setDesc(
+      "Shared Tasks keeps its local copies (task and section text, recovery copies) encrypted on this device, with a key in the system's secret storage.",
+    );
+    if (runtime === null) return;
+    void runtime.localStateDiagnostics().then((report) => {
+      setting.setDesc(
+        `Shared Tasks keeps its local copies encrypted on this device, with a key in the system's secret storage. ${runtime.localStateSummary(report)}`,
+      );
+    });
+    setting.addButton((button) =>
+      button.setButtonText("Rotate key").onClick(async () => {
+        await this.plugin.rotateLocalEncryptionKey();
+        this.update();
+      }),
+    );
   }
 
   /** The identity row: its state, and "Create a new identity" when it is locked. */

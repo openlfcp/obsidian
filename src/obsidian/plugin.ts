@@ -112,6 +112,11 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({ id: command.id, name: command.name, callback: () => void run() });
     }
     this.addCommand({
+      id: "rotate-local-encryption-key",
+      name: "Rotate local encryption key",
+      callback: () => void this.rotateLocalEncryptionKey(),
+    });
+    this.addCommand({
       id: "repair-moved-ref",
       name: "Repair moved shared task ref",
       callback: () => void this.repairActiveNote(),
@@ -237,6 +242,13 @@ export default class OpenLfcpPlugin extends Plugin {
       }
       this.runtime = runtime;
       runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
+      // LFCP-02-098 §7: rows sealed under a lost key read as absent; said once.
+      runtime.onLocalStateUnreadable(() => {
+        new Notice(
+          "Shared Tasks: some local recovery copies could not be read, because this device's local encryption key is missing. Your notes are unchanged; shared tasks and sections check their state with the server again.",
+          0,
+        );
+      });
       this.#watchBlocked(runtime);
       this.#watchRefused(runtime);
       this.#watchObjects(runtime);
@@ -517,6 +529,27 @@ export default class OpenLfcpPlugin extends Plugin {
   // data.json changed outside the plugin, e.g. through vault sync.
   override async onExternalSettingsChange(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
+  }
+
+  /**
+   * LFCP-02-098 §8: new local state keys for this vault on this device, every
+   * stored row sealed again. Says how it went, with the status line.
+   */
+  async rotateLocalEncryptionKey(): Promise<void> {
+    const runtime = this.runtime;
+    if (runtime === null) {
+      new Notice("Shared Tasks: still starting. Try again in a moment.");
+      return;
+    }
+    try {
+      await runtime.rotateLocalStateKey();
+      const line = runtime.localStateSummary(await runtime.localStateDiagnostics());
+      new Notice(`Shared Tasks: local encryption key rotated. ${line}`);
+    } catch (e) {
+      new Notice(
+        `Shared Tasks: the local encryption key could not be rotated (${e instanceof Error ? e.message : String(e)}). It continues on the next start.`,
+      );
+    }
   }
 
   /** The shared sections preview (null unless `sectionsPreview` is on). */
