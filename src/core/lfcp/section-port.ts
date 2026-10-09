@@ -28,6 +28,7 @@ import {
   type SectionSnapshot,
   type WriteAccess,
 } from "../sections/port";
+import type { RecoveryModel } from "../sections/recovery";
 import { fromSdkSnapshot } from "../sections/sdk-snapshot";
 
 /** What the port needs from the runtime: open section Resources and their session. */
@@ -96,6 +97,18 @@ export class SdkSectionPort implements SectionPort {
     return profile === undefined
       ? undefined
       : fromSdkSnapshot(profile.replica.snapshot(), sectionId);
+  }
+
+  /** The model as recovery reads it (061): one read of the tree, the snapshot and Task titles. */
+  recoveryModel(resource: string, sectionId: string): RecoveryModel | undefined {
+    const replica = this.resources.profile(asResource(resource))?.replica;
+    if (replica === undefined) return undefined;
+    return {
+      sectionId,
+      tree: replica.tree(),
+      snapshot: replica.snapshot(),
+      taskTitle: (taskId) => replica.task(taskId)?.task?.title,
+    };
   }
 
   /** A section Task with its conflict metadata (SectionReplica.task, the SOP §99 form). */

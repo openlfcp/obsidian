@@ -33,6 +33,7 @@ import { type InsertResult, SectionInsertion } from "../core/sections/insert";
 import { advance } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { parseSections } from "../core/sections/parser";
+import { applyRecovery, recoveryItems } from "../core/sections/recovery";
 import {
   preflight,
   proposeRange,
@@ -53,6 +54,7 @@ import { sectionEditorExtension } from "./section-editor";
 import { ReadingBadges, sectionStatusExtension, setSectionStatuses } from "./section-status";
 import { ImportSectionModal } from "./ui/import-section";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
+import { RecoveryModal } from "./ui/recovery";
 import { AliasModal, SectionCardModal } from "./ui/section-card";
 import { ShareSectionModal } from "./ui/share-section";
 
@@ -351,7 +353,15 @@ export class SectionsHost {
         }
         void run(commands);
       };
+    const b64 = key.slice(0, key.indexOf("#"));
+    const sectionId = key.slice(key.indexOf("#") + 1);
+    const model = this.#port?.recoveryModel(b64, sectionId);
+    const conflicts = model === undefined ? [] : recoveryItems(model);
     const actions = [
+      // Conflicts are resolved one by one, by the user (061).
+      ...(conflicts.length > 0
+        ? [{ label: "Review conflicts…", run: () => this.#openRecovery(key, title) }]
+        : []),
       // Inviting is offered by the validated access (060), never by default.
       ...(content.access?.canInvite === true
         ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
@@ -387,6 +397,23 @@ export class SectionsHost {
     );
     this.#card = { key, title, modal };
     modal.open();
+  }
+
+  /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
+  #openRecovery(key: string, title: string): void {
+    const port = this.#port;
+    if (port === null) return;
+    const b64 = key.slice(0, key.indexOf("#"));
+    const sectionId = key.slice(key.indexOf("#") + 1);
+    const items = () => {
+      const m = port.recoveryModel(b64, sectionId);
+      return m === undefined ? [] : recoveryItems(m);
+    };
+    new RecoveryModal(this.app, title, items(), async (item, choice) => {
+      const out = await applyRecovery(port, b64, sectionId, item, choice, crypto.randomUUID());
+      if (out.applied) this.scheduleStatus();
+      return out;
+    }).open();
   }
 
   /** What the card of `key` says now, or null while its status is unknown. */
