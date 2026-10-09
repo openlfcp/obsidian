@@ -5,6 +5,7 @@
 
 import "fake-indexeddb/auto";
 import type { WebSocketFactory, WebSocketLike } from "@openlfcp/client";
+import { localStateCipher } from "@openlfcp/crypto";
 import { IdbLfcpStorage } from "@openlfcp/storage-idb";
 import type { InstallStorage, LocalKeyValue } from "../../src/core/lfcp/install";
 import type { HeldLock, RuntimeEnv, Timers } from "../../src/core/lfcp/runtime";
@@ -98,8 +99,11 @@ export class Device {
     return {
       local,
       slots: this.slots,
-      openStorage: (name, onReserved): Promise<InstallStorage> =>
-        IdbLfcpStorage.open(name, { onReserved }),
+      openStorage: (name, onReserved, secrets): Promise<InstallStorage> =>
+        IdbLfcpStorage.open(name, {
+          onReserved,
+          localState: { secrets, cipher: localStateCipher },
+        }),
       ...(this.persistResult === undefined
         ? {}
         : { persist: async () => this.persistResult as boolean }),

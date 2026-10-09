@@ -32,7 +32,12 @@ import {
   importAgreementKey,
   importSigningKey,
 } from "@openlfcp/crypto";
-import { type LfcpStorage, principalKeySecretRef } from "@openlfcp/storage";
+import {
+  type LfcpStorage,
+  type LocalStateDiagnostics,
+  principalKeySecretRef,
+  type SecretStore,
+} from "@openlfcp/storage";
 import type { ReservedSequence } from "@openlfcp/storage-idb";
 import { principalDescriptorFromKeys, type Signer } from "@openlfcp/wire";
 import { isInstallId, markerSlotId, type SecretSlots, SlotSecretStore } from "./secrets";
@@ -51,13 +56,25 @@ export interface InstallStorage extends LfcpStorage {
   };
   counters(): Promise<ReadonlyMap<string, bigint>>;
   close(): void;
+  /** LFCP-02-098: a new local state key, every checkpoint sealed again. */
+  rotateLocalStateKey?(): Promise<void>;
+  /** LFCP-02-098: the checkpoints' encryption status (null: opened without it). */
+  localStateDiagnostics?(): Promise<LocalStateDiagnostics | null>;
 }
 
 export interface InstallEnv {
   readonly local: LocalKeyValue;
   readonly slots: SecretSlots;
-  /** Opens the install's database; `onReserved` runs after each durable reservation. */
-  openStorage(name: string, onReserved: (r: ReservedSequence) => void): Promise<InstallStorage>;
+  /**
+   * Opens the install's database; `onReserved` runs after each durable
+   * reservation. Its profile checkpoints are sealed with a local state key
+   * kept in `secrets`, the install's namespace (LFCP-02-098).
+   */
+  openStorage(
+    name: string,
+    onReserved: (r: ReservedSequence) => void,
+    secrets: SecretStore,
+  ): Promise<InstallStorage>;
   /** Asks the runtime to keep the storage from eviction (navigator.storage.persist). */
   persist?(): Promise<boolean>;
 }
@@ -179,6 +196,9 @@ function lockedStorage(storage: InstallStorage, reason: LockReason): InstallStor
     commit: (writes) => storage.commit(writes),
     counters: () => storage.counters(),
     close: () => storage.close(),
+    ...(storage.localStateDiagnostics === undefined
+      ? {}
+      : { localStateDiagnostics: storage.localStateDiagnostics.bind(storage) }),
   };
 }
 
@@ -223,7 +243,8 @@ export async function openInstall(env: InstallEnv): Promise<Install> {
   if (!isInstallId(installId)) return createInstall(env);
 
   const ref: SlotsRef = { slots: env.slots, marker: undefined };
-  const storage = await env.openStorage(databaseName(installId), mirror(ref));
+  const secrets = new SlotSecretStore(env.slots, installId);
+  const storage = await env.openStorage(databaseName(installId), mirror(ref), secrets);
   const meta = await storage.meta.get("install");
   const marker = readMarker(env.slots, installId);
   const locked = (reason: LockReason, principal: string | undefined): Install => ({
@@ -244,7 +265,6 @@ export async function openInstall(env: InstallEnv): Promise<Install> {
   )
     return locked("mismatch", meta.principal);
 
-  const secrets = new SlotSecretStore(env.slots, installId);
   const principal = await loadPrincipal(secrets, principalId(fromHex(meta.principal)));
   if (principal === undefined) return locked("keys-missing", meta.principal);
 
@@ -271,8 +291,8 @@ export async function openInstall(env: InstallEnv): Promise<Install> {
 export async function createInstall(env: InstallEnv): Promise<Install> {
   const installId = toHex(secureRandom(16));
   const ref: SlotsRef = { slots: env.slots, marker: undefined };
-  const storage = await env.openStorage(databaseName(installId), mirror(ref));
   const secrets = new SlotSecretStore(env.slots, installId);
+  const storage = await env.openStorage(databaseName(installId), mirror(ref), secrets);
   const signing = generateSigningKeyPair();
   const agreement = generateAgreementKeyPair();
   const descriptor = principalDescriptorFromKeys(signing, agreement);

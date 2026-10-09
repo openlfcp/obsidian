@@ -6,12 +6,14 @@
 // - Secrets: app.secretStorage (device-level, shared by all vaults; the
 //   SlotSecretStore namespaces them per install).
 // - Storage: IndexedDB through @openlfcp/storage-idb, in the app's profile
-//   directory, outside the vault (no sync provider ever sees the plaintext
-//   profile checkpoints or the sequence counters).
+//   directory, outside the vault (no sync provider ever sees it). Profile
+//   checkpoints are sealed with the install's local state key, kept in
+//   app.secretStorage (LFCP-02-098).
 // - Eviction: navigator.storage.persist() on first run; the result shows in
 //   settings. Writer lock: navigator.locks.
 // - Timers and the WebSocket are the window's.
 
+import { localStateCipher } from "@openlfcp/crypto";
 import { IdbLfcpStorage } from "@openlfcp/storage-idb";
 import type { App } from "obsidian";
 import type { HeldLock, RuntimeEnv } from "../core/lfcp/runtime";
@@ -67,7 +69,8 @@ export function obsidianRuntimeEnv(app: App): RuntimeEnv {
       get: (id) => app.secretStorage.getSecret(id),
       set: (id, value) => app.secretStorage.setSecret(id, value),
     },
-    openStorage: (name, onReserved) => IdbLfcpStorage.open(name, { onReserved }),
+    openStorage: (name, onReserved, secrets) =>
+      IdbLfcpStorage.open(name, { onReserved, localState: { secrets, cipher: localStateCipher } }),
     ...(canPersist(storage) ? { persist: () => storage.persist() } : {}),
     ...(locks === undefined ? {} : { acquireLock: (name) => acquireWebLock(locks, name) }),
     timers: {

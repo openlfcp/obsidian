@@ -312,8 +312,8 @@ export class E2EVault {
         instance.locks.add(release);
         return { release };
       },
-      openStorage: async (dbName, onReserved) => {
-        const storage = await base.openStorage(dbName, onReserved);
+      openStorage: async (dbName, onReserved, secrets) => {
+        const storage = await base.openStorage(dbName, onReserved, secrets);
         const hangs = (writes: readonly { op: string }[]) =>
           this.hangUnitCommits && writes.some((w) => w.op === "put-data-unit");
         return {

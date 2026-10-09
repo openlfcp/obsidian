@@ -91,9 +91,9 @@ describe("LfcpRuntime (LFCP-059)", () => {
       initializeAutomerge: async () => {
         order.push("automerge");
       },
-      openStorage: (name, onReserved) => {
+      openStorage: (name, onReserved, secrets) => {
         order.push("storage");
-        return env.openStorage(name, onReserved);
+        return env.openStorage(name, onReserved, secrets);
       },
     });
     running.push(r);
