@@ -371,13 +371,20 @@ export class ReadingBadges {
   }
 }
 
-/** The shared section a line is in (heading to end marker): its key and title. */
+/**
+ * The shared section a line is in (heading to end marker): its key and
+ * title. A copy with a damaged boundary runs from its heading (or start
+ * marker) to the end of the note, as the parser claims it (C17, 064).
+ */
 export function sectionAtLine(
   text: string,
   line: number,
 ): { readonly key: string; readonly title: string } | null {
-  const s = parseSections(text).sections.find((x) => line >= x.heading.line && line <= x.endLine);
-  return s === undefined ? null : { key: sectionKey(s.ref), title: s.heading.title };
+  const scan = parseSections(text);
+  const s = scan.sections.find((x) => line >= x.heading.line && line <= x.endLine);
+  if (s !== undefined) return { key: sectionKey(s.ref), title: s.heading.title };
+  const d = [...scan.damaged].reverse().find((x) => line >= (x.heading?.line ?? x.startLine));
+  return d === undefined ? null : { key: sectionKey(d.ref), title: d.heading?.title ?? "" };
 }
 
 /**
@@ -401,7 +408,10 @@ export function sectionProblems(
     if (lines.length === 0 && blockingSignature(view) !== null) lines.push(s.heading.line);
     for (const line of lines) out.push({ line, title: s.heading.title });
   }
-  return out;
+  // A copy with a damaged boundary is a problem whatever its section's status (C17).
+  for (const d of parseSections(text).damaged)
+    out.push({ line: d.heading?.line ?? d.startLine, title: d.heading?.title ?? "" });
+  return out.sort((a, b) => a.line - b.line);
 }
 
 /** Moves the cursor to a line, unfolding what hides it, and scrolls it into view. */
