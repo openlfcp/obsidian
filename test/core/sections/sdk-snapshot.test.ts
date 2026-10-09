@@ -37,6 +37,20 @@ function section(ready = true): SectionReplica {
 const EMPTY = { textEdits: [], moves: [], missing: [], kindMismatch: [] };
 
 describe("fromSdkSnapshot", () => {
+  it("a scalar conflict is a problem of its node (SI07: attention, found by the native run)", () => {
+    const snap = section().snapshot();
+    const withConflict = {
+      ...snap,
+      problems: {
+        ...snap.problems,
+        scalarConflicts: [{ field: "title", id: T, values: ["Contract A", "Contract B"] }],
+      },
+    } as typeof snap;
+    expect(fromSdkSnapshot(withConflict, SECTION)?.problems).toEqual([
+      { code: "SCALAR_CONFLICT", nodeIds: [T] },
+    ]);
+  });
+
   it("maps nodes, parents, order, title and revision", () => {
     const r = section();
     const s = fromSdkSnapshot(r.snapshot(), SECTION);

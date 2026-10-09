@@ -47,6 +47,8 @@ export function fromSdkSnapshot(s: SdkSnapshot, sectionId: string): SectionSnaps
     ...s.problems.recovery.map((r) => ({ code: r.code, nodeIds: [r.id] })),
     ...s.problems.invalid.map((r) => ({ code: r.diagnostic, nodeIds: [r.id] })),
     ...s.problems.collisions.map((id) => ({ code: "NODE_ID_COLLISION", nodeIds: [id] })),
+    // A field with concurrent values (a Task's title, …): attention, never current (SI07).
+    ...s.problems.scalarConflicts.map((c) => ({ code: "SCALAR_CONFLICT", nodeIds: [c.id] })),
     ...s.problems.retainedConcurrentEdits.map((id) => ({
       code: "EDIT_UNDER_DELETED_ANCESTOR",
       nodeIds: [id],
