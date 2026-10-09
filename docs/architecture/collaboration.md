@@ -76,6 +76,26 @@ every unit since the start.
   `live-sections.test.ts` publish with a threshold of 3 and check that the
   joiner's client reports `snapshot-loaded` for that Snapshot.
 
+## Removing access (LFCP-02-060)
+
+The section card lists the identities with access from the validated
+Control state (`core/status/access.ts`). "Remove access…" is offered on a
+row only when this vault holds `capability/revoke`, never for itself or the
+owner, and only while the view is connected, current and has no Control
+change of its own pending. Otherwise the card says why it waits (UX §7).
+
+- The user confirms first: "Remove future access to this shared section?
+  Copies already received cannot be erased."
+- `runtime.revokeSectionAccess` calls the SDK's `revokeAccess`. It revokes
+  the member's grants and, when they keep no read access, rotates the Data
+  Epoch. The new key goes only to the remaining readers.
+- Queued is not done: the card shows "Removing access: waiting for the
+  server" from `pendingControl` until the server commits the records (SI14).
+- Grants this vault cannot revoke are reported as remaining access, with
+  their issuer, never hidden.
+- A refusal (offline, stale view, own change pending, not authorized)
+  queues nothing and says so.
+
 ## Secrets
 
 - An invitation link is a bearer key. The flows return it as the SDK's
