@@ -39,12 +39,14 @@ import {
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
+import { type SectionCard, sectionCard } from "../core/status/card";
 import { observedFacts } from "../core/status/facts";
 import { type StatusView, statusView } from "../core/status/reducer";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
 import { ReadingBadges, sectionStatusExtension, setSectionStatuses } from "./section-status";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
+import { SectionCardModal } from "./ui/section-card";
 import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
@@ -62,8 +64,17 @@ export class SectionsHost {
   readonly #notes = new Map<string, Set<string>>();
   readonly editor: ReturnType<typeof sectionEditorExtension>;
   /** Section status badges (LFCP-02-058): in editors, and in Reading view. */
-  readonly status = sectionStatusExtension(() => this.#statuses);
-  readonly reading = new ReadingBadges((key) => this.#statuses.get(key));
+  readonly status = sectionStatusExtension(
+    () => this.#statuses,
+    (key, title) => void this.openCard(key, title),
+  );
+  readonly reading = new ReadingBadges(
+    (key) => this.#statuses.get(key),
+    (key, title) => void this.openCard(key, title),
+  );
+  /** The open details card, redrawn when its section's status changes. */
+  #card: { readonly key: string; readonly title: string; readonly modal: SectionCardModal } | null =
+    null;
   #statuses: ReadonlyMap<string, StatusView> = new Map();
   #statusRevision = 0;
   #statusDue: number | null = null;
@@ -82,6 +93,11 @@ export class SectionsHost {
     private readonly collab: () => Collaboration | null,
     /** The server a new section is hosted on (the default server setting). */
     private readonly server: () => string,
+    /** The collaboration commands for one Resource (the card's actions). */
+    private readonly commands: () => {
+      inviteTo(R: ResourceId): Promise<void>;
+      resourceStatusOf(R: ResourceId): Promise<void>;
+    } | null = () => null,
   ) {
     this.editor = sectionEditorExtension({
       engine: () => this.#engine,
@@ -277,6 +293,69 @@ export class SectionsHost {
     this.scheduleStatus();
   }
 
+  /**
+   * The details card of a section (LFCP-02-059), opened from its badge.
+   * Its actions run on the section's Resource after checking it is still
+   * here (stable ref, revalidated).
+   */
+  async openCard(key: string, title: string): Promise<void> {
+    const content = await this.#cardContent(key, title);
+    if (content === null) {
+      new Notice("Shared Tasks: this section is still loading. Try again in a moment.");
+      return;
+    }
+    const R = fromBase64url(key.slice(0, key.indexOf("#"))) as ResourceId;
+    const still =
+      (run: (c: NonNullable<ReturnType<typeof this.commands>>) => Promise<void>) => () => {
+        const commands = this.commands();
+        if (!this.#statuses.has(key) || commands === null) {
+          new Notice("Shared Tasks: this section is no longer on this device.");
+          return;
+        }
+        void run(commands);
+      };
+    const view = this.#statuses.get(key);
+    const actions = [
+      ...(view?.readOnly === true
+        ? []
+        : [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]),
+      { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
+    ];
+    this.#card?.modal.close();
+    const modal = new SectionCardModal(this.app, content, actions, () => {
+      if (this.#card?.modal === modal) this.#card = null;
+    });
+    this.#card = { key, title, modal };
+    modal.open();
+  }
+
+  /** What the card of `key` says now, or null while its status is unknown. */
+  async #cardContent(key: string, title: string): Promise<SectionCard | null> {
+    const view = this.#statuses.get(key);
+    const at = key.indexOf("#");
+    if (view === undefined || at < 0) return null;
+    const b64 = key.slice(0, at);
+    const sectionId = key.slice(at + 1);
+    const R = fromBase64url(b64) as ResourceId;
+    const status = await this.collab()
+      ?.status(R)
+      .catch(() => undefined);
+    const nodes = Object.values(this.#port?.snapshot(b64, sectionId)?.nodes ?? {}).filter(
+      (n) => n.lifecycle === "active" && n.hidden !== true,
+    );
+    const count = (kind: string) => nodes.filter((n) => n.kind === kind).length;
+    return sectionCard({
+      title,
+      view,
+      resource: b64,
+      sectionId,
+      ...(status === undefined
+        ? {}
+        : { participants: status.participants, hosting: status.hosting }),
+      counts: { tasks: count("task"), paragraphs: count("paragraph"), items: count("item") },
+    });
+  }
+
   /** Recomputes the sections' statuses soon (several triggers make one pass). */
   scheduleStatus(): void {
     if (this.#statusDue !== null) return;
@@ -352,6 +431,11 @@ export class SectionsHost {
     this.#statuses = next;
     for (const view of this.status.views) view.dispatch({ effects: setSectionStatuses.of(next) });
     this.reading.update();
+    const card = this.#card;
+    if (card !== null) {
+      const content = await this.#cardContent(card.key, card.title);
+      if (content !== null) card.modal.update(content);
+    }
   }
 
   #openEditor(path: string): Editor | null {

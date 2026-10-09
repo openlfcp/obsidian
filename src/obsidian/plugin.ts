@@ -146,6 +146,7 @@ export default class OpenLfcpPlugin extends Plugin {
         () => this.settings.sectionComments,
         () => this.#collaboration(),
         () => this.settings.defaultServer,
+        () => ui,
       );
       this.registerEditorExtension(this.sections.editor.extension);
       // LFCP-02-058: the shared mark and sync status after each section heading.

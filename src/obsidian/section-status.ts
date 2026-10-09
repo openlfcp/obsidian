@@ -18,7 +18,7 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import { toBase64url } from "@openlfcp/core";
-import type { MarkdownPostProcessorContext } from "obsidian";
+import { displayTooltip, type MarkdownPostProcessorContext } from "obsidian";
 import type { SectionRef } from "../core/sections/grammar";
 import { type ParsedSection, parseSections, type SectionNode } from "../core/sections/parser";
 import { sectionPresentation } from "../core/sections/presentation";
@@ -100,6 +100,34 @@ export function renderBadge(el: HTMLElement, badge: HeadingBadge): void {
   el.appendChild(slot);
 }
 
+/** Opens a section's details card (LFCP-02-059): its key and its title as the note shows it. */
+export type OpenCard = (key: string, title: string) => void;
+
+/**
+ * Makes a badge interactive, once: the short tooltip on hover and focus,
+ * the details card on click, Enter or Space. It reads the badge's data at
+ * event time, so a redraw in place keeps it working.
+ */
+export function attachBadge(el: HTMLElement, open: OpenCard): void {
+  const show = () => {
+    const tip = el.dataset.tooltip;
+    if (tip !== undefined && tip !== "") displayTooltip(el, tip, { placement: "top" });
+  };
+  const activate = (e: Event) => {
+    e.preventDefault();
+    e.stopPropagation();
+    open(el.dataset.section ?? "", el.dataset.title ?? "");
+  };
+  el.addEventListener("mouseenter", show);
+  el.addEventListener("focus", show);
+  // A press on the badge must not move the editor's cursor.
+  el.addEventListener("mousedown", (e) => e.preventDefault());
+  el.addEventListener("click", activate);
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") activate(e);
+  });
+}
+
 const CUE_LABEL: Readonly<Record<RowCue, string>> = {
   pending: "Local update waiting",
   attention: "Needs attention",
@@ -129,19 +157,32 @@ export const badgeOf = (title: string, view: StatusView | undefined): HeadingBad
   view === undefined ? LOADING(title) : headingBadge(title, view);
 
 class BadgeWidget extends WidgetType {
-  constructor(readonly badge: HeadingBadge) {
+  constructor(
+    readonly badge: HeadingBadge,
+    readonly key: string,
+    readonly title: string,
+    readonly open: OpenCard,
+  ) {
     super();
   }
   override eq(other: BadgeWidget): boolean {
-    return JSON.stringify(other.badge) === JSON.stringify(this.badge);
+    return (
+      other.key === this.key &&
+      other.title === this.title &&
+      JSON.stringify(other.badge) === JSON.stringify(this.badge)
+    );
   }
   toDOM(view: EditorView): HTMLElement {
     const el = view.dom.ownerDocument.createElement("span");
     renderBadge(el, this.badge);
+    el.dataset.section = this.key;
+    el.dataset.title = this.title;
+    attachBadge(el, this.open);
     return el;
   }
+  /** The badge handles its own events; the editor leaves them alone. */
   override ignoreEvent(): boolean {
-    return false;
+    return true;
   }
 }
 
@@ -168,7 +209,11 @@ function rows(nodes: readonly SectionNode[], binding: ReadonlySet<number>): RowN
   });
 }
 
-function build(state: EditorState, statuses: ReadonlyMap<string, StatusView>): DecorationSet {
+function build(
+  state: EditorState,
+  statuses: ReadonlyMap<string, StatusView>,
+  open: OpenCard,
+): DecorationSet {
   const text = state.doc.toString();
   if (!text.includes("lfcp-section")) return Decoration.none;
   const sections: readonly ParsedSection[] = parseSections(text).sections;
@@ -188,9 +233,15 @@ function build(state: EditorState, statuses: ReadonlyMap<string, StatusView>): D
     const view = statuses.get(sectionKey(s.ref));
     const heading = state.doc.line(s.heading.line + 1);
     out.push(
-      Decoration.widget({ widget: new BadgeWidget(badgeOf(s.heading.title, view)), side: 1 }).range(
-        heading.to,
-      ),
+      Decoration.widget({
+        widget: new BadgeWidget(
+          badgeOf(s.heading.title, view),
+          sectionKey(s.ref),
+          s.heading.title,
+          open,
+        ),
+        side: 1,
+      }).range(heading.to),
     );
     if (view === undefined) continue;
     for (const [line, cue] of rowCues(view, rows(s.nodes, binding), foldedAt)) {
@@ -214,7 +265,10 @@ interface Value {
  * The editor extension and its live editors (to send them new statuses);
  * `initial` gives the statuses known when an editor opens.
  */
-export function sectionStatusExtension(initial: () => ReadonlyMap<string, StatusView>): {
+export function sectionStatusExtension(
+  initial: () => ReadonlyMap<string, StatusView>,
+  open: OpenCard,
+): {
   readonly extension: Extension;
   readonly views: ReadonlySet<EditorView>;
 } {
@@ -222,7 +276,7 @@ export function sectionStatusExtension(initial: () => ReadonlyMap<string, Status
   const field = StateField.define<Value>({
     create: (state) => {
       const statuses = initial();
-      return { statuses, deco: build(state, statuses) };
+      return { statuses, deco: build(state, statuses, open) };
     },
     update(value, tr) {
       let statuses = value.statuses;
@@ -233,7 +287,7 @@ export function sectionStatusExtension(initial: () => ReadonlyMap<string, Status
           changed = true;
         } else if (e.is(foldEffect) || e.is(unfoldEffect)) changed = true;
       }
-      return changed ? { statuses, deco: build(tr.state, statuses) } : value;
+      return changed ? { statuses, deco: build(tr.state, statuses, open) } : value;
     },
     provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
   });
@@ -257,7 +311,10 @@ export function sectionStatusExtension(initial: () => ReadonlyMap<string, Status
 export class ReadingBadges {
   readonly #rendered = new Map<string, Set<HTMLElement>>();
 
-  constructor(private readonly status: (key: string) => StatusView | undefined) {}
+  constructor(
+    private readonly status: (key: string) => StatusView | undefined,
+    private readonly open: OpenCard,
+  ) {}
 
   render(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
     const heading = el.querySelector("h1, h2, h3, h4, h5, h6");
@@ -273,6 +330,7 @@ export class ReadingBadges {
     renderBadge(badge, badgeOf(section.heading.title, this.status(key)));
     badge.dataset.title = section.heading.title;
     badge.dataset.section = key;
+    attachBadge(badge, this.open);
     heading.appendChild(badge);
     this.#rendered.set(key, (this.#rendered.get(key) ?? new Set()).add(badge));
   }

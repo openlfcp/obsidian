@@ -383,6 +383,138 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(after.text).toBe(before);
   });
 
+  it("the badge opens the details card by keyboard; Escape closes it, focus comes back (LFCP-02-059)", async () => {
+    /** Opens `file` in Live Preview and its first badge's card by Enter; what the card shows. */
+    const openCard = (file) =>
+      browser.executeObsidian(
+        async ({ app, obsidian }, file) => {
+          const leaf = app.workspace.getLeaf(false);
+          await leaf.openFile(app.vault.getFileByPath(file), { state: { mode: "source", source: false } });
+          const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+          let badge = null;
+          for (let i = 0; i < 60 && badge === null; i++) {
+            await new Promise((r) => setTimeout(r, 100));
+            badge = view.containerEl.querySelector(".cm-content .openlfcp-status");
+          }
+          badge.focus();
+          badge.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+          let card = null;
+          for (let i = 0; i < 60 && card === null; i++) {
+            await new Promise((r) => setTimeout(r, 100));
+            card = document.querySelector(".modal.openlfcp-section-card");
+          }
+          window.__lfcpBadge = badge;
+          return card === null
+            ? null
+            : {
+                title: card.querySelector(".modal-title")?.textContent,
+                role: card.getAttribute("role"),
+                text: card.textContent,
+                inNote: card.closest(".workspace-leaf-content") !== null,
+                images: card.querySelectorAll("img").length,
+                section: [...card.querySelectorAll(".openlfcp-card-technical li")]
+                  .map((li) => li.textContent)
+                  .find((t) => t.startsWith("Section:")),
+                buttons: [...card.querySelectorAll("button")].map((b) => b.textContent),
+              };
+        },
+        file,
+      );
+    const close = async () => {
+      await browser.keys("Escape");
+      return browser.executeObsidian(async ({ app, obsidian }) => {
+        for (let i = 0; i < 20 && document.querySelector(".modal.openlfcp-section-card") !== null; i++)
+          await new Promise((r) => setTimeout(r, 50));
+        const editor = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor;
+        editor.setSelection({ line: 0, ch: 0 }, { line: editor.lastLine(), ch: 0 });
+        return {
+          open: document.querySelector(".modal.openlfcp-section-card") !== null,
+          focusBack: document.activeElement === window.__lfcpBadge,
+          selection: editor.getSelection(),
+        };
+      });
+    };
+    const card = await openCard("share-create.md");
+    console.log(`EVIDENCE ${JSON.stringify({ id: "SECTION-CARD", card })}`);
+    expect(card).not.toBeNull();
+    expect(card.title).toBe('Shared section "Launch"');
+    expect(card.role).toBe("dialog");
+    expect(card.inNote).toBe(false);
+    expect(card.text).toContain("What is shared");
+    expect(card.text).toContain("You can edit this section.");
+    expect(card.buttons).toEqual(["Invite collaborator…", "Resource status"]);
+    const closed = await close();
+    expect(closed.open).toBe(false);
+    expect(closed.focusBack).toBe(true);
+    expect(closed.selection).not.toContain("What is shared");
+    // The same section from another note: the same section, whatever the title.
+    const again = await openCard("insert-target.md");
+    expect(again.section).toBe(card.section);
+    await close();
+  });
+
+  it("a heading with markup: the card shows it as text, nothing runs (LFCP-02-059)", async () => {
+    const note = ["## Plan <b>bold</b><img src=x onerror=\"window.__lfcpPwned=1\">", "Some text.", ""].join("\n");
+    await browser.executeObsidian(
+      async ({ app, obsidian }, text) => {
+        await app.vault.create("markup.md", text);
+        const leaf = app.workspace.getLeaf(false);
+        await leaf.openFile(app.vault.getFileByPath("markup.md"), { state: { mode: "source", source: true } });
+        const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        for (let i = 0; i < 40 && view.editor.getValue() !== text; i++)
+          await new Promise((r) => setTimeout(r, 50));
+        view.editor.setCursor({ line: 1, ch: 0 });
+        app.commands.executeCommandById("shared-tasks:share-section");
+        let share = null;
+        for (let i = 0; i < 40 && share === null; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          share =
+            [...document.querySelectorAll(".modal-container .modal button")].find(
+              (b) => b.textContent === "Share",
+            ) ?? null;
+        }
+        share.click();
+      },
+      note,
+    );
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(async ({ app }) =>
+          (await app.vault.adapter.read("markup.md")).includes("<!-- /lfcp-section: "),
+        ),
+      { timeout: 15000, timeoutMsg: "the markup section shared" },
+    );
+    const shown = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      let badge = null;
+      for (let i = 0; i < 60 && badge === null; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        badge = view.containerEl.querySelector(".cm-content .openlfcp-status");
+      }
+      badge.click();
+      let card = null;
+      for (let i = 0; i < 60 && card === null; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+        card = document.querySelector(".modal.openlfcp-section-card");
+      }
+      const result = {
+        title: card?.querySelector(".modal-title")?.textContent,
+        images: card?.querySelectorAll("img, b").length,
+        pwned: window.__lfcpPwned === 1,
+      };
+      return result;
+    });
+    await browser.keys("Escape");
+    await browser.waitUntil(
+      () => browser.executeObsidian(() => document.querySelector(".modal.openlfcp-section-card") === null),
+      { timeout: 5000, timeoutMsg: "the card closed" },
+    );
+    console.log(`EVIDENCE ${JSON.stringify({ id: "SECTION-CARD-MARKUP", shown })}`);
+    expect(shown.title).toBe('Shared section "Plan <b>bold</b><img src=x onerror="window.__lfcpPwned=1">"');
+    expect(shown.images).toBe(0);
+    expect(shown.pwned).toBe(false);
+  });
+
   it("a heading inside blocks the share, with a reason", async () => {
     const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
     const shown = await preview("share-nested.md", note, 0);
