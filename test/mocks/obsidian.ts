@@ -136,6 +136,22 @@ export class Workspace {
 /** Stands in for Obsidian's editor state field (the conflict decoration reads it). */
 export const editorInfoField = {};
 
+/** Obsidian's Platform: a desktop by default; a test may set isMobile (LFCP-02-095). */
+export const Platform = {
+  isMobile: false,
+  isMobileApp: false,
+  isDesktop: true,
+  isDesktopApp: true,
+  isMacOS: false,
+  isWin: false,
+  isLinux: true,
+  isIosApp: false,
+  isAndroidApp: false,
+};
+
+/** Obsidian's API version, as the diagnostics report reads it. */
+export const apiVersion = "1.13.4";
+
 export class App {
   readonly vault = new Vault();
   readonly workspace = new Workspace();
