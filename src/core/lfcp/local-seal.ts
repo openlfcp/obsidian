@@ -222,3 +222,32 @@ export async function idbMetaKeys(
     db.close();
   }
 }
+
+/**
+ * Whether IndexedDB database `name` exists and was written by a client
+ * before local state sealing (LFCP-02-055): no `local-state` row in its meta
+ * store. Null when it does not exist (nothing is created to find out).
+ */
+export async function idbBeforeSealing(
+  name: string,
+  factory: IDBFactory = indexedDB,
+): Promise<boolean | null> {
+  const list = await factory.databases?.();
+  if (list === undefined || !list.some((d) => d.name === name)) return null;
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const r = factory.open(name);
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error ?? new Error(`IndexedDB ${name} could not be opened`));
+  });
+  try {
+    if (!Array.from(db.objectStoreNames).includes("meta")) return true;
+    const value = await new Promise<unknown>((resolve, reject) => {
+      const r = db.transaction("meta", "readonly").objectStore("meta").get("local-state");
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error ?? new Error("the meta store could not be read"));
+    });
+    return value === undefined;
+  } finally {
+    db.close();
+  }
+}

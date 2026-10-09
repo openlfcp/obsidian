@@ -72,6 +72,7 @@ import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import {
   createInstall,
   databaseName,
+  INSTALL_KEY,
   type Install,
   type InstallEnv,
   LOCK_MESSAGES,
@@ -79,8 +80,8 @@ import {
   type LockReason,
   openInstall,
 } from "./install";
-import { idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
-import { SlotSecretStore } from "./secrets";
+import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
+import { isInstallId, SlotSecretStore } from "./secrets";
 
 export interface Timers {
   setInterval(fn: () => void, ms: number): unknown;
@@ -398,6 +399,12 @@ export class LfcpRuntime {
   static async start(env: RuntimeEnv): Promise<LfcpRuntime> {
     // Before any replica exists (the slim Automerge build needs it; a no-op otherwise).
     await (env.initializeAutomerge ?? initializeAutomerge)();
+    // The sync data of a plugin before 0.4, about to be upgraded (said once, LFCP-02-055).
+    const id = env.local.load(INSTALL_KEY);
+    const before =
+      isInstallId(id) && typeof indexedDB !== "undefined"
+        ? await idbBeforeSealing(databaseName(id)).catch(() => null)
+        : null;
     const install = await openInstall(env);
     const lock = await LfcpRuntime.#takeLock(env, install.installId);
     if (lock === undefined) {
@@ -415,8 +422,17 @@ export class LfcpRuntime {
         null,
       );
     }
-    return new LfcpRuntime(env, install, lock, await LfcpRuntime.#seal(env, install));
+    const sealed = await LfcpRuntime.#seal(env, install);
+    const runtime = new LfcpRuntime(env, install, lock, sealed);
+    runtime.upgradedLocalData = before === true && install.storage !== null;
+    return runtime;
   }
+
+  /**
+   * This start upgraded local data written by a plugin before 0.4 (LFCP-02-055):
+   * the plugin says so once, since that plugin can no longer open it.
+   */
+  upgradedLocalData = false;
 
   /** The lock, null when the runtime has no lock support, undefined when another instance holds it. */
   static async #takeLock(env: RuntimeEnv, installId: string): Promise<HeldLock | null | undefined> {

@@ -260,6 +260,12 @@ export default class OpenLfcpPlugin extends Plugin {
       }
       this.runtime = runtime;
       runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
+      // LFCP-02-055: local data of a plugin before 0.4 was upgraded now; said once.
+      if (runtime.upgradedLocalData)
+        new Notice(
+          "Shared Tasks upgraded its local data. Going back to a version before 0.4 will not open it; your notes are unchanged.",
+          0,
+        );
       // LFCP-02-098 §7: rows sealed under a lost key read as absent; said once.
       runtime.onLocalStateUnreadable(() => {
         new Notice(

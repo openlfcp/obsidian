@@ -65,6 +65,8 @@ describe("upgrade and downgrade (055)", () => {
 
     // 0.4: the same device and vault.
     const upgraded = await start(device.env(vault));
+    // Said once: this start upgraded the data of a plugin before 0.4.
+    expect(upgraded.upgradedLocalData).toBe(true);
     const after = upgraded.status;
     if (after.kind !== "ready") throw new Error(after.kind);
     expect(toHex(after.principalId)).toBe(toHex(before.principalId));
@@ -82,6 +84,9 @@ describe("upgrade and downgrade (055)", () => {
     });
     expect((await upgraded.storage?.outbound.list(R))?.length).toBe(queued.length + 1);
     await stop(upgraded);
+    const next = await start(device.env(vault));
+    expect(next.upgradedLocalData).toBe(false);
+    await stop(next);
     // The 0.3.x plaintext checkpoint is sealed now.
     const rows = await dump(databaseName(installId));
     expect(rows.filter((v) => holds(v, CANARY)).length).toBe(0);
@@ -89,6 +94,8 @@ describe("upgrade and downgrade (055)", () => {
 
   it("CM02: a section beside legacy Tasks: each Resource by its own profile, no cross-profile write", async () => {
     const r = await start(new Device().env(new FakeLocal()));
+    // A new install is not an upgrade.
+    expect(r.upgradedLocalData).toBe(false);
     const status = r.status;
     if (status.kind !== "ready") throw new Error(status.kind);
     const collab = new Collaboration(r, { sleep, connectTimeoutMs: 30 });
