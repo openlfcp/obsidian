@@ -89,6 +89,7 @@ export default class OpenLfcpPlugin extends Plugin {
       guard: this.guard,
       placement: () => this.settings.refPlacement,
       defaultServer: () => this.settings.defaultServer,
+      sections: () => this.settings.sectionsPreview,
       wrote: (path, markdown) => this.#enqueue(() => this.projection.reindex(path, markdown)),
     });
     const handlers: Readonly<Record<string, () => Promise<void>>> = {
@@ -191,6 +192,7 @@ export default class OpenLfcpPlugin extends Plugin {
         runtime,
         flows: new Collaboration(runtime, {
           sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+          sections: this.settings.sectionsPreview,
         }),
       };
     return this.#collab.flows;

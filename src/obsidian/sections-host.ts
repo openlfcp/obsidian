@@ -214,6 +214,7 @@ export class SectionsHost {
       );
       return;
     }
+    await this.#watch(choice.resource as ResourceId);
     const modal = new InsertSectionModal(this.app, preview);
     modal.open();
     if (!(await modal.result)) return;

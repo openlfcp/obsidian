@@ -301,6 +301,35 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(out.text).toContain("Draft the plan.\n");
   });
 
+  it("Invite collaborator refuses a section its server does not hold yet (LFCP-02-051)", async () => {
+    await browser.executeObsidian(async () => {
+      for (const n of document.querySelectorAll(".notice")) n.remove();
+    });
+    await browser.executeObsidian(async ({ app }) => {
+      app.commands.executeCommandById("shared-tasks:invite-collaborator");
+      let item = null;
+      for (let i = 0; i < 40 && item === null; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        item =
+          [...document.querySelectorAll(".suggestion-item")].find(
+            (e) => e.firstElementChild?.textContent === "Launch",
+          ) ?? null;
+      }
+      item.click();
+    });
+    const notice = await browser.waitUntil(
+      () =>
+        browser.executeObsidian(() =>
+          [...document.querySelectorAll(".notice")]
+            .map((n) => n.textContent)
+            .find((t) => t.includes("not on its server yet")),
+        ),
+      { timeout: 8000, timeoutMsg: "the not-hosted notice" },
+    );
+    console.log(`EVIDENCE ${JSON.stringify({ id: "INVITE-NOT-HOSTED", notice })}`);
+    expect(notice).toContain("Host it first");
+  });
+
   it("a heading inside blocks the share, with a reason", async () => {
     const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
     const shown = await preview("share-nested.md", note, 0);
