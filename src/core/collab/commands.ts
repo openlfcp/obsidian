@@ -576,30 +576,44 @@ export class CollabCommands {
         sectionsOk: this.#env.sections?.() === true,
       });
       if (R === null) return;
-      // A section not hosted or not ready is refused before any question.
-      await collab.checkInvitable(R);
-      const preset = await p.choose<InvitePreset>({
-        title: "What may they do?",
-        choices: (Object.keys(INVITE_PRESETS) as InvitePreset[]).map((k) => ({
-          label: INVITE_PRESETS[k].label,
-          description: `${INVITE_PRESETS[k].description} One-time link.`,
-          value: k,
-        })),
-      });
-      if (preset === null) return;
-      const progress = p.progress("Creating invitation");
-      let invitation: Awaited<ReturnType<Collaboration["invite"]>>;
-      try {
-        progress.update("Recording the invitation and sending it to the server…");
-        invitation = await collab.invite(R, preset);
-      } finally {
-        progress.close();
-      }
-      await p.invitation({
-        link: invitation.link,
-        preset: INVITE_PRESETS[preset].label,
-        confirmed: invitation.confirmed,
-      });
+      await this.#inviteTo(collab, R);
+    });
+  }
+
+  /** "Invite collaborator" for one Resource (a section's details card, LFCP-02-059). */
+  inviteTo(R: ResourceId): Promise<void> {
+    return this.#run("Creating the invitation", async () => {
+      const collab = this.#collab();
+      if (collab === null) return;
+      await this.#inviteTo(collab, R);
+    });
+  }
+
+  async #inviteTo(collab: Collaboration, R: ResourceId): Promise<void> {
+    const p = this.#env.prompter;
+    // A section not hosted or not ready is refused before any question.
+    await collab.checkInvitable(R);
+    const preset = await p.choose<InvitePreset>({
+      title: "What may they do?",
+      choices: (Object.keys(INVITE_PRESETS) as InvitePreset[]).map((k) => ({
+        label: INVITE_PRESETS[k].label,
+        description: `${INVITE_PRESETS[k].description} One-time link.`,
+        value: k,
+      })),
+    });
+    if (preset === null) return;
+    const progress = p.progress("Creating invitation");
+    let invitation: Awaited<ReturnType<Collaboration["invite"]>>;
+    try {
+      progress.update("Recording the invitation and sending it to the server…");
+      invitation = await collab.invite(R, preset);
+    } finally {
+      progress.close();
+    }
+    await p.invitation({
+      link: invitation.link,
+      preset: INVITE_PRESETS[preset].label,
+      confirmed: invitation.confirmed,
     });
   }
 
@@ -612,33 +626,46 @@ export class CollabCommands {
         unsupportedOk: true,
       });
       if (R === null) return;
-      const status = await collab.status(R);
-      const actions: Choice<() => Promise<void>>[] = [];
-      // A shared section (sections preview) is hosted like a collaboration.
-      const section =
-        this.#env.sections?.() === true &&
-        (await collab.list()).find((e) => toHex(e.resourceId) === toHex(R))?.profile ===
-          SECTIONS_PROFILE_ID;
-      if (
-        status.hosting !== "hosted" &&
-        !status.blocked &&
-        (status.state !== "unsupported" || section)
-      )
-        actions.push({
-          label: "Host on the server now",
-          value: async () => {
-            const h = await collab.host(R);
-            this.#env.prompter.notice(
-              h.kind === "hosted"
-                ? "Shared Tasks: hosted."
-                : h.kind === "pending"
-                  ? `Shared Tasks: ${h.reason}`
-                  : `Shared Tasks: the server refused. ${h.message}`,
-            );
-          },
-        });
-      await this.#env.prompter.status(status, actions);
+      await this.#statusOf(collab, R);
     });
+  }
+
+  /** "Resource status" for one Resource (a section's details card, LFCP-02-059). */
+  resourceStatusOf(R: ResourceId): Promise<void> {
+    return this.#run("Showing the status", async () => {
+      const collab = this.#collab();
+      if (collab === null) return;
+      await this.#statusOf(collab, R);
+    });
+  }
+
+  async #statusOf(collab: Collaboration, R: ResourceId): Promise<void> {
+    const status = await collab.status(R);
+    const actions: Choice<() => Promise<void>>[] = [];
+    // A shared section (sections preview) is hosted like a collaboration.
+    const section =
+      this.#env.sections?.() === true &&
+      (await collab.list()).find((e) => toHex(e.resourceId) === toHex(R))?.profile ===
+        SECTIONS_PROFILE_ID;
+    if (
+      status.hosting !== "hosted" &&
+      !status.blocked &&
+      (status.state !== "unsupported" || section)
+    )
+      actions.push({
+        label: "Host on the server now",
+        value: async () => {
+          const h = await collab.host(R);
+          this.#env.prompter.notice(
+            h.kind === "hosted"
+              ? "Shared Tasks: hosted."
+              : h.kind === "pending"
+                ? `Shared Tasks: ${h.reason}`
+                : `Shared Tasks: the server refused. ${h.message}`,
+          );
+        },
+      });
+    await this.#env.prompter.status(status, actions);
   }
 
   detachSharedTask(): Promise<void> {
