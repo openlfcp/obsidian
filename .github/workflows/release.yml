@@ -7,10 +7,23 @@ name: Release
 # tag that is not the manifest version. Assets: main.js, manifest.json and
 # styles.css, nothing else (the community directory flags extra files). The
 # notes come from docs/releases/<version>.md, which must exist.
+#
+# Betas (LFCP-02-094): a tag X.Y.Z-beta.N makes a GitHub pre-release with
+# the same three attested assets; its manifest asset comes from
+# manifest-beta.json, since manifest.json on main keeps the catalog version
+# until GA. BRAT installs pre-releases; the catalog does not see them.
+#
+# Dry run: "Run workflow" with a version runs every check and builds the
+# assets on the chosen branch, without attesting or releasing anything.
 
 on:
   push:
-    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+    tags: ["[0-9]+.[0-9]+.[0-9]+", "[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to check as if tagged (X.Y.Z or X.Y.Z-beta.N); nothing is released"
+        required: true
 
 permissions:
   contents: read
@@ -24,6 +37,9 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
+    env:
+      # The tag, or the dry run's version.
+      VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
     defaults:
       run:
         working-directory: obsidian
@@ -59,10 +75,11 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm test
       - name: Build and check the release assets
-        run: node scripts/release-assets.mjs --tag "$GITHUB_REF_NAME"
+        run: node scripts/release-assets.mjs --tag "$VERSION"
       # Signed SLSA build provenance for the files Obsidian downloads; verify
       # with `gh attestation verify main.js --repo openlfcp/obsidian`.
       - name: Attest the release assets
+        if: github.event_name == 'push'
         uses: actions/attest@v4
         with:
           subject-path: |
@@ -70,14 +87,17 @@ jobs:
             obsidian/release/manifest.json
             obsidian/release/styles.css
       - name: Release notes exist
-        run: test -s "docs/releases/$GITHUB_REF_NAME.md"
+        run: test -s "docs/releases/$VERSION.md"
       - name: Create the GitHub release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          beta=()
+          case "$VERSION" in *-beta.*) beta=(--prerelease) ;; esac
+          gh release create "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "Shared Tasks $GITHUB_REF_NAME" \
-            --notes-file "docs/releases/$GITHUB_REF_NAME.md" \
+            --verify-tag "${beta[@]}" \
+            --title "Shared Tasks $VERSION" \
+            --notes-file "docs/releases/$VERSION.md" \
             release/main.js release/manifest.json release/styles.css

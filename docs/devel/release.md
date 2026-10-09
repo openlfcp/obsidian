@@ -64,5 +64,81 @@ On a pushed tag `X.Y.Z`:
    release the next patch version. Never re-tag a published version:
    BRAT users may have it.
 
+## Betas (pre-releases)
+
+A beta (LFCP-02-094) runs the pilot without updating catalog users: it is
+tagged `X.Y.Z-beta.N` and published as a GitHub **pre-release** with the
+same three attested assets. BRAT installs it; the community directory and
+Obsidian's own updates ignore pre-releases.
+
+`manifest.json` on `main` keeps the catalog version until GA (B14). A
+beta's manifest asset comes from `manifest-beta.json` at the repository
+root: the same manifest with `"version": "X.Y.Z-beta.N"`.
+`scripts/release-assets.mjs` refuses a beta whose `manifest-beta.json` is
+missing, differs from `manifest.json` in anything but the version, has
+another version than the tag, or is not newer than the catalog version.
+`package.json` and `versions.json` stay the catalog's.
+
+Before the first beta with shared sections: 087 is released (0.3.2 on
+`@openlfcp/*` 0.1.3), the owner has decided the public server quotas
+(B15), and 098 is fixed or accepted for the beta (B8). The release
+workflow builds only from the `@openlfcp/*` npm packages
+(`scripts/check-release-deps.mjs`), so the beta's commit carries npm
+versions of the SDK, not the development pin.
+
+### The owner's steps for a beta
+
+1. On `main`, pushed with CI green: `manifest-beta.json` with the beta
+   version, and `docs/releases/X.Y.Z-beta.N.md`. Check locally:
+
+   ```sh
+   node scripts/release-assets.mjs --tag 0.4.0-beta.1
+   ```
+
+   It ends with `release: Shared Tasks 0.4.0-beta.1 (shared-tasks)
+   pre-release in release/`.
+
+2. Dry run on GitHub, without a tag: it runs every check and builds the
+   assets, and releases nothing.
+
+   ```sh
+   gh workflow run release.yml --repo openlfcp/obsidian --ref main -f version=0.4.0-beta.1
+   gh run watch --repo openlfcp/obsidian
+   ```
+
+3. Tag and push the tag:
+
+   ```sh
+   git -C ~/dev/openlfcp/obsidian tag -a 0.4.0-beta.1 -m "Shared Tasks 0.4.0-beta.1"
+   git -C ~/dev/openlfcp/obsidian push origin 0.4.0-beta.1
+   ```
+
+4. Check the release: a pre-release, three assets, the manifest asset at
+   the beta version, provenance attested.
+
+   ```sh
+   gh release view 0.4.0-beta.1 --repo openlfcp/obsidian --json isPrerelease,assets
+   gh release download 0.4.0-beta.1 --repo openlfcp/obsidian --dir /tmp/st-beta
+   grep '"version"' /tmp/st-beta/manifest.json
+   gh attestation verify /tmp/st-beta/main.js --repo openlfcp/obsidian
+   ```
+
+5. Install it with BRAT, in a clean vault with Restricted mode off:
+   - install BRAT from Community plugins;
+   - run "BRAT: Add a beta plugin for testing", enter `openlfcp/obsidian`,
+     and pick the version `0.4.0-beta.1` (or the latest version, which
+     includes pre-releases);
+   - enable Shared Tasks; Settings → Community plugins shows
+     `0.4.0-beta.1`.
+   Pilot users do the same. A later beta reaches them through BRAT's
+   update check.
+
+6. Leaving the beta: remove the plugin from BRAT and install Shared Tasks
+   from Community plugins. A 0.4 beta upgrades local data, which 0.3.x
+   cannot open ([../releases/0.4-compatibility.md](../releases/0.4-compatibility.md)):
+   tell pilot users before they go back.
+
+A broken beta is never re-tagged: release the next `-beta.N`.
+
 The community directory submission comes after a BRAT beta; see
 [community-submission.md](community-submission.md).

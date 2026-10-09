@@ -6,3 +6,11 @@ export function releaseProblems(files: {
   pkg: { version?: string };
   versions: Record<string, string>;
 }): string[];
+
+export const BETA_TAG: RegExp;
+
+export function betaProblems(files: {
+  tag: string | null;
+  manifest: Record<string, unknown> & { version?: string };
+  beta: (Record<string, unknown> & { version?: string }) | null;
+}): string[];
