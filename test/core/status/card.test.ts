@@ -74,6 +74,17 @@ describe("the section card", () => {
     expect(c.technical.join(" ")).toContain("Conditions: access, scalar-conflict");
   });
 
+  it("115: refused by the server: says so without a cause, keeps the copy, names the owner", () => {
+    const c = card({ access: "refused" });
+    expect(c.problems).toEqual([
+      "The sync server no longer accepts changes from this vault for this section. Your local copy stays; new edits are kept on this device only. Ask the section's owner to check your access.",
+    ]);
+    expect(c.problems.join(" ")).not.toMatch(/removed|revoked/);
+    expect(c.facts).toContain("The sync server does not accept your edits to this section now.");
+    expect(c.facts).not.toContain("You can edit this section.");
+    expect(c.technical[0]).toBe("State: ATTENTION");
+  });
+
   it("read-only, and markup in a title is plain text", () => {
     const c = sectionCard({
       title: '<img src=x onerror="alert(1)">',

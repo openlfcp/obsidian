@@ -72,7 +72,11 @@ export interface StatusFacts {
   /** Local monotonic event generation, not a shared clock. */
   readonly revision: number;
   readonly replica: "not-loaded" | "importing" | "loaded" | "invalid-profile";
-  readonly access: "writer" | "reader" | "unavailable-key" | "unknown" | "revoked";
+  /**
+   * "refused": the server refuses this client the Resource (LFCP-02-115) and
+   * says no reason, so it is shown as refused, never as revoked or waiting.
+   */
+  readonly access: "writer" | "reader" | "unavailable-key" | "unknown" | "revoked" | "refused";
   /** Control actions requested and not committed (SI14): shown as pending, never as done. */
   readonly pendingControl: readonly string[];
   /** The Control view is behind the server's (027): access is being checked. */
@@ -160,7 +164,11 @@ export function statusView(facts: StatusFacts): StatusView {
   const failed = facts.batches.filter((b) => b.failed === true);
   if (failed.length > 0) c.push({ kind: "save-failed", batchIds: failed.map((b) => b.id) });
   // 2. Access, key or control rejection; an invalid profile.
-  if (facts.access === "revoked" || facts.access === "unavailable-key")
+  if (
+    facts.access === "revoked" ||
+    facts.access === "refused" ||
+    facts.access === "unavailable-key"
+  )
     c.push({ kind: "access", access: facts.access });
   if (facts.replica === "invalid-profile") c.push({ kind: "invalid-profile" });
   const rejected = facts.batches.filter((b) => b.rejection !== undefined);

@@ -116,6 +116,8 @@ function accessFact(a: WriteAccess): StatusFacts["access"] {
     case "revoked":
     case "not-member":
       return "revoked";
+    case "server-refused":
+      return "refused";
     default:
       return "unknown";
   }

@@ -239,6 +239,8 @@ describe("facts from the SDK's status and local observations", () => {
     expect(state({ allowed: false, reason: "revoked" })).toBe("ATTENTION");
     expect(state({ allowed: false, reason: "not-member" })).toBe("ATTENTION");
     expect(state({ allowed: false, reason: "key-unavailable" })).toBe("ATTENTION");
+    // LFCP-02-115: refused by the server, shown as refused, not as waiting to sync.
+    expect(state({ allowed: false, reason: "server-refused" })).toBe("ATTENTION");
     expect(state(null)).toBe("LOADING");
   });
 

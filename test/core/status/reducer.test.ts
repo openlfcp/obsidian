@@ -185,6 +185,15 @@ describe("OBSIDIAN-SYNC-INDICATORS-01 §10", () => {
     expect(v.conditions[0]).toEqual({ kind: "access", access: "revoked" });
   });
 
+  it("115: a member the server refuses is refused, not waiting to sync, even with work queued", () => {
+    const v = statusView(facts({ access: "refused", batches: [batch("b")] }));
+    expect(v.state).toBe("ATTENTION");
+    expect(v.conditions[0]).toEqual({ kind: "access", access: "refused" });
+    expect(v.conditions.some((c) => c.kind === "loading")).toBe(false);
+    expect(v.label).toBe("Needs your attention");
+    expect(v.pendingBatches).toBe(1);
+  });
+
   it("SI16: an empty queue with an unknown base: ATTENTION, not CURRENT", () => {
     expect(
       statusView(

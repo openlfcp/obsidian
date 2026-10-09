@@ -46,7 +46,9 @@ function problemText(c: Condition): string | null {
     case "access":
       return c.access === "revoked"
         ? "Your access to this section was removed. Your local copy stays; new edits are kept on this device only."
-        : "This device does not hold the section's key yet. Edits wait until it arrives.";
+        : c.access === "refused"
+          ? "The sync server no longer accepts changes from this vault for this section. Your local copy stays; new edits are kept on this device only. Ask the section's owner to check your access."
+          : "This device does not hold the section's key yet. Edits wait until it arrives.";
     case "invalid-profile":
       return "This section's data is not valid for this version of Shared Tasks.";
     case "rejected":
@@ -96,7 +98,12 @@ export function sectionCard(input: CardInput): SectionCard {
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");
   else
     facts.push("Current as last checked with the server. This does not mean others have seen it.");
-  facts.push(v.readOnly ? "You can read this section, not edit it." : "You can edit this section.");
+  if (v.conditions.some((c) => c.kind === "access" && c.access === "refused"))
+    facts.push("The sync server does not accept your edits to this section now.");
+  else
+    facts.push(
+      v.readOnly ? "You can read this section, not edit it." : "You can edit this section.",
+    );
   if (kinds.has("access-checking"))
     facts.push(
       "Access is being checked with the server: it may have changed since this device last saw it.",
