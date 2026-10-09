@@ -161,12 +161,20 @@ export default class OpenLfcpPlugin extends Plugin {
           const path = ctx.file?.path;
           if (path === undefined) return;
           void this.sections
-            ?.shareSection(editor)
+            ?.shareSection(editor, path)
             .then((approved) =>
               approved === null
                 ? undefined
                 : this.sections?.createSection(path, editor.getValue(), approved),
             );
+        },
+      });
+      this.addCommand({
+        id: "restore-section-import",
+        name: "Restore note before section import",
+        editorCallback: (_editor, ctx) => {
+          const path = ctx.file?.path;
+          if (path !== undefined) void this.sections?.restoreImport(path);
         },
       });
       this.addCommand({

@@ -515,6 +515,98 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(shown.pwned).toBe(false);
   });
 
+  it("0.1 shared tasks import into a new section and restore (LFCP-02-053/054)", async () => {
+    const text = ["## Sprint", "- [ ] Import contract", "  Private child note", "- [ ] Import venue", ""].join("\n");
+    await browser.executeObsidian(
+      async ({ app, obsidian }, text) => {
+        await app.vault.create("import.md", text);
+        await app.plugins.plugins["shared-tasks"].runtime.createResource({
+          name: "Legacy",
+          endpoints: ["ws://127.0.0.1:9/v1/ws"],
+          coordinatorUrl: "ws://127.0.0.1:9/v1/ws",
+        });
+        const leaf = app.workspace.getLeaf(false);
+        await leaf.openFile(app.vault.getFileByPath("import.md"), { state: { mode: "source", source: true } });
+        app.workspace.setActiveLeaf(leaf, { focus: true });
+        const editor = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor;
+        for (let i = 0; i < 40 && editor.getValue() !== text; i++) await new Promise((r) => setTimeout(r, 50));
+        editor.setSelection({ line: 1, ch: 0 }, { line: 3, ch: editor.getLine(3).length });
+        app.commands.executeCommandById("shared-tasks:share-selected-tasks");
+        let item = null;
+        for (let i = 0; i < 60 && item === null; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          item =
+            [...document.querySelectorAll(".suggestion-item")].find((e) =>
+              e.textContent.startsWith("Legacy"),
+            ) ?? null;
+        }
+        item.click();
+      },
+      text,
+    );
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(async ({ app }) =>
+          (await app.vault.adapter.read("import.md")).split("lfcp-ref:").length === 3,
+        ),
+      { timeout: 15000, timeoutMsg: "both tasks shared the 0.1 way" },
+    );
+    const shared = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      for (let i = 0; i < 40; i++) {
+        if (view.editor.getValue().split("lfcp-ref:").length === 3) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return view.editor.getValue();
+    });
+    const shown = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      view.editor.setCursor({ line: 1, ch: 0 });
+      app.commands.executeCommandById("shared-tasks:share-section");
+      let modal = null;
+      for (let i = 0; i < 60 && modal === null; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        modal =
+          [...document.querySelectorAll(".modal-container .modal")].find((m) =>
+            m.querySelector(".modal-title")?.textContent?.startsWith("Import"),
+          ) ?? null;
+      }
+      const result = { title: modal?.querySelector(".modal-title")?.textContent, text: modal?.textContent };
+      [...(modal?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Import")?.click();
+      return result;
+    });
+    expect(shown.title).toBe('Import "Sprint" as a new shared section');
+    expect(shown.text).toContain("The existing collaborations are not changed");
+    expect(shown.text).toContain("Private child note");
+    const legacyId = /lfcp1:([\w-]+)#task/.exec(shared)[1];
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(async ({ app }) => {
+          const t = await app.vault.adapter.read("import.md");
+          return t.includes("<!-- /lfcp-section: ");
+        }),
+      { timeout: 15000, timeoutMsg: "imported into a section" },
+    );
+    const imported = await browser.executeObsidian(({ app }) => app.vault.adapter.read("import.md"));
+    console.log(`EVIDENCE ${JSON.stringify({ id: "LEGACY-IMPORT", shared, imported })}`);
+    expect(imported).not.toContain(legacyId);
+    expect(imported).toContain("- [ ] Import contract");
+    expect(imported).toContain("Private child note");
+    // Restore: the note's view from before the import, 0.1 refs and all.
+    await browser.executeObsidian(async ({ app }) => {
+      app.commands.executeCommandById("shared-tasks:restore-section-import");
+    });
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(async ({ app }, legacyId) =>
+          (await app.vault.adapter.read("import.md")).includes(legacyId),
+        legacyId),
+      { timeout: 10000, timeoutMsg: "restored" },
+    );
+    const restored = await browser.executeObsidian(({ app }) => app.vault.adapter.read("import.md"));
+    expect(restored).toBe(shared);
+  });
+
   it("a heading inside blocks the share, with a reason", async () => {
     const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
     const shown = await preview("share-nested.md", note, 0);

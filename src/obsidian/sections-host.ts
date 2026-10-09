@@ -24,10 +24,12 @@ import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import type { Collaboration } from "../core/collab/service";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { SdkSectionPort } from "../core/lfcp/section-port";
+import { scanRefs } from "../core/refs";
 import { newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
 import { applyChanges, SectionEngine } from "../core/sections/engine";
 import { type InsertResult, SectionInsertion } from "../core/sections/insert";
+import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { parseSections } from "../core/sections/parser";
 import {
   preflight,
@@ -46,6 +48,7 @@ import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
 import { ReadingBadges, sectionStatusExtension, setSectionStatuses } from "./section-status";
+import { ImportSectionModal } from "./ui/import-section";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
 import { SectionCardModal } from "./ui/section-card";
 import { ShareSectionModal } from "./ui/share-section";
@@ -482,7 +485,7 @@ export class SectionsHost {
    * approved preview is revalidated against the note as it is then (UX02):
    * a changed range is shown again. Returns the approved preview, or null.
    */
-  async shareSection(editor: Editor): Promise<SharePreview | null> {
+  async shareSection(editor: Editor, path: string): Promise<SharePreview | null> {
     const md = editor.getValue();
     let line = editor.getCursor().line;
     let range: ShareRange | null = null;
@@ -492,6 +495,14 @@ export class SectionsHost {
       return null;
     }
     let preview = preflight(md, range);
+    // 0.1 shared Tasks in the range, and nothing else in the way: the explicit import (053).
+    if (
+      preview.problems.length > 0 &&
+      preview.problems.every((p) => p.code === "LEGACY_SHARED_TASKS")
+    ) {
+      await this.#importFlow(editor, path, range, preview.title);
+      return null;
+    }
     let note: string | undefined;
     for (;;) {
       const modal = new ShareSectionModal(this.app, preview, note);
@@ -506,6 +517,82 @@ export class SectionsHost {
       preview = now.preview;
       note = "The note changed while the preview was open. Review the section again.";
     }
+  }
+
+  /**
+   * Imports a range with 0.1 shared Tasks into a new shared section (053,
+   * 054): the preview and the user's choices first, then the journaled
+   * creation; the note's refs are replaced only once the copy is durable.
+   */
+  async #importFlow(editor: Editor, path: string, range: ShareRange, title: string): Promise<void> {
+    const runtime = this.#runtime;
+    const creation = this.#creation;
+    if (runtime === null || creation === null) {
+      new Notice("Shared Tasks: still starting. Try again in a moment.");
+      return;
+    }
+    const md = editor.getValue();
+    // The sources as this device holds them now (0.1 collaborations).
+    const sources = new Map<string, LegacySource>();
+    for (const p of scanRefs(md).projections) {
+      if (p.taskLine <= range.headingLine || p.taskLine > range.lastLine) continue;
+      const key = `${toBase64url(p.resourceId)}#${p.objectId}`;
+      if (sources.has(key)) continue;
+      try {
+        const R = p.resourceId as ResourceId;
+        const replica = (await runtime.profileOf(R)).replica;
+        const view = replica.task(p.objectId);
+        const pending = ((await runtime.storage?.outbound.list(R)) ?? []).length > 0;
+        if (view !== undefined)
+          sources.set(key, { view, revision: replica.heads().join(","), pending });
+      } catch {
+        // Not on this device, or another profile: the preflight blocks it.
+      }
+    }
+    const source = (resource: string, objectId: string) => sources.get(`${resource}#${objectId}`);
+    const preview = legacyPreflight(md, range, source);
+    const modal = new ImportSectionModal(this.app, title, preview);
+    modal.open();
+    const chosen = await modal.result;
+    if (chosen === null) return;
+    if (this.server().trim() === "") {
+      new Notice("Shared Tasks: set a default sync server in the settings to share a section.");
+      return;
+    }
+    let entry: CreationEntry;
+    try {
+      entry = await creation.prepareImport(path, editor.getValue(), range, source, chosen);
+    } catch (e) {
+      new Notice(
+        `Shared Tasks: the import cannot start (${e instanceof Error ? e.message : String(e)}). Nothing changed.`,
+      );
+      return;
+    }
+    await this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+  }
+
+  /**
+   * "Restore note before section import" (054): the latest import in this
+   * note gets its original view back; edits made on the new section since
+   * are kept beside it. The new section itself, and any invitation to it,
+   * stay as they are.
+   */
+  async restoreImport(path: string): Promise<void> {
+    const creation = this.#creation;
+    if (creation === null) return;
+    const last = (await creation.imports(path)).at(-1);
+    if (last === undefined) {
+      new Notice("Shared Tasks: no section import to restore in this note.");
+      return;
+    }
+    const out = await creation.rollback(last);
+    new Notice(
+      out.kind === "restored"
+        ? "Shared Tasks: the note shows its content from before the import again. The new shared section still exists; to stop sharing it, remove people's access."
+        : out.kind === "beside"
+          ? "Shared Tasks: the section was edited since the import, so the content from before is added after it for comparison. Nothing was removed."
+          : "Shared Tasks: this import cannot be restored here (its section is not in the note).",
+    );
   }
 
   /** The vault changed: notes with sections are indexed and reconciled when closed. */
