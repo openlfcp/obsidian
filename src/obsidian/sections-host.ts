@@ -160,6 +160,8 @@ export class SectionsHost {
 
   /** The note side of each section's status: projection facts and failed saves (SI12, SI16). */
   readonly #projectionFacts = new ProjectionFactsStore();
+  /** The revision each section was last nudged at for a lagging note (C14): once per revision. */
+  readonly #nudged = new Map<string, string>();
 
   /** The runtime is ready: the engine on the real SDK, section Resources opened, their notes reconciled. */
   async start(runtime: LfcpRuntime, principal: PrincipalId): Promise<void> {
@@ -756,6 +758,17 @@ export class SectionsHost {
       if (typeof sectionId !== "string") continue;
       const r = toBase64url(R);
       const snapshot = port.snapshot(r, sectionId);
+      // C14: a model change no event announced (a remote Task field edit) is
+      // still projected: one pass per new revision that some note lags.
+      const key = `${r}#${sectionId}`;
+      if (
+        snapshot !== undefined &&
+        this.#projectionFacts.behind(key, snapshot.revision) &&
+        this.#nudged.get(key) !== snapshot.revision
+      ) {
+        this.#nudged.set(key, snapshot.revision);
+        void this.#remote(R);
+      }
       const phase = runtime.phase(R);
       if (phase === "LIVE") this.#wasLive.add(hex);
       const facts = observedFacts({
