@@ -646,7 +646,10 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
       const diff = two.modal.querySelector(".openlfcp-share-content")?.textContent ?? "";
       [...two.modal.querySelectorAll("button")].find((b) => b.textContent === "Use the shared version").click();
       for (let i = 0; i < 40 && two.view.editor.getValue() === copy; i++) await new Promise((r) => setTimeout(r, 50));
-      return { labels, fixed, diff, lost: two.view.editor.getValue() };
+      // The dropped edit is never sent: the section's other note keeps the shared text.
+      await new Promise((r) => setTimeout(r, 2500));
+      const origin = await app.vault.adapter.read("share-create.md");
+      return { labels, fixed, diff, lost: two.view.editor.getValue(), origin };
     });
     console.log(`EVIDENCE ${JSON.stringify({ id: "SECTION-REPAIR", ...result })}`);
     expect(result.labels).toEqual([" After line 3: Draft the plan."]);
@@ -657,6 +660,7 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(result.lost.startsWith("PRIVATE_LOST_7d: mine\n\n## Launch\n")).toBe(true);
     expect(result.lost).toContain("\nDraft the plan.\n");
     expect(result.lost).not.toContain("edited offline");
+    expect(result.origin).not.toContain("edited offline");
   });
 
   it("a heading inside blocks the share, with a reason", async () => {

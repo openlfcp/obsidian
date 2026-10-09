@@ -504,7 +504,9 @@ export class SectionsHost {
           );
           return;
         }
-        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
+        // No base is stored here: the next pass seeds one once the note shows
+        // the model (CM11). A base saved now could meet the editor's old text
+        // and send the very edit the user chose to drop.
         this.editor.remoteChanged(path);
         new Notice(
           "Shared Tasks: this section shows the shared version now. Your previous text is kept as a recovery copy on this device.",
