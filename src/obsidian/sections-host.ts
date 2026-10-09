@@ -24,16 +24,18 @@ import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import type { Collaboration } from "../core/collab/service";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
-import { SdkSectionPort } from "../core/lfcp/section-port";
+import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { scanRefs } from "../core/refs";
+import { splitLines } from "../core/refs/lines";
 import { markdownState, newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
 import { applyChanges, SectionEngine, sameState, sharedState } from "../core/sections/engine";
+import { sameSection } from "../core/sections/grammar";
 import { type InsertResult, renderSection, SectionInsertion } from "../core/sections/insert";
 import { advance } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { type ParsedSection, parseSections } from "../core/sections/parser";
-import type { SectionSnapshot } from "../core/sections/port";
+import { CommitRefused, type SectionSnapshot } from "../core/sections/port";
 import { applyRecovery, recoveryItems } from "../core/sections/recovery";
 import {
   adoptedBase,
@@ -588,11 +590,46 @@ export class SectionsHost {
   async #flushed(journal: KeyValueSectionJournalStore, f: Flushed): Promise<void> {
     const entry = await journal.get(f.operationId);
     if (entry === undefined) return;
-    if (f.kind === "failed")
+    const base = await this.#bases?.load(entry.projectionId);
+    const path = base?.locator.path;
+    const file = path === undefined ? null : this.app.vault.getFileByPath(path);
+    if (f.kind === "failed") {
+      const refusal = portRefusal(f.error);
+      // A refusal is final for these intents: the next pass would plan them
+      // again. The edit stays in the note as a candidate, like a refused
+      // direct commit, and no pass is forced. A stale base or an import in
+      // progress is replanned instead.
+      if (
+        refusal instanceof CommitRefused &&
+        refusal.code !== "STALE_BASE" &&
+        refusal.code !== "SECTION_IMPORTING"
+      ) {
+        await journal.put(advance(entry, "abandoned", { reason: refusal.code }));
+        const md =
+          path === undefined
+            ? undefined
+            : (this.#openEditor(path)?.getValue() ??
+              (file === null ? undefined : await this.app.vault.read(file)));
+        const s =
+          md === undefined || base === undefined
+            ? undefined
+            : parseSections(md).sections.find((x) => sameSection(x.ref, base.locator.section));
+        if (md !== undefined && s !== undefined)
+          await journal.putCandidate({
+            candidateId: entry.operationId,
+            projectionId: entry.projectionId,
+            reason: "rejected",
+            sourceText: splitLines(md)
+              .slice(s.heading.line, s.endLine + 1)
+              .map((l) => l.text + l.eol)
+              .join(""),
+          });
+        this.scheduleStatus();
+        return;
+      }
       await journal.put(advance(entry, "abandoned", { reason: "flush-failed" }));
-    const path = (await this.#bases?.load(entry.projectionId))?.locator.path;
+    }
     if (path === undefined) return;
-    const file = this.app.vault.getFileByPath(path);
     if (this.#openEditor(path) !== null) this.editor.remoteChanged(path);
     else if (file !== null) this.editor.remoteChanged(path, await this.app.vault.read(file));
     this.scheduleStatus();
