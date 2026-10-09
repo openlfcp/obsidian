@@ -31,7 +31,7 @@ export interface ObservedSection {
     readonly unitIds: readonly string[];
     readonly nodeIds: readonly string[];
   }[];
-  /** Units still in the outbound queue (hex). */
+  /** Data Units still in the outbound queue (hex); those of no operation are pending, uncounted. */
   readonly queued: ReadonlySet<string>;
   readonly projections: readonly ProjectionFacts[];
   /** A local commit failed and was not retried yet (LOCAL_SAVE_FAILED). */
@@ -50,6 +50,17 @@ export function observedFacts(o: ObservedSection): StatusFacts {
       unitIds: op.unitIds,
       acceptedUnitIds: [],
     }));
+  const known = new Set(o.operations.flatMap((op) => op.unitIds));
+  const loose = [...o.queued].filter((u) => !known.has(u));
+  if (loose.length > 0)
+    batches.push({
+      id: "unattributed",
+      nodeIds: [],
+      durable: true,
+      unitIds: loose,
+      acceptedUnitIds: [],
+      stable: false,
+    });
   for (const id of o.failedOperations ?? [])
     batches.push({
       id,

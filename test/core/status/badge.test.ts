@@ -127,6 +127,12 @@ describe("provisional facts", () => {
   it("never claims acceptance: a queued batch is pending with evidence unavailable", () => {
     const f = observedFacts(observed);
     expect(f.batches.map((b) => b.id)).toEqual(["queued"]);
+    // A queued unit no receipt names: pending, without a count.
+    const loose = statusView(observedFacts({ ...observed, queued: new Set(["c", "zz"]) }));
+    expect(loose).toMatchObject({ pendingBatches: 2, pendingCounted: false, unattributed: true });
+    expect(headingBadge("L", loose).accessibleName).toBe(
+      "Shared section L, pending changes, open details",
+    );
     expect(f.batches.every((b) => b.acceptedUnitIds.length === 0)).toBe(true);
     expect(statusView(f).state).toBe("EVIDENCE_UNKNOWN");
     // Nothing queued: no pending local changes, and no accepted batch either.

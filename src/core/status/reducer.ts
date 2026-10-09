@@ -39,6 +39,8 @@ export interface BatchFacts {
   readonly unitIds: readonly string[];
   readonly acceptedUnitIds: readonly string[];
   readonly rejection?: { readonly code: string; readonly unitIds: readonly string[] };
+  /** False for pending work without a stable batch identity: it is not counted (§4). */
+  readonly stable?: boolean;
 }
 
 export type SourceFacts =
@@ -105,6 +107,8 @@ export interface StatusView {
   readonly conditions: readonly Condition[];
   /** Local batches durable and not yet accepted: the "N local updates waiting" count. */
   readonly pendingBatches: number;
+  /** Every pending batch has a stable identity, so the count may be shown (§4). */
+  readonly pendingCounted: boolean;
   /** Batches the server accepted, kept even while something else needs attention. */
   readonly acceptedBatches: number;
   /** Nodes with an unaccepted batch (§4: the union of their batches). */
@@ -221,6 +225,7 @@ export function statusView(facts: StatusFacts): StatusView {
     state,
     conditions: c,
     pendingBatches: waiting.length,
+    pendingCounted: waiting.every((b) => b.stable !== false),
     acceptedBatches: facts.batches.filter(accepted).length,
     pendingNodeIds,
     unattributed: waiting.some((b) => b.nodeIds.length === 0),

@@ -51,7 +51,7 @@ export function headingBadge(title: string, view: StatusView): HeadingBadge {
   const facts: string[] = [];
   if (view.pendingBatches > 0)
     facts.push(
-      view.unattributed && view.pendingBatches > 1
+      !view.pendingCounted
         ? "pending changes"
         : `${view.pendingBatches} local ${view.pendingBatches === 1 ? "update" : "updates"} waiting`,
     );
