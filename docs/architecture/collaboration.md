@@ -48,10 +48,33 @@ under it. Outside sections they behave exactly as in 0.3. Analysis:
 | Read | data/read, invite/claim | data/read |
 | Read + write | data/read, data/write, invite/claim | data/read, data/write |
 
-Writing Shared Objects needs only data/write. The plugin publishes no
-Snapshots, so snapshot/publish is not granted. invite/claim is what makes the
+Writing Shared Objects needs only data/write. Invitations do not grant
+snapshot/publish: only the owner publishes Snapshots (see below). invite/claim is what makes the
 grant an invitation (§18). It is not delegable, so the collaborator cannot
 pass the link on. Every invitation has `claim_limit = 1` (G-CAP8).
+
+## Snapshots (POST-007, LFCP-02-097)
+
+The plugin publishes a Snapshot of a collaboration or a shared section so a
+new member catches up from it and the units after its frontier, instead of
+every unit since the start.
+
+- Trigger: a LIVE Resource gets a new Snapshot once 200 units were merged
+  since the last one, counting this vault's own units and those received
+  from others (`snapshotEvery` in the runtime environment; the SDK asks on
+  every sync tick through `snapshotPolicy`).
+- Capability: only a member whose validated Control state grants
+  `snapshot/publish` publishes; the plugin checks it with `accessState` each
+  time the Resource goes LIVE. Owners hold it; the invitation presets do not
+  grant it.
+- The SDK builds, signs and queues it (`publishSnapshot`), within the
+  profile's Snapshot limits (SHARED-OBJECTS-PROFILE-01 §13.1); a joiner's
+  client loads an offered Snapshot through the profile's admission and
+  fetches only the tail. Shared sections open with the profile's
+  `snapshotBinding`, 0.1 collaborations with their Snapshot codec.
+- Evidence: the two-vault live tests in `test/core/collab/live.test.ts` and
+  `live-sections.test.ts` publish with a threshold of 3 and check that the
+  joiner's client reports `snapshot-loaded` for that Snapshot.
 
 ## Secrets
 
