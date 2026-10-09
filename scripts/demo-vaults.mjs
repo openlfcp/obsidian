@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Prepares the canonical two-vault demo (LFCP-072) outside every repository:
 //
-//   node scripts/demo-vaults.mjs [--dir <path>] [--port <n>]
+//   node scripts/demo-vaults.mjs [--dir <path>] [--port <n>] [--sections]
 //
 // Default directory: ../openlfcp-demo, next to this checkout. It creates
 //   <dir>/vault-a, <dir>/vault-b   two vaults with the plugin built and enabled,
@@ -10,6 +10,9 @@
 // and prints the commands to start the server and open the vaults. The
 // plugin bundle is built straight into the vaults, so no file is left in
 // this repository. Re-running refreshes the plugin and keeps existing notes.
+// --sections turns on the shared sections preview (sectionsPreview in each
+// vault's data.json, other settings kept) and adds a note to share as a
+// section in Vault A.
 // Walkthrough: docs/demos/two-vault-demo.md.
 
 import { execFileSync } from "node:child_process";
@@ -20,7 +23,11 @@ import { parseArgs } from "node:util";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { values } = parseArgs({
-  options: { dir: { type: "string" }, port: { type: "string" } },
+  options: {
+    dir: { type: "string" },
+    port: { type: "string" },
+    sections: { type: "boolean", default: false },
+  },
 });
 const dir = resolve(values.dir ?? join(root, "..", "openlfcp-demo"));
 const port = Number(values.port ?? 8787);
@@ -41,6 +48,24 @@ This paragraph belongs only to Vault A. PRIVATE-A-MARKER
 - [ ] Book venue for the offsite
 
 More private A text: nobody else should ever see this.
+`,
+    },
+    // With --sections: share "## Launch" with "Share section…"; the text around it stays private.
+    sectionNotes: {
+      "Launch plan.md": `# Launch plan
+
+Private budget notes for Vault A only. PRIVATE-A-SECTION-MARKER
+
+## Launch
+
+- [ ] Prepare contract 📅 2026-10-20
+- [ ] Book venue
+
+Draft the announcement with the team.
+
+## Notes
+
+Private follow-ups, not shared.
 `,
     },
   },
@@ -75,9 +100,15 @@ for (const [vault, spec] of Object.entries(NOTES)) {
     join(dir, vault, ".obsidian", "community-plugins.json"),
     `${JSON.stringify([id])}\n`,
   );
-  if (!existsSync(join(plugin, "data.json")))
-    writeFileSync(join(plugin, "data.json"), `${JSON.stringify(spec.settings, null, 2)}\n`);
-  for (const [name, text] of Object.entries(spec.notes)) {
+  const data = join(plugin, "data.json");
+  if (!existsSync(data)) writeFileSync(data, `${JSON.stringify(spec.settings, null, 2)}\n`);
+  if (values.sections) {
+    // The shared sections preview (MVP 0.2), on top of whatever the vault has set.
+    const settings = JSON.parse(readFileSync(data, "utf8"));
+    writeFileSync(data, `${JSON.stringify({ ...settings, sectionsPreview: true }, null, 2)}\n`);
+  }
+  const notes = values.sections ? { ...spec.notes, ...(spec.sectionNotes ?? {}) } : spec.notes;
+  for (const [name, text] of Object.entries(notes)) {
     const path = join(dir, vault, name);
     if (!existsSync(path)) writeFileSync(path, text);
   }

@@ -25,6 +25,12 @@ From a built checkout of this repository (see the README), with
 node scripts/demo-vaults.mjs          # or: --dir <somewhere> --port <n>
 ```
 
+For the shared sections preview (MVP 0.2), add `--sections`: it sets
+`sectionsPreview` in each vault's `data.json` (other settings are kept) and
+adds `Launch plan.md` to Vault A, with a `## Launch` section to share and
+private text around it. A later run without the flag leaves the setting as
+it is.
+
 It prepares `../openlfcp-demo/`, outside every repository:
 - `vault-a/` and `vault-b/`, with the plugin built in and enabled, and the
   demo server set as the default server;
