@@ -26,14 +26,22 @@ import type { Collaboration } from "../core/collab/service";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { SdkSectionPort } from "../core/lfcp/section-port";
 import { scanRefs } from "../core/refs";
-import { newProjectionId } from "../core/sections/base";
+import { markdownState, newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
-import { applyChanges, SectionEngine } from "../core/sections/engine";
-import { type InsertResult, SectionInsertion } from "../core/sections/insert";
+import { applyChanges, SectionEngine, sameState, sharedState } from "../core/sections/engine";
+import { type InsertResult, renderSection, SectionInsertion } from "../core/sections/insert";
 import { advance } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
-import { parseSections } from "../core/sections/parser";
+import { type ParsedSection, parseSections } from "../core/sections/parser";
+import type { SectionSnapshot } from "../core/sections/port";
 import { applyRecovery, recoveryItems } from "../core/sections/recovery";
+import {
+  adoptedBase,
+  boundaryRepair,
+  compare,
+  repairItems,
+  sharedVersionChange,
+} from "../core/sections/repair";
 import {
   preflight,
   proposeRange,
@@ -51,10 +59,16 @@ import { type StatusView, statusView } from "../core/status/reducer";
 import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-status";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
-import { ReadingBadges, sectionStatusExtension, setSectionStatuses } from "./section-status";
+import {
+  ReadingBadges,
+  sectionKey,
+  sectionStatusExtension,
+  setSectionStatuses,
+} from "./section-status";
 import { ImportSectionModal } from "./ui/import-section";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
 import { RecoveryModal } from "./ui/recovery";
+import { type LostBase, RepairModal } from "./ui/repair";
 import { AliasModal, SectionCardModal } from "./ui/section-card";
 import { ShareSectionModal } from "./ui/share-section";
 
@@ -87,6 +101,7 @@ export class SectionsHost {
   #statuses: ReadonlyMap<string, StatusView> = new Map();
   #statusDue: number | null = null;
   #port: SdkSectionPort | null = null;
+  #journal: KeyValueSectionJournalStore | null = null;
   /** The SDK's status of each section Resource (hex): batches, acceptance, access (026). */
   readonly #sdk = new Map<string, SdkStatus>();
   /** Section Resources whose session was LIVE in this run (hex). */
@@ -125,6 +140,7 @@ export class SectionsHost {
   async start(runtime: LfcpRuntime, principal: PrincipalId): Promise<void> {
     const storage = runtime.storage as LfcpStorage;
     const journal = new KeyValueSectionJournalStore(runtime.localState);
+    this.#journal = journal;
     const port = new SdkSectionPort(
       {
         profile: (r) => runtime.sectionProfile(r),
@@ -397,6 +413,104 @@ export class SectionsHost {
     );
     this.#card = { key, title, modal };
     modal.open();
+  }
+
+  /**
+   * "Repair shared sections in this note" (062): broken boundaries with
+   * their candidate lines, problems to locate, and sections whose base is
+   * lost, compared. Nothing changes without the user's choice.
+   */
+  async repairNote(editor: Editor, path: string): Promise<void> {
+    const port = this.#port;
+    const bases = this.#bases;
+    const journal = this.#journal;
+    if (port === null || bases === null || journal === null) {
+      new Notice("Shared Tasks: still starting. Try again in a moment.");
+      return;
+    }
+    const md = editor.getValue();
+    const items = repairItems(md);
+    const known = new Set<string>();
+    for (const id of await bases.projectionsOf(path)) {
+      const b = await bases.load(id);
+      if (b !== undefined) known.add(sectionKey(b.locator.section));
+    }
+    const lost: (LostBase & { section: ParsedSection; snap: SectionSnapshot; block: string })[] =
+      [];
+    const lines = md.split(/\r?\n/);
+    for (const s of parseSections(md).sections) {
+      const key = sectionKey(s.ref);
+      if (known.has(key)) continue;
+      const b64 = toBase64url(s.ref.resourceId);
+      const snap = port.snapshot(b64, s.ref.sectionId);
+      if (snap === undefined || !snap.ready) continue;
+      if (sameState(markdownState(md, s).state, sharedState(snap))) continue;
+      const block = renderSection(snap, s.ref, s.heading.level, {
+        task: (id) => port.task(b64, id),
+        placement: this.refPlacement(),
+      });
+      if (block === null) continue;
+      const local = lines.slice(s.startLine + 1, s.endLine).join("\n");
+      const shared = block
+        .replace(/\r?\n$/, "")
+        .split("\n")
+        .slice(2, -1)
+        .join("\n");
+      lost.push({
+        key,
+        title: s.heading.title,
+        lines: compare(local, shared),
+        section: s,
+        snap,
+        block,
+      });
+    }
+    new RepairModal(this.app, items, lost, {
+      boundary: async (item, line) => {
+        await this.#edit(path, (current) => {
+          // Only on the note the candidates were computed for.
+          if (current !== md) return null;
+          return [boundaryRepair(current, item, line)];
+        });
+        this.editor.remoteChanged(path);
+      },
+      locate: (line) => editor.setCursor({ line, ch: 0 }),
+      shareMine: async (key) => {
+        const l = lost.find((x) => x.key === key);
+        if (l === undefined) return;
+        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
+        this.editor.remoteChanged(path);
+        new Notice("Shared Tasks: your version of this section is being shared.");
+      },
+      useShared: async (key) => {
+        const l = lost.find((x) => x.key === key);
+        if (l === undefined) return;
+        // The note's text first, as a recovery copy kept on this device.
+        await journal.putCandidate({
+          candidateId: `repair:${crypto.randomUUID()}`,
+          projectionId: `repair:${path}`,
+          reason: "base-unknown",
+          sourceText: lines.slice(l.section.heading.line, l.section.endLine + 1).join("\n"),
+        });
+        let replaced = false;
+        await this.#edit(path, (current) => {
+          if (current !== md) return null;
+          replaced = true;
+          return [sharedVersionChange(current, l.section, l.block)];
+        });
+        if (!replaced) {
+          new Notice(
+            "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
+          );
+          return;
+        }
+        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
+        this.editor.remoteChanged(path);
+        new Notice(
+          "Shared Tasks: this section shows the shared version now. Your previous text is kept as a recovery copy on this device.",
+        );
+      },
+    }).open();
   }
 
   /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */

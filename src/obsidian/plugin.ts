@@ -172,6 +172,14 @@ export default class OpenLfcpPlugin extends Plugin {
         },
       });
       this.addCommand({
+        id: "repair-shared-sections",
+        name: "Repair shared sections in this note",
+        editorCallback: (editor, ctx) => {
+          const path = ctx.file?.path;
+          if (path !== undefined) void this.sections?.repairNote(editor, path);
+        },
+      });
+      this.addCommand({
         id: "restore-section-import",
         name: "Restore note before section import",
         editorCallback: (_editor, ctx) => {

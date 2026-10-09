@@ -610,6 +610,55 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(restored).toBe(shared);
   });
 
+  it("Repair: a broken boundary is closed where the user picks; a lost base takes the shared version (LFCP-02-062)", async () => {
+    const result = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const source = await app.vault.adapter.read("share-create.md");
+      const start = source.split("\n").find((l) => l.startsWith("<!-- lfcp-section: "));
+      const end = source.split("\n").find((l) => l.startsWith("<!-- /lfcp-section: "));
+      const open = async (file, text) => {
+        await app.vault.create(file, text);
+        const leaf = app.workspace.getLeaf(false);
+        await leaf.openFile(app.vault.getFileByPath(file), { state: { mode: "source", source: true } });
+        app.workspace.setActiveLeaf(leaf, { focus: true });
+        const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        for (let i = 0; i < 40 && view.editor.getValue() !== text; i++) await new Promise((r) => setTimeout(r, 50));
+        app.commands.executeCommandById("shared-tasks:repair-shared-sections");
+        let modal = null;
+        for (let i = 0; i < 60 && modal === null; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          modal = document.querySelector(".modal.openlfcp-repair");
+        }
+        return { view, modal };
+      };
+      // 1. A start marker without its end.
+      const broken = ["## Launch", start, "Draft the plan.", "", "## Other", "PRIVATE_REPAIR_9c: mine", ""].join("\n");
+      const one = await open("repair-boundary.md", broken);
+      const labels = [...one.modal.querySelectorAll(".openlfcp-repair-choice")].map((l) => l.textContent);
+      one.modal.querySelector(".openlfcp-repair-choice input").click();
+      [...one.modal.querySelectorAll("button")].find((b) => b.textContent === "Apply").click();
+      for (let i = 0; i < 40 && !one.view.editor.getValue().includes("<!-- /lfcp-section: "); i++)
+        await new Promise((r) => setTimeout(r, 50));
+      const fixed = one.view.editor.getValue();
+      // 2. The section copied into another note with a local edit: no base there.
+      const body = source.slice(source.indexOf("## Launch"), source.indexOf(end) + end.length);
+      const copy = `PRIVATE_LOST_7d: mine\n\n${body.replace("Draft the plan.", "Draft the plan, edited offline.")}\n`;
+      const two = await open("repair-lost.md", copy);
+      const diff = two.modal.querySelector(".openlfcp-share-content")?.textContent ?? "";
+      [...two.modal.querySelectorAll("button")].find((b) => b.textContent === "Use the shared version").click();
+      for (let i = 0; i < 40 && two.view.editor.getValue() === copy; i++) await new Promise((r) => setTimeout(r, 50));
+      return { labels, fixed, diff, lost: two.view.editor.getValue() };
+    });
+    console.log(`EVIDENCE ${JSON.stringify({ id: "SECTION-REPAIR", ...result })}`);
+    expect(result.labels).toEqual([" After line 3: Draft the plan."]);
+    expect(result.fixed).toMatch(/Draft the plan\.\n<!-- \/lfcp-section: [^\n]+\n\n## Other\nPRIVATE_REPAIR_9c: mine/);
+    expect(result.diff).toContain("− Draft the plan, edited offline.");
+    expect(result.diff).toContain("+ Draft the plan.");
+    expect(result.diff).not.toContain("PRIVATE_");
+    expect(result.lost.startsWith("PRIVATE_LOST_7d: mine\n\n## Launch\n")).toBe(true);
+    expect(result.lost).toContain("\nDraft the plan.\n");
+    expect(result.lost).not.toContain("edited offline");
+  });
+
   it("a heading inside blocks the share, with a reason", async () => {
     const note = ["## Launch", "- [ ] One", "### Inside", "text", ""].join("\n");
     const shown = await preview("share-nested.md", note, 0);
