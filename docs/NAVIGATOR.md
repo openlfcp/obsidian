@@ -23,6 +23,7 @@
 | [devel/testing/obsidian-host-facts.md](devel/testing/obsidian-host-facts.md) | developers | Obsidian host facts MVP 0.2 depends on (LFCP-02-005 evidence): minAppVersion was a beta, tabs by default, comments visible in Live Preview |
 | [devel/testing/platform-smoke.md](devel/testing/platform-smoke.md) | release | Desktop platform smoke (LFCP-068): the CI matrix and the manual checklist per OS |
 | [devel/testing/platform-smoke-runs.md](devel/testing/platform-smoke-runs.md) | release | Records of platform smoke runs per OS, with the current status by platform (LFCP-068) |
+| [devel/reports/section-performance-headless.md](devel/reports/section-performance-headless.md) | developers | Headless performance of shared sections on W20–W2000 (LFCP-02-067/068): results against the budgets, the plugin fixes, the SDK remediation |
 | [devel/reports/legacy-client-and-other-profiles.md](devel/reports/legacy-client-and-other-profiles.md) | developers | LFCP-02-004 evidence: how 0.3.x meets a collaboration of another profile, what 0.3.2 changes, minimum version and downgrade |
 | [devel/reports/marker-hiding-spike.md](devel/reports/marker-hiding-spike.md) | developers | LFCP-02-048 spike: hiding binding lines in Live Preview (state field, block decorations), Reading view, cost at W200, the recommendation |
 | [devel/reports/host-and-platform-baseline.md](devel/reports/host-and-platform-baseline.md) | developers | LFCP-02-005 evidence: environments, host facts, baselines, the platform matrix (V4) and a proposal for the native harness in CI |

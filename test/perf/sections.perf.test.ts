@@ -53,6 +53,8 @@ function stats(samples: readonly number[]) {
 async function measure(
   spec: WorkloadSpec,
   samples: { edit: number; other: number; warmup: number },
+  /** W200-H: changes committed to the model before measuring, in batches of 10. */
+  history = 0,
 ) {
   const device = new Device();
   const local = new FakeLocal();
@@ -71,6 +73,78 @@ async function measure(
   const b64 = toBase64url(R);
   const sectionId = created.entry.sectionId;
   await v.pass(PATH);
+
+  // History (W200-H): text edits, moves of root nodes (old placement slots
+  // stay), deletions and restores, straight to the model as other writers'.
+  let historyMs = 0;
+  if (history > 0) {
+    const h0 = performance.now();
+    const rand = (() => {
+      let x = spec.seed >>> 0;
+      return () => {
+        x = (x * 1664525 + 1013904223) >>> 0;
+        return x / 2 ** 32;
+      };
+    })();
+    for (let done = 0; done < history; ) {
+      const snap = v.port.snapshot(b64, sectionId);
+      if (snap === undefined) throw new Error("no model");
+      const active = Object.entries(snap.nodes).filter(([, n]) => n.lifecycle === "active");
+      const deleted = Object.entries(snap.nodes).filter(([, n]) => n.lifecycle === "deleted");
+      const roots = snap.order[sectionId] ?? [];
+      const intents: unknown[] = [];
+      const used = new Set<string>();
+      while (intents.length < 10 && done + intents.length < history) {
+        const k = (done + intents.length) % 4;
+        const pick = <T>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)] as T;
+        if (k === 0) {
+          const id = pick(active.filter(([i, n]) => n.kind === "paragraph" && !used.has(i)))?.[0];
+          if (id === undefined) {
+            intents.push({ intent: "section.set_title", title: `Workload ${done}` });
+            continue;
+          }
+          used.add(id);
+          intents.push({
+            intent: "text.edit",
+            id,
+            edits: [{ index: 0, deleteCount: 0, insert: "h" }],
+            base: snap.revision,
+          });
+        } else if (k === 1 && roots.length > 2) {
+          const id = pick(roots.slice(1));
+          if (used.has(id)) continue;
+          used.add(id);
+          intents.push({
+            intent: "node.move",
+            id,
+            parent: sectionId,
+            after: pick(roots.filter((r) => r !== id)),
+          });
+        } else if (k === 2) {
+          const id = pick(active.filter(([i, n]) => n.kind === "item" && !used.has(i)))?.[0];
+          if (id === undefined) {
+            intents.push({ intent: "section.set_title", title: `Workload ${done}` });
+            continue;
+          }
+          used.add(id);
+          intents.push({ intent: "node.delete", id });
+        } else if (deleted.length > 0) {
+          const id = pick(deleted.filter(([i]) => !used.has(i)))?.[0];
+          if (id === undefined) {
+            intents.push({ intent: "section.set_title", title: `Workload ${done}` });
+            continue;
+          }
+          used.add(id);
+          intents.push({ intent: "node.restore", id });
+        } else intents.push({ intent: "section.set_title", title: `Workload ${done}` });
+      }
+      await v.port.commit(b64, intents as never, { operationId: crypto.randomUUID() });
+      done += intents.length;
+      if (done % 1000 === 0) console.log(`HISTORY ${spec.name} ${done}/${history}`);
+    }
+    historyMs = performance.now() - h0;
+    await v.pass(PATH);
+  }
 
   // Paragraphs of the section in the note: the edit targets.
   const paragraphLines = () => {
@@ -196,6 +270,8 @@ async function measure(
 
   const heap = process.memoryUsage();
   return {
+    historyChanges: history,
+    historyMs: Math.round(historyMs),
     spec,
     note: noteFacts(note),
     createMs: Math.round(createMs),
@@ -220,4 +296,23 @@ describe.skipIf(!RUN)("section performance, headless (LFCP-02-067/068)", () => {
       console.log(`PERF ${JSON.stringify({ name, ...r, spec: undefined })}`);
       expect(r.durableLocalUpdate.n).toBe(200);
     }, 900_000);
+
+  // Once each: W200-H (history growth) and W2000 (exploratory: safe, not fast).
+  it("W200-H", async () => {
+    const r = await measure(
+      WORKLOADS.W200 as WorkloadSpec,
+      { edit: 50, other: 10, warmup: 3 },
+      10_000,
+    );
+    results["W200-H"] = r;
+    console.log(`PERF ${JSON.stringify({ name: "W200-H", ...r, spec: undefined })}`);
+    expect(r.durableLocalUpdate.n).toBe(50);
+  }, 3_600_000);
+
+  it("W2000", async () => {
+    const r = await measure(WORKLOADS.W2000 as WorkloadSpec, { edit: 10, other: 3, warmup: 2 });
+    results.W2000 = r;
+    console.log(`PERF ${JSON.stringify({ name: "W2000", ...r, spec: undefined })}`);
+    expect(r.durableLocalUpdate.n).toBe(10);
+  }, 3_600_000);
 });
