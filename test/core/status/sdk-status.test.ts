@@ -15,13 +15,14 @@ const batch = (status: BatchStatus["status"], accepted: number[]): BatchStatus =
   acceptedUnitIds: accepted.map(u),
   affectedNodeIds: ["n1"],
 });
-const snapshot: StatusSnapshot = {
+const snapshot = {
   revision: 4,
   batches: [batch("pending", [])],
   received: { held: [], waiting: [], refused: [] },
   section: "ready",
-  access: { allowed: true, reason: null, controlHead: null, verifiedAt: null },
-};
+  // The WriteAccess part of the access (027 adds more fields; this reads only these).
+  access: { allowed: true, reason: null, controlHead: null, verifiedAt: null } as never,
+} as unknown as StatusSnapshot;
 
 describe("the SDK's status stream", () => {
   it("a snapshot: batches in hex, access in the port's terms", () => {
@@ -72,7 +73,7 @@ describe("the SDK's status stream", () => {
     s = applySdkEvent(s, {
       revision: 7,
       kind: "access",
-      access: { allowed: false, reason: "revoked", controlHead: null, verifiedAt: 5 },
+      access: { allowed: false, reason: "revoked", controlHead: null, verifiedAt: 5 } as never,
     });
     expect(s.access).toEqual({ allowed: false, reason: "revoked", verifiedAt: 5 });
     s = applySdkEvent(s, { revision: 8, kind: "received", fact: "held", unitIds: [u(9)] });
