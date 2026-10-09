@@ -8,10 +8,11 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { serverBinary } from "../support/e2e-server";
 
-const PARENT = new URL("../support/orphan-parent.mjs", import.meta.url).pathname;
+const PARENT = fileURLToPath(new URL("../support/orphan-parent.mjs", import.meta.url));
 
 function alive(pid: number): boolean {
   try {
