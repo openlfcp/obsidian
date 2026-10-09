@@ -328,7 +328,7 @@ export class SectionsHost {
         load: runtime.sectionLoad(R),
         phase,
         wasLive: this.#wasLive.has(hex),
-        writable: (await port.canWrite(r)).allowed,
+        access: await port.canWrite(r),
         problems: port.snapshot(r, sectionId)?.problems ?? [],
         operations,
         queued,

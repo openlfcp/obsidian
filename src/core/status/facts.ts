@@ -11,7 +11,7 @@
 // - Catch-up: a session that reached LIVE in this run is current as last
 //   checked; offline after that keeps that checkpoint (SI09).
 
-import type { SectionProblem } from "../sections/port";
+import type { SectionProblem, WriteAccess } from "../sections/port";
 import type { BatchFacts, ModelProblemFacts, ProjectionFacts, StatusFacts } from "./reducer";
 
 export interface ObservedSection {
@@ -23,7 +23,8 @@ export interface ObservedSection {
   readonly phase: string;
   /** The session was LIVE at some point in this run. */
   readonly wasLive: boolean;
-  readonly writable: boolean;
+  /** Write access from the validated Control state (contract §6). */
+  readonly access: WriteAccess;
   readonly problems: readonly SectionProblem[];
   /** Local operations with their units and nodes (journal receipts). */
   readonly operations: readonly {
@@ -88,9 +89,7 @@ export function observedFacts(o: ObservedSection): StatusFacts {
         ? "unavailable-key"
         : o.phase === "CONTROL_CONFLICT"
           ? "unknown"
-          : o.writable
-            ? "writer"
-            : "reader",
+          : accessFact(o.access),
     pendingControl: [],
     connection: live || syncing ? "connected" : "offline",
     catchUp:
@@ -104,4 +103,20 @@ export function observedFacts(o: ObservedSection): StatusFacts {
     acceptanceEvidence: "unavailable",
     projections: o.projections,
   };
+}
+
+/** §6's answer as a status fact: who may write, read, or nothing (attention). */
+function accessFact(a: WriteAccess): StatusFacts["access"] {
+  if (a.allowed) return "writer";
+  switch (a.reason) {
+    case "read-only":
+      return "reader";
+    case "key-unavailable":
+      return "unavailable-key";
+    case "revoked":
+    case "not-member":
+      return "revoked";
+    default:
+      return "unknown";
+  }
 }

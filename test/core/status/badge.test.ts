@@ -114,7 +114,7 @@ describe("provisional facts", () => {
     load: { ready: true, loaded: true },
     phase: "LIVE",
     wasLive: true,
-    writable: true,
+    access: { allowed: true },
     problems: [],
     operations: [
       { id: "sent", unitIds: ["a"], nodeIds: ["n1"] },
@@ -156,7 +156,13 @@ describe("provisional facts", () => {
     ).toBe("ATTENTION");
     expect(statusView(observedFacts({ ...observed, load: undefined })).state).toBe("LOADING");
     expect(
-      statusView(observedFacts({ ...observed, writable: false, queued: new Set() })).state,
+      statusView(
+        observedFacts({
+          ...observed,
+          access: { allowed: false, reason: "read-only" },
+          queued: new Set(),
+        }),
+      ).state,
     ).toBe("READ_ONLY_CURRENT");
   });
 
