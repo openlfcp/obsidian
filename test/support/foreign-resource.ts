@@ -58,9 +58,10 @@ export async function storeForeign(
         resourceId: R,
         dataProfile: profile,
         localPrincipal: null,
-        labels: { name },
+        labels: {},
       },
     },
   ]);
+  await runtime.setLocalName(R, name);
   return R;
 }

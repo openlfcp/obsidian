@@ -428,6 +428,7 @@ export class LfcpRuntime {
     const sealed = await LfcpRuntime.#seal(env, install);
     const runtime = new LfcpRuntime(env, install, lock, sealed);
     runtime.upgradedLocalData = before === true && install.storage !== null;
+    await runtime.#moveNamesOutOfLabels();
     return runtime;
   }
 
@@ -621,7 +622,7 @@ export class LfcpRuntime {
       out.push(
         Object.freeze({
           resourceId: R,
-          localName: row.labels.name ?? null,
+          localName: await this.resourceName(R),
           profile: row.dataProfile,
           routes: [...(route?.endpoints ?? [])]
             .sort((a, b) => (a.priority < b.priority ? -1 : a.priority > b.priority ? 1 : 0))
@@ -635,15 +636,39 @@ export class LfcpRuntime {
     return out;
   }
 
-  /** Sets a Resource's local display name (a label; the signed state is untouched). */
+  /**
+   * Sets a Resource's local display name: the user's text, so it lives in
+   * the plugin's sealed local state, never in the Resource row's labels
+   * (public, unencrypted: storage contract). The signed state is untouched.
+   */
   async setLocalName(resource: ResourceId, name: string | null): Promise<void> {
+    const row = await this.#install.storage?.resources.get(resource);
+    if (row === undefined) throw new Error("unknown Resource");
+    await this.localState.put(resourceNameKey(resource), name);
+  }
+
+  /** A Resource's local display name, or null. */
+  async resourceName(resource: ResourceId): Promise<string | null> {
+    const name = await this.localState.get(resourceNameKey(resource));
+    return typeof name === "string" ? name : null;
+  }
+
+  /**
+   * Names a plugin before this one kept in the Resource rows' labels, which
+   * are stored unencrypted: each moves to the sealed local state, and the
+   * label is removed. Once per start; nothing to do after the first.
+   */
+  async #moveNamesOutOfLabels(): Promise<void> {
     const storage = this.#install.storage;
-    const row = await storage?.resources.get(resource);
-    if (storage === null || row === undefined) throw new Error("unknown Resource");
-    const { name: _old, ...rest } = row.labels;
-    const labels = name === null ? rest : { ...rest, name };
-    const r = await storage.commit([{ op: "put-resource", row: { ...row, labels } }]);
-    if (!r.ok) throw new Error(r.reason);
+    if (storage === null || this.#sealed === null) return;
+    for (const row of await storage.resources.list()) {
+      const { name, ...rest } = row.labels;
+      if (name === undefined) continue;
+      if ((await this.resourceName(row.resourceId)) === null)
+        await this.localState.put(resourceNameKey(row.resourceId), name);
+      const r = await storage.commit([{ op: "put-resource", row: { ...row, labels: rest } }]);
+      if (!r.ok) throw new Error(r.reason);
+    }
   }
 
   /**
@@ -1262,11 +1287,13 @@ export class LfcpRuntime {
             signingKeyRef: principalKeySecretRef(principal.id, "signing"),
             agreementKeyRef: principalKeySecretRef(principal.id, "agreement"),
           },
-          labels: { name: options.name },
+          // The name is the user's text: sealed local state, not the public labels.
+          labels: {},
         },
       },
     ]);
     if (!r.ok) throw new Error("the Resource was not stored");
+    await this.localState.put(resourceNameKey(R), options.name);
     return { R, chain, dek };
   }
 
@@ -1413,3 +1440,6 @@ export class LfcpRuntime {
     this.#sealed = await LfcpRuntime.#seal(this.#env, install);
   }
 }
+
+/** The local state key of a Resource's display name (sealed, LFCP-02-098). */
+export const resourceNameKey = (resource: ResourceId): string => `resource-name:${toHex(resource)}`;

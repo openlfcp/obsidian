@@ -9,18 +9,20 @@
 
 const NOWHERE = "ws://127.0.0.1:9/v1/ws";
 const CANARY = `CANARY_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+// A collaboration's name is the user's text too (often a note's heading): sealed, not in the labels.
+const NAME = `NAME_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
 const CONTROL = `CONTROL_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
 
 describe("local state encrypted at rest (LFCP-02-098)", () => {
   it("no IndexedDB file holds a shared Task's title; an unsealed control is found", async () => {
     await browser.executeObsidian(
-      async ({ app, obsidian }, canary, url) => {
+      async ({ app, obsidian }, canary, url, name) => {
         // Obsidian's File recovery snapshots note text into the same IndexedDB
         // directory: the note's own text is out of scope (the vault's Markdown).
         await app.internalPlugins.getPluginById("file-recovery")?.disable(true);
         await app.vault.create("canary.md", `## Plan\n\n- [ ] ${canary} contract\n`);
         await app.plugins.plugins["shared-tasks"].runtime.createResource({
-          name: "Canary",
+          name,
           endpoints: [url],
           coordinatorUrl: url,
         });
@@ -30,6 +32,7 @@ describe("local state encrypted at rest (LFCP-02-098)", () => {
       },
       CANARY,
       NOWHERE,
+      NAME,
     );
     await browser.executeObsidianCommand("shared-tasks:share-selected-tasks");
     await (await $(".prompt")).waitForExist({ timeout: 10_000 });
@@ -42,7 +45,7 @@ describe("local state encrypted at rest (LFCP-02-098)", () => {
       { timeout: 10_000, timeoutMsg: "the task shared" },
     );
     const found = await browser.executeObsidian(
-      async ({ app }, canary, control) => {
+      async ({ app }, canary, control, name) => {
         const plugin = app.plugins.plugins["shared-tasks"];
         const runtime = plugin.runtime;
         // The control: plaintext in the same database, outside the plugin's sealing.
@@ -67,6 +70,7 @@ describe("local state encrypted at rest (LFCP-02-098)", () => {
         const result = {
           files: files.length,
           canary: hits(canary).map((f) => path.relative(dir, f)),
+          name: hits(name).map((f) => path.relative(dir, f)),
           control: hits(control).map((f) => path.relative(dir, f)),
           diagnostics,
         };
@@ -75,9 +79,11 @@ describe("local state encrypted at rest (LFCP-02-098)", () => {
       },
       CANARY,
       CONTROL,
+      NAME,
     );
     console.log(`EVIDENCE ${JSON.stringify({ id: "LOCAL-ENCRYPTION-CANARY", ...found })}`);
     expect(found.files).toBeGreaterThan(0);
+    expect(found.name).toEqual([]);
     expect(found.control.length).toBeGreaterThan(0);
     expect(found.canary).toEqual([]);
     expect(found.diagnostics).toMatch(/^Local encryption: lse-v1, generation 1, key present\./);

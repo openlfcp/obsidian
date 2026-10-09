@@ -72,6 +72,8 @@ import { refusalNotice } from "./view";
 export interface CollabRuntime {
   readonly status: RuntimeStatus;
   registry(): Promise<RegistryEntry[]>;
+  /** A Resource's local display name, kept in the sealed local state. */
+  setLocalName(resource: ResourceId, name: string | null): Promise<void>;
   createResource(options: {
     readonly name: string;
     readonly endpoints: readonly string[];
@@ -567,11 +569,13 @@ export class Collaboration {
             signingKeyRef: principalKeySecretRef(id, "signing"),
             agreementKeyRef: principalKeySecretRef(id, "agreement"),
           },
-          labels: { name: name.trim() === "" ? "Shared collaboration" : name.trim() },
+          // The name is the user's text: sealed local state, not the public labels.
+          labels: {},
         },
       },
     ]);
     if (!r.ok) throw new CollabError("UNSUPPORTED_VALUE", "The collaboration could not be stored.");
+    await this.#runtime.setLocalName(R, name.trim() === "" ? "Shared collaboration" : name.trim());
     await this.#runtime.localState.put(hostingKey(R), "hosted");
     await this.#runtime.localState.put(joinNameKey(R), null);
     const abilities = granted.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`);

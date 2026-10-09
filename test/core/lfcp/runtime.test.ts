@@ -75,9 +75,10 @@ async function storeResource(runtime: LfcpRuntime, name: string): Promise<Resour
   await storage.commit([
     {
       op: "put-resource",
-      row: { resourceId: R, dataProfile: PROFILE_ID, localPrincipal: null, labels: { name } },
+      row: { resourceId: R, dataProfile: PROFILE_ID, localPrincipal: null, labels: {} },
     },
   ]);
+  await runtime.setLocalName(R, name);
   return R;
 }
 
@@ -136,6 +137,35 @@ describe("LfcpRuntime (LFCP-059)", () => {
     const again = await start(device, local);
     expect((await again.registry()).map((e) => e.localName)).toEqual(["Alpha"]);
     await again.openResource(R);
+  });
+
+  it("moves names an earlier version kept in the unencrypted labels into sealed local state", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await storeResource(r, "unused");
+    const storage = r.storage as LfcpStorage;
+    const row = await storage.resources.get(R);
+    if (row === undefined) throw new Error("no row");
+    // What a plugin before this one stored: the name in the Resource row's labels.
+    await storage.commit([
+      { op: "put-resource", row: { ...row, labels: { name: "PRIVATE_NAME_4c1e" } } },
+    ]);
+    await r.localState.put(`resource-name:${toHex(R)}`, null);
+    await r.stop();
+    const again = await start(device, local);
+    expect((await again.storage?.resources.get(R))?.labels).toEqual({});
+    expect((await again.registry()).find((e) => toHex(e.resourceId) === toHex(R))?.localName).toBe(
+      "PRIVATE_NAME_4c1e",
+    );
+    // A new Resource keeps no name in its labels either.
+    const mine = await again.createResource({
+      name: "PRIVATE_NEW_9d2",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    expect((await again.storage?.resources.get(mine))?.labels).toEqual({});
+    expect(await again.resourceName(mine)).toBe("PRIVATE_NEW_9d2");
   });
 
   it("keeps pending outbound objects across unload (test 8)", async () => {
