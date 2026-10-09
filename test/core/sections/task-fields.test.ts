@@ -4,7 +4,11 @@ import { principalId, resourceId } from "@openlfcp/core";
 import { createTask, SharedObjectsReplica } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import type { SectionState } from "../../../src/core/sections/base";
-import { planTaskFields, representLine } from "../../../src/core/sections/task-fields";
+import {
+  newSectionTask,
+  planTaskFields,
+  representLine,
+} from "../../../src/core/sections/task-fields";
 
 const T = "019a2f85-7b31-7c42-b85a-fc843e2f4009";
 const REF =
@@ -59,5 +63,15 @@ describe("planTaskFields", () => {
     const r = planTaskFields(state("- [x] Contract"), state("- [ ] Contract"), () => undefined);
     expect(r.intents).toEqual([]);
     expect(r.issues.map((i) => i.issue.code)).toContain("OBJECT_UNKNOWN");
+  });
+});
+
+describe("a new section Task from its line", () => {
+  it("at any depth: a Task nested three levels down is a Task, not code (LFCP-02-067 W200)", () => {
+    for (const indent of ["", "  ", "    ", "      ", "\t\t"]) {
+      const t = newSectionTask(`${indent}- [ ] Deep task 📅 2026-11-02`, me, T);
+      expect(t).toMatchObject({ title: "Deep task", due: "2026-11-02" });
+    }
+    expect(() => newSectionTask("    plain text", me, T)).toThrow("not a Task line");
   });
 });

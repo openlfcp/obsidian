@@ -51,7 +51,10 @@ export function planTaskFields(
 
 /** A new section Task from its line, as 0.1 shares one (planShare's fields). */
 export function newSectionTask(line: string, principal: PrincipalId, id: string): NewSectionTask {
-  const state = scanRefs(line).tasks[0];
+  // The line alone, without its list: four or more spaces of indentation
+  // would read as an indented code block, though a nested Task is one. The
+  // indentation carries no field.
+  const state = scanRefs(line.replace(/^[ \t]+/, "")).tasks[0];
   if (state === undefined) throw new Error("not a Task line");
   const create = planShare(state, principal, id as never).intents[0];
   if (create?.intent !== "task.create") throw new Error("no task.create");
