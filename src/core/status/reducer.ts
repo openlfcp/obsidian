@@ -303,7 +303,7 @@ export type StatusEvent =
       readonly unitIds: readonly string[];
       readonly code: string;
     }
-  /** A local batch, new or updated (by its ID: a retry of the same batch is the same batch). */
+  /** A local batch as the SDK reports it now, new or replacing the one with its ID. */
   | { readonly kind: "batch"; readonly session: string; readonly batch: BatchFacts };
 
 export interface StatusStore {
@@ -348,14 +348,9 @@ export function applyEvent(store: StatusStore, event: StatusEvent): StatusStore 
     case "batch": {
       const known = f.batches.findIndex((b) => b.id === event.batch.id);
       if (known < 0) return { ...store, facts: { ...f, batches: [...f.batches, event.batch] } };
-      const old = f.batches[known] as BatchFacts;
-      // The same batch again: its units and acceptances only grow.
-      const merged: BatchFacts = {
-        ...event.batch,
-        unitIds: [...new Set([...old.unitIds, ...event.batch.unitIds])],
-        acceptedUnitIds: [...new Set([...old.acceptedUnitIds, ...event.batch.acceptedUnitIds])],
-      };
-      const batches = f.batches.map((b, i) => (i === known ? merged : b));
+      // The SDK is the source of truth: the batch as reported now replaces it,
+      // so units the server lost make it pending again (ADR 0008).
+      const batches = f.batches.map((b, i) => (i === known ? event.batch : b));
       return { ...store, facts: { ...f, batches } };
     }
   }
