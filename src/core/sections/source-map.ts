@@ -78,11 +78,29 @@ export function stripIndent(
 
 const LIST_PREFIX = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+|$)/;
 
+/**
+ * The lines of the text last asked for (LFCP-02-068): every node of a
+ * section reads the same note, so its lines are split once, not once per
+ * node (quadratic at W200).
+ */
+let lastLines: {
+  readonly markdown: string;
+  readonly lines: ReturnType<typeof splitLines>;
+  readonly starts: ReturnType<typeof lineStarts>;
+} | null = null;
+
+function linesOf(markdown: string) {
+  if (lastLines === null || lastLines.markdown !== markdown) {
+    const lines = splitLines(markdown);
+    lastLines = { markdown, lines, starts: lineStarts(lines) };
+  }
+  return lastLines;
+}
+
 /** The source of a node's Text, or null for a Task node. */
 export function nodeSource(markdown: string, node: SectionNode): NodeSource | null {
   if (node.kind === "task") return null;
-  const lines = splitLines(markdown);
-  const starts = lineStarts(lines);
+  const { lines, starts } = linesOf(markdown);
   const pieces: { line: number; from: number; rest: string; virtual: number }[] = [];
   let indent: string | null = null;
   const first = lines[node.lines.from]?.text ?? "";
