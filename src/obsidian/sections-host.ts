@@ -8,6 +8,7 @@
 // The sync status comes from the SDK's status stream (026) and what the
 // plugin observes of the session and the model (core/status/facts.ts).
 
+import type { Flushed } from "@openlfcp/client";
 import {
   fromBase64url,
   fromHex,
@@ -29,6 +30,7 @@ import { newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
 import { applyChanges, SectionEngine } from "../core/sections/engine";
 import { type InsertResult, SectionInsertion } from "../core/sections/insert";
+import { advance } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { parseSections } from "../core/sections/parser";
 import {
@@ -119,17 +121,22 @@ export class SectionsHost {
   /** The runtime is ready: the engine on the real SDK, section Resources opened, their notes reconciled. */
   async start(runtime: LfcpRuntime, principal: PrincipalId): Promise<void> {
     const storage = runtime.storage as LfcpStorage;
-    const port = new SdkSectionPort({
-      profile: (r) => runtime.sectionProfile(r),
-      commit: (r, intents, o) => runtime.commitSection(r, intents, o),
-      storage,
-      // Contract §6: from the validated Control state; a denied edit stays a candidate.
-      canWrite: (r) => runtime.canWriteSection(r),
-    });
+    const journal = new KeyValueSectionJournalStore(runtime.localState);
+    const port = new SdkSectionPort(
+      {
+        profile: (r) => runtime.sectionProfile(r),
+        commit: (r, intents, o) => runtime.commitSection(r, intents, o),
+        storage,
+        // Contract §6: from the validated Control state; a denied edit stays a candidate.
+        canWrite: (r) => runtime.canWriteSection(r),
+      },
+      // Typing coalescing (025): a burst of typing is one unit, not one per key.
+      { now: () => Date.now(), onFlushed: (_r, f) => void this.#flushed(journal, f) },
+    );
     this.#bases = new KeyValueSectionBaseStore(runtime.localState);
     this.#engine = new SectionEngine({
       port,
-      journal: new KeyValueSectionJournalStore(runtime.localState),
+      journal,
       bases: this.#bases,
       newNodeId: () => generateObjectId(),
       newOperationId: () => crypto.randomUUID(),
@@ -383,6 +390,35 @@ export class SectionsHost {
         : { participants: status.participants, hosting: status.hosting }),
       counts: { tasks: count("task"), paragraphs: count("paragraph"), items: count("item") },
     });
+  }
+
+  /**
+   * A waiting pass committed after a pause, or failed (025): out of any
+   * engine pass. Committed: the next pass of its note finds the receipt and
+   * moves the base (as after a crash). Failed: its entry is closed, and the
+   * next pass plans the edit, still in the note, again.
+   */
+  async #flushed(journal: KeyValueSectionJournalStore, f: Flushed): Promise<void> {
+    const entry = await journal.get(f.operationId);
+    if (entry === undefined) return;
+    if (f.kind === "failed")
+      await journal.put(advance(entry, "abandoned", { reason: "flush-failed" }));
+    const path = (await this.#bases?.load(entry.projectionId))?.locator.path;
+    if (path === undefined) return;
+    const file = this.app.vault.getFileByPath(path);
+    if (this.#openEditor(path) !== null) this.editor.remoteChanged(path);
+    else if (file !== null) this.editor.remoteChanged(path, await this.app.vault.read(file));
+    this.scheduleStatus();
+  }
+
+  /** The typing coalescers' timer (025). */
+  tick(): void {
+    void this.#port?.tick(Date.now()).catch(() => undefined);
+  }
+
+  /** Commits all waiting typing (unloading). */
+  async flushTyping(): Promise<void> {
+    await this.#port?.flushAll().catch(() => undefined);
   }
 
   /** Recomputes the sections' statuses soon (several triggers make one pass). */

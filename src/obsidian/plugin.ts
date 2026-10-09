@@ -154,6 +154,8 @@ export default class OpenLfcpPlugin extends Plugin {
       const reading = this.sections.reading;
       this.registerMarkdownPostProcessor((el, ctx) => reading.render(el, ctx));
       this.registerInterval(window.setInterval(() => this.sections?.scheduleStatus(), 2000));
+      // Typing coalescing (025): a pause commits what waits.
+      this.registerInterval(window.setInterval(() => this.sections?.tick(), 500));
       this.addCommand({
         id: "share-section",
         name: "Share section…",
@@ -230,6 +232,8 @@ export default class OpenLfcpPlugin extends Plugin {
   /** Stops the runtime (also when unload came before it finished starting). */
   async stopRuntime(): Promise<void> {
     const runtime = await this.whenRuntimeStarted();
+    // Waiting typing is committed while the sessions still run (025).
+    await this.sections?.flushTyping();
     this.runtime = null;
     await runtime?.stop();
   }
