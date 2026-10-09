@@ -250,7 +250,7 @@ export function parseSections(markdown: string): SectionScan {
     open = null;
   });
   if (open !== null) {
-    const o = open as { start: number; reported: boolean };
+    const o = open as { ref: SectionRef; start: number; reported: boolean };
     if (!o.reported) note("SECTION_BOUNDARY_MISSING", o.start);
     // A fence opened in the region and never closed hid the end marker (§4.4, §9).
     for (let i = o.start + 1; i < lines.length; i++)
@@ -263,7 +263,7 @@ export function parseSections(markdown: string): SectionScan {
         break;
       }
     fail(Math.max(0, o.start - 1));
-    damage(open as { ref: SectionRef; start: number });
+    damage(o);
   }
 
   // Pass 2: the nodes of each valid region. Inside one, an inline Task ref
