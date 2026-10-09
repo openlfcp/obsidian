@@ -888,6 +888,19 @@ export class LfcpRuntime {
    * checkpoint, a session on its coordinator, and the commit binding through
    * which local batches are committed with receipts.
    */
+  /** An open section Resource: ready (SSP §12.1), and no change held for a missing dependency. */
+  sectionLoad(
+    resource: ResourceId,
+  ): { readonly ready: boolean; readonly loaded: boolean } | undefined {
+    const profile = this.sectionProfile(resource);
+    if (profile === undefined) return undefined;
+    const c = profile.replica.snapshot().classification;
+    return {
+      ready: c !== "IMPORTING" && c !== "PROFILE_INVALID",
+      loaded: profile.heldUnits().length === 0,
+    };
+  }
+
   openSection(resource: ResourceId): Promise<SharedSectionsDataProfile> {
     return this.#engine(async () => (await this.#openSection(resource)).profile);
   }
