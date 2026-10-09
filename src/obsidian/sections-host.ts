@@ -5,8 +5,8 @@
 // start passes. Not reachable with the flag off: the plugin then creates
 // none of this.
 //
-// Known gap of the preview: sync status facts are provisional until the SDK
-// reports them (026).
+// The sync status comes from the SDK's status stream (026) and what the
+// plugin observes of the session and the model (core/status/facts.ts).
 
 import {
   fromBase64url,
@@ -42,6 +42,7 @@ import type { RefPlacement, SectionComments } from "../core/settings";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { observedFacts } from "../core/status/facts";
 import { type StatusView, statusView } from "../core/status/reducer";
+import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-status";
 import type { VaultChange } from "../core/vault/changes";
 import { sectionEditorExtension } from "./section-editor";
 import { ReadingBadges, sectionStatusExtension, setSectionStatuses } from "./section-status";
@@ -76,9 +77,10 @@ export class SectionsHost {
   #card: { readonly key: string; readonly title: string; readonly modal: SectionCardModal } | null =
     null;
   #statuses: ReadonlyMap<string, StatusView> = new Map();
-  #statusRevision = 0;
   #statusDue: number | null = null;
   #port: SdkSectionPort | null = null;
+  /** The SDK's status of each section Resource (hex): batches, acceptance, access (026). */
+  readonly #sdk = new Map<string, SdkStatus>();
   /** Section Resources whose session was LIVE in this run (hex). */
   readonly #wasLive = new Set<string>();
 
@@ -138,7 +140,10 @@ export class SectionsHost {
     });
     this.#runtime = runtime;
     this.#port = port;
-    runtime.on(() => this.scheduleStatus());
+    runtime.on((e) => {
+      if (e.type === "status") this.#statusEvent(e.resourceId, e.event);
+      this.scheduleStatus();
+    });
     this.#creation = new SectionCreation({
       host: {
         createSectionResource: (o) => runtime.createSectionResource(o),
@@ -290,7 +295,28 @@ export class SectionsHost {
       void this.#remote(resource);
       this.scheduleStatus();
     });
+    await this.#statusSnapshot(resource);
+  }
+
+  /** The SDK's status snapshot of a Resource: at the start, and after a skipped revision. */
+  async #statusSnapshot(R: ResourceId): Promise<void> {
+    const runtime = this.#runtime;
+    if (runtime === null) return;
+    const snapshot = await runtime.sectionStatusSnapshot(R).catch(() => undefined);
+    if (snapshot !== undefined) this.#sdk.set(toKey(R), fromSnapshot(snapshot));
     this.scheduleStatus();
+  }
+
+  #statusEvent(R: ResourceId, event: Parameters<typeof applySdkEvent>[1]): void {
+    const key = toKey(R);
+    const known = this.#sdk.get(key);
+    if (known === undefined) {
+      if (this.#watched.has(key)) void this.#statusSnapshot(R);
+      return;
+    }
+    const next = applySdkEvent(known, event);
+    this.#sdk.set(key, next);
+    if (next.needsSnapshot) void this.#statusSnapshot(R);
   }
 
   /**
@@ -372,8 +398,7 @@ export class SectionsHost {
   async #refreshStatus(): Promise<void> {
     const runtime = this.#runtime;
     const port = this.#port;
-    const storage = runtime?.storage;
-    if (runtime === null || port === null || storage === null || storage === undefined) return;
+    if (runtime === null || port === null) return;
     const next = new Map<string, StatusView>();
     for (const hex of this.#watched) {
       const R = fromKey64(hex);
@@ -384,34 +409,14 @@ export class SectionsHost {
       const r = toBase64url(R);
       const phase = runtime.phase(R);
       if (phase === "LIVE") this.#wasLive.add(hex);
-      const operations = (await storage.localMarks.list(`receipt:${hex}:`)).flatMap((m) => {
-        try {
-          const x = JSON.parse(m.value) as {
-            operationId: string;
-            unitIds: string[];
-            affectedNodeIds: string[];
-          };
-          return [{ id: x.operationId, unitIds: x.unitIds, nodeIds: x.affectedNodeIds }];
-        } catch {
-          return [];
-        }
-      });
-      const queued = new Set(
-        (await storage.outbound.list(R))
-          .filter((i) => i.kind === "data-unit")
-          .map((i) => toHex(i.itemId)),
-      );
       const facts = observedFacts({
         session: hex,
-        revision: ++this.#statusRevision,
         load: runtime.sectionLoad(R),
         phase,
         wasLive: this.#wasLive.has(hex),
-        access: await port.canWrite(r),
         problems: port.snapshot(r, sectionId)?.problems ?? [],
-        operations,
-        queued,
         projections: [],
+        sdk: this.#sdk.get(hex),
       });
       next.set(`${r}#${sectionId}`, statusView(facts));
     }

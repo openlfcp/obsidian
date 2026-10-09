@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { headingBadge, rowCues, SYNC_ICON } from "../../../src/core/status/badge";
 import { type ObservedSection, observedFacts } from "../../../src/core/status/facts";
 import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
+import type { SdkStatus } from "../../../src/core/status/sdk-status";
 
 const healthy: StatusFacts = {
   session: "s",
@@ -107,63 +108,78 @@ describe("rows", () => {
   });
 });
 
-describe("provisional facts", () => {
+describe("facts from the SDK's status and local observations", () => {
+  const sdk = (b: Partial<SdkStatus> = {}): SdkStatus => ({
+    revision: 3,
+    batches: [],
+    unconfirmed: new Set(),
+    access: { allowed: true },
+    section: "ready",
+    needsSnapshot: false,
+    ...b,
+  });
   const observed: ObservedSection = {
     session: "s",
-    revision: 1,
     load: { ready: true, loaded: true },
     phase: "LIVE",
     wasLive: true,
-    access: { allowed: true },
     problems: [],
-    operations: [
-      { id: "sent", unitIds: ["a"], nodeIds: ["n1"] },
-      { id: "queued", unitIds: ["b", "c"], nodeIds: ["n2"] },
-    ],
-    queued: new Set(["c"]),
     projections: [{ id: "p", source: "clean", application: "current" }],
+    sdk: sdk(),
   };
+  const batch = (id: string, accepted: string[] = []) => ({
+    id,
+    nodeIds: ["n1"],
+    durable: true,
+    unitIds: ["a", "b"],
+    acceptedUnitIds: accepted,
+  });
 
-  it("never claims acceptance: a queued batch is pending with evidence unavailable", () => {
-    const f = observedFacts(observed);
-    expect(f.batches.map((b) => b.id)).toEqual(["queued"]);
-    // A queued unit no receipt names: pending, without a count.
-    const loose = statusView(observedFacts({ ...observed, queued: new Set(["c", "zz"]) }));
-    expect(loose).toMatchObject({ pendingBatches: 2, pendingCounted: false, unattributed: true });
-    expect(headingBadge("L", loose).accessibleName).toBe(
-      "Shared section L, pending changes, open details",
+  it("accepted only by the SDK's evidence; acknowledged without it is EVIDENCE_UNKNOWN", () => {
+    expect(
+      statusView(observedFacts({ ...observed, sdk: sdk({ batches: [batch("x")] }) })).state,
+    ).toBe("SENDING");
+    const unconfirmed = observedFacts({
+      ...observed,
+      sdk: sdk({ batches: [batch("x")], unconfirmed: new Set(["x"]) }),
+    });
+    expect(statusView(unconfirmed).state).toBe("EVIDENCE_UNKNOWN");
+    const done = statusView(
+      observedFacts({ ...observed, sdk: sdk({ batches: [batch("x", ["a", "b"])] }) }),
     );
-    expect(f.batches.every((b) => b.acceptedUnitIds.length === 0)).toBe(true);
-    expect(statusView(f).state).toBe("EVIDENCE_UNKNOWN");
-    // Nothing queued: no pending local changes, and no accepted batch either.
-    const quiet = statusView(observedFacts({ ...observed, queued: new Set() }));
-    expect(quiet).toMatchObject({ state: "CURRENT", acceptedBatches: 0 });
+    expect(done).toMatchObject({ state: "CURRENT", acceptedBatches: 1 });
+  });
+
+  it("before the first snapshot, importing, a skipped revision: never current", () => {
+    expect(statusView(observedFacts({ ...observed, sdk: undefined })).state).toBe("LOADING");
+    expect(
+      statusView(observedFacts({ ...observed, sdk: sdk({ section: "importing" }) })).state,
+    ).toBe("LOADING");
+    expect(
+      statusView(observedFacts({ ...observed, sdk: sdk({ needsSnapshot: true }) })).state,
+    ).toBe("LOADING");
   });
 
   it("maps the session phase: offline keeps the checkpoint; syncing is receiving; a blocked key is attention", () => {
-    expect(
-      statusView(observedFacts({ ...observed, phase: "CLOSED", queued: new Set() })).state,
-    ).toBe("OFFLINE");
-    expect(
-      statusView(observedFacts({ ...observed, phase: "CLOSED", wasLive: false, queued: new Set() }))
-        .state,
-    ).toBe("LOADING");
-    expect(
-      statusView(observedFacts({ ...observed, phase: "DATA_SYNC", queued: new Set() })).state,
-    ).toBe("LOADING");
-    expect(
-      statusView(observedFacts({ ...observed, phase: "KEY_BLOCKED", queued: new Set() })).state,
-    ).toBe("ATTENTION");
+    expect(statusView(observedFacts({ ...observed, phase: "CLOSED" })).state).toBe("OFFLINE");
+    expect(statusView(observedFacts({ ...observed, phase: "CLOSED", wasLive: false })).state).toBe(
+      "LOADING",
+    );
+    expect(statusView(observedFacts({ ...observed, phase: "DATA_SYNC" })).state).toBe("LOADING");
+    expect(statusView(observedFacts({ ...observed, phase: "KEY_BLOCKED" })).state).toBe(
+      "ATTENTION",
+    );
     expect(statusView(observedFacts({ ...observed, load: undefined })).state).toBe("LOADING");
-    expect(
-      statusView(
-        observedFacts({
-          ...observed,
-          access: { allowed: false, reason: "read-only" },
-          queued: new Set(),
-        }),
-      ).state,
-    ).toBe("READ_ONLY_CURRENT");
+  });
+
+  it("access from the SDK's answer (§6)", () => {
+    const state = (access: SdkStatus["access"]) =>
+      statusView(observedFacts({ ...observed, sdk: sdk({ access }) })).state;
+    expect(state({ allowed: false, reason: "read-only" })).toBe("READ_ONLY_CURRENT");
+    expect(state({ allowed: false, reason: "revoked" })).toBe("ATTENTION");
+    expect(state({ allowed: false, reason: "not-member" })).toBe("ATTENTION");
+    expect(state({ allowed: false, reason: "key-unavailable" })).toBe("ATTENTION");
+    expect(state(null)).toBe("LOADING");
   });
 
   it("classifies model problems and a failed commit", () => {

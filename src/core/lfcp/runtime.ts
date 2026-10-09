@@ -21,6 +21,7 @@ import {
   type ResourcePhase,
   type ResourceRefusal,
   type Receipt as SectionReceipt,
+  type StatusSnapshot,
   SyncClient,
   type SyncEvent,
   saveControlChain,
@@ -1075,6 +1076,14 @@ export class LfcpRuntime {
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
       return this.#session(opened.url).client.canWrite(resource);
+    });
+  }
+
+  /** The status of a shared-sections Resource (§5): batches, received units, readiness, access. */
+  sectionStatusSnapshot(resource: ResourceId): Promise<StatusSnapshot> {
+    return this.#engine(async () => {
+      const opened = await this.#openSection(resource);
+      return this.#session(opened.url).client.statusSnapshot(resource);
     });
   }
 

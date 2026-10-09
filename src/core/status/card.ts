@@ -88,7 +88,7 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push("No local changes waiting.");
   if (kinds.has("evidence-unavailable"))
     facts.push(
-      "Server confirmation is not available in this version: sent updates are not shown as accepted.",
+      "The server acknowledged some updates without confirming it stored them: they are not shown as accepted.",
     );
   if (v.acceptedBatches > 0)
     facts.push(

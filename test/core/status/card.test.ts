@@ -55,7 +55,7 @@ describe("the section card", () => {
     });
     expect(c.facts).toContain("2 local updates saved on this device, waiting to be sent.");
     expect(c.facts).toContain(
-      "Server confirmation is not available in this version: sent updates are not shown as accepted.",
+      "The server acknowledged some updates without confirming it stored them: they are not shown as accepted.",
     );
     expect(c.facts).toContain("Offline: local updates wait on this device.");
     expect(c.facts.join(" ")).not.toMatch(/accepted by the server/);
