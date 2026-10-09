@@ -113,6 +113,12 @@ export interface SectionResult {
   readonly entries: readonly JournalEntry[];
   /** Nodes the model created or moved, as written or deferred this pass. */
   readonly structure?: StructurePlan;
+  /**
+   * The model revision this pass leaves the projection at: the commit's when
+   * it committed, else the snapshot's it projected. A later revision is
+   * not in the note yet (C14).
+   */
+  readonly modelRevision?: string;
 }
 
 export interface NotePass {
@@ -347,7 +353,11 @@ export class SectionEngine {
         projectionIds[k] as string,
         ctx,
       );
-      results.push(r.result);
+      const revision =
+        r.result.local?.kind === "committed"
+          ? r.result.local.receipt.modelRevision
+          : snapshots[k]?.revision;
+      results.push(revision === undefined ? r.result : { ...r.result, modelRevision: revision });
       changes = changes.concat(r.changes);
     }
     return {

@@ -121,6 +121,24 @@ describe("seeding (MS11)", () => {
   });
 });
 
+describe("the model revision a pass leaves its projection at (C14)", () => {
+  it("the snapshot's when nothing is committed; the commit's when it commits", async () => {
+    const h = await seeded();
+    const quiet = await h.run(note(BODY));
+    expect(quiet.pass.sections[0]?.modelRevision).toBe(h.port.snapshot(R, SID)?.revision);
+    const edited = await h.run(note(BODY).replace("Draft", "Draft edited"));
+    const local = edited.pass.sections[0]?.local;
+    expect(local?.kind).toBe("committed");
+    expect(edited.pass.sections[0]?.modelRevision).toBe(
+      local?.kind === "committed" ? local.receipt.modelRevision : null,
+    );
+    expect(edited.pass.sections[0]?.modelRevision).toBe(h.port.snapshot(R, SID)?.revision);
+    // A remote change moves the model on: the last pass's revision is behind it.
+    h.port.remote(R, () => undefined);
+    expect(h.port.snapshot(R, SID)?.revision).not.toBe(edited.pass.sections[0]?.modelRevision);
+  });
+});
+
 describe("local edits", () => {
   it("a Text edit, a new paragraph and a new Task go out as one batch, with their bindings", async () => {
     const h = await seeded();

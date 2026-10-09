@@ -40,6 +40,8 @@ export function projectionFact(r: SectionResult): {
 export class ProjectionFactsStore {
   readonly #facts = new Map<string, Map<string, ProjectionFacts>>();
   readonly #failed = new Map<string, Map<string, string>>();
+  /** The model revision each projection was last passed at, by section key. */
+  readonly #revisions = new Map<string, Map<string, string>>();
 
   /** One pass result of the section `key`. True when something the badge shows changed. */
   note(key: string, r: SectionResult): boolean {
@@ -48,6 +50,9 @@ export class ProjectionFactsStore {
     const before = JSON.stringify(projections.get(r.projectionId));
     projections.set(r.projectionId, facts);
     this.#facts.set(key, projections);
+    const revisions = this.#revisions.get(key) ?? new Map<string, string>();
+    if (r.modelRevision !== undefined) revisions.set(r.projectionId, r.modelRevision);
+    this.#revisions.set(key, revisions);
     const ops = this.#failed.get(key) ?? new Map<string, string>();
     const hadFailed = ops.get(r.projectionId);
     // A later pass that saved (or had nothing to save) clears the projection's failure.
@@ -88,10 +93,31 @@ export class ProjectionFactsStore {
   forget(key: string, projectionId: string): void {
     this.#facts.get(key)?.delete(projectionId);
     this.#failed.get(key)?.delete(projectionId);
+    this.#revisions.get(key)?.delete(projectionId);
   }
 
-  projections(key: string): ProjectionFacts[] {
-    return [...(this.#facts.get(key)?.values() ?? [])];
+  /**
+   * The projections of `key`. With the model's `revision` now, a projection
+   * shown as current but last passed at another revision is patch-pending:
+   * the model has changes its note does not show yet (C14), so the section
+   * is not CURRENT until a pass catches up.
+   */
+  projections(key: string, revision?: string): ProjectionFacts[] {
+    const passed = this.#revisions.get(key);
+    return [...(this.#facts.get(key)?.values() ?? [])].map((p) => {
+      const at = passed?.get(p.id);
+      return revision !== undefined &&
+        at !== undefined &&
+        at !== revision &&
+        p.application === "current"
+        ? { ...p, application: "patch-pending" }
+        : p;
+    });
+  }
+
+  /** Whether some projection of `key` was last passed at another revision than `revision`. */
+  behind(key: string, revision: string): boolean {
+    return [...(this.#revisions.get(key)?.values() ?? [])].some((at) => at !== revision);
   }
 
   failedOperations(key: string): string[] {

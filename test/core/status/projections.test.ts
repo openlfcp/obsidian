@@ -117,6 +117,39 @@ describe("projection facts from passes", () => {
     expect(view().state).toBe("CURRENT");
   });
 
+  it("C14: a note passed at an older revision than the model is not CURRENT until a pass catches up", () => {
+    const store = new ProjectionFactsStore();
+    store.note("k", result({ modelRevision: "heads-1" }));
+    const at = (revision: string) =>
+      statusView({ ...healthy, projections: store.projections("k", revision) });
+    expect(at("heads-1").state).toBe("CURRENT");
+    expect(store.behind("k", "heads-1")).toBe(false);
+    // The model moved on (a remote Task field edit no event announced).
+    expect(store.behind("k", "heads-2")).toBe(true);
+    expect(store.projections("k", "heads-2")).toEqual([
+      { id: "p1", source: "clean", application: "patch-pending" },
+    ]);
+    expect(at("heads-2").state).not.toBe("CURRENT");
+    expect(at("heads-2").conditions).toContainEqual({ kind: "catching-up" });
+    // Offline, the offline condition speaks (§5 decision), still not CURRENT.
+    expect(
+      statusView({
+        ...healthy,
+        connection: "offline",
+        projections: store.projections("k", "heads-2"),
+      }).state,
+    ).toBe("OFFLINE");
+    // The pass that projects heads-2 catches up.
+    store.note("k", result({ modelRevision: "heads-2" }));
+    expect(at("heads-2").state).toBe("CURRENT");
+    // A broken projection stays broken, not patch-pending.
+    store.note("k", result({ lost: ["n"], modelRevision: "heads-2" }));
+    expect(store.projections("k", "heads-3")[0]?.application).toBe("blocked");
+    // Forgetting a projection forgets its revision.
+    store.forget("k", "p1");
+    expect(store.behind("k", "heads-9")).toBe(false);
+  });
+
   it("a refused coalesced flush fails its projection; forgetting a projection clears it", () => {
     const store = new ProjectionFactsStore();
     store.fail("k", "p1", "op-2");

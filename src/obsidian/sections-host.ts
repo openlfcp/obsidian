@@ -755,6 +755,7 @@ export class SectionsHost {
         ?.id;
       if (typeof sectionId !== "string") continue;
       const r = toBase64url(R);
+      const snapshot = port.snapshot(r, sectionId);
       const phase = runtime.phase(R);
       if (phase === "LIVE") this.#wasLive.add(hex);
       const facts = observedFacts({
@@ -762,8 +763,8 @@ export class SectionsHost {
         load: runtime.sectionLoad(R),
         phase,
         wasLive: this.#wasLive.has(hex),
-        problems: port.snapshot(r, sectionId)?.problems ?? [],
-        projections: this.#projectionFacts.projections(`${toBase64url(R)}#${sectionId}`),
+        problems: snapshot?.problems ?? [],
+        projections: this.#projectionFacts.projections(`${r}#${sectionId}`, snapshot?.revision),
         failedOperations: this.#projectionFacts.failedOperations(`${toBase64url(R)}#${sectionId}`),
         sdk: this.#sdk.get(hex),
         // LFCP-02-066: queued units stay pending across a restart, whatever the SDK's batches know.
