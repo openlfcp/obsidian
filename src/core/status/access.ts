@@ -8,6 +8,8 @@
 export interface AccessParticipant {
   /** Public Principal ID, shortened: the identity detail shown with an alias. */
   readonly id: string;
+  /** The full Principal ID (hex): the identity an action applies to. */
+  readonly principal: string;
   readonly you: boolean;
   readonly owner: boolean;
   readonly abilities: readonly string[];
@@ -41,6 +43,7 @@ export interface AccessInput {
 
 export interface AccessRow {
   readonly id: string;
+  readonly principal: string;
   /** "You", the local alias, or "Member <id>". */
   readonly label: string;
   /** The identity detail always shown next to an alias. */
@@ -62,6 +65,8 @@ export interface AccessView {
   readonly canInvite: boolean;
   /** Why inviting is not offered, when it is not. */
   readonly inviteNote: string | null;
+  /** Why removing access is not available right now, when it would be offered otherwise (UX §7). */
+  readonly removeNote: string | null;
 }
 
 const PENDING: Readonly<Record<string, string>> = {
@@ -85,6 +90,7 @@ export function accessView(input: AccessInput): AccessView {
         .filter((p) => p.invitation === undefined)
         .map((p) => ({
           id: p.id,
+          principal: p.principal,
           label: p.you ? "You" : (input.aliases[p.id] ?? `Member ${p.id}`),
           detail: p.id,
           role: p.owner ? "owner" : p.abilities.includes("data/write") ? "can edit" : "can read",
@@ -102,6 +108,9 @@ export function accessView(input: AccessInput): AccessView {
   const pending = (mine?.pendingControl ?? []).map(
     (t) => PENDING[t] ?? "A change to who has access is waiting for the server.",
   );
+  const removalWaits =
+    rows.some((r) => r.removable) &&
+    (mine?.current !== true || !input.connected || mine.pendingControl.length > 0);
   const mayInvite = mine?.abilities.includes("capability/grant") === true;
   const canInvite = !unknown && mayInvite && mine?.current !== false;
   return {
@@ -117,5 +126,58 @@ export function accessView(input: AccessInput): AccessView {
       : unknown || mine?.current === false
         ? "Inviting waits until this device has checked access with the server."
         : "You can't invite others to this section.",
+    removeNote: !removalWaits
+      ? null
+      : !input.connected
+        ? "Removing access needs a connection to the section's server."
+        : (mine?.pendingControl.length ?? 0) > 0
+          ? "Removing access waits until this device's earlier access change is recorded by the server."
+          : "Removing access waits until this device has checked access with the server.",
   };
+}
+
+/** The confirmation before removing access (UX §7). */
+export const REMOVE_CONFIRMATION =
+  "Remove future access to this shared section? Copies already received cannot be erased.";
+
+/** A revocation's outcome as the SDK reports it (RevokeAccessResult, the parts shown). */
+export type RevokeOutcome =
+  | {
+      readonly kind: "queued";
+      readonly rotated: boolean;
+      readonly remainingPaths: readonly {
+        readonly issuer: string;
+        readonly abilities: readonly string[];
+      }[];
+    }
+  | { readonly kind: "refused"; readonly reason: string };
+
+const REFUSED: Readonly<Record<string, string>> = {
+  offline: "Removing access needs a connection to the section's server. Nothing was changed.",
+  stale:
+    "This device's view of who has access is behind the server's. Nothing was changed; try again once it has caught up.",
+  "control-pending":
+    "An earlier access change from this device is still waiting for the server. Nothing was changed; try again when it is recorded.",
+  "would-remove-owner": "The owner's access can't be removed. Nothing was changed.",
+  "not-member": "This identity has no access to remove. Nothing was changed.",
+  "not-authorized": "You can't remove this identity's access. Nothing was changed.",
+};
+
+/**
+ * What the user is told after "Remove access…": queued is not done (it waits
+ * for the server, SI14); access kept through grants this vault cannot revoke
+ * is said, not hidden; a refusal changed nothing.
+ */
+export function revokeMessage(outcome: RevokeOutcome, label: (issuer: string) => string): string {
+  if (outcome.kind === "refused")
+    return REFUSED[outcome.reason] ?? "Access could not be removed. Nothing was changed.";
+  const parts = ["Removing access: waiting for the server. It is not done yet."];
+  if (outcome.remainingPaths.length > 0) {
+    const issuers = [...new Set(outcome.remainingPaths.map((p) => label(p.issuer)))];
+    parts.push(
+      `This identity keeps access through a grant you can't remove (from ${issuers.join(", ")}).`,
+    );
+  } else if (outcome.rotated)
+    parts.push("Once recorded, new changes use a new key this identity does not get.");
+  return parts.join(" ");
 }
