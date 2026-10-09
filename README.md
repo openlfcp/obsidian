@@ -36,6 +36,10 @@ Step by step, with everyday use and troubleshooting:
 - **Markdown stays Markdown.** A shared task is an ordinary task line in
   the Obsidian Tasks syntax (`📅 2026-10-20`, `✅`), with a small
   `<!-- lfcp-ref: … -->` comment that links it.
+- **Shared sections (preview).** Share a heading with everything under it:
+  tasks, subtasks, paragraphs and lists, in order. Whatever is added to the
+  section later is shared too. This is off by default; see
+  [Shared sections](#shared-sections-preview).
 
 ## Install
 
@@ -107,15 +111,36 @@ The full walkthrough, with what to expect at each step:
 
 Everyone invited to a collaboration sees every task in it, including tasks
 you add later. Each command handles at most 200 tasks; above that it does
-nothing and says so. A shared list or section is not itself shared: its
+nothing and says so. A list shared this way is not itself shared: its
 order and heading, and tasks added to it later, stay local in each note.
+To share a section as a whole, use a shared section (below).
+
+## Shared sections (preview)
+
+A shared section is a heading and everything under it, down to the next
+heading of the same or a higher level. Everyone in it keeps the section in
+their own note, edits it, and sees the others' changes. Its order, nesting
+and paragraphs are shared, and so is whatever is added inside it later.
+Each section has its own collaboration and its own key.
+
+Shared sections are a preview for Shared Tasks 0.4, off by default. Turn
+them on with `"sectionsPreview": true` in the plugin's `data.json`. The
+[shared sections guide](docs/guides/shared-sections.md) covers sharing,
+inviting, joining and inserting, what the marks mean, conflicts, removing
+access, detaching and repair.
+
+In the note, a shared section carries one comment after its heading, one
+at its end, and one beside each task, paragraph and list item. Live
+Preview hides them. Source mode shows them, and so does "Show or hide
+sharing metadata". "Copy readable text (without sharing metadata)" copies
+the text without them.
 
 ## What's shared, what stays private, what the server sees
 
 | | |
 | --- | --- |
-| **Shared** with your collaborators | The tasks you share: title, status, dates, priority, tags. End-to-end encrypted: only members of the collaboration can read them. |
-| **Stays private** | Everything else in your vault, including the text around a shared task, and your keys, which never leave your device. Each vault has its own identity, a key pair, not an account. |
+| **Shared** with your collaborators | The tasks you share: title, status, dates, priority, tags. For a shared section: its heading's title and everything under it (tasks, paragraphs, list items, their order and nesting), including what is added later. Comments inside a section (`%% … %%`, `<!-- … -->`) stay on your device unless you choose to share them in the settings. End-to-end encrypted: only members of the collaboration can read them. |
+| **Stays private** | Everything else in your vault, including the text around a shared task or outside a shared section, and your keys, which never leave your device. Each vault has its own identity, a key pair, not an account. |
 | **The server sees** | Encrypted data it cannot read, plus the metadata it needs: public keys, collaboration IDs, who may read or write, sizes and counts of changes, and your IP address when you connect. Details: the server's [privacy note](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-privacy.md). |
 
 ## Which server
@@ -183,9 +208,10 @@ Beta software. **Not for data you need to protect yet.**
   the server is restored from a backup; keep your vault, which holds the
   full data of every collaboration.
 - A collaboration cannot move to another server.
-- Invitations offer "Read" and "Read + write" only, and there is no
-  member management in the plugin yet: you cannot remove someone from a
-  collaboration from Obsidian.
+- Invitations offer "Read" and "Read + write" only. For tasks shared one
+  by one, there is no member management in the plugin yet. For a shared
+  section, "Remove access…" in its details removes someone's future
+  access; copies they already received cannot be erased.
 - An invitation is a link (no QR code); a copied link stays on the
   clipboard.
 - Decrypted shared tasks are stored unencrypted on each device, like the
@@ -215,8 +241,14 @@ payment.
   not touched. Afterwards it reacts to note changes as you make them. None
   of your notes leaves the vault: only the shared tasks you chose go out,
   end-to-end encrypted.
-- **The clipboard,** only when you press "Copy link" in the invitation
-  dialog. The plugin never reads the clipboard.
+- **The clipboard,** written only when you ask: "Copy link" in the
+  invitation dialog, "Copy readable text (without sharing metadata)", "Copy
+  shared section", and copying a diagnostics report. When you copy from a
+  shared section in Reading view, the plugin leaves its status marks out of
+  what you copied. The plugin never reads the clipboard.
+- **A file in your vault,** only when you save a diagnostics report there
+  ("Export diagnostics…"). The report is shown in full before you copy or
+  save it, holds no note text or secrets, and is never sent.
 - **The network,** only `wss://` connections to the servers of your
   collaborations (see "Network use").
 - **Local storage on this device:** IndexedDB for the sync state, and
