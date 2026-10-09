@@ -23,6 +23,7 @@ import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import type { Collaboration } from "../core/collab/service";
+import type { SectionFacts } from "../core/diagnostics";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { scanRefs } from "../core/refs";
@@ -758,6 +759,36 @@ export class SectionsHost {
       const content = await this.#cardContent(card.key, card.title);
       if (content !== null) card.modal.update(content);
     }
+  }
+
+  /**
+   * What diagnostics show of the shared sections (LFCP-02-065): each one's
+   * state, condition kinds and codes and pending count; the kept candidates'
+   * reasons and sizes. No text, path, title or node ID.
+   */
+  async diagnostics(): Promise<{
+    readonly sections: SectionFacts[];
+    readonly candidates: { readonly reason: string; readonly characters: number }[];
+  }> {
+    const sections = [...this.#statuses].map(([key, v]) => ({
+      key,
+      state: v.state,
+      conditions: v.conditions.map((c) =>
+        c.kind === "rejected"
+          ? `rejected:${c.code}`
+          : c.kind === "source"
+            ? `source-${c.source}`
+            : c.kind === "access"
+              ? `access-${c.access}`
+              : c.kind,
+      ),
+      pendingBatches: v.pendingBatches,
+    }));
+    const kept = (await this.#journal?.allCandidates()) ?? [];
+    return {
+      sections,
+      candidates: kept.map((c) => ({ reason: c.reason, characters: c.sourceText.length })),
+    };
   }
 
   /** "Open shared section details" (064): the card of the section under the cursor. */

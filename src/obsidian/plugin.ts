@@ -17,11 +17,26 @@
 
 import type { EditorView } from "@codemirror/view";
 import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
-import { MarkdownView, Notice, Plugin, type TAbstractFile, type TFile } from "obsidian";
+import {
+  apiVersion,
+  MarkdownView,
+  Notice,
+  Platform,
+  Plugin,
+  type TAbstractFile,
+  type TFile,
+} from "obsidian";
 import { CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
 import { rehostNotice } from "../core/collab/view";
 import { COMMANDS } from "../core/commands";
+import {
+  type DiagnosticInput,
+  DiagnosticLog,
+  diagnosticReport,
+  safeEvent,
+} from "../core/diagnostics";
+import { collectDiagnostics } from "../core/diagnostics-collect";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { ConflictRegistry } from "../core/projection/conflicts";
 import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
@@ -39,6 +54,7 @@ import { filterUiFromCopy } from "./section-clipboard";
 import { sectionPresentationExtension, setShowMetadata } from "./section-presentation";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
+import { DiagnosticsModal } from "./ui/diagnostics";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
 
 /** Apply outcomes after which a collaborator may be blocked. */
@@ -118,6 +134,12 @@ export default class OpenLfcpPlugin extends Plugin {
       id: "rotate-local-encryption-key",
       name: "Rotate local encryption key",
       callback: () => void this.rotateLocalEncryptionKey(),
+    });
+    // LFCP-02-065: a local report, previewed, copied or saved only on request.
+    this.addCommand({
+      id: "export-diagnostics",
+      name: "Export diagnostics…",
+      callback: () => this.#openDiagnostics(),
     });
     this.addCommand({
       id: "repair-moved-ref",
@@ -344,6 +366,25 @@ export default class OpenLfcpPlugin extends Plugin {
         new Notice(
           "Shared Tasks: the saved state of a collaboration could not be opened, so it is being rebuilt from the changes stored on this device. Changes that are not valid are left out. Your notes are unchanged.",
           0,
+        );
+      });
+      this.#diagnostics.add(safeEvent(Date.now(), "runtime-ready", {}));
+      runtime.onCheckpointRebuilt(() =>
+        this.#diagnostics.add(safeEvent(Date.now(), "checkpoint-rebuilt", {})),
+      );
+      runtime.onNeedsRestart(() =>
+        this.#diagnostics.add(safeEvent(Date.now(), "needs-restart", {})),
+      );
+      // SDK events, codes only: the frequent ones that say nothing new stay out of the bounded log.
+      runtime.on((e) => {
+        if (e.type === "status" || e.type === "ack") return;
+        if (e.type === "unit" && e.outcome.kind === "applied") return;
+        const outcome = "outcome" in e ? (e.outcome as unknown as Record<string, unknown>) : {};
+        this.#diagnostics.add(
+          safeEvent(Date.now(), e.type, {
+            ...outcome,
+            ...(e as unknown as Record<string, unknown>),
+          }),
         );
       });
       this.#watchBlocked(runtime);
@@ -679,6 +720,48 @@ export default class OpenLfcpPlugin extends Plugin {
    * LFCP-02-098 §8: new local state keys for this vault on this device, every
    * stored row sealed again. Says how it went, with the status line.
    */
+  /** Safe events for the diagnostics report (LFCP-02-065), in memory only. */
+  readonly #diagnostics = new DiagnosticLog();
+
+  #openDiagnostics(): void {
+    new DiagnosticsModal(this.app, {
+      report: async (detailed) => diagnosticReport(await this.#diagnosticInput(), detailed),
+      copy: (text) => navigator.clipboard.writeText(text),
+      save: async (text) => {
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+        const path = `Shared Tasks diagnostics ${stamp}.txt`;
+        await this.app.vault.create(path, text);
+        return `"${path}" in this vault`;
+      },
+      say: (text) => new Notice(`Shared Tasks: ${text}`),
+    }).open();
+  }
+
+  async #diagnosticInput(): Promise<DiagnosticInput> {
+    return collectDiagnostics({
+      runtime: this.runtime,
+      collab: this.#collaboration(),
+      sections: this.sections,
+      events: this.#diagnostics.events,
+      plugin: this.manifest.version,
+      obsidian: apiVersion,
+      platform: `${Platform.isMobileApp ? "mobile" : "desktop"}-${
+        Platform.isMacOS
+          ? "macos"
+          : Platform.isWin
+            ? "windows"
+            : Platform.isLinux
+              ? "linux"
+              : Platform.isIosApp
+                ? "ios"
+                : Platform.isAndroidApp
+                  ? "android"
+                  : "other"
+      }`,
+      needsRestart: this.needsRestart !== null,
+    });
+  }
+
   async rotateLocalEncryptionKey(): Promise<void> {
     const runtime = this.runtime;
     if (runtime === null) {

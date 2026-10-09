@@ -3,6 +3,7 @@
 | Document | For | What it covers |
 | --- | --- | --- |
 | [OBSIDIAN-ARCHITECTURE-01.md](OBSIDIAN-ARCHITECTURE-01.md) | everyone | Architecture of the Obsidian adapter |
+| [architecture/diagnostics.md](architecture/diagnostics.md) | developers | The diagnostics export (LFCP-02-065): what the local report holds and leaves out, the detailed option, failure handling |
 | [architecture/local-state.md](architecture/local-state.md) | developers | Where LFCP state, secrets and the install marker live, eviction, the Automerge wasm choice (LFCP-059) |
 | [architecture/projection.md](architecture/projection.md) | developers | Markdown → Shared Object projection: glyphs, owned fields, conflicts, re-association, echo guard (LFCP-061) |
 | [architecture/collaboration.md](architecture/collaboration.md) | developers | The collaboration commands: SDK flows, invite presets, secrets, exact-byte detach, offline and blocked states (LFCP-065) |
