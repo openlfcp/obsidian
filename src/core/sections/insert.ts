@@ -128,11 +128,11 @@ export class SectionInsertion {
   constructor(private readonly deps: InsertionDeps) {}
 
   /** The section as it would be inserted, or why it cannot be yet. */
-  preview(
+  async preview(
     resource: ResourceId,
     sectionId: string,
     level = 2,
-  ): InsertPreview | { readonly refused: InsertRefusal } {
+  ): Promise<InsertPreview | { readonly refused: InsertRefusal }> {
     const r = toBase64url(resource);
     const snap = this.deps.port.snapshot(r, sectionId);
     if (snap === undefined) return { refused: "not-loaded" };
@@ -148,7 +148,7 @@ export class SectionInsertion {
       sectionId,
       title: snap.title,
       block,
-      readOnly: !this.deps.port.canWrite(r).allowed,
+      readOnly: !(await this.deps.port.canWrite(r)).allowed,
       revision: snap.revision,
     };
   }

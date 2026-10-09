@@ -62,7 +62,7 @@ async function setup(note = NOTE) {
     profile: (res) => r.sectionProfile(res),
     commit: (res, intents, o) => r.commitSection(res, intents, o),
     storage: r.storage as LfcpStorage,
-    canWrite: () => ({ allowed: true }),
+    canWrite: (res) => r.canWriteSection(res),
   });
   const fail = { create: false, commit: "" as "" | "before" | "after", edit: false, host: false };
   let hostResult: HostResult = { kind: "hosted" };

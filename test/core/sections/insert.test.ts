@@ -57,7 +57,10 @@ async function setup() {
     profile: (res) => r.sectionProfile(res),
     commit: (res, intents, o) => r.commitSection(res, intents, o),
     storage: r.storage as LfcpStorage,
-    canWrite: () => (writable ? { allowed: true } : { allowed: false, reason: "read-only" }),
+    canWrite: async (res) =>
+      writable
+        ? r.canWriteSection(res)
+        : { allowed: false, reason: "read-only", controlHead: null, verifiedAt: null },
   });
   const files = new Map([
     ["Launch.md", SOURCE],
@@ -174,7 +177,7 @@ describe("inserting a shared section", () => {
   it("writes one complete projection at a block boundary and publishes nothing", async () => {
     const env = await setup();
     const insertion = new SectionInsertion(env.deps);
-    const preview = insertion.preview(resourceOf(env.R), env.sectionId) as InsertPreview;
+    const preview = (await insertion.preview(resourceOf(env.R), env.sectionId)) as InsertPreview;
     expect(preview.block).toContain("- [ ] Prepare contract");
     expect(preview.block).toContain("Draft the plan.");
     expect(preview.readOnly).toBe(false);
@@ -209,8 +212,12 @@ describe("inserting a shared section", () => {
     const env = await setup();
     const insertion = new SectionInsertion(env.deps);
     env.setLoaded(false);
-    expect(insertion.preview(resourceOf(env.R), env.sectionId)).toEqual({ refused: "not-loaded" });
-    expect(insertion.preview(resourceOf(env.R), "0192e4a0-0000-7000-8000-0000000000ff")).toEqual({
+    expect(await insertion.preview(resourceOf(env.R), env.sectionId)).toEqual({
+      refused: "not-loaded",
+    });
+    expect(
+      await insertion.preview(resourceOf(env.R), "0192e4a0-0000-7000-8000-0000000000ff"),
+    ).toEqual({
       refused: "not-loaded",
     });
     // A section without `ready` (SSP §12.1).
@@ -237,13 +244,13 @@ describe("inserting a shared section", () => {
       { operationId: "importing" },
     );
     env.setLoaded(true);
-    expect(insertion.preview(R, S)).toEqual({ refused: "importing" });
+    expect(await insertion.preview(R, S)).toEqual({ refused: "importing" });
   });
 
   it("a retry after a crash finds its block; a deliberate second insertion is a second projection", async () => {
     const env = await setup();
     const insertion = new SectionInsertion(env.deps);
-    const preview = insertion.preview(resourceOf(env.R), env.sectionId) as InsertPreview;
+    const preview = (await insertion.preview(resourceOf(env.R), env.sectionId)) as InsertPreview;
     const entry = await insertion.prepare("Week.md", TARGET, 0, preview);
     env.fail.edit = true;
     await expect(insertion.run(entry)).rejects.toThrow("crash after the note was written");
@@ -266,7 +273,7 @@ describe("inserting a shared section", () => {
   it("a changed target note: the same anchor still takes it; a removed anchor waits for a new choice", async () => {
     const env = await setup();
     const insertion = new SectionInsertion(env.deps);
-    const preview = insertion.preview(resourceOf(env.R), env.sectionId) as InsertPreview;
+    const preview = (await insertion.preview(resourceOf(env.R), env.sectionId)) as InsertPreview;
     const moved = await insertion.prepare("Week.md", TARGET, 2, preview);
     env.files.set("Week.md", `New line.\n\n${TARGET}`);
     expect((await insertion.run(moved)).kind).toBe("inserted");
@@ -285,7 +292,7 @@ describe("inserting a shared section", () => {
     const env = await setup();
     const insertion = new SectionInsertion(env.deps);
     env.setWritable(false);
-    const preview = insertion.preview(resourceOf(env.R), env.sectionId) as InsertPreview;
+    const preview = (await insertion.preview(resourceOf(env.R), env.sectionId)) as InsertPreview;
     expect(preview.readOnly).toBe(true);
     const entry = await insertion.prepare("Week.md", TARGET, 0, preview);
     const cancelled = await insertion.cancel(entry);

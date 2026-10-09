@@ -9,6 +9,7 @@ import {
   type DataProfileHandler,
   DataUnitApplier,
   dekResolver,
+  NotWritableError,
   OutboundQueue,
   SyncClient,
   saveControlChain,
@@ -125,7 +126,7 @@ async function device() {
     profile: () => profile,
     commit: (r, intents, o) => sync.commit(r, intents, o),
     storage,
-    canWrite: () => ({ allowed: true }),
+    canWrite: (r) => sync.canWrite(r),
   });
   return { R, b64: toBase64url(R), storage, profile, sync, port };
 }
@@ -175,6 +176,32 @@ describe("SdkSectionPort on the real SDK", () => {
         operationId: "op-3",
       }),
     ).rejects.toMatchObject({ code: "OPERATION_ID_REUSED" });
+  });
+
+  it("write access from the validated Control state; a refused commit writes nothing (§6)", async () => {
+    const d = await device();
+    const access = await d.port.canWrite(d.b64);
+    expect(access).toMatchObject({ allowed: true });
+    expect(access.controlHead).toMatch(/^[0-9a-f]{64}$/);
+    const denied = {
+      allowed: false,
+      reason: "revoked" as const,
+      controlHead: null,
+      verifiedAt: null,
+    };
+    const port = new SdkSectionPort({
+      profile: () => d.profile,
+      commit: async () => {
+        throw new NotWritableError(denied);
+      },
+      storage: d.storage,
+      canWrite: async () => denied,
+    });
+    expect(await port.canWrite(d.b64)).toEqual({ allowed: false, reason: "revoked" });
+    await expect(
+      port.commit(d.b64, [{ intent: "section.set_title", title: "X" }], { operationId: "op-9" }),
+    ).rejects.toMatchObject({ code: "NOT_WRITABLE", access: "revoked" });
+    expect(await port.receiptOf(d.b64, "op-9")).toBeUndefined();
   });
 
   it("runs the section engine: typing becomes a commit in the replica", async () => {

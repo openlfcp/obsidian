@@ -69,7 +69,7 @@ async function vault(sections = true, serverUrl?: string) {
     profile: (r) => runtime.sectionProfile(r),
     commit: (r, intents, o) => runtime.commitSection(r, intents, o),
     storage: runtime.storage as LfcpStorage,
-    canWrite: () => ({ allowed: true }),
+    canWrite: (r) => runtime.canWriteSection(r),
   });
   const files = new Map<string, string>();
   const edit = async (
@@ -201,7 +201,7 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
     // Inserted there, complete: the same nodes as the owner's note.
     member.files.set("Week.md", "# Week\n\nMine.\n");
     const preview = await until("the section on the member", async () => {
-      const p = member.insertion.preview(R, sectionId);
+      const p = await member.insertion.preview(R, sectionId);
       return "refused" in p ? undefined : (p as InsertPreview);
     });
     const inserted = await member.insertion.run(
@@ -280,6 +280,38 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
       owner.port.taskView(toBase64url(R), taskId)?.task?.due === "2026-10-27" ? true : undefined,
     );
     expect((await owner.pass("Launch.md")).includes("📅 2026-10-27")).toBe(true);
+
+    // A reader (§6): the SDK says read-only; an edit writes nothing and stays local.
+    const readInvite = await owner.collab.invite(R, "read");
+    const reader = await vault();
+    expect(
+      await reader.collab.join(readInvite.link.reveal(), { name: "Launch (read)" }),
+    ).toMatchObject({ kind: "joined", abilities: ["data/read"] });
+    expect(await reader.port.canWrite(toBase64url(R))).toMatchObject({
+      allowed: false,
+      reason: "read-only",
+    });
+    reader.files.set("Read.md", "# Mine\n");
+    const readPreview = (await reader.insertion.preview(R, sectionId)) as InsertPreview;
+    expect(readPreview.readOnly).toBe(true);
+    await reader.insertion.run(
+      await reader.insertion.prepare("Read.md", "# Mine\n", 0, readPreview),
+    );
+    await reader.pass("Read.md");
+    reader.files.set(
+      "Read.md",
+      (reader.files.get("Read.md") as string).replace("Draft the plan. Today", "Reader's change"),
+    );
+    const kept = await reader.pass("Read.md");
+    expect(kept).toContain("Reader's change");
+    const units = (await reader.runtime.storage?.outbound.list(R))?.filter(
+      (i) => i.kind === "data-unit",
+    );
+    expect(units).toEqual([]);
+    await sleep(500);
+    expect(
+      Object.values(owner.port.snapshot(toBase64url(R), sectionId)?.nodes ?? {}).map((n) => n.text),
+    ).not.toContain("Reader's change");
 
     // One-time: the same link is refused for a third vault.
     const late = await vault();

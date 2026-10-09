@@ -22,7 +22,7 @@ export type Fault =
   | { readonly kind: "crash-after" }
   /** Storage fails: nothing written, an ordinary error. */
   | { readonly kind: "storage-error" }
-  | { readonly kind: "refuse"; readonly code: string };
+  | { readonly kind: "refuse"; readonly code: string; readonly access?: WriteAccess["reason"] };
 
 /** A section held by the fake: its visible state, deleted nodes and revision. */
 export interface FakeSection {
@@ -121,7 +121,8 @@ export class FakeSectionPort implements SectionPort {
     const fault = this.#faults.shift();
     if (fault?.kind === "crash-before") throw new Error("crash before commit");
     if (fault?.kind === "storage-error") throw new Error("disk full");
-    if (fault?.kind === "refuse") throw new CommitRefused(fault.code);
+    if (fault?.kind === "refuse")
+      throw new CommitRefused(fault.code, undefined, undefined, fault.access);
     if (!this.access.allowed) throw new CommitRefused("NOT_WRITABLE");
     this.changes.push({ operationId, intents });
     this.onTaskIntents(
@@ -176,7 +177,7 @@ export class FakeSectionPort implements SectionPort {
     this.released.push(operationId);
   }
 
-  canWrite(_resource: string): WriteAccess {
+  async canWrite(_resource: string): Promise<WriteAccess> {
     return this.access;
   }
 }

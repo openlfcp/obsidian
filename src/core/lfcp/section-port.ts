@@ -4,7 +4,13 @@
 // SDK errors become the port's refusals; nothing is retried here.
 
 import type { Receipt as SdkReceipt } from "@openlfcp/client";
-import { OperationIdReusedError, receiptOf, releaseReceipt } from "@openlfcp/client";
+import {
+  NotWritableError,
+  OperationIdReusedError,
+  receiptOf,
+  releaseReceipt,
+  type WriteAccess as SdkWriteAccess,
+} from "@openlfcp/client";
 import { fromBase64url, type ResourceId, resourceId, toHex } from "@openlfcp/core";
 import type { Task, TaskView } from "@openlfcp/shared-objects";
 import {
@@ -33,11 +39,19 @@ export interface SectionResources {
     options: { readonly operationId: string },
   ): Promise<SdkReceipt>;
   readonly storage: Pick<LfcpStorage, "localMarks" | "commit">;
-  /** Write access from the validated Control state (contract §6). */
-  canWrite(resource: ResourceId): WriteAccess;
+  /** Write access from the validated Control state (contract §6): SyncClient.canWrite. */
+  canWrite(resource: ResourceId): Promise<SdkWriteAccess>;
 }
 
 const asResource = (b64: string): ResourceId => resourceId(fromBase64url(b64));
+
+/** The SDK's write access in the port's terms (the head as hex). */
+export const portAccess = (a: SdkWriteAccess): WriteAccess => ({
+  allowed: a.allowed,
+  ...(a.reason === null ? {} : { reason: a.reason }),
+  ...(a.controlHead === null ? {} : { controlHead: toHex(a.controlHead) }),
+  ...(a.verifiedAt === null ? {} : { verifiedAt: a.verifiedAt }),
+});
 
 /** The SDK's receipt in the port's terms (unit IDs as hex). */
 export const portReceipt = (r: SdkReceipt): Receipt => ({
@@ -79,6 +93,9 @@ export class SdkSectionPort implements SectionPort {
     } catch (e) {
       if (e instanceof SectionIntentError) throw new CommitRefused(e.code, e.nodeId, e.intentIndex);
       if (e instanceof OperationIdReusedError) throw new CommitRefused("OPERATION_ID_REUSED");
+      // §3.6, §6: nothing was written; the edit stays a candidate.
+      if (e instanceof NotWritableError)
+        throw new CommitRefused("NOT_WRITABLE", undefined, undefined, e.access.reason ?? "unknown");
       throw e;
     }
   }
@@ -92,7 +109,7 @@ export class SdkSectionPort implements SectionPort {
     return releaseReceipt(this.resources.storage, asResource(resource), operationId);
   }
 
-  canWrite(resource: string): WriteAccess {
-    return this.resources.canWrite(asResource(resource));
+  async canWrite(resource: string): Promise<WriteAccess> {
+    return portAccess(await this.resources.canWrite(asResource(resource)));
   }
 }

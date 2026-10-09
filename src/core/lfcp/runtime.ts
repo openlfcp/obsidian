@@ -26,6 +26,7 @@ import {
   saveControlChain,
   startSyncDriver,
   type WebSocketFactory,
+  type WriteAccess,
 } from "@openlfcp/client";
 import {
   type DataUnitId,
@@ -1063,6 +1064,17 @@ export class LfcpRuntime {
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
       return this.#session(opened.url).client.commit(resource, intents, options);
+    });
+  }
+
+  /**
+   * Whether this vault may write to a shared-sections Resource
+   * (SDK-SECTIONS-INTEGRATION-01 §6), from the validated Control state only.
+   */
+  canWriteSection(resource: ResourceId): Promise<WriteAccess> {
+    return this.#engine(async () => {
+      const opened = await this.#openSection(resource);
+      return this.#session(opened.url).client.canWrite(resource);
     });
   }
 

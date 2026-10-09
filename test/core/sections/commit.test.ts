@@ -255,11 +255,13 @@ describe("edits that may not be sent stay local candidates", () => {
       ["STALE_BASE", { kind: "stale" }],
       ["SECTION_IMPORTING", { kind: "importing" }],
       ["NOT_WRITABLE", { kind: "kept", candidate: { reason: "read-only" } }],
+      ["NOT_WRITABLE:revoked", { kind: "kept", candidate: { reason: "access-revoked" } }],
       ["PARENT_CYCLE", { kind: "kept", candidate: { reason: "rejected" } }],
     ] as const;
-    for (const [code, expected] of cases) {
+    for (const [given, expected] of cases) {
       const { d, port, journal } = deps();
-      port.fail({ kind: "refuse", code });
+      const [code, access] = given.split(":") as [string, "revoked" | undefined];
+      port.fail({ kind: "refuse", code, ...(access === undefined ? {} : { access }) });
       const out = await commitPass(
         d,
         pass({ plan: { ...EMPTY, moves: [{ nodeId: id(6), parent: id(6), after: null }] } }),

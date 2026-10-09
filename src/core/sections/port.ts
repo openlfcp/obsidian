@@ -150,6 +150,8 @@ export class CommitRefused extends Error {
     readonly code: CommitRefusalCode,
     readonly nodeId?: string,
     readonly intentIndex?: number,
+    /** NOT_WRITABLE: why writing is not allowed (contract §6). */
+    readonly access?: WriteAccess["reason"],
   ) {
     super(`commit refused: ${code}`);
     this.name = "CommitRefused";
@@ -179,5 +181,6 @@ export interface SectionPort {
   /** Definitive, across restarts: undefined means no part of the batch was committed (§3.4). */
   receiptOf(resource: string, operationId: string): Promise<Receipt | undefined>;
   releaseReceipt(resource: string, operationId: string): Promise<void>;
-  canWrite(resource: string): WriteAccess;
+  /** From the validated Control state only (§6); never a default. */
+  canWrite(resource: string): Promise<WriteAccess>;
 }

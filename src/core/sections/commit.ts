@@ -197,7 +197,7 @@ export async function commitPass(
     return { kind: "nothing" };
   }
 
-  const access = deps.port.canWrite(pass.resource);
+  const access = await deps.port.canWrite(pass.resource);
   if (!access.allowed) {
     const kept = candidate(
       pass,
@@ -260,7 +260,11 @@ async function refused(
   const kept = candidate(
     pass,
     entry.operationId,
-    error.code === "NOT_WRITABLE" ? "read-only" : "rejected",
+    error.code !== "NOT_WRITABLE"
+      ? "rejected"
+      : error.access === "revoked"
+        ? "access-revoked"
+        : "read-only",
   );
   await deps.journal.putCandidate(kept);
   return { kind: "kept", candidate: kept };

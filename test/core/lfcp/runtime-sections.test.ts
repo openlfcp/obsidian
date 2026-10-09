@@ -103,7 +103,7 @@ describe("shared-sections Resources in the runtime", () => {
       profile: (res) => r.sectionProfile(res),
       commit: (res, intents, o) => r.commitSection(res, intents, o),
       storage: r.storage as LfcpStorage,
-      canWrite: () => ({ allowed: true }),
+      canWrite: (res) => r.canWriteSection(res),
     });
     let n = 10;
     const engine = new SectionEngine({

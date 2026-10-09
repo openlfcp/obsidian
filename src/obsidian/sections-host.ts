@@ -5,8 +5,7 @@
 // start passes. Not reachable with the flag off: the plugin then creates
 // none of this.
 //
-// Known gaps of the preview, each its own task: write access is not checked
-// (contract §6), and sync status facts are provisional until the SDK
+// Known gap of the preview: sync status facts are provisional until the SDK
 // reports them (026).
 
 import {
@@ -103,8 +102,8 @@ export class SectionsHost {
       profile: (r) => runtime.sectionProfile(r),
       commit: (r, intents, o) => runtime.commitSection(r, intents, o),
       storage,
-      // Preview only: the Control-state check of contract §6 is not wired yet.
-      canWrite: () => ({ allowed: true }),
+      // Contract §6: from the validated Control state; a denied edit stays a candidate.
+      canWrite: (r) => runtime.canWriteSection(r),
     });
     this.#bases = new KeyValueSectionBaseStore(runtime.localState);
     this.#engine = new SectionEngine({
@@ -219,7 +218,7 @@ export class SectionsHost {
     pick.open();
     const choice = await pick.result;
     if (choice === null) return;
-    const preview = insertion.preview(choice.resource as ResourceId, choice.sectionId);
+    const preview = await insertion.preview(choice.resource as ResourceId, choice.sectionId);
     if ("refused" in preview) {
       new Notice(
         preview.refused === "importing"
@@ -329,7 +328,7 @@ export class SectionsHost {
         load: runtime.sectionLoad(R),
         phase,
         wasLive: this.#wasLive.has(hex),
-        writable: port.canWrite(r).allowed,
+        writable: (await port.canWrite(r)).allowed,
         problems: port.snapshot(r, sectionId)?.problems ?? [],
         operations,
         queued,
