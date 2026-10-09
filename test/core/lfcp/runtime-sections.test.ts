@@ -65,6 +65,42 @@ describe("shared-sections Resources in the runtime", () => {
     expect(await receiptOf(again.storage as LfcpStorage, R, "create")).toEqual(receipt);
   });
 
+  it("a checkpoint that does not load: rebuilt from the stored units, never reusing a sequence (SPEC-PATCH-10)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createSectionResource({
+      name: "Launch",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    await r.openSection(R);
+    await r.commitSection(
+      R,
+      [{ intent: "section.create", sectionId: SECTION, title: "Launch", createdBy: me(r) }],
+      { operationId: "create" },
+    );
+    const storage = r.storage as LfcpStorage;
+    const kept = await storage.profileState.checkpoint(R);
+    if (kept === undefined) throw new Error("no checkpoint");
+    // An Automerge document chunk that does not load (its checksum is wrong).
+    const broken = Uint8Array.from([0x85, 0x6f, 0x4a, 0x83, 0, 0, 0, 0, 0, 1, 0]);
+    await storage.commit([
+      { op: "put-profile-checkpoint", checkpoint: { ...kept, state: broken } },
+    ]);
+    await r.stop();
+
+    const again = await start(device, local);
+    const rebuilt: string[] = [];
+    again.onCheckpointRebuilt((x) => rebuilt.push(toBase64url(x)));
+    await again.openSection(R);
+    expect(rebuilt).toEqual([toBase64url(R)]);
+    // Offline nothing accepted is replayed yet: the replica waits for its own
+    // units and writes nothing at a sequence it already used (§9).
+    expect(again.sectionProfile(R)?.replica.writable).toBe(false);
+    expect(kept.actorSeq).toBeGreaterThan(0);
+  });
+
   it("creates under a Resource ID chosen beforehand, once (LFCP-02-050)", async () => {
     const device = new Device();
     const local = new FakeLocal();

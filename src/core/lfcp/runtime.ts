@@ -39,6 +39,7 @@ import {
   fromHex,
   generateResourceId,
   hash32,
+  LfcpError,
   type PrincipalId,
   type ResourceId,
   toHex,
@@ -484,6 +485,35 @@ export class LfcpRuntime {
     return this.#sealed?.onUnreadable(listener) ?? (() => undefined);
   }
 
+  readonly #rebuiltListeners = new Set<(resource: ResourceId) => void>();
+
+  /** A Resource's checkpoint did not load and its state is rebuilt from the stored units. */
+  onCheckpointRebuilt(listener: (resource: ResourceId) => void): () => void {
+    this.#rebuiltListeners.add(listener);
+    return () => this.#rebuiltListeners.delete(listener);
+  }
+
+  /**
+   * A profile from its checkpoint; when the checkpoint does not load (a
+   * state an earlier version admitted that no longer saves and loads,
+   * SPEC-PATCH-10 F2-F4), an empty profile at the checkpoint's actor
+   * sequence (§9: no sequence is reused). The session then replays every
+   * stored unit through today's admission, which refuses what it must (the
+   * units after it wait), and the next checkpoint replaces the broken one.
+   * Nothing is reinstalled or deleted. A wasm trap or another profile's
+   * checkpoint is not a broken state: it is thrown as it is.
+   */
+  #restoreOrRebuild<P>(resource: ResourceId, restore: () => P, empty: () => P): P {
+    try {
+      return restore();
+    } catch (e) {
+      if (isEngineTrap(e) || (e instanceof LfcpError && e.code === "DATA_PROFILE_MISMATCH"))
+        throw e;
+      for (const l of this.#rebuiltListeners) l(resource);
+      return empty();
+    }
+  }
+
   /**
    * Rotates the local state keys (LFCP-02-098 §8): the checkpoints' and the
    * plugin's, each to its next generation, every row sealed again.
@@ -734,7 +764,14 @@ export class LfcpRuntime {
     const profile =
       checkpoint === undefined
         ? new SharedObjectsDataProfile(SharedObjectsReplica.empty(options))
-        : SharedObjectsDataProfile.restore(checkpoint, options);
+        : this.#restoreOrRebuild(
+            resource,
+            () => SharedObjectsDataProfile.restore(checkpoint, options),
+            () =>
+              new SharedObjectsDataProfile(
+                SharedObjectsReplica.empty({ ...options, minSeq: checkpoint.actorSeq }),
+              ),
+          );
     const opened: Opened = {
       resourceId: resource,
       profile,
@@ -1077,7 +1114,14 @@ export class LfcpRuntime {
     const profile =
       checkpoint === undefined
         ? new SharedSectionsDataProfile(SectionReplica.empty(options))
-        : SharedSectionsDataProfile.restore(checkpoint, options);
+        : this.#restoreOrRebuild(
+            resource,
+            () => SharedSectionsDataProfile.restore(checkpoint, options),
+            () =>
+              new SharedSectionsDataProfile(
+                SectionReplica.empty({ ...options, minSeq: checkpoint.actorSeq }),
+              ),
+          );
     const checkpointer = new ProfileCheckpointer(
       storage,
       { checkpoint: () => profile.checkpoint() },
