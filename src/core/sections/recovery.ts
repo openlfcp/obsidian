@@ -233,3 +233,62 @@ export function revalidate(
     ? { kind: "same" }
     : { kind: "changed", item: current };
 }
+
+/** What applying a choice needs: the model, write access and the commit (SectionPort). */
+export interface RecoveryPort {
+  recoveryModel(resource: string, sectionId: string): RecoveryModel | undefined;
+  canWrite(resource: string): Promise<{ readonly allowed: boolean }>;
+  commit(
+    resource: string,
+    intents: readonly SectionIntent[],
+    options: { readonly operationId: string },
+  ): Promise<unknown>;
+}
+
+/**
+ * Applies a choice after reading access and the model again (UX §9): a
+ * changed or resolved item, or no write access, applies nothing. Returns the
+ * items as they are then, and what to tell the user.
+ */
+export async function applyRecovery(
+  port: RecoveryPort,
+  resource: string,
+  sectionId: string,
+  item: RecoveryItem,
+  choice: RecoveryChoice,
+  operationId: string,
+): Promise<{
+  readonly items: readonly RecoveryItem[];
+  readonly note: string;
+  readonly applied: boolean;
+}> {
+  const items = () => {
+    const m = port.recoveryModel(resource, sectionId);
+    return m === undefined ? [] : recoveryItems(m);
+  };
+  if (!(await port.canWrite(resource)).allowed)
+    return {
+      items: items(),
+      note: "You can't change this section now: nothing was applied.",
+      applied: false,
+    };
+  const check = revalidate(item, items());
+  if (check.kind === "gone")
+    return { items: items(), note: "That one was resolved meanwhile.", applied: false };
+  if (check.kind === "changed")
+    return {
+      items: items(),
+      note: "Something changed while you were choosing: review it again. Nothing was applied.",
+      applied: false,
+    };
+  try {
+    await port.commit(resource, resolution(item, choice, sectionId), { operationId });
+  } catch (e) {
+    return {
+      items: items(),
+      note: `It could not be applied (${e instanceof Error ? e.message : String(e)}).`,
+      applied: false,
+    };
+  }
+  return { items: items(), note: "Applied.", applied: true };
+}

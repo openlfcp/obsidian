@@ -9,6 +9,7 @@ import { createTask } from "@openlfcp/shared-objects";
 import { type SectionIntent, SectionReplica } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import {
+  applyRecovery,
   type RecoveryItem,
   recoveryItems,
   resolution,
@@ -198,5 +199,45 @@ describe("recovery items (061)", () => {
     // Once resolved, it is gone.
     later.commit(resolution(field, { value: "Third" }, SECTION) as never);
     expect(revalidate(field, recoveryItems(model(later))).kind).toBe("gone");
+  });
+
+  it("applying re-reads access and the model: stale or read-only applies nothing", async () => {
+    const b = base();
+    const A = [{ intent: "node.move", id: X, parent: T, after: P }] as SectionIntent[];
+    const B = [{ intent: "node.move", id: X, parent: I2, after: null }] as SectionIntent[];
+    let r = merged(b, [A, B]);
+    let writable = true;
+    const port = {
+      recoveryModel: () => model(r),
+      canWrite: async () => ({ allowed: writable }),
+      commit: async (_res: string, intents: readonly unknown[]) => r.commit(intents as never),
+    };
+    const [item] = recoveryItems(model(r));
+    if (item?.kind !== "placement") throw new Error("no placement item");
+    const choice = { parent: item.choices[0]?.parent as string };
+    // Read-only: nothing.
+    writable = false;
+    expect(await applyRecovery(port, "r", SECTION, item, choice, "op-1")).toMatchObject({
+      applied: false,
+      note: "You can't change this section now: nothing was applied.",
+    });
+    writable = true;
+    // A third concurrent move arrives meanwhile: the comparison changed.
+    r = merged(b, [
+      A,
+      B,
+      [{ intent: "node.move", id: X, parent: I1, after: null }] as SectionIntent[],
+    ]);
+    const stale = await applyRecovery(port, "r", SECTION, item, choice, "op-2");
+    expect(stale).toMatchObject({ applied: false });
+    expect(stale.note).toContain("review it again");
+    expect(r.tree().classification).toBe("STRUCTURAL_ATTENTION");
+    // On the new comparison it applies, and the conflict is gone.
+    const [again] = stale.items;
+    if (again?.kind !== "placement") throw new Error("no placement item");
+    expect(again.choices).toHaveLength(3);
+    const done = await applyRecovery(port, "r", SECTION, again, { parent: I1 }, "op-3");
+    expect(done).toMatchObject({ applied: true, items: [] });
+    expect(r.snapshot().nodes[X]?.parent).toBe(I1);
   });
 });
