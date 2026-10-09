@@ -24,7 +24,7 @@ import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import type { Collaboration } from "../core/collab/service";
 import type { SectionFacts } from "../core/diagnostics";
-import type { LfcpRuntime } from "../core/lfcp/runtime";
+import { type LfcpRuntime, SECTIONS_READ_ONLY } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { scanRefs } from "../core/refs";
 import { splitLines } from "../core/refs/lines";
@@ -401,7 +401,7 @@ export class SectionsHost {
         ? [{ label: "Review conflicts…", run: () => this.#openRecovery(key, title) }]
         : []),
       // Inviting is offered by the validated access (060), never by default.
-      ...(content.access?.canInvite === true
+      ...(content.access?.canInvite === true && this.#runtime?.sectionsReadOnly !== true
         ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
         : []),
       { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
@@ -432,47 +432,55 @@ export class SectionsHost {
           });
         },
         // 060: confirmed first; queued is pending until the server commits it.
-        remove: (principal, label) => {
-          const ask = new ConfirmModal(
-            this.app,
-            `Remove access: ${label}`,
-            REMOVE_CONFIRMATION,
-            "Remove access",
-          );
-          ask.open();
-          void ask.result.then(async (yes) => {
-            const runtime = this.#runtime;
-            if (!yes || runtime === null) return;
-            const aliases = ((await runtime.localState.get(ALIASES)) ?? {}) as Record<
-              string,
-              string
-            >;
-            let message: string;
-            try {
-              const r = await runtime.revokeSectionAccess(R, fromHex(principal) as PrincipalId);
-              message = revokeMessage(
-                r.kind === "refused"
-                  ? { kind: "refused", reason: r.reason }
-                  : {
-                      kind: "queued",
-                      rotated: r.epoch !== null,
-                      remainingPaths: r.remainingPaths.map((p) => ({
-                        issuer: toHex(p.issuer),
-                        abilities: p.abilities,
-                      })),
-                    },
-                (hex) => aliases[hex.slice(0, 8)] ?? `Member ${hex.slice(0, 8)}`,
-              );
-            } catch {
-              // Outcome unknown: the access list says whether a change is pending.
-              message =
-                "Removing access failed. The access list shows whether a change is pending.";
-            }
-            new Notice(`Shared Tasks: ${message}`);
-            const fresh = await this.#cardContent(key, title);
-            if (fresh !== null && this.#card?.modal === modal) modal.update(fresh);
-          });
-        },
+        // V3: no access change from a device where sections are read-only.
+        ...(this.#runtime?.sectionsReadOnly === true
+          ? {}
+          : {
+              remove: (principal: string, label: string) => {
+                const ask = new ConfirmModal(
+                  this.app,
+                  `Remove access: ${label}`,
+                  REMOVE_CONFIRMATION,
+                  "Remove access",
+                );
+                ask.open();
+                void ask.result.then(async (yes) => {
+                  const runtime = this.#runtime;
+                  if (!yes || runtime === null) return;
+                  const aliases = ((await runtime.localState.get(ALIASES)) ?? {}) as Record<
+                    string,
+                    string
+                  >;
+                  let message: string;
+                  try {
+                    const r = await runtime.revokeSectionAccess(
+                      R,
+                      fromHex(principal) as PrincipalId,
+                    );
+                    message = revokeMessage(
+                      r.kind === "refused"
+                        ? { kind: "refused", reason: r.reason }
+                        : {
+                            kind: "queued",
+                            rotated: r.epoch !== null,
+                            remainingPaths: r.remainingPaths.map((p) => ({
+                              issuer: toHex(p.issuer),
+                              abilities: p.abilities,
+                            })),
+                          },
+                      (hex) => aliases[hex.slice(0, 8)] ?? `Member ${hex.slice(0, 8)}`,
+                    );
+                  } catch {
+                    // Outcome unknown: the access list says whether a change is pending.
+                    message =
+                      "Removing access failed. The access list shows whether a change is pending.";
+                  }
+                  new Notice(`Shared Tasks: ${message}`);
+                  const fresh = await this.#cardContent(key, title);
+                  if (fresh !== null && this.#card?.modal === modal) modal.update(fresh);
+                });
+              },
+            }),
       },
     );
     this.#card = { key, title, modal };
@@ -936,6 +944,11 @@ export class SectionsHost {
    * a changed range is shown again. Returns the approved preview, or null.
    */
   async shareSection(editor: Editor, path: string): Promise<SharePreview | null> {
+    // V3: no new shared section from a device where sections are read-only.
+    if (this.#runtime?.sectionsReadOnly === true) {
+      new Notice(`Shared Tasks: ${SECTIONS_READ_ONLY}.`);
+      return null;
+    }
     const md = editor.getValue();
     let line = editor.getCursor().line;
     let range: ShareRange | null = null;

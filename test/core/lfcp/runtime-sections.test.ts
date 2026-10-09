@@ -5,10 +5,16 @@
 // records in the install database. Offline (the session never connects).
 
 import { receiptOf } from "@openlfcp/client";
-import { toBase64url } from "@openlfcp/core";
+import { type ObjectId, toBase64url } from "@openlfcp/core";
+import { createTask } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { afterEach, describe, expect, it } from "vitest";
-import { LfcpRuntime, UnsupportedProfileError } from "../../../src/core/lfcp/runtime";
+import { Collaboration } from "../../../src/core/collab/service";
+import {
+  LfcpRuntime,
+  SectionsReadOnlyError,
+  UnsupportedProfileError,
+} from "../../../src/core/lfcp/runtime";
 import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
 import { applyChanges, SectionEngine } from "../../../src/core/sections/engine";
 import { formatBoundary, formatNodeMarker } from "../../../src/core/sections/grammar";
@@ -16,7 +22,7 @@ import {
   KeyValueSectionBaseStore,
   KeyValueSectionJournalStore,
 } from "../../../src/core/sections/stores";
-import { Device, FakeLocal } from "../../support/lfcp-env";
+import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 
 const URL = "wss://offline.example.invalid/v1/ws";
 const SECTION = "0192e4a0-0000-7000-8000-000000000001";
@@ -99,6 +105,58 @@ describe("shared-sections Resources in the runtime", () => {
     // units and writes nothing at a sequence it already used (§9).
     expect(again.sectionProfile(R)?.replica.writable).toBe(false);
     expect(kept.actorSeq).toBeGreaterThan(0);
+  });
+
+  it("on mobile (V3): sections are read and shown; no section write path runs; 0.1 still writes (LFCP-02-095)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const desktop = await start(device, local);
+    const R = await desktop.createSectionResource({
+      name: "Launch",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    await desktop.openSection(R);
+    await desktop.commitSection(
+      R,
+      [{ intent: "section.create", sectionId: SECTION, title: "Launch", createdBy: me(desktop) }],
+      { operationId: "create" },
+    );
+    const tasks = await desktop.createResource({
+      name: "Tasks",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    await desktop.stop();
+
+    const mobile = await LfcpRuntime.start(device.env(local, { sectionsReadOnly: true }));
+    running.push(mobile);
+    expect(mobile.sectionsReadOnly).toBe(true);
+    await mobile.openSection(R);
+    expect(mobile.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch");
+    expect(await mobile.canWriteSection(R)).toMatchObject({ allowed: false, reason: "read-only" });
+    const queued = (await mobile.storage?.outbound.list(R))?.length;
+    await expect(
+      mobile.commitSection(R, [{ intent: "section.set_title", title: "Mobile" }], {
+        operationId: "m1",
+      }),
+    ).rejects.toBeInstanceOf(SectionsReadOnlyError);
+    await expect(
+      mobile.createSectionResource({ name: "New", endpoints: [URL], coordinatorUrl: URL }),
+    ).rejects.toBeInstanceOf(SectionsReadOnlyError);
+    await expect(mobile.revokeSectionAccess(R, me(mobile))).rejects.toBeInstanceOf(
+      SectionsReadOnlyError,
+    );
+    expect((await mobile.storage?.outbound.list(R))?.length).toBe(queued);
+    const collab = new Collaboration(mobile, { sleep, sections: true, sectionsReadOnly: true });
+    await expect(collab.checkInvitable(R)).rejects.toMatchObject({ code: "SECTIONS_READ_ONLY" });
+    // 0.1 collaborations keep working (legacy Tasks).
+    const { intent } = createTask({
+      id: "017f22e2-79b0-7cc3-98c4-dc0c0c07398f" as ObjectId,
+      title: "Still writes",
+      createdBy: me(mobile),
+    });
+    expect(await mobile.writeIntent(tasks, intent)).not.toBeNull();
   });
 
   it("creates under a Resource ID chosen beforehand, once (LFCP-02-050)", async () => {

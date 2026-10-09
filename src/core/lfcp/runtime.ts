@@ -113,6 +113,13 @@ export interface RuntimeEnv extends InstallEnv {
    * `snapshot/publish` (default 200).
    */
   readonly snapshotEvery?: number;
+  /**
+   * LFCP-02-095 (V3): shared sections are read-only on this device (Obsidian
+   * mobile). Sections are received and shown; no section write path runs:
+   * no commit, no new section, no access change, no Snapshot of a section.
+   * 0.1 collaborations are not affected.
+   */
+  readonly sectionsReadOnly?: boolean;
 }
 
 /** The local encryption status (LFCP-02-098 §8). */
@@ -175,6 +182,19 @@ export const NEEDS_NEWER_VERSION =
  * A stored Resource whose Data Profile this version cannot read (a newer
  * plugin's shared sections, say): it is never opened, merged or written.
  */
+/** The text a refused section write shows on a device where sections are read-only (V3). */
+export const SECTIONS_READ_ONLY =
+  "Shared sections are read-only on this device in this version of Shared Tasks: changes made here stay in your note and are not shared";
+
+/** A section write refused because sections are read-only on this device (LFCP-02-095). */
+export class SectionsReadOnlyError extends Error {
+  readonly code = "SECTIONS_READ_ONLY";
+  constructor() {
+    super(SECTIONS_READ_ONLY);
+    this.name = "SectionsReadOnlyError";
+  }
+}
+
 export class UnsupportedProfileError extends Error {
   /** Not the §62 PROFILE_UNSUPPORTED, which is a server's refusal: the server is not involved here. */
   readonly code = "NEWER_VERSION_NEEDED";
@@ -636,6 +656,11 @@ export class LfcpRuntime {
     return out;
   }
 
+  /** LFCP-02-095 (V3): shared sections are read-only on this device. */
+  get sectionsReadOnly(): boolean {
+    return this.#env.sectionsReadOnly === true;
+  }
+
   /**
    * Sets a Resource's local display name: the user's text, so it lives in
    * the plugin's sealed local state, never in the Resource row's labels
@@ -1093,6 +1118,7 @@ export class LfcpRuntime {
      */
     readonly resourceId?: ResourceId;
   }): Promise<ResourceId> {
+    if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
     return this.#engine(async () => {
       const wanted = options.resourceId;
       if (wanted !== undefined && (await this.#ready().storage.resources.get(wanted)) !== undefined)
@@ -1192,6 +1218,7 @@ export class LfcpRuntime {
     intents: readonly unknown[],
     options: { readonly operationId: string },
   ): Promise<SectionReceipt> {
+    if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
       return this.#session(opened.url).client.commit(resource, intents, options);
@@ -1205,7 +1232,11 @@ export class LfcpRuntime {
   canWriteSection(resource: ResourceId): Promise<WriteAccess> {
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
-      return this.#session(opened.url).client.canWrite(resource);
+      const access = await this.#session(opened.url).client.canWrite(resource);
+      // V3: the validated evidence is kept; this device does not write.
+      return this.#env.sectionsReadOnly === true
+        ? { ...access, allowed: false, reason: "read-only" as const }
+        : access;
     });
   }
 
@@ -1224,6 +1255,7 @@ export class LfcpRuntime {
    * current here; queued records stay pending until the server commits them.
    */
   revokeSectionAccess(resource: ResourceId, subject: PrincipalId): Promise<RevokeAccessResult> {
+    if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
       return this.#session(opened.url).client.revokeAccess(resource, subject);
@@ -1321,7 +1353,9 @@ export class LfcpRuntime {
       // (writeIntent queues its units directly) are added here.
       snapshotPolicy: (R, units) =>
         units + (this.#ownUnits.get(toHex(R)) ?? 0) >= (this.#env.snapshotEvery ?? 200) &&
-        this.#publishers.has(toHex(R)),
+        this.#publishers.has(toHex(R)) &&
+        // V3: no Snapshot of a section from a device where sections are read-only.
+        !(this.#env.sectionsReadOnly === true && this.#sections.has(toHex(R))),
     });
     const unsubscribe = client.on((e) => {
       this.#onEvent(e);

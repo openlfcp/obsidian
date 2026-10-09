@@ -310,6 +310,7 @@ export default class OpenLfcpPlugin extends Plugin {
         flows: new Collaboration(runtime, {
           sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
           sections: this.settings.sectionsPreview,
+          sectionsReadOnly: Platform.isMobile,
         }),
       };
     return this.#collab.flows;

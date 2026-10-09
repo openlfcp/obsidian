@@ -14,6 +14,7 @@
 | [guides/user-guide.md](guides/user-guide.md) | everyone | Step-by-step user guide: install, create, share, invite, join, many tasks at once, offline, conflicts, troubleshooting |
 | [guides/shared-sections.md](guides/shared-sections.md) | everyone | Shared sections (preview): turn it on, share, invite, join and insert, what the marks mean, offline, conflicts, copying, removing access, detaching, repair, limits |
 | [guides/choosing-a-server.md](guides/choosing-a-server.md) | everyone | Choosing a sync server: the project server wss://sync.openlfcp.org as the default, why the choice is permanent, running your own |
+| [devel/testing/mobile-sections-checklist.md](devel/testing/mobile-sections-checklist.md) | developers, owner | Manual checks of read-only shared sections on one mobile device (LFCP-02-095, V3) |
 | [devel/testing/two-vault-e2e.md](devel/testing/two-vault-e2e.md) | developers | The two-vault E2E against the real server: running it, what it proves, the harness (LFCP-066) |
 | [devel/testing/security-vertical-slice.md](devel/testing/security-vertical-slice.md) | release | The MVP 0.1 security/privacy release gate (LFCP-071): every security boundary in one live scenario |
 | [devel/testing/load-in-clean-vault.md](devel/testing/load-in-clean-vault.md) | developers | Manual check: load the built plugin in a clean vault |

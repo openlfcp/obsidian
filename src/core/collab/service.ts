@@ -60,6 +60,7 @@ import {
   type OpenResource,
   type RegistryEntry,
   type RuntimeStatus,
+  SECTIONS_READ_ONLY,
 } from "../lfcp/runtime";
 import type { TaskState } from "../refs/scanner";
 import type { InsertCandidate } from "./batch";
@@ -119,6 +120,8 @@ export interface CollabOptions {
   readonly now?: () => number;
   /** Shared sections (the `sectionsPreview` flag): invite to and join section Resources. */
   readonly sections?: boolean;
+  /** LFCP-02-095 (V3): sections are read-only on this device, so nobody is invited from it. */
+  readonly sectionsReadOnly?: boolean;
 }
 
 /** Why something needs the network and could not get it, or was refused. */
@@ -283,6 +286,7 @@ export class Collaboration {
       sleep: options.sleep,
       now: options.now ?? Date.now,
       sections: options.sections ?? false,
+      sectionsReadOnly: options.sectionsReadOnly ?? false,
     };
   }
 
@@ -475,6 +479,8 @@ export class Collaboration {
   async checkInvitable(R: ResourceId): Promise<void> {
     if ((await this.#entry(R)).profile !== SECTIONS_PROFILE_ID) return;
     if (!this.#o.sections) throw new CollabError("NEWER_VERSION_NEEDED", NEEDS_NEWER_VERSION);
+    if (this.#o.sectionsReadOnly === true)
+      throw new CollabError("SECTIONS_READ_ONLY", `${SECTIONS_READ_ONLY}.`);
     if ((await this.#runtime.localState.get(hostingKey(R))) !== "hosted")
       throw new CollabError(
         "NOT_HOSTED",

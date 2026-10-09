@@ -15,7 +15,7 @@
 
 import { localStateCipher } from "@openlfcp/crypto";
 import { IdbLfcpStorage } from "@openlfcp/storage-idb";
-import type { App } from "obsidian";
+import { type App, Platform } from "obsidian";
 import type { HeldLock, RuntimeEnv } from "../core/lfcp/runtime";
 
 interface LockManagerLike {
@@ -73,6 +73,8 @@ export function obsidianRuntimeEnv(app: App): RuntimeEnv {
       IdbLfcpStorage.open(name, { onReserved, localState: { secrets, cipher: localStateCipher } }),
     ...(canPersist(storage) ? { persist: () => storage.persist() } : {}),
     ...(locks === undefined ? {} : { acquireLock: (name) => acquireWebLock(locks, name) }),
+    // LFCP-02-095 (V3): shared sections are read-only on Obsidian mobile.
+    sectionsReadOnly: Platform.isMobile,
     timers: {
       setInterval: (fn, ms) => window.setInterval(fn, ms),
       clearInterval: (h) => window.clearInterval(h as number),
