@@ -6,7 +6,7 @@
 import type { Receipt as SdkReceipt } from "@openlfcp/client";
 import { OperationIdReusedError, receiptOf, releaseReceipt } from "@openlfcp/client";
 import { fromBase64url, type ResourceId, resourceId, toHex } from "@openlfcp/core";
-import { parseTask, type Task } from "@openlfcp/shared-objects";
+import type { Task, TaskView } from "@openlfcp/shared-objects";
 import {
   SectionIntentError,
   type SharedSectionsDataProfile,
@@ -59,16 +59,14 @@ export class SdkSectionPort implements SectionPort {
       : fromSdkSnapshot(profile.replica.snapshot(), sectionId);
   }
 
-  /**
-   * A section Task as the model holds it, read from the replica's document
-   * (the SDK has no TaskView for section Tasks yet); undefined if invalid.
-   */
+  /** A section Task with its conflict metadata (SectionReplica.task, the SOP §99 form). */
+  taskView(resource: string, taskId: string): TaskView | undefined {
+    return this.resources.profile(asResource(resource))?.replica.task(taskId);
+  }
+
+  /** A section Task as the model holds it; undefined when a visible value is invalid. */
   task(resource: string, taskId: string): Task | undefined {
-    const doc = this.resources.profile(asResource(resource))?.replica.toJSON() as
-      | { readonly objects?: Readonly<Record<string, Parameters<typeof parseTask>[0]>> }
-      | undefined;
-    const parsed = parseTask(doc?.objects?.[taskId]);
-    return parsed.valid ? parsed.task : undefined;
+    return this.taskView(resource, taskId)?.task;
   }
 
   async commit(

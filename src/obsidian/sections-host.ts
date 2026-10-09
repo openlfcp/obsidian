@@ -5,10 +5,9 @@
 // start passes. Not reachable with the flag off: the plugin then creates
 // none of this.
 //
-// Known gaps of the preview, each its own task: Task fields inside a
-// section are not rendered or sent (the SDK has no TaskView for section
-// Tasks yet), write access is not checked (contract §6), there is no sync
-// status (026), and invitations to a section are not offered yet (051).
+// Known gaps of the preview, each its own task: write access is not checked
+// (contract §6), and sync status facts are provisional until the SDK
+// reports them (026).
 
 import {
   fromBase64url,
@@ -116,8 +115,8 @@ export class SectionsHost {
       newOperationId: () => crypto.randomUUID(),
       createdBy: principal,
       newProjectionId,
-      // No TaskView for section Tasks in the SDK yet: their fields are left alone.
-      tasks: () => undefined,
+      // Section Tasks render and send their fields like 0.1's (SectionReplica.task).
+      tasks: (r, taskId) => ({ view: port.taskView(r, taskId) }),
       newTask: (line, id) => newSectionTask(line, principal, id),
       refPlacement: this.refPlacement,
       sectionComments: this.sectionComments,

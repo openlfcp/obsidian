@@ -19,11 +19,14 @@ import { CollabError, Collaboration } from "../../../src/core/collab/service";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
 import { SectionCreation } from "../../../src/core/sections/create";
-import { applyChanges } from "../../../src/core/sections/engine";
+import { applyChanges, SectionEngine } from "../../../src/core/sections/engine";
 import { type InsertPreview, SectionInsertion } from "../../../src/core/sections/insert";
 import { parseSections } from "../../../src/core/sections/parser";
 import { preflight, proposeRange } from "../../../src/core/sections/share";
-import { KeyValueSectionBaseStore } from "../../../src/core/sections/stores";
+import {
+  KeyValueSectionBaseStore,
+  KeyValueSectionJournalStore,
+} from "../../../src/core/sections/stores";
 import { newSectionTask } from "../../../src/core/sections/task-fields";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 import { type LiveServer, liveSkipReason, startLiveServer } from "../../support/live-server";
@@ -106,7 +109,38 @@ async function vault(sections = true, serverUrl?: string) {
     edit,
     newInsertionId: () => crypto.randomUUID(),
   });
-  return { runtime, collab, port, files, creation, insertion, principal: status.principalId };
+  // The engine as the plugin runs it: section Tasks render and send their fields.
+  const engine = new SectionEngine({
+    port,
+    journal: new KeyValueSectionJournalStore(runtime.localState),
+    bases: new KeyValueSectionBaseStore(runtime.localState),
+    newNodeId: () => generateObjectId(),
+    newOperationId: () => crypto.randomUUID(),
+    createdBy: status.principalId,
+    newProjectionId: () => crypto.randomUUID(),
+    tasks: (r, taskId) => ({ view: port.taskView(r, taskId) }),
+    newTask: (line, id) => newSectionTask(line, status.principalId, id),
+  });
+  /** One engine pass over a note, written as the plugin writes it. */
+  const pass = async (path: string) => {
+    const md = files.get(path) as string;
+    const ctx = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
+    const p = await engine.pass(path, md, ctx);
+    const out = applyChanges(md, p.changes);
+    files.set(path, out);
+    await engine.written(p, out);
+    return out;
+  };
+  return {
+    runtime,
+    collab,
+    port,
+    files,
+    creation,
+    insertion,
+    pass,
+    principal: status.principalId,
+  };
 }
 
 const fromB64 = (b64: string) => fromBase64url(b64) as ResourceId;
@@ -204,6 +238,48 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
         ? true
         : undefined,
     );
+
+    // Task fields in the section, both ways through the real SDK TaskView:
+    // the owner checks the Task and gives it a due date; the member's note
+    // shows both, and the member's own edit of the date comes back.
+    // The owner's note shows its own edit, as the editor would have written it.
+    owner.files.set(
+      "Launch.md",
+      (owner.files.get("Launch.md") as string).replace("Draft the plan.", "Draft the plan. Today"),
+    );
+    await owner.pass("Launch.md");
+    await member.pass("Week.md");
+    owner.files.set(
+      "Launch.md",
+      (owner.files.get("Launch.md") as string).replace(
+        "- [ ] Prepare contract",
+        "- [x] Prepare contract 📅 2026-10-20",
+      ),
+    );
+    await owner.pass("Launch.md");
+    const taskId = parseSections(owner.files.get("Launch.md") as string).sections[0]?.nodes[0]
+      ?.id as string;
+    expect(owner.port.taskView(toBase64url(R), taskId)?.task).toMatchObject({
+      status: "done",
+      due: "2026-10-20",
+    });
+    const memberLine = await until("the checked Task on the member", async () => {
+      const md = await member.pass("Week.md");
+      const line = md.split("\n").find((l) => l.includes("Prepare contract"));
+      return line?.startsWith("- [x] Prepare contract") && line.includes("📅 2026-10-20")
+        ? line
+        : undefined;
+    });
+    expect(memberLine).toMatch(/^- \[x\] Prepare contract .*📅 2026-10-20/);
+    member.files.set(
+      "Week.md",
+      (member.files.get("Week.md") as string).replace("📅 2026-10-20", "📅 2026-10-27"),
+    );
+    await member.pass("Week.md");
+    await until("the member's date on the owner", async () =>
+      owner.port.taskView(toBase64url(R), taskId)?.task?.due === "2026-10-27" ? true : undefined,
+    );
+    expect((await owner.pass("Launch.md")).includes("📅 2026-10-27")).toBe(true);
 
     // One-time: the same link is refused for a third vault.
     const late = await vault();
