@@ -277,10 +277,12 @@ describe("priority and races", () => {
     expect(storeView(store).state).toBe("ATTENTION");
   });
 
-  it("a disconnect during catch-up is never CURRENT", () => {
+  it("a disconnect during catch-up is never CURRENT: offline, the catch-up waits for a session (§5 decision)", () => {
     const v = statusView(facts({ catchUp: "receiving", connection: "offline" }));
-    expect(v.state).toBe("LOADING");
-    expect(v.conditions.map((c) => c.kind)).toEqual(["catching-up", "offline"]);
+    expect(v.state).toBe("OFFLINE");
+    expect(v.conditions.map((c) => c.kind)).toEqual(["offline"]);
+    // Connected again, still catching up: not current.
+    expect(statusView(facts({ catchUp: "receiving" })).state).toBe("LOADING");
   });
 
   it("a revision gap asks for a snapshot and shows unknown; a stale patch is ignored", () => {

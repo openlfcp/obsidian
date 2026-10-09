@@ -189,7 +189,11 @@ export function statusView(facts: StatusFacts): StatusView {
   const catching =
     facts.catchUp !== "current-at-checkpoint" ||
     facts.projections.some((p) => p.application === "patch-pending");
-  if (!loading && catching) c.push({ kind: "catching-up" });
+  // Catch-up is in progress only in a session: while not connected nothing
+  // is caught up, and the offline condition (7) speaks, with the saved and
+  // pending facts (SI03, SI09; orchestrator decision 2026-10-09 on §5). A
+  // replica not loaded stays LOADING (above); CURRENT still needs a verified catch-up.
+  if (!loading && catching && facts.connection === "connected") c.push({ kind: "catching-up" });
   // 6. Uncommitted source changes, a local commit in progress.
   if (
     facts.projections.some((p) => p.source === "editing" || p.source === "parsing") ||

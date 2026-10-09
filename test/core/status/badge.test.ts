@@ -176,6 +176,28 @@ describe("facts from the SDK's status and local observations", () => {
     expect(known.pendingBatches).toBe(1);
   });
 
+  it("after a restart without a session: offline with the saved work, not catching up (SI03; §5 decision)", () => {
+    const restarted = {
+      ...observed,
+      wasLive: false,
+      queuedUnits: 1,
+      sdk: sdk({ batches: [], catchUp: "not-started" }),
+    };
+    // Not connected: offline speaks, the saved update stays pending, never accepted.
+    const off = statusView(observedFacts({ ...restarted, phase: "CLOSED" }));
+    expect(off.state).toBe("OFFLINE");
+    expect(off.pendingBatches).toBe(1);
+    expect(off.conditions.map((c) => c.kind)).toContain("pending");
+    // Connected again: catching up until verified, never current before.
+    const on = statusView(observedFacts({ ...restarted, phase: "OPENING" }));
+    expect(on.state).not.toMatch(/CURRENT|OFFLINE/);
+    expect(on.conditions.map((c) => c.kind)).toContain("catching-up");
+    // A replica not loaded is still loading, connected or not.
+    expect(
+      statusView(observedFacts({ ...restarted, phase: "CLOSED", load: undefined })).state,
+    ).toBe("LOADING");
+  });
+
   it("before the first snapshot, importing, a skipped revision: never current", () => {
     expect(statusView(observedFacts({ ...observed, sdk: undefined })).state).toBe("LOADING");
     expect(
@@ -197,7 +219,8 @@ describe("facts from the SDK's status and local observations", () => {
           sdk: sdk({ catchUp: "not-started" }),
         }),
       ).state,
-    ).toBe("LOADING");
+      // Not connected, the replica loaded: offline, not catching up (§5 decision, SI03).
+    ).toBe("OFFLINE");
     expect(
       statusView(
         observedFacts({ ...observed, phase: "DATA_SYNC", sdk: sdk({ catchUp: "receiving" }) }),
