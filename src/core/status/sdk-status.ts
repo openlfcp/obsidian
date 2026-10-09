@@ -26,6 +26,8 @@ export interface SdkStatus {
   /** Our Control Records sent and not committed yet (SI14), by type: pending, never done. */
   readonly pendingControl: readonly string[];
   readonly section: "ready" | "importing" | "unknown";
+  /** The catch-up fact (028): current only after LIVE, kept as "as last checked" offline. */
+  readonly catchUp: "not-started" | "receiving" | "current-at-checkpoint" | "unknown";
   /** A revision was skipped: ask statusSnapshot. */
   readonly needsSnapshot: boolean;
 }
@@ -68,6 +70,7 @@ export function fromSnapshot(s: StatusSnapshot): SdkStatus {
     unconfirmed: unconfirmedOf(s.batches),
     ...accessFacts(s.access),
     section: s.section,
+    catchUp: s.catchUp.state,
     needsSnapshot: false,
   };
 }
@@ -105,6 +108,8 @@ export function applySdkEvent(st: SdkStatus, e: StatusEvent): SdkStatus {
       return { ...next, ...accessFacts(e.access) };
     case "section-state":
       return { ...next, section: e.state };
+    case "catch-up":
+      return { ...next, catchUp: e.state };
     default:
       // received (others' units) and rehost: no fact of ours changes.
       return next;

@@ -20,6 +20,7 @@ const snapshot = {
   batches: [batch("pending", [])],
   received: { held: [], waiting: [], refused: [] },
   section: "ready",
+  catchUp: { state: "not-started", checkedAt: null },
   // The access as 027 reports it (AccessState): only the fields the plugin reads.
   access: {
     allowed: true,
@@ -93,5 +94,14 @@ describe("the SDK's status stream", () => {
     expect(s).toMatchObject({ accessCurrent: false, pendingControl: ["GRANT_REVOKE"] });
     s = applySdkEvent(s, { revision: 8, kind: "received", fact: "held", unitIds: [u(9)] });
     expect(s.revision).toBe(8);
+    // 028: the catch-up fact from the stream.
+    expect(s.catchUp).toBe("not-started");
+    s = applySdkEvent(s, {
+      revision: 9,
+      kind: "catch-up",
+      state: "current-at-checkpoint",
+      checkedAt: 7,
+    } as never);
+    expect(s.catchUp).toBe("current-at-checkpoint");
   });
 });

@@ -73,12 +73,12 @@ export function observedFacts(o: ObservedSection): StatusFacts {
     pendingControl: sdk?.pendingControl ?? [],
     accessChecking: sdk?.accessCurrent === false,
     connection: live || syncing ? "connected" : "offline",
+    // The SDK's catch-up fact (028); a skipped revision or a held change keeps receiving.
     catchUp:
-      syncing || sdk?.needsSnapshot === true || (o.load !== undefined && !o.load.loaded)
+      sdk?.needsSnapshot === true || (o.load !== undefined && !o.load.loaded)
         ? "receiving"
-        : live || o.wasLive
-          ? "current-at-checkpoint"
-          : "not-started",
+        : (sdk?.catchUp ??
+          (syncing ? "receiving" : live || o.wasLive ? "current-at-checkpoint" : "not-started")),
     problems,
     batches,
     acceptanceEvidence: unconfirmed ? "unavailable" : "available",

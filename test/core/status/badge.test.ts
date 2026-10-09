@@ -117,6 +117,7 @@ describe("facts from the SDK's status and local observations", () => {
     accessCurrent: true,
     pendingControl: [],
     section: "ready",
+    catchUp: "current-at-checkpoint",
     needsSnapshot: false,
     ...b,
   });
@@ -164,10 +165,21 @@ describe("facts from the SDK's status and local observations", () => {
 
   it("maps the session phase: offline keeps the checkpoint; syncing is receiving; a blocked key is attention", () => {
     expect(statusView(observedFacts({ ...observed, phase: "CLOSED" })).state).toBe("OFFLINE");
-    expect(statusView(observedFacts({ ...observed, phase: "CLOSED", wasLive: false })).state).toBe(
-      "LOADING",
-    );
-    expect(statusView(observedFacts({ ...observed, phase: "DATA_SYNC" })).state).toBe("LOADING");
+    expect(
+      statusView(
+        observedFacts({
+          ...observed,
+          phase: "CLOSED",
+          wasLive: false,
+          sdk: sdk({ catchUp: "not-started" }),
+        }),
+      ).state,
+    ).toBe("LOADING");
+    expect(
+      statusView(
+        observedFacts({ ...observed, phase: "DATA_SYNC", sdk: sdk({ catchUp: "receiving" }) }),
+      ).state,
+    ).toBe("LOADING");
     expect(statusView(observedFacts({ ...observed, phase: "KEY_BLOCKED" })).state).toBe(
       "ATTENTION",
     );
