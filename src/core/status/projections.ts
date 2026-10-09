@@ -124,3 +124,29 @@ export class ProjectionFactsStore {
     return [...(this.#failed.get(key)?.values() ?? [])];
   }
 }
+
+/**
+ * When to pass a section's notes for a model change no event announced
+ * (C14): a lag seen on two status refreshes in a row at the same revision,
+ * once per revision. A pass an event started catches up before the second
+ * refresh, so events never get a duplicate pass.
+ */
+export class LagNudges {
+  readonly #seen = new Map<string, string>();
+  readonly #nudged = new Map<string, string>();
+
+  /** Whether to pass `key`'s notes now, given its model `revision` and whether a note lags it. */
+  decide(key: string, revision: string, behind: boolean): boolean {
+    if (!behind) {
+      this.#seen.delete(key);
+      return false;
+    }
+    if (this.#nudged.get(key) === revision) return false;
+    if (this.#seen.get(key) !== revision) {
+      this.#seen.set(key, revision);
+      return false;
+    }
+    this.#nudged.set(key, revision);
+    return true;
+  }
+}

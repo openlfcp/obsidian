@@ -4,7 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { SectionResult } from "../../../src/core/sections/engine";
-import { ProjectionFactsStore, projectionFact } from "../../../src/core/status/projections";
+import {
+  LagNudges,
+  ProjectionFactsStore,
+  projectionFact,
+} from "../../../src/core/status/projections";
 import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 
 const section = { resourceId: new Uint8Array(32), sectionId: "s" };
@@ -156,5 +160,28 @@ describe("projection facts from passes", () => {
     expect(store.failedOperations("k")).toEqual(["op-2"]);
     store.forget("k", "p1");
     expect(store.failedOperations("k")).toEqual([]);
+  });
+});
+
+describe("LagNudges (C14): a pass for a lag no event resolved, never a duplicate", () => {
+  it("an event's pass catches up before the next refresh: no nudge", () => {
+    const n = new LagNudges();
+    expect(n.decide("k", "h2", true)).toBe(false); // the event's pass still running
+    expect(n.decide("k", "h2", false)).toBe(false); // it caught up
+    expect(n.decide("k", "h3", true)).toBe(false);
+    expect(n.decide("k", "h3", false)).toBe(false);
+  });
+
+  it("a lag no event resolves: one pass on the second refresh, once per revision", () => {
+    const n = new LagNudges();
+    expect(n.decide("k", "h2", true)).toBe(false);
+    expect(n.decide("k", "h2", true)).toBe(true);
+    expect(n.decide("k", "h2", true)).toBe(false);
+    expect(n.decide("k", "h2", true)).toBe(false);
+    // The model moves on while the note still lags: again after two refreshes.
+    expect(n.decide("k", "h3", true)).toBe(false);
+    expect(n.decide("k", "h3", true)).toBe(true);
+    // Sections are independent.
+    expect(n.decide("other", "h3", true)).toBe(false);
   });
 });

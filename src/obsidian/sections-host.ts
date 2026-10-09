@@ -60,7 +60,7 @@ import { Announcer } from "../core/status/a11y";
 import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { observedFacts } from "../core/status/facts";
-import { ProjectionFactsStore } from "../core/status/projections";
+import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
 import { type StatusView, statusView } from "../core/status/reducer";
 import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-status";
 import type { VaultChange } from "../core/vault/changes";
@@ -160,8 +160,8 @@ export class SectionsHost {
 
   /** The note side of each section's status: projection facts and failed saves (SI12, SI16). */
   readonly #projectionFacts = new ProjectionFactsStore();
-  /** The revision each section was last nudged at for a lagging note (C14): once per revision. */
-  readonly #nudged = new Map<string, string>();
+  /** C14: a lag no event resolves gets one pass per revision. */
+  readonly #lags = new LagNudges();
 
   /** The runtime is ready: the engine on the real SDK, section Resources opened, their notes reconciled. */
   async start(runtime: LfcpRuntime, principal: PrincipalId): Promise<void> {
@@ -758,17 +758,18 @@ export class SectionsHost {
       if (typeof sectionId !== "string") continue;
       const r = toBase64url(R);
       const snapshot = port.snapshot(r, sectionId);
-      // C14: a model change no event announced (a remote Task field edit) is
-      // still projected: one pass per new revision that some note lags.
+      // C14: a model change no event announced is still projected, once a
+      // lag outlives the passes events started (no duplicate pass).
       const key = `${r}#${sectionId}`;
       if (
         snapshot !== undefined &&
-        this.#projectionFacts.behind(key, snapshot.revision) &&
-        this.#nudged.get(key) !== snapshot.revision
-      ) {
-        this.#nudged.set(key, snapshot.revision);
+        this.#lags.decide(
+          key,
+          snapshot.revision,
+          this.#projectionFacts.behind(key, snapshot.revision),
+        )
+      )
         void this.#remote(R);
-      }
       const phase = runtime.phase(R);
       if (phase === "LIVE") this.#wasLive.add(hex);
       const facts = observedFacts({
