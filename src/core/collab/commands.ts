@@ -593,11 +593,13 @@ export class CollabCommands {
     const p = this.#env.prompter;
     // A section not hosted or not ready is refused before any question.
     await collab.checkInvitable(R);
+    // A shared section's invitation speaks of the section, not of tasks.
+    const section = (await collab.status(R)).profile === SECTIONS_PROFILE_ID;
     const preset = await p.choose<InvitePreset>({
       title: "What may they do?",
       choices: (Object.keys(INVITE_PRESETS) as InvitePreset[]).map((k) => ({
         label: INVITE_PRESETS[k].label,
-        description: `${INVITE_PRESETS[k].description} One-time link.`,
+        description: `${section ? INVITE_PRESETS[k].sectionDescription : INVITE_PRESETS[k].description} One-time link.`,
         value: k,
       })),
     });

@@ -18,6 +18,8 @@ export type InvitePreset = "read" | "read-write";
 export interface PresetSpec {
   readonly label: string;
   readonly description: string;
+  /** The same for a shared section (MVP 0.2): it holds a section, not tasks. */
+  readonly sectionDescription: string;
   /** The grant's abilities, invite/claim included. */
   readonly abilities: readonly bigint[];
 }
@@ -26,11 +28,13 @@ export const INVITE_PRESETS: Readonly<Record<InvitePreset, PresetSpec>> = {
   read: {
     label: "Read",
     description: "Can see and sync the shared tasks, but not change them.",
+    sectionDescription: "Can see and sync the shared section, but not change it.",
     abilities: [ABILITY.DATA_READ, ABILITY.INVITE_CLAIM],
   },
   "read-write": {
     label: "Read + write",
     description: "Can see, sync and change the shared tasks.",
+    sectionDescription: "Can see, sync and change the shared section and its tasks.",
     abilities: [ABILITY.DATA_READ, ABILITY.DATA_WRITE, ABILITY.INVITE_CLAIM],
   },
 };

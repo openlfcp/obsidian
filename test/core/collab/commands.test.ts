@@ -12,6 +12,7 @@ import {
   insertAtLine,
   type Prompter,
 } from "../../../src/core/collab/commands";
+import { INVITE_PRESETS } from "../../../src/core/collab/presets";
 import { PROJECT_SERVER_HINT } from "../../../src/core/collab/server-notice";
 import { Collaboration, type ResourceStatus } from "../../../src/core/collab/service";
 import { LfcpRuntime, NEEDS_NEWER_VERSION } from "../../../src/core/lfcp/runtime";
@@ -52,8 +53,11 @@ class ScriptedPrompter implements Prompter {
     this.masked.push(o.masked === true);
     return this.texts.shift() ?? null;
   }
+  /** The descriptions each choice offered, in order. */
+  readonly offered: string[][] = [];
   async choose<T>(o: { title: string; choices: readonly Choice<T>[] }): Promise<T | null> {
     this.asked.push(o.title);
+    this.offered.push(o.choices.map((c) => c.description ?? ""));
     const label = this.picks.shift() ?? null;
     if (label === null) return null;
     const c = o.choices.find((x) => x.label === label);
@@ -371,6 +375,13 @@ describe("LFCP-065 commands", () => {
     const [shown] = s.prompter.invitations;
     expect(shown?.preset).toBe("Read + write");
     expect(shown?.confirmed).toBe(false);
+    // A 0.1 collaboration's presets speak of shared tasks; a section's of the section.
+    expect(s.prompter.offered.at(-1)).toEqual([
+      "Can see and sync the shared tasks, but not change them. One-time link.",
+      "Can see, sync and change the shared tasks. One-time link.",
+    ]);
+    for (const k of ["read", "read-write"] as const)
+      expect(INVITE_PRESETS[k].sectionDescription).toMatch(/shared section/);
     const link = shown?.link.reveal() as string;
     expect(link.startsWith("lfcp://join/")).toBe(true);
     const secret = link.slice(link.indexOf("#secret=") + 8);
