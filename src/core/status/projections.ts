@@ -65,6 +65,25 @@ export class ProjectionFactsStore {
     this.#failed.set(key, ops);
   }
 
+  /**
+   * The copies with a damaged boundary in note `path` now, by section key
+   * (C17): each is a broken projection of its section until repaired; a key
+   * no longer damaged there drops it. True when something changed.
+   */
+  damaged(path: string, keys: ReadonlySet<string>): boolean {
+    const id = `damaged:${path}`;
+    let changed = false;
+    for (const [key, projections] of this.#facts)
+      if (!keys.has(key) && projections.delete(id)) changed = true;
+    for (const key of keys) {
+      const projections = this.#facts.get(key) ?? new Map<string, ProjectionFacts>();
+      if (!projections.has(id)) changed = true;
+      projections.set(id, { id, source: "binding-error", application: "blocked" });
+      this.#facts.set(key, projections);
+    }
+    return changed;
+  }
+
   /** A projection that is gone from its note (detached, deleted): it no longer counts. */
   forget(key: string, projectionId: string): void {
     this.#facts.get(key)?.delete(projectionId);

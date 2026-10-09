@@ -146,10 +146,13 @@ export class SectionsHost {
       },
       onError,
       // SI12, SI16: each projection's pass result reaches its section's badge.
-      onPass: (_path, pass) => {
+      onPass: (path, pass) => {
         let changed = false;
         for (const r of pass.sections)
           if (this.#projectionFacts.note(sectionKey(r.section), r)) changed = true;
+        // C17: a copy whose boundary is damaged yields no section result; it is still a problem.
+        const damaged = new Set(parseSections(pass.source).damaged.map((d) => sectionKey(d.ref)));
+        if (this.#projectionFacts.damaged(path, damaged)) changed = true;
         if (changed) this.scheduleStatus();
       },
     });
@@ -1066,11 +1069,14 @@ export class SectionsHost {
   async vaultChange(c: VaultChange): Promise<void> {
     if (c.kind === "delete") {
       this.#unindex(c.path);
+      if (this.#projectionFacts.damaged(c.path, new Set())) this.scheduleStatus();
       this.editor.deleted(c.path);
       return;
     }
     if (c.kind === "rename") {
       for (const paths of this.#notes.values()) if (paths.delete(c.oldPath)) paths.add(c.path);
+      // The new path's pass records its damaged copies again.
+      if (this.#projectionFacts.damaged(c.oldPath, new Set())) this.scheduleStatus();
       this.editor.renamed(c.oldPath, c.path);
       await this.#bases?.rename(c.oldPath, c.path);
     }

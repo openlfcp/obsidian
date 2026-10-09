@@ -217,8 +217,9 @@ function build(
 ): DecorationSet {
   const text = state.doc.toString();
   if (!text.includes("lfcp-section")) return Decoration.none;
-  const sections: readonly ParsedSection[] = parseSections(text).sections;
-  if (sections.length === 0) return Decoration.none;
+  const scan = parseSections(text);
+  const sections: readonly ParsedSection[] = scan.sections;
+  if (sections.length === 0 && scan.damaged.length === 0) return Decoration.none;
   const binding = new Set(sectionPresentation(text).bindingLines);
   const folds: { header: number; from: number; to: number }[] = [];
   foldedRanges(state).between(0, state.doc.length, (from, to) => {
@@ -253,6 +254,21 @@ function build(
         ),
       );
     }
+  }
+  // C17: a copy with a damaged boundary keeps its badge on its heading (its status says why).
+  for (const d of scan.damaged) {
+    if (d.heading === null) continue;
+    out.push(
+      Decoration.widget({
+        widget: new BadgeWidget(
+          badgeOf(d.heading.title, statuses.get(sectionKey(d.ref))),
+          sectionKey(d.ref),
+          d.heading.title,
+          open,
+        ),
+        side: 1,
+      }).range(state.doc.line(d.heading.line + 1).to),
+    );
   }
   return Decoration.set(out, true);
 }
@@ -322,14 +338,20 @@ export class ReadingBadges {
     if (heading === null) return;
     const info = ctx.getSectionInfo(el);
     if (info === null || !info.text.includes("lfcp-section")) return;
-    const section = parseSections(info.text).sections.find(
-      (s) => s.heading.line === info.lineStart,
-    );
+    const scan = parseSections(info.text);
+    // C17: a copy with a damaged boundary keeps its badge too.
+    const section =
+      scan.sections
+        .map((x) => ({ ref: x.ref, line: x.heading.line, title: x.heading.title }))
+        .find((x) => x.line === info.lineStart) ??
+      scan.damaged
+        .map((x) => ({ ref: x.ref, line: x.heading?.line, title: x.heading?.title ?? "" }))
+        .find((x) => x.line === info.lineStart);
     if (section === undefined) return;
     const key = sectionKey(section.ref);
     const badge = heading.ownerDocument.createElement("span");
-    renderBadge(badge, badgeOf(section.heading.title, this.status(key)));
-    badge.dataset.title = section.heading.title;
+    renderBadge(badge, badgeOf(section.title, this.status(key)));
+    badge.dataset.title = section.title;
     badge.dataset.section = key;
     attachBadge(badge, this.open);
     heading.appendChild(badge);

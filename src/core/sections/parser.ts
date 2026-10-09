@@ -107,6 +107,21 @@ export interface SectionScan {
    */
   readonly claimed: LineRange[];
   readonly diagnostics: SectionDiagnostic[];
+  /**
+   * Copies of a section whose boundary is damaged (a start marker without
+   * its end, overlapped, mismatched or not under a heading): they yield no
+   * section, but each is still that section's copy in this note, with a
+   * problem to show (C17).
+   */
+  readonly damaged: DamagedSection[];
+}
+
+export interface DamagedSection {
+  readonly ref: SectionRef;
+  /** The start marker's line (0-based). */
+  readonly startLine: number;
+  /** The heading above the start marker, when there is one. */
+  readonly heading: { readonly line: number; readonly title: string } | null;
 }
 
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
@@ -168,6 +183,15 @@ export function parseSections(markdown: string): SectionScan {
     });
   const claimed: LineRange[] = [];
   const regions: { ref: SectionRef; start: number; end: number; headingLine: number }[] = [];
+  const damaged: DamagedSection[] = [];
+  const damage = (o: { ref: SectionRef; start: number }) => {
+    const above = o.start > 0 ? heading(lines[o.start - 1]?.text ?? "", kinds[o.start - 1]) : null;
+    damaged.push({
+      ref: o.ref,
+      startLine: o.start,
+      heading: above === null ? null : { line: o.start - 1, title: above.title },
+    });
+  };
 
   // Pass 1: boundaries. Markers in literal contexts or blockquotes are text.
   /** `reported`: a boundary error is already named for it; the end of the note adds no MISSING. */
@@ -216,8 +240,10 @@ export function parseSections(markdown: string): SectionScan {
       return;
     }
     // A damaged region claims its lines (heading included) and yields no section.
-    if (open.damaged) claimed.push({ from: Math.max(0, open.start - 1), to: lines.length - 1 });
-    else {
+    if (open.damaged) {
+      claimed.push({ from: Math.max(0, open.start - 1), to: lines.length - 1 });
+      damage(open);
+    } else {
       claimed.push({ from: open.start - 1, to: i });
       regions.push({ ref: open.ref, start: open.start, end: i, headingLine: open.start - 1 });
     }
@@ -237,6 +263,7 @@ export function parseSections(markdown: string): SectionScan {
         break;
       }
     fail(Math.max(0, o.start - 1));
+    damage(open as { ref: SectionRef; start: number });
   }
 
   // Pass 2: the nodes of each valid region. Inside one, an inline Task ref
@@ -267,6 +294,7 @@ export function parseSections(markdown: string): SectionScan {
     sections,
     claimed: mergeRanges(claimed),
     diagnostics: diagnostics.sort((a, b) => a.line - b.line),
+    damaged,
   };
 }
 

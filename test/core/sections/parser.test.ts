@@ -100,6 +100,18 @@ describe("boundaries (M4, fail closed)", () => {
     expect(scan.claimed).toEqual([{ from: 0, to: 5 }]);
   });
 
+  it("C17: a damaged copy is still named: its section, start marker and heading", () => {
+    const missing = parseSections(lines("# Doc", "## Shared", start, "- [ ] One", "", "Secret."));
+    expect(missing.damaged).toEqual([
+      { ref: S, startLine: 2, heading: { line: 1, title: "Shared" } },
+    ]);
+    // Not under a heading: damaged, with no heading to show it on.
+    const loose = parseSections(lines("# Doc", "", start, "## Shared", "- [ ] One", end));
+    expect(loose.damaged.map((d) => [d.startLine, d.heading])).toEqual([[2, null]]);
+    // A valid section is not damaged.
+    expect(parseSections(lines("## Shared", start, "- [ ] One", end)).damaged).toEqual([]);
+  });
+
   it("mismatched and overlapping markers yield no section", () => {
     const T = parseSectionRef(`lfcp1:${R}#section:${id(7)}`) as SectionRef;
     expect(
@@ -113,7 +125,7 @@ describe("boundaries (M4, fail closed)", () => {
   it("markers inside fences and Obsidian comments are text", () => {
     const text = lines("## Example", "```", start, end, "```", "%%", start, "%%");
     const scan = parseSections(text);
-    expect(scan).toEqual({ sections: [], claimed: [], diagnostics: [] });
+    expect(scan).toEqual({ sections: [], claimed: [], diagnostics: [], damaged: [] });
   });
 
   it("H5: private text after the end marker, under the same heading, is reported", () => {

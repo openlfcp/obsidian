@@ -97,6 +97,26 @@ describe("projection facts from passes", () => {
     expect(projectionFact(kept("read-only")).facts.source).toBe("diverged");
   });
 
+  it("C17: a damaged copy in a note is a broken projection of its section until repaired", () => {
+    const store = new ProjectionFactsStore();
+    store.note("k", result({}));
+    expect(store.damaged("a.md", new Set(["k"]))).toBe(true);
+    expect(store.damaged("a.md", new Set(["k"]))).toBe(false);
+    const view = () => statusView({ ...healthy, projections: store.projections("k") });
+    expect(view().state).toBe("ATTENTION");
+    expect(view().conditions).toContainEqual({
+      kind: "source",
+      projectionId: "damaged:a.md",
+      source: "binding-error",
+    });
+    // Another note's damage is its own; repairing this one clears only this one.
+    store.damaged("b.md", new Set(["k"]));
+    expect(store.damaged("a.md", new Set())).toBe(true);
+    expect(store.projections("k").map((p) => p.id)).toEqual(["p1", "damaged:b.md"]);
+    store.damaged("b.md", new Set());
+    expect(view().state).toBe("CURRENT");
+  });
+
   it("a refused coalesced flush fails its projection; forgetting a projection clears it", () => {
     const store = new ProjectionFactsStore();
     store.fail("k", "p1", "op-2");
