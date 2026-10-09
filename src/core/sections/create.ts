@@ -16,10 +16,19 @@
 // as it is; the Resource already created stays in the journal.
 
 import { fromBase64url, type PrincipalId, type ResourceId, toBase64url } from "@openlfcp/core";
+import { contentHash } from "../projection/guard";
 import { splitLines } from "../refs/lines";
 import type { RefPlacement } from "../settings";
 import { applyChanges, composeChanges } from "./engine";
 import { formatBoundary, type SectionRef } from "./grammar";
+import {
+  type ImportChoices,
+  importedTask,
+  type LegacySource,
+  legacyPreflight,
+  legacyStrip,
+  missingChoices,
+} from "./legacy";
 import { bindingChanges } from "./markers";
 import { parseSections, type SectionNode } from "./parser";
 import {
@@ -29,11 +38,33 @@ import {
   type SectionIntent,
   type SectionPort,
 } from "./port";
-import { revalidate, type SharePreview } from "./share";
+import { preflight, revalidate, type SharePreview, type ShareRange } from "./share";
 import { type DocChange, nodeSource } from "./source-map";
 import type { KeyValue } from "./stores";
 
-export type CreationPhase = "prepared" | "local" | "projected" | "hosted" | "cancelled" | "failed";
+export type CreationPhase =
+  | "prepared"
+  | "local"
+  | "projected"
+  | "hosted"
+  | "cancelled"
+  | "failed"
+  /** An import whose note view was restored (054); the target stays as it is. */
+  | "rolled-back";
+
+/** An import of 0.1 shared Tasks (053, 054): what a rollback or a later check needs. Local only. */
+export interface LegacyImport {
+  /** The note's range as it was before the import, legacy refs and all. */
+  readonly original: string;
+  /** SHA-256 of the note when the import was chosen. */
+  readonly originalRevision: string;
+  /** Each source Task and the new Task IDs it was copied to (never shared). */
+  readonly mapping: Readonly<Record<string, readonly string[]>>;
+  /** Each source Resource's revision as captured. */
+  readonly captured: Readonly<Record<string, string>>;
+  /** The section as the import wrote it into the note: later edits show against it. */
+  readonly written?: string;
+}
 
 export interface CreationEntry {
   readonly operationId: string;
@@ -51,6 +82,8 @@ export interface CreationEntry {
   readonly receipt?: Receipt;
   /** Why the server has not hosted it yet (projected), or why it failed. */
   readonly reason?: string;
+  /** Present for an import of 0.1 shared Tasks. */
+  readonly legacy?: LegacyImport;
 }
 
 /** The hosting outcome of CollabService.host. */
@@ -101,6 +134,7 @@ export type CreationResult =
   | { readonly kind: "cancelled"; readonly entry: CreationEntry };
 
 const OPEN = "section-creates";
+const IMPORTS = "section-imports";
 const entryKey = (operationId: string) => `section-create:${operationId}`;
 const ids = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
 
@@ -139,7 +173,14 @@ export class SectionCreation {
   constructor(private readonly deps: CreationDeps) {}
 
   /** Journals the creation of an approved preview: identities and the import, before any effect. */
-  async prepare(path: string, markdown: string, preview: SharePreview): Promise<CreationEntry> {
+  async prepare(
+    path: string,
+    markdown: string,
+    preview: SharePreview,
+    /** A Task node's own content instead of its line's (an import's copied values), by line. */
+    taskAt?: (line: number, id: string) => NewSectionTask | undefined,
+    legacy?: LegacyImport,
+  ): Promise<CreationEntry> {
     if (preview.problems.length > 0) throw new Error("the preview has problems: nothing to share");
     const R = this.deps.newResourceId();
     const sectionId = this.deps.newNodeId();
@@ -158,7 +199,10 @@ export class SectionCreation {
         if (n.kind === "task")
           intents.push({
             intent: "task.create_in_section",
-            task: this.deps.newTask(lines[n.lines.from]?.text ?? "", id),
+            // The section's start marker sits after the heading: one line down.
+            task:
+              taskAt?.(n.lines.from - 1, id) ??
+              this.deps.newTask(lines[n.lines.from]?.text ?? "", id),
             parent,
             after,
           });
@@ -185,9 +229,101 @@ export class SectionCreation {
       intents,
       preview,
       phase: "prepared",
+      ...(legacy === undefined ? {} : { legacy }),
     };
     await this.#save(entry);
     return entry;
+  }
+
+  /**
+   * Journals the import of a range holding 0.1 shared Tasks (053): the
+   * legacy refs come out of the copy, each legacy Task becomes a new Task
+   * with the source's values (and the chosen ones), and the original range
+   * is kept locally for a rollback. Refused while the preflight blocks or a
+   * choice is missing. The source collaboration is never written.
+   */
+  async prepareImport(
+    path: string,
+    markdown: string,
+    range: ShareRange,
+    source: (resource: string, objectId: string) => LegacySource | undefined,
+    chosen: ImportChoices,
+  ): Promise<CreationEntry> {
+    const check = legacyPreflight(markdown, range, source);
+    if (check.blocks.length > 0) throw new Error(`the import is blocked: ${check.blocks[0]?.code}`);
+    const missing = missingChoices(check, chosen);
+    if (missing.length > 0) throw new Error(`a choice is missing: ${missing[0]?.code}`);
+    const strip = legacyStrip(markdown, range);
+    const stripped = applyChanges(markdown, strip);
+    const removedBefore = (line: number) =>
+      strip.filter(
+        (c) => markdown.slice(c.from, c.to).includes("\n") && c.from < lineStart(markdown, line),
+      ).length;
+    const lastLine = range.lastLine - removedBefore(range.lastLine + 1);
+    const preview = preflight(stripped, { headingLine: range.headingLine, lastLine });
+    if (preview.problems.length > 0)
+      throw new Error(`the copy cannot be shared: ${preview.problems[0]?.code}`);
+    const byLine = new Map(check.tasks.map((t) => [t.line - removedBefore(t.line), t]));
+    const mapping: Record<string, string[]> = {};
+    const taskAt = (line: number, id: string): NewSectionTask | undefined => {
+      const t = byLine.get(line);
+      const view = t === undefined ? undefined : source(t.resource, t.objectId)?.view;
+      if (t === undefined || view === undefined) return undefined;
+      mapping[t.objectId] = [...(mapping[t.objectId] ?? []), id];
+      return importedTask(view, id, this.deps.createdBy, chosen.values?.[t.objectId]);
+    };
+    const original = splitLines(markdown)
+      .slice(range.headingLine, range.lastLine + 1)
+      .map((l) => l.text + l.eol)
+      .join("");
+    // Allocated in prepare; the mapping is filled as its Tasks are built.
+    return this.prepare(path, stripped, preview, taskAt, {
+      original,
+      originalRevision: contentHash(markdown),
+      mapping,
+      captured: check.captured,
+    });
+  }
+
+  /**
+   * Restores the note's view of an import (054): the original range, legacy
+   * refs and all, in place of the section when nobody edited it since the
+   * import wrote it; otherwise after it, for comparison, so no work on the
+   * new section is lost. The new section's Resource and anything already
+   * shared or invited stay as they are.
+   */
+  async rollback(
+    entry: CreationEntry,
+  ): Promise<{ readonly kind: "restored" | "beside" | "none"; readonly entry: CreationEntry }> {
+    const legacy = entry.legacy;
+    if (legacy === undefined || (entry.phase !== "projected" && entry.phase !== "hosted"))
+      return { kind: "none", entry };
+    let kind: "restored" | "beside" | "none" = "none";
+    await this.deps.edit(entry.path, (current) => {
+      const section = parseSections(current).sections.find(
+        (s) => s.ref.sectionId === entry.sectionId,
+      );
+      if (section === undefined) return null;
+      const lines = splitLines(current);
+      const from = lineStart(current, section.heading.line);
+      const to = lineStart(current, section.endLine + 1);
+      const now = lines
+        .slice(section.heading.line, section.endLine + 1)
+        .map((l) => l.text + l.eol)
+        .join("");
+      if (now === legacy.written) {
+        kind = "restored";
+        return [{ from, to, insert: legacy.original }];
+      }
+      kind = "beside";
+      const eol = lines.find((l) => l.eol !== "")?.eol ?? "\n";
+      const lead = current.slice(0, to).endsWith(eol) || to === 0 ? "" : eol;
+      return [{ from: to, to, insert: `${lead}${eol}${legacy.original}` }];
+    });
+    if (kind === "none") return { kind, entry };
+    const e: CreationEntry = { ...entry, phase: "rolled-back" };
+    await this.#save(e);
+    return { kind, entry: e };
   }
 
   /** Runs, or resumes, a creation as far as it goes now. */
@@ -261,8 +397,23 @@ export class SectionCreation {
     return out;
   }
 
+  /** Imports whose note view can still be restored (054), most recent last. */
+  async imports(path?: string): Promise<CreationEntry[]> {
+    const out: CreationEntry[] = [];
+    for (const id of ids(await this.deps.journal.get(IMPORTS))) {
+      const e = (await this.deps.journal.get(entryKey(id))) as CreationEntry | undefined;
+      if (e !== undefined && (path === undefined || e.path === path)) out.push(e);
+    }
+    return out;
+  }
+
   async #save(e: CreationEntry): Promise<void> {
     await this.deps.journal.put(entryKey(e.operationId), e);
+    if (e.legacy !== undefined)
+      await this.deps.journal.update(IMPORTS, (v) => {
+        const rest = ids(v).filter((x) => x !== e.operationId);
+        return e.phase === "projected" || e.phase === "hosted" ? [...rest, e.operationId] : rest;
+      });
     const open = e.phase === "prepared" || e.phase === "local" || e.phase === "projected";
     await this.deps.journal.update(OPEN, (v) => {
       const rest = ids(v).filter((x) => x !== e.operationId);
@@ -274,19 +425,61 @@ export class SectionCreation {
   async #project(e: CreationEntry): Promise<boolean> {
     const ref: SectionRef = { resourceId: fromBase64url(e.resource), sectionId: e.sectionId };
     let bound = false;
+    let written: string | undefined;
     await this.deps.edit(e.path, (current) => {
       // Already bound: the note was written, the journal not (a crash in between).
       if (parseSections(current).sections.some((s) => s.ref.sectionId === e.sectionId)) {
         bound = true;
         return null;
       }
-      const now = revalidate(current, e.preview);
+      // An import: the legacy refs of its range come out with the binding.
+      const strip = e.legacy === undefined ? [] : this.#legacyStrip(current, e);
+      if (strip === null) return null;
+      const base = applyChanges(current, strip);
+      const now = revalidate(base, e.preview);
       if (now.kind === "changed") return null;
-      const changes = this.#bindings(current, now.preview, ref, e.nodeIds);
+      const bindings = this.#bindings(base, now.preview, ref, e.nodeIds);
+      const changes = bindings === null ? null : composeChanges(strip, bindings);
       bound = changes !== null;
+      if (changes !== null && e.legacy !== undefined) {
+        const out = applyChanges(current, changes);
+        const s = parseSections(out).sections.find((x) => x.ref.sectionId === e.sectionId);
+        written =
+          s === undefined
+            ? undefined
+            : splitLines(out)
+                .slice(s.heading.line, s.endLine + 1)
+                .map((l) => l.text + l.eol)
+                .join("");
+      }
       return changes;
     });
+    if (bound && written !== undefined && e.legacy !== undefined) {
+      const withWritten: CreationEntry = { ...e, legacy: { ...e.legacy, written } };
+      await this.#save(withWritten);
+      Object.assign(e, { legacy: withWritten.legacy });
+    }
     return bound;
+  }
+
+  /**
+   * The legacy refs to take out of the note for an import: those of the
+   * range that still holds the original (moved by edits elsewhere at most).
+   */
+  #legacyStrip(current: string, e: CreationEntry): DocChange[] | null {
+    const legacy = e.legacy as LegacyImport;
+    const length = splitLines(legacy.original).length;
+    const lines = splitLines(current);
+    for (let i = 0; i < lines.length; i++) {
+      const region = lines
+        .slice(i, i + length)
+        .map((l) => l.text + l.eol)
+        .join("");
+      if (region !== legacy.original && `${region}` !== legacy.original.replace(/\r?\n$/, ""))
+        continue;
+      return legacyStrip(current, { headingLine: i, lastLine: i + length - 1 });
+    }
+    return null;
   }
 
   /** The boundary markers and every node's binding, as changes against `markdown`. */
@@ -310,4 +503,11 @@ export class SectionCreation {
     if (marks.missed.length > 0) return null;
     return composeChanges(changes, marks.changes);
   }
+}
+
+/** The offset where line `n` (0-based) starts; the text's end past the last line. */
+function lineStart(markdown: string, n: number): number {
+  let at = 0;
+  for (const l of splitLines(markdown).slice(0, n)) at += l.text.length + l.eol.length;
+  return at;
 }
