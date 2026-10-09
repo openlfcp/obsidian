@@ -143,7 +143,7 @@ export function sharedState(s: SectionSnapshot): SectionState {
 }
 
 /** Whether the note shows exactly the model: same title, nodes, parents, Text and order. */
-function sameState(a: SectionState, b: SectionState): boolean {
+export function sameState(a: SectionState, b: SectionState): boolean {
   if (a.title !== b.title) return false;
   const ids = Object.keys(a.nodes);
   if (ids.length !== Object.keys(b.nodes).length) return false;

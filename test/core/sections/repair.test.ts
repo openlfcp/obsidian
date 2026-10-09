@@ -8,7 +8,12 @@ import { describe, expect, it } from "vitest";
 import { applyChanges } from "../../../src/core/sections/engine";
 import { formatBoundary } from "../../../src/core/sections/grammar";
 import { parseSections } from "../../../src/core/sections/parser";
-import { boundaryRepair, compare, repairItems } from "../../../src/core/sections/repair";
+import {
+  boundaryRepair,
+  compare,
+  repairItems,
+  sharedVersionChange,
+} from "../../../src/core/sections/repair";
 
 const R = new Uint8Array(32).fill(3);
 const ref = { resourceId: R, sectionId: "0192e4a0-0000-7000-8000-000000000001" };
@@ -103,5 +108,31 @@ describe("a lost base: the comparison (MS11)", () => {
       { kind: "same", text: "Shared" },
       { kind: "shared", text: "Theirs" },
     ]);
+  });
+
+  it("taking the shared version replaces only the section's body; its heading and the rest stay", () => {
+    const md = [
+      PRIVATE,
+      "",
+      "## My heading",
+      formatBoundary("start", ref),
+      "Local text",
+      formatBoundary("end", ref),
+      "",
+      "After.",
+      "",
+    ].join("\n");
+    const s = parseSections(md).sections[0];
+    if (s === undefined) throw new Error("no section");
+    const block = [
+      "## Launch",
+      formatBoundary("start", ref),
+      "Shared text",
+      formatBoundary("end", ref),
+      "",
+    ].join("\n");
+    expect(applyChanges(md, [sharedVersionChange(md, s, block)])).toBe(
+      md.replace("Local text", "Shared text"),
+    );
   });
 });

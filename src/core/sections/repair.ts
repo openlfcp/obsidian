@@ -8,8 +8,11 @@
 // itself appear in a repair: private text around it is never shown or used.
 
 import { splitLines } from "../refs/lines";
+import type { StoredBase } from "./base";
+import { sharedState } from "./engine";
 import { formatBoundary, parseBoundary, type SectionRef } from "./grammar";
-import { parseSections, type SectionDiagnostic } from "./parser";
+import { type ParsedSection, parseSections, type SectionDiagnostic } from "./parser";
+import type { SectionSnapshot } from "./port";
 import { type DocChange, lineStarts } from "./source-map";
 
 export type RepairItem =
@@ -159,4 +162,37 @@ export function compare(local: string, shared: string): ComparedLine[] {
   while (i < n) out.push({ kind: "local", text: a[i++] as string });
   while (j < m) out.push({ kind: "shared", text: b[j++] as string });
   return out;
+}
+
+/**
+ * "Share my version" of a lost base: the base is the shared state, so the
+ * note's differences from it are this vault's edits, sent on the next pass.
+ */
+export function adoptedBase(path: string, ref: SectionRef, snap: SectionSnapshot): StoredBase {
+  return { locator: { path, section: ref }, state: sharedState(snap), revision: snap.revision };
+}
+
+/**
+ * "Use the shared version" of a lost base: the section's lines between its
+ * boundaries become the shared block's (the note's own heading stays). The
+ * caller keeps the replaced text as a recovery copy first.
+ */
+export function sharedVersionChange(
+  markdown: string,
+  section: ParsedSection,
+  block: string,
+): DocChange {
+  const lines = splitLines(markdown);
+  const starts = lineStarts(lines);
+  const eol = lines.find((l) => l.eol !== "")?.eol ?? "\n";
+  const from = starts[section.startLine] ?? markdown.length;
+  const end = lines[section.endLine];
+  const to = (starts[section.endLine] ?? markdown.length) + (end?.text.length ?? 0);
+  // The block: heading, start marker, …, end marker; without its heading line.
+  const body = block
+    .replace(/\r?\n$/, "")
+    .split("\n")
+    .slice(1)
+    .join(eol);
+  return { from, to, insert: body };
 }
