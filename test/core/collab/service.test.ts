@@ -12,6 +12,7 @@ import { CollabError, Collaboration } from "../../../src/core/collab/service";
 import { statusView } from "../../../src/core/collab/view";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { collaborator, storeBlocked } from "../../support/blocked-units";
+import { SECTIONS, storeForeign } from "../../support/foreign-resource";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 
 const SERVER = "wss://offline.example.invalid/v1/ws";
@@ -83,6 +84,21 @@ describe("Create collaboration (LFCP-065)", () => {
     await expect(collab.create({ name: "x", server: "https://a.example" })).rejects.toThrow(
       "The server must be a WebSocket URL",
     );
+  });
+});
+
+describe("a shared section in the pickers and status (LFCP-02-066)", () => {
+  it('with the sections preview, its session\'s state, not "needs a newer version"; without, unsupported', async () => {
+    const { runtime } = await offline();
+    const R = await storeForeign(runtime, SECTIONS, "Launch");
+    const on = new Collaboration(runtime, { sleep, connectTimeoutMs: 50, sections: true });
+    const off = new Collaboration(runtime, { sleep, connectTimeoutMs: 50 });
+    const stateOf = async (c: Collaboration) =>
+      (await c.list()).find((e) => toHex(e.resourceId) === toHex(R))?.state;
+    expect(await stateOf(on)).toBe("offline");
+    expect((await on.status(R)).state).toBe("offline");
+    // 0.3.2's rule stands without the preview: this version cannot read it.
+    expect(await stateOf(off)).toBe("unsupported");
   });
 });
 

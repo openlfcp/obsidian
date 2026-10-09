@@ -306,15 +306,34 @@ export class Collaboration {
 
   async #entry(R: ResourceId): Promise<RegistryEntry> {
     const key = toHex(R);
-    const e = (await this.#runtime.registry()).find((x) => toHex(x.resourceId) === key);
+    const e = (await this.list()).find((x) => toHex(x.resourceId) === key);
     if (e === undefined)
       throw new CollabError("UNKNOWN_RESOURCE", "This collaboration is not on this device.");
     return e;
   }
 
-  /** The known collaborations, for pickers. */
+  /**
+   * The known collaborations, for pickers and status. The runtime calls a
+   * shared section's Resource "unsupported" (a 0.3 plugin cannot read one);
+   * with the sections preview on, this version can, so its state is its
+   * session's: refused, in sync or offline (LFCP-02-066).
+   */
   async list(): Promise<RegistryEntry[]> {
-    return this.#runtime.registry();
+    const entries = await this.#runtime.registry();
+    if (!this.#o.sections) return entries;
+    return entries.map((e) =>
+      e.profile === SECTIONS_PROFILE_ID && e.state === "unsupported"
+        ? {
+            ...e,
+            state:
+              e.refusal !== null
+                ? "refused"
+                : this.#runtime.phase(e.resourceId) === "LIVE"
+                  ? "available"
+                  : "offline",
+          }
+        : e,
+    );
   }
 
   /** "Create collaboration": a new Resource owned by this vault's identity, hosted when online. */
