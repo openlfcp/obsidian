@@ -75,6 +75,21 @@
   color: var(--text-warning);
 }
 
+/*
+ * LFCP-02-064: measured in the default light theme, the green mark (2.6:1)
+ * and the warning icon (2.95:1) fell short of 3:1 against the page
+ * (WCAG 1.4.11). There they are darkened; the dark theme is above 4.9:1.
+ */
+.theme-light .openlfcp-status[data-state="CURRENT"] .openlfcp-status-mark,
+.theme-light .openlfcp-status[data-state="READ_ONLY_CURRENT"] .openlfcp-status-mark {
+  color: color-mix(in srgb, var(--color-green) 70%, black);
+}
+
+.theme-light .openlfcp-status[data-state="ATTENTION"] .openlfcp-status-icon,
+.theme-light .openlfcp-row-cue[data-cue="attention"] {
+  color: color-mix(in srgb, var(--text-warning) 70%, black);
+}
+
 .openlfcp-status[data-state="LOCAL_SAVE_FAILED"] .openlfcp-status-icon {
   color: var(--text-error);
 }
