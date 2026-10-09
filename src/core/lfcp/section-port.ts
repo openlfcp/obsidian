@@ -48,6 +48,9 @@ export interface SectionResources {
 
 const asResource = (b64: string): ResourceId => resourceId(fromBase64url(b64));
 
+/** What the port reads of a section replica for its snapshot. */
+type SectionReplicaLike = NonNullable<ReturnType<SectionResources["profile"]>>["replica"];
+
 /** An SDK commit error in the port's terms: a refusal (nothing written), or as it is. */
 export function portRefusal(e: unknown): unknown {
   if (e instanceof SectionIntentError) return new CommitRefused(e.code, e.nodeId, e.intentIndex);
@@ -86,6 +89,16 @@ export interface Coalescing {
 
 export class SdkSectionPort implements SectionPort {
   readonly #coalescers = new Map<string, TypingCoalescer>();
+  /**
+   * LFCP-02-068: the replica's snapshot by its revision. Reading it walks and
+   * validates the whole document (hundreds of ms at W200), and the status,
+   * the card and a pass ask for it again and again at one revision. A change
+   * moves the revision, a rebuild replaces the replica: neither reads a stale one.
+   */
+  readonly #snapshots = new WeakMap<
+    object,
+    { readonly revision: string; readonly snapshot: ReturnType<SectionReplicaLike["snapshot"]> }
+  >();
   constructor(
     private readonly resources: SectionResources,
     /** With it, passes of Text edits only coalesce (025); without, every pass commits at once. */
@@ -96,7 +109,16 @@ export class SdkSectionPort implements SectionPort {
     const profile = this.resources.profile(asResource(resource));
     return profile === undefined
       ? undefined
-      : fromSdkSnapshot(profile.replica.snapshot(), sectionId);
+      : fromSdkSnapshot(this.#replicaSnapshot(profile.replica), sectionId);
+  }
+
+  #replicaSnapshot(replica: SectionReplicaLike): ReturnType<SectionReplicaLike["snapshot"]> {
+    const revision = replica.revision();
+    const cached = this.#snapshots.get(replica);
+    if (cached !== undefined && cached.revision === revision) return cached.snapshot;
+    const snapshot = replica.snapshot();
+    this.#snapshots.set(replica, { revision, snapshot });
+    return snapshot;
   }
 
   /** The model as recovery reads it (061): one read of the tree, the snapshot and Task titles. */
@@ -106,7 +128,7 @@ export class SdkSectionPort implements SectionPort {
     return {
       sectionId,
       tree: replica.tree(),
-      snapshot: replica.snapshot(),
+      snapshot: this.#replicaSnapshot(replica),
       taskTitle: (taskId) => replica.task(taskId)?.task?.title,
     };
   }
