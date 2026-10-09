@@ -38,7 +38,12 @@ import {
   type ResourceId,
   toHex,
 } from "@openlfcp/core";
-import { dekCommitment, exportSecretKeyBytes, generateResourceDEK } from "@openlfcp/crypto";
+import {
+  dekCommitment,
+  exportSecretKeyBytes,
+  generateResourceDEK,
+  localStateCipher,
+} from "@openlfcp/crypto";
 import {
   checkChange,
   initializeAutomerge,
@@ -56,12 +61,14 @@ import {
 import {
   dekSecretRef,
   type LfcpStorage,
+  type LocalStateDiagnostics,
   principalKeySecretRef,
   type SecretStore,
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import {
   createInstall,
+  databaseName,
   type Install,
   type InstallEnv,
   LOCK_MESSAGES,
@@ -69,6 +76,8 @@ import {
   type LockReason,
   openInstall,
 } from "./install";
+import { idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
+import { SlotSecretStore } from "./secrets";
 
 export interface Timers {
   setInterval(fn: () => void, ms: number): unknown;
@@ -91,6 +100,34 @@ export interface RuntimeEnv extends InstallEnv {
   initializeAutomerge?(): Promise<void>;
   /** How often the sync driver ticks (default 250 ms). */
   readonly tickMs?: number;
+}
+
+/** The local encryption status (LFCP-02-098 §8). */
+export interface LocalStateReport {
+  /** The profile checkpoints (the storage adapter's); null when it was opened without sealing. */
+  readonly checkpoints: LocalStateDiagnostics | null;
+  /** The plugin's own rows. */
+  readonly plugin: LocalStateDiagnostics;
+}
+
+/** "Local encryption: lse-v1, generation N, key present|missing. …" */
+export function localStateLine(report: LocalStateReport | null): string {
+  if (report === null) return "Local encryption: not started.";
+  const rows = (d: LocalStateDiagnostics) =>
+    `${d.rows.sealed} sealed, ${d.rows.plaintext} plaintext, ${d.rows.unreadable} unreadable`;
+  const p = report.plugin;
+  const c = report.checkpoints;
+  const present = p.keyPresent && (c === null || c.keyPresent);
+  const events = [p.lastEvent, c?.lastEvent].filter((e) => e !== null && e !== undefined);
+  const last = events.sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+  return [
+    `Local encryption: ${p.scheme}, generation ${p.generation}, key ${present ? "present" : "missing"}.`,
+    c === null ? "Checkpoints: not sealed." : `Checkpoints: ${rows(c)}.`,
+    `Plugin data: ${rows(p)}.`,
+    last === undefined ? "" : `Last event: ${last.kind} at ${last.at}.`,
+  ]
+    .filter((x) => x !== "")
+    .join(" ");
 }
 
 /** What every refused call says once the profile engine trapped (needs-restart). */
@@ -287,10 +324,36 @@ export class LfcpRuntime {
   readonly #staleToDiscard = new Set<string>();
   readonly #objectListeners = new Set<(resource: ResourceId, change: ObjectChange) => void>();
 
-  private constructor(env: RuntimeEnv, install: Install, lock: HeldLock | null) {
+  #sealed: SealedLocalState | null;
+
+  private constructor(
+    env: RuntimeEnv,
+    install: Install,
+    lock: HeldLock | null,
+    sealed: SealedLocalState | null,
+  ) {
     this.#env = env;
     this.#install = install;
     this.#lock = lock;
+    this.#sealed = sealed;
+  }
+
+  /**
+   * The plugin's own rows, sealed with its local state key (LFCP-02-098);
+   * opening it seals an older plugin's plaintext rows. Null without storage.
+   */
+  static async #seal(env: RuntimeEnv, install: Install): Promise<SealedLocalState | null> {
+    const storage = install.storage;
+    if (storage === null) return null;
+    return SealedLocalState.open({
+      meta: storage.meta,
+      secrets:
+        install.kind === "ready"
+          ? install.secrets
+          : new SlotSecretStore(env.slots, install.installId),
+      cipher: localStateCipher,
+      keys: () => idbMetaKeys(databaseName(install.installId), PLUGIN_PREFIX),
+    });
   }
 
   /** Local startup only: Automerge, the install, the writer lock. Never waits for the network. */
@@ -311,9 +374,10 @@ export class LfcpRuntime {
           storage: null,
         },
         null,
+        null,
       );
     }
-    return new LfcpRuntime(env, install, lock);
+    return new LfcpRuntime(env, install, lock, await LfcpRuntime.#seal(env, install));
   }
 
   /** The lock, null when the runtime has no lock support, undefined when another instance holds it. */
@@ -359,16 +423,47 @@ export class LfcpRuntime {
     profile.onObjectChanged((c) => this.#emitObject(resource, c));
   }
 
+  /** Called once per run when a sealed row could not be read (a lost key, LFCP-02-098 §7). */
+  onLocalStateUnreadable(listener: () => void): () => void {
+    return this.#sealed?.onUnreadable(listener) ?? (() => undefined);
+  }
+
+  /**
+   * Rotates the local state keys (LFCP-02-098 §8): the checkpoints' and the
+   * plugin's, each to its next generation, every row sealed again.
+   */
+  async rotateLocalStateKey(): Promise<void> {
+    const storage = this.#install.storage;
+    if (storage === null || this.#sealed === null)
+      throw new Error("Shared Tasks has no local state on this device yet");
+    await storage.rotateLocalStateKey?.();
+    await this.#sealed.rotate();
+  }
+
+  /** The local encryption status of the checkpoints and of the plugin's rows (§8). */
+  async localStateDiagnostics(): Promise<LocalStateReport | null> {
+    if (this.#sealed === null) return null;
+    return {
+      checkpoints: (await this.#install.storage?.localStateDiagnostics?.()) ?? null,
+      plugin: await this.#sealed.diagnostics(),
+    };
+  }
+
+  /** The diagnostics line of §8: never key bytes, envelopes or plaintext. */
+  localStateSummary(report: LocalStateReport | null): string {
+    return localStateLine(report);
+  }
+
   /**
    * Small local, device-only state of the plugin (e.g. projection bases),
    * kept in this install's database next to the LFCP state. Never secrets.
    */
   readonly localState = {
     get: async (key: string): Promise<unknown> =>
-      this.#stopped ? undefined : this.#install.storage?.meta.get(`plugin:${key}`),
+      this.#stopped ? undefined : this.#sealed?.get(key),
     put: async (key: string, value: unknown): Promise<void> => {
       if (this.#stopped) return;
-      await this.#install.storage?.meta.put(`plugin:${key}`, value);
+      await this.#sealed?.put(key, value);
     },
     /**
      * Read-modify-write of one key, one at a time per key: `change` sees
@@ -1150,5 +1245,6 @@ export class LfcpRuntime {
     if (lock === undefined) throw new Error("the new install's lock is held");
     this.#install = install;
     this.#lock = lock;
+    this.#sealed = await LfcpRuntime.#seal(this.#env, install);
   }
 }
