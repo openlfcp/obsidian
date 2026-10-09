@@ -184,6 +184,8 @@ export type JoinOutcome =
 export interface Participant {
   /** Public Principal ID, shortened for display. */
   readonly id: string;
+  /** The full Principal ID (hex), to act on this identity (060). */
+  readonly principal: string;
   readonly you: boolean;
   readonly owner: boolean;
   readonly abilities: readonly string[];
@@ -695,6 +697,7 @@ export class Collaboration {
         );
         subjects.set(hex, {
           id: short(hex),
+          principal: hex,
           you: hex === me,
           owner: hex === ownerId,
           abilities:
@@ -710,6 +713,7 @@ export class Collaboration {
         const holds = abilitiesOf(state, g.subject).map((a) => ABILITY_NAMES.get(a) ?? String(a));
         subjects.set(hex, {
           id: short(hex),
+          principal: hex,
           you: hex === me,
           owner: false,
           abilities: holds,

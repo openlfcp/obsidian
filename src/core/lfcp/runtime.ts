@@ -21,6 +21,7 @@ import {
   ProfileCheckpointer,
   type ResourcePhase,
   type ResourceRefusal,
+  type RevokeAccessResult,
   type Receipt as SectionReceipt,
   type SnapshotBinding,
   type StatusSnapshot,
@@ -1144,6 +1145,19 @@ export class LfcpRuntime {
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
       return this.#session(opened.url).client.accessState(resource);
+    });
+  }
+
+  /**
+   * Removes a member's access to a shared-sections Resource (§17.3): their
+   * grants are revoked and, when they keep no read access, the Data Epoch is
+   * rotated. Refused, with nothing queued, unless the Resource is live and
+   * current here; queued records stay pending until the server commits them.
+   */
+  revokeSectionAccess(resource: ResourceId, subject: PrincipalId): Promise<RevokeAccessResult> {
+    return this.#engine(async () => {
+      const opened = await this.#openSection(resource);
+      return this.#session(opened.url).client.revokeAccess(resource, subject);
     });
   }
 

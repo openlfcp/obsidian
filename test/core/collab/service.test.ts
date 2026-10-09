@@ -67,7 +67,13 @@ describe("Create collaboration (LFCP-065)", () => {
     expect(status.hosting).toBe("pending");
     expect(status.pendingOutbound).toBe(1);
     expect(status.participants).toEqual([
-      { id: expect.any(String), you: true, owner: true, abilities: ["owner"] },
+      {
+        id: expect.any(String),
+        principal: expect.stringMatching(/^[0-9a-f]{64}$/),
+        you: true,
+        owner: true,
+        abilities: ["owner"],
+      },
     ]);
   });
 
