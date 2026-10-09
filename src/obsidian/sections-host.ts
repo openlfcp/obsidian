@@ -60,6 +60,7 @@ import { Announcer } from "../core/status/a11y";
 import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { observedFacts } from "../core/status/facts";
+import { ProjectionFactsStore } from "../core/status/projections";
 import { type StatusView, statusView } from "../core/status/reducer";
 import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-status";
 import type { VaultChange } from "../core/vault/changes";
@@ -144,8 +145,18 @@ export class SectionsHost {
         },
       },
       onError,
+      // SI12, SI16: each projection's pass result reaches its section's badge.
+      onPass: (_path, pass) => {
+        let changed = false;
+        for (const r of pass.sections)
+          if (this.#projectionFacts.note(sectionKey(r.section), r)) changed = true;
+        if (changed) this.scheduleStatus();
+      },
     });
   }
+
+  /** The note side of each section's status: projection facts and failed saves (SI12, SI16). */
+  readonly #projectionFacts = new ProjectionFactsStore();
 
   /** The runtime is ready: the engine on the real SDK, section Resources opened, their notes reconciled. */
   async start(runtime: LfcpRuntime, principal: PrincipalId): Promise<void> {
@@ -656,6 +667,12 @@ export class SectionsHost {
         refusal.code !== "SECTION_IMPORTING"
       ) {
         await journal.put(advance(entry, "abandoned", { reason: refusal.code }));
+        if (base !== undefined)
+          this.#projectionFacts.fail(
+            sectionKey(base.locator.section),
+            entry.projectionId,
+            entry.operationId,
+          );
         const md =
           path === undefined
             ? undefined
@@ -679,6 +696,12 @@ export class SectionsHost {
         return;
       }
       await journal.put(advance(entry, "abandoned", { reason: "flush-failed" }));
+      if (base !== undefined)
+        this.#projectionFacts.fail(
+          sectionKey(base.locator.section),
+          entry.projectionId,
+          entry.operationId,
+        );
     }
     if (path === undefined) return;
     if (this.#openEditor(path) !== null) this.editor.remoteChanged(path);
@@ -729,7 +752,8 @@ export class SectionsHost {
         phase,
         wasLive: this.#wasLive.has(hex),
         problems: port.snapshot(r, sectionId)?.problems ?? [],
-        projections: [],
+        projections: this.#projectionFacts.projections(`${toBase64url(R)}#${sectionId}`),
+        failedOperations: this.#projectionFacts.failedOperations(`${toBase64url(R)}#${sectionId}`),
         sdk: this.#sdk.get(hex),
       });
       next.set(`${r}#${sectionId}`, statusView(facts));
@@ -840,8 +864,10 @@ export class SectionsHost {
     if (bases !== null)
       for (const id of await bases.projectionsOf(path)) {
         const b = await bases.load(id);
-        if (b !== undefined && sameSection(b.locator.section, found.section))
+        if (b !== undefined && sameSection(b.locator.section, found.section)) {
           await bases.save(id, null);
+          this.#projectionFacts.forget(sectionKey(found.section), id);
+        }
       }
     this.editor.remoteChanged(path);
     new Notice(
