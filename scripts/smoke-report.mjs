@@ -9,6 +9,10 @@
 // text is cut to its first line and never includes note content: the tests
 // use synthetic notes, and no assertion prints a secret (LFCP-065).
 // Environment: LFCP_SERVER_COMMIT, LFCP_SDK_TS_COMMIT (optional).
+//
+// Without the Vitest report the tests did not run: an earlier step failed.
+// The record then says so and this step passes, so the failing step stays
+// the first red one in the job.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { arch, platform, release, type } from "node:os";
@@ -20,7 +24,7 @@ if (input === undefined || output === undefined) {
   process.exit(2);
 }
 const root = resolve(import.meta.dirname, "..");
-const report = JSON.parse(readFileSync(input, "utf8"));
+const report = existsSync(input) ? JSON.parse(readFileSync(input, "utf8")) : null;
 const manifest = JSON.parse(readFileSync(resolve(root, "manifest.json"), "utf8"));
 const spec = JSON.parse(readFileSync(resolve(root, "spec.lock"), "utf8"));
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
@@ -39,7 +43,7 @@ const firstLine = (s) =>
     .slice(0, 200);
 const rows = [];
 const failures = [];
-for (const file of report.testResults ?? []) {
+for (const file of report?.testResults ?? []) {
   const name = relative(root, file.name).split("\\").join("/");
   const tests = file.assertionResults ?? [];
   const failed = tests.filter((t) => t.status === "failed");
@@ -52,9 +56,9 @@ for (const file of report.testResults ?? []) {
   if (file.status === "failed" && failed.length === 0)
     failures.push(`- ${name}: ${firstLine(file.message)}`);
 }
-const ok = report.success === true && failures.length === 0;
+const ok = report?.success === true && failures.length === 0;
 const lines = [
-  `# Platform smoke (automated): ${ok ? "PASS" : "FAIL"}`,
+  `# Platform smoke (automated): ${report === null ? "NOT RUN" : ok ? "PASS" : "FAIL"}`,
   "",
   `- Platform: ${type()} ${release()} (${platform()}/${arch()})`,
   `- Node: ${process.version}`,
@@ -62,7 +66,9 @@ const lines = [
   `- ${sdk}`,
   `- Spec: ${spec.tag} (${spec.commit})`,
   `- Server: ${process.env.LFCP_SERVER_COMMIT ?? "(not recorded)"}`,
-  `- Tests: ${report.numPassedTests}/${report.numTotalTests} passed, ${report.numFailedTests} failed, ${report.numPendingTests ?? 0} skipped`,
+  report === null
+    ? "- Tests: not run (no Vitest report: an earlier step failed; see the job's first failed step)"
+    : `- Tests: ${report.numPassedTests}/${report.numTotalTests} passed, ${report.numFailedTests} failed, ${report.numPendingTests ?? 0} skipped`,
   "",
   "The desktop Obsidian part (install, storage, WebSocket, two-vault sync, restart) is the manual checklist in docs/devel/testing/platform-smoke.md; this record does not cover it.",
   "",
@@ -75,4 +81,4 @@ const lines = [
 ];
 writeFileSync(output, lines.join("\n"));
 process.stdout.write(`${lines[0]}\n`);
-process.exitCode = ok ? 0 : 1;
+process.exitCode = ok || report === null ? 0 : 1;
