@@ -183,4 +183,23 @@ export interface SectionPort {
   releaseReceipt(resource: string, operationId: string): Promise<void>;
   /** From the validated Control state only (§6); never a default. */
   canWrite(resource: string): Promise<WriteAccess>;
+  /**
+   * Typing coalescing (LFCP-02-025): a pass of Text edits only may wait and
+   * be replaced by the next pass of the same projection (`key`), which is
+   * planned on the same base and so contains it. No receipt while it
+   * waits: the edit is not saved yet. Absent: every pass commits at once.
+   */
+  submit?(
+    resource: string,
+    key: string,
+    intents: readonly SectionIntent[],
+    options: { readonly operationId: string },
+  ): Promise<
+    | { readonly kind: "committed"; readonly receipt: Receipt; readonly replaced: string | null }
+    | { readonly kind: "deferred"; readonly replaced: string | null }
+  >;
+  /** The operation waiting for `key`, if any. */
+  waiting?(resource: string, key: string): string | undefined;
+  /** Commits what waits for `key` now (before the projection's base moves another way). */
+  flush?(resource: string, key: string): Promise<void>;
 }

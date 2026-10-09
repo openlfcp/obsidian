@@ -469,6 +469,14 @@ export class SectionEngine {
       .map((l) => l.text + l.eol)
       .join("");
 
+    // 0. Typing coalescing (025): the projection's base moves only by a
+    //    receipt. The model moved since the base (a collaborator's change):
+    //    what waits is committed first, so the remote patch comes after it.
+    const port = this.deps.port;
+    if (snap.revision !== stored.revision && port.waiting?.(resource, projectionId) !== undefined)
+      await port.flush?.(resource, projectionId);
+    const waiting = port.waiting?.(resource, projectionId);
+
     // 1. Operations of this projection a crash or an unwritten pass left
     //    unfinished: their batch is in the base, their new nodes get the
     //    IDs already allocated (matched by content), never new ones.
@@ -479,6 +487,8 @@ export class SectionEngine {
     const unbound0 = markdownState(source, section).unbound;
     for (const e of await this.deps.journal.unfinished()) {
       if (e.projectionId !== projectionId) continue;
+      // Waiting in the coalescer: this pass replans it (and replaces it).
+      if (e.operationId === waiting) continue;
       const r = await resumeOperation(this.deps, e, sourceText);
       if (r.kind === "re-evaluate") {
         await this.deps.journal.put(advance(e, "abandoned", { reason: "re-evaluated" }));

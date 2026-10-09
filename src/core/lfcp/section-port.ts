@@ -5,11 +5,13 @@
 
 import type { Receipt as SdkReceipt } from "@openlfcp/client";
 import {
+  type Flushed,
   NotWritableError,
   OperationIdReusedError,
   receiptOf,
   releaseReceipt,
   type WriteAccess as SdkWriteAccess,
+  TypingCoalescer,
 } from "@openlfcp/client";
 import { fromBase64url, type ResourceId, resourceId, toHex } from "@openlfcp/core";
 import type { Task, TaskView } from "@openlfcp/shared-objects";
@@ -45,6 +47,16 @@ export interface SectionResources {
 
 const asResource = (b64: string): ResourceId => resourceId(fromBase64url(b64));
 
+/** An SDK commit error in the port's terms: a refusal (nothing written), or as it is. */
+export function portRefusal(e: unknown): unknown {
+  if (e instanceof SectionIntentError) return new CommitRefused(e.code, e.nodeId, e.intentIndex);
+  if (e instanceof OperationIdReusedError) return new CommitRefused("OPERATION_ID_REUSED");
+  // §3.6, §6: nothing was written; the edit stays a candidate.
+  if (e instanceof NotWritableError)
+    return new CommitRefused("NOT_WRITABLE", undefined, undefined, e.access.reason ?? "unknown");
+  return e;
+}
+
 /** The SDK's write access in the port's terms (the head as hex). */
 export const portAccess = (a: SdkWriteAccess): WriteAccess => ({
   allowed: a.allowed,
@@ -63,8 +75,21 @@ export const portReceipt = (r: SdkReceipt): Receipt => ({
   durable: true,
 });
 
+/** Typing coalescing (LFCP-02-025): the timer's clock and where background commits are reported. */
+export interface Coalescing {
+  readonly now: () => number;
+  /** A waiting pass committed (or failed) on a tick or a flush, out of any engine pass. */
+  readonly onFlushed: (resource: string, f: Flushed) => void;
+  readonly idleMs?: number;
+}
+
 export class SdkSectionPort implements SectionPort {
-  constructor(private readonly resources: SectionResources) {}
+  readonly #coalescers = new Map<string, TypingCoalescer>();
+  constructor(
+    private readonly resources: SectionResources,
+    /** With it, passes of Text edits only coalesce (025); without, every pass commits at once. */
+    private readonly coalescing?: Coalescing,
+  ) {}
 
   snapshot(resource: string, sectionId: string): SectionSnapshot | undefined {
     const profile = this.resources.profile(asResource(resource));
@@ -91,13 +116,68 @@ export class SdkSectionPort implements SectionPort {
     try {
       return portReceipt(await this.resources.commit(asResource(resource), intents, options));
     } catch (e) {
-      if (e instanceof SectionIntentError) throw new CommitRefused(e.code, e.nodeId, e.intentIndex);
-      if (e instanceof OperationIdReusedError) throw new CommitRefused("OPERATION_ID_REUSED");
-      // §3.6, §6: nothing was written; the edit stays a candidate.
-      if (e instanceof NotWritableError)
-        throw new CommitRefused("NOT_WRITABLE", undefined, undefined, e.access.reason ?? "unknown");
-      throw e;
+      throw portRefusal(e);
     }
+  }
+
+  #coalescer(resource: string): TypingCoalescer | undefined {
+    const c = this.coalescing;
+    if (c === undefined) return undefined;
+    let t = this.#coalescers.get(resource);
+    if (t === undefined) {
+      t = new TypingCoalescer({
+        commit: (intents, o) => this.resources.commit(asResource(resource), intents, o),
+        onFlushed: (f) => c.onFlushed(resource, f),
+        now: c.now,
+        ...(c.idleMs === undefined ? {} : { idleMs: c.idleMs }),
+      });
+      this.#coalescers.set(resource, t);
+    }
+    return t;
+  }
+
+  submit = async (
+    resource: string,
+    key: string,
+    intents: readonly SectionIntent[],
+    options: { readonly operationId: string },
+  ): Promise<
+    | { readonly kind: "committed"; readonly receipt: Receipt; readonly replaced: string | null }
+    | { readonly kind: "deferred"; readonly replaced: string | null }
+  > => {
+    const t = this.#coalescer(resource);
+    if (t === undefined)
+      return {
+        kind: "committed",
+        receipt: await this.commit(resource, intents, options),
+        replaced: null,
+      };
+    try {
+      const r = await t.submit(key, intents, options);
+      return r.kind === "committed"
+        ? { kind: "committed", receipt: portReceipt(r.receipt), replaced: r.replaced }
+        : { kind: "deferred", replaced: r.replaced };
+    } catch (e) {
+      throw portRefusal(e);
+    }
+  };
+
+  waiting(resource: string, key: string): string | undefined {
+    return this.#coalescers.get(resource)?.waiting(key);
+  }
+
+  async flush(resource: string, key: string): Promise<void> {
+    await this.#coalescers.get(resource)?.flush(key);
+  }
+
+  /** The coalescers' timer: commits what waited long enough. */
+  async tick(now: number): Promise<void> {
+    for (const t of this.#coalescers.values()) await t.tick(now);
+  }
+
+  /** Commits everything that waits (closing, unloading). */
+  async flushAll(): Promise<void> {
+    for (const t of this.#coalescers.values()) await t.flush();
   }
 
   async receiptOf(resource: string, operationId: string): Promise<Receipt | undefined> {

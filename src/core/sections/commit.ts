@@ -97,7 +97,13 @@ export type PassOutcome =
    * The commit failed and no receipt exists (SI17): the entry stays at
    * ids-allocated, and a retry resubmits the same batch.
    */
-  | { readonly kind: "save-failed"; readonly entry: JournalEntry; readonly error: unknown };
+  | { readonly kind: "save-failed"; readonly entry: JournalEntry; readonly error: unknown }
+  /**
+   * Typing coalescing (025): the batch waits to be replaced by the next pass
+   * or committed after a pause. Not saved yet: the entry stays at
+   * ids-allocated, the base does not move, the edit stays in the note.
+   */
+  | { readonly kind: "deferred"; readonly entry: JournalEntry };
 
 /** The local status of an operation (SI02: an edit without a durable commit is not "saved"). */
 export function localStatus(outcome: PassOutcome | JournalEntry): LocalStatus | null {
@@ -108,6 +114,7 @@ export function localStatus(outcome: PassOutcome | JournalEntry): LocalStatus | 
         ? null
         : "SAVED_LOCAL";
   if (outcome.kind === "committed") return "SAVED_LOCAL";
+  if (outcome.kind === "deferred") return "LOCAL_EDIT";
   if (outcome.kind === "save-failed") return "LOCAL_SAVE_FAILED";
   return null;
 }
@@ -234,9 +241,23 @@ async function submit(
   const intents = entry.intents ?? [];
   let receipt: Receipt | undefined;
   try {
-    receipt = await deps.port.commit(entry.resource, intents, {
-      operationId: entry.operationId,
-    });
+    if (deps.port.submit === undefined)
+      receipt = await deps.port.commit(entry.resource, intents, {
+        operationId: entry.operationId,
+      });
+    else {
+      const r = await deps.port.submit(entry.resource, entry.projectionId, intents, {
+        operationId: entry.operationId,
+      });
+      // The pass it replaced was planned on the same base: this one contains it.
+      if (r.replaced !== null) {
+        const old = await deps.journal.get(r.replaced);
+        if (old !== undefined)
+          await deps.journal.put(advance(old, "abandoned", { reason: "coalesced" }));
+      }
+      if (r.kind === "deferred") return { kind: "deferred", entry };
+      receipt = r.receipt;
+    }
   } catch (error) {
     if (error instanceof CommitRefused) return refused(deps, entry, pass, error);
     // Unknown outcome: the receipt decides, never a repeat under a new ID.
