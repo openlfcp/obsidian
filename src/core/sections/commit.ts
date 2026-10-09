@@ -408,7 +408,8 @@ export function applyBatch(
         nodes[i.id] = { ...n, text };
         break;
       }
-      case "node.move": {
+      case "node.move":
+      case "node.resolve_placement": {
         const n = nodes[i.id];
         if (n === undefined) break;
         unplace(i.id);
@@ -416,6 +417,15 @@ export function applyBatch(
         place(i.id, parentOf(i.parent), i.after);
         break;
       }
+      case "structure.resolve":
+        for (const m of i.moves) {
+          const n = nodes[m.id];
+          if (n === undefined) continue;
+          unplace(m.id);
+          nodes[m.id] = { ...n, parent: parentOf(m.parent) };
+          place(m.id, parentOf(m.parent), m.after);
+        }
+        break;
       case "node.delete":
         unplace(i.id);
         delete nodes[i.id];

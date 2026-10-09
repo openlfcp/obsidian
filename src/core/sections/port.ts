@@ -96,6 +96,22 @@ export type SectionIntent =
       readonly after: string | null;
     }
   | { readonly intent: "node.delete" | "node.restore"; readonly id: string }
+  /** §8: a fresh placement for a node in PLACEMENT_CONFLICT. */
+  | {
+      readonly intent: "node.resolve_placement";
+      readonly id: string;
+      readonly parent: string;
+      readonly after: string | null;
+    }
+  /** §8: moves that break a parent cycle, atomically. */
+  | {
+      readonly intent: "structure.resolve";
+      readonly moves: readonly {
+        readonly id: string;
+        readonly parent: string;
+        readonly after: string | null;
+      }[];
+    }
   | {
       readonly intent: "paragraph.create" | "item.create" | "raw.create";
       readonly id: string;
