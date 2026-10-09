@@ -45,6 +45,7 @@ import {
   repairItems,
   sharedVersionChange,
 } from "../core/sections/repair";
+import { detachAt } from "../core/sections/rules";
 import {
   preflight,
   proposeRange,
@@ -789,6 +790,63 @@ export class SectionsHost {
       sections,
       candidates: kept.map((c) => ({ reason: c.reason, characters: c.sourceText.length })),
     };
+  }
+
+  /**
+   * "Detach this section" (§10, MS10-detach): after a confirmation, the
+   * section under the cursor loses every binding in this note and keeps its
+   * text as private text; this note's projection base is dropped. Nothing
+   * is published: the shared section, other notes and collaborators are
+   * unchanged.
+   */
+  async detachSectionAt(editor: Editor, path: string): Promise<void> {
+    const md = editor.getValue();
+    const found = detachAt(md, editor.getCursor().line);
+    if (found === null) {
+      new Notice("Shared Tasks: put the cursor in a shared section to detach it.");
+      return;
+    }
+    const ask = new ConfirmModal(
+      this.app,
+      `Detach "${found.title}" in this note`,
+      "Its text stays in this note as your own and no longer updates. The shared section, your other notes and your collaborators are not changed.",
+      "Detach",
+    );
+    ask.open();
+    if (!(await ask.result)) return;
+    let detached = false;
+    await this.#edit(path, (current) => {
+      // Only the note the confirmation was asked about.
+      if (current !== md) return null;
+      detached = true;
+      // The one span that differs, so the editor keeps its cursor and scroll elsewhere.
+      const next = found.markdown;
+      let from = 0;
+      while (from < current.length && from < next.length && current[from] === next[from]) from++;
+      let tail = 0;
+      while (
+        tail < current.length - from &&
+        tail < next.length - from &&
+        current[current.length - 1 - tail] === next[next.length - 1 - tail]
+      )
+        tail++;
+      return [{ from, to: current.length - tail, insert: next.slice(from, next.length - tail) }];
+    });
+    if (!detached) {
+      new Notice("Shared Tasks: the note changed meanwhile. Nothing was detached; try again.");
+      return;
+    }
+    const bases = this.#bases;
+    if (bases !== null)
+      for (const id of await bases.projectionsOf(path)) {
+        const b = await bases.load(id);
+        if (b !== undefined && sameSection(b.locator.section, found.section))
+          await bases.save(id, null);
+      }
+    this.editor.remoteChanged(path);
+    new Notice(
+      `Shared Tasks: "${found.title}" is no longer shared in this note. The shared section itself is unchanged.`,
+    );
   }
 
   /** "Open shared section details" (064): the card of the section under the cursor. */

@@ -15,6 +15,7 @@ import {
 } from "../../../src/core/sections/parser";
 import {
   classifyRemoval,
+  detachAt,
   detachSection,
   duplicates,
   keepRefWithTask,
@@ -68,6 +69,28 @@ describe("detach this projection (§10, MS10-detach)", () => {
       formatBoundary("end", S),
     ].join("\n");
     expect(detachSection(md, sectionOf(md))).toBe("## Launch\n- [ ] Child");
+  });
+});
+
+describe("detach at the cursor (§10)", () => {
+  it("detaches the section the line is in; another section and private text stay as they are", () => {
+    const other = [
+      "## Other",
+      formatBoundary("start", T),
+      "- [ ] Theirs",
+      `  ${ref(7)}`,
+      formatBoundary("end", T),
+      "",
+    ].join("\n");
+    const md = `${note()}${other}`;
+    expect(detachAt(md, 0)).toBeNull();
+    for (const line of [1, 7]) {
+      const out = detachAt(md, line);
+      expect(out?.title).toBe("Launch");
+      expect(out?.section.sectionId).toBe(S.sectionId);
+      expect(out?.markdown).toBe(`${detachSection(note(), sectionOf(note()))}${other}`);
+    }
+    expect(detachAt(md, 9)).toBeNull();
   });
 });
 

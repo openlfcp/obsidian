@@ -252,6 +252,14 @@ export default class OpenLfcpPlugin extends Plugin {
         },
       });
       this.addCommand({
+        id: "detach-section",
+        name: "Detach this section",
+        editorCallback: (editor, ctx) => {
+          const path = ctx.file?.path;
+          if (path !== undefined) void this.sections?.detachSectionAt(editor, path);
+        },
+      });
+      this.addCommand({
         id: "repair-shared-sections",
         name: "Repair shared sections in this note",
         editorCallback: (editor, ctx) => {

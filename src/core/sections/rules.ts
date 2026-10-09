@@ -53,6 +53,26 @@ export function detachSection(markdown: string, section: ParsedSection): string 
 }
 
 /**
+ * "Detach this section" at a line (§10): the section whose heading or body
+ * holds the line, detached; null when the line is in none. The other
+ * sections of the note keep their bindings.
+ */
+export function detachAt(
+  markdown: string,
+  line: number,
+): { readonly markdown: string; readonly section: SectionRef; readonly title: string } | null {
+  const section = parseSections(markdown).sections.find(
+    (s) => line >= s.heading.line && line <= s.endLine,
+  );
+  if (section === undefined) return null;
+  return {
+    markdown: detachSection(markdown, section),
+    section: section.ref,
+    title: section.heading.title,
+  };
+}
+
+/**
  * The "Copy readable text" output (§10, fixture MS25): the heading and the
  * section's content without bindings, LF line breaks, ending with one. The
  * note itself is not changed.
