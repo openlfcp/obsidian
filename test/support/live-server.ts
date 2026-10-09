@@ -8,7 +8,7 @@
 // LFCP_REQUIRE_LIVE=1, which makes that an error.
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -37,11 +37,43 @@ export interface LiveServer {
 
 /** Why live tests cannot run here, or null when they can. */
 export function liveSkipReason(): string | null {
-  if (existsSync(BIN)) return null;
+  // A gate (LFCP_REQUIRE_LIVE=1) runs against the server at server.lock,
+  // named explicitly: a default location may hold another server's build.
+  if (process.env.LFCP_REQUIRE_LIVE === "1") requireExplicitServer();
+  if (existsSync(BIN)) {
+    if (process.env.LFCP_SERVER_BIN === undefined)
+      console.warn(
+        `live tests: using ${BIN}, not checked against server.lock (set LFCP_SERVER_BIN)`,
+      );
+    return null;
+  }
   const why = `no server binary in ${CANDIDATES.join(", ")} (build ../server into the shared target, or set LFCP_SERVER_BIN)`;
-  if (process.env.LFCP_REQUIRE_LIVE === "1")
-    throw new Error(`LFCP_REQUIRE_LIVE=1 but the live tests would skip: ${why}`);
+  console.warn(`live tests skipped: ${why}`);
   return why;
+}
+
+/** The server.lock commit, for the error messages. */
+function lockedServer(): string {
+  try {
+    const lock = JSON.parse(
+      readFileSync(resolve(import.meta.dirname, "../../server.lock"), "utf8"),
+    );
+    return typeof lock.commit === "string" ? lock.commit.slice(0, 7) : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** LFCP_REQUIRE_LIVE=1: LFCP_SERVER_BIN is set and exists, else a clear error. */
+export function requireExplicitServer(): string {
+  const bin = process.env.LFCP_SERVER_BIN;
+  if (bin === undefined)
+    throw new Error(
+      `LFCP_REQUIRE_LIVE=1 needs LFCP_SERVER_BIN: the lfcp-server built at server.lock (${lockedServer()}). A default location may hold another server's build, so none is used.`,
+    );
+  if (!existsSync(bin))
+    throw new Error(`LFCP_REQUIRE_LIVE=1 but LFCP_SERVER_BIN does not exist: ${bin}`);
+  return bin;
 }
 
 const freePort = (): Promise<number> =>

@@ -20,6 +20,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { requireExplicitServer } from "./live-server";
 import { guardChild } from "./reaper.mjs";
 
 const SERVER_DIR = resolve(
@@ -30,6 +31,8 @@ const TARGET =
 
 /** The server binary (built if needed), or why the E2E cannot run. */
 export function serverBinary(): { bin: string } | { skip: string } {
+  // A gate names the server at server.lock; no build of whatever ../server holds.
+  if (process.env.LFCP_REQUIRE_LIVE === "1") return { bin: requireExplicitServer() };
   const result = ((): { bin: string } | { skip: string } => {
     if (process.env.LFCP_SERVER_BIN !== undefined)
       return existsSync(process.env.LFCP_SERVER_BIN)
@@ -63,6 +66,7 @@ export function serverBinary(): { bin: string } | { skip: string } {
     );
     return existsSync(bin) ? { bin } : { skip: `no binary at ${bin}` };
   })();
+  if ("skip" in result) console.warn(`E2E skipped: ${result.skip}`);
   if ("skip" in result && process.env.LFCP_REQUIRE_LIVE === "1")
     throw new Error(`LFCP_REQUIRE_LIVE=1 but the E2E would skip: ${result.skip}`);
   return result;
