@@ -177,7 +177,14 @@ export class CommitRefused extends Error {
 /** Write access from the validated Control state (contract §6). */
 export interface WriteAccess {
   readonly allowed: boolean;
-  readonly reason?: "not-member" | "read-only" | "key-unavailable" | "revoked" | "unknown";
+  readonly reason?:
+    | "not-member"
+    | "read-only"
+    | "key-unavailable"
+    | "revoked"
+    /** LFCP-02-115: the server refuses this client the Resource in this session. */
+    | "server-refused"
+    | "unknown";
   readonly controlHead?: string;
   readonly verifiedAt?: number;
 }
