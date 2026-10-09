@@ -14,7 +14,11 @@ describe("projection race (0.3.2 regression)", () => {
         const lines = ["## Sprint", ""];
         for (let i = 0; i < n; i++) lines.push(`- [ ] Task number ${i + 1}`);
         await app.vault.create("race.md", `${lines.join("\n")}\n`);
-        await app.plugins.plugins["shared-tasks"].runtime.createResource({
+        // The plugin's runtime starts in the background: wait until it is ready.
+        const plugin = app.plugins.plugins["shared-tasks"];
+        for (let i = 0; i < 200 && plugin.runtime?.status.kind !== "ready"; i++)
+          await new Promise((r) => setTimeout(r, 50));
+        await plugin.runtime.createResource({
           name: "Race",
           endpoints: [url],
           coordinatorUrl: url,
