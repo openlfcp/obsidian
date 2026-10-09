@@ -97,7 +97,7 @@ class Notes {
   }
 }
 
-async function setup(placement: RefPlacement = "child-line") {
+async function setup(placement: RefPlacement = "child-line", sections = false) {
   const device = new Device();
   const runtime = await LfcpRuntime.start(device.env(new FakeLocal()));
   running.push(runtime);
@@ -106,6 +106,7 @@ async function setup(placement: RefPlacement = "child-line") {
     connectTimeoutMs: 30,
     ackTimeoutMs: 30,
     joinTimeoutMs: 200,
+    sections,
   });
   const prompter = new ScriptedPrompter();
   const notes = new Notes();
@@ -119,6 +120,7 @@ async function setup(placement: RefPlacement = "child-line") {
     guard,
     placement: () => settings.placement,
     defaultServer: () => SERVER,
+    sections: () => sections,
     wrote: (path, markdown) => void written.push([path, markdown]),
   });
   return { device, runtime, collab, prompter, notes, guard, commands, settings, written };
@@ -414,6 +416,34 @@ describe("LFCP-065 commands", () => {
     const [shown] = s.prompter.statuses;
     expect(shown?.status.localName).toBe("Team");
     expect(shown?.actions).toEqual(["Host on the server now"]);
+  });
+
+  it("a shared section (preview): no invitation before hosting, asked before any question; status offers hosting", async () => {
+    const s = await setup("child-line", true);
+    await s.runtime.createSectionResource({
+      name: "Launch",
+      endpoints: [SERVER],
+      coordinatorUrl: SERVER,
+    });
+    s.prompter.picks.push("Launch");
+    await s.commands.inviteCollaborator();
+    expect(s.prompter.notices.at(-1)).toContain("not on its server yet");
+    expect(s.prompter.invitations).toEqual([]);
+    expect(s.prompter.picks).toEqual([]);
+    s.prompter.picks.push("Launch");
+    await s.commands.resourceStatus();
+    expect(s.prompter.statuses.at(-1)?.actions).toEqual(["Host on the server now"]);
+
+    // Without the preview, a section's Resource is one this version cannot use.
+    const old = await setup();
+    await old.runtime.createSectionResource({
+      name: "Launch",
+      endpoints: [SERVER],
+      coordinatorUrl: SERVER,
+    });
+    old.prompter.picks.push("Launch");
+    await old.commands.inviteCollaborator();
+    expect(old.prompter.notices.at(-1)).toContain("newer version");
   });
 
   it("Conflict hook: picks a field and a value and resolves; nothing else resolves", async () => {

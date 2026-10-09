@@ -11,6 +11,7 @@
 import type { InvitationLink } from "@openlfcp/client";
 import { resourceId as asResourceId, type ResourceId, toHex } from "@openlfcp/core";
 import type { ScalarField, Task } from "@openlfcp/shared-objects";
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { NEEDS_NEWER_VERSION, type RegistryEntry } from "../lfcp/runtime";
 import type { MutationGuard } from "../projection/guard";
 import { renderNewTaskLine } from "../projection/render";
@@ -95,6 +96,8 @@ export interface CommandEnv {
   readonly guard: MutationGuard;
   readonly placement: () => RefPlacement;
   readonly defaultServer: () => string;
+  /** Shared sections (the `sectionsPreview` flag): their Resources can be invited to. */
+  readonly sections?: () => boolean;
   /**
    * A command wrote `markdown` to `path`: the projection records it as the
    * note's index and bases at once, without waiting for the vault's echo,
@@ -109,6 +112,7 @@ const STAGE_TEXT: Readonly<Record<JoinStage, string>> = {
   "retrieving key": "Receiving the collaboration's key…",
   "claiming capability": "Claiming access…",
   synchronizing: "Synchronizing…",
+  "loading section": "Loading the shared section…",
 };
 
 const STATE_TEXT: Readonly<Record<RegistryEntry["state"], string>> = {
@@ -212,6 +216,8 @@ export class CollabCommands {
       readonly blockedOk?: boolean;
       /** Status only: a collaboration this version cannot read can still be inspected. */
       readonly unsupportedOk?: boolean;
+      /** A shared section's Resource (sections preview): the flow checks it is hosted and ready. */
+      readonly sectionsOk?: boolean;
     } = {},
   ): Promise<ResourceId | null> {
     const entries = await collab.list();
@@ -232,7 +238,8 @@ export class CollabCommands {
     if (picked === null) return null;
     if (picked === "new") return (await this.#create(collab))?.resourceId ?? null;
     const entry = entries.find((e) => toHex(e.resourceId) === toHex(picked));
-    if (entry?.state === "unsupported" && options.unsupportedOk !== true) {
+    const section = entry?.profile === SECTIONS_PROFILE_ID && options.sectionsOk === true;
+    if (entry?.state === "unsupported" && options.unsupportedOk !== true && !section) {
       this.#env.prompter.notice(`Shared Tasks: ${NEEDS_NEWER_VERSION}.`);
       return null;
     }
@@ -309,7 +316,9 @@ export class CollabCommands {
         });
         p.notice(
           outcome.kind === "joined"
-            ? `Shared Tasks: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
+            ? outcome.section !== undefined
+              ? `Shared Tasks: joined the shared section "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}). ${outcome.section.loaded ? 'Use "Insert shared section…" to place it in a note.' : 'It is still arriving: use "Insert shared section…" once it has loaded.'}`
+              : `Shared Tasks: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
             : outcome.kind === "already-member"
               ? "Shared Tasks: this device is already in that collaboration."
               : outcome.kind === "needs-newer-version"
@@ -563,8 +572,12 @@ export class CollabCommands {
       const collab = this.#collab();
       if (collab === null) return;
       const p = this.#env.prompter;
-      const R = await this.#pickResource(collab, "Invite to…");
+      const R = await this.#pickResource(collab, "Invite to…", {
+        sectionsOk: this.#env.sections?.() === true,
+      });
       if (R === null) return;
+      // A section not hosted or not ready is refused before any question.
+      await collab.checkInvitable(R);
       const preset = await p.choose<InvitePreset>({
         title: "What may they do?",
         choices: (Object.keys(INVITE_PRESETS) as InvitePreset[]).map((k) => ({
@@ -601,7 +614,16 @@ export class CollabCommands {
       if (R === null) return;
       const status = await collab.status(R);
       const actions: Choice<() => Promise<void>>[] = [];
-      if (status.hosting !== "hosted" && !status.blocked && status.state !== "unsupported")
+      // A shared section (sections preview) is hosted like a collaboration.
+      const section =
+        this.#env.sections?.() === true &&
+        (await collab.list()).find((e) => toHex(e.resourceId) === toHex(R))?.profile ===
+          SECTIONS_PROFILE_ID;
+      if (
+        status.hosting !== "hosted" &&
+        !status.blocked &&
+        (status.state !== "unsupported" || section)
+      )
         actions.push({
           label: "Host on the server now",
           value: async () => {

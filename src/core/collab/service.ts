@@ -75,6 +75,10 @@ export interface CollabRuntime {
   openResource(resource: ResourceId): Promise<OpenResource>;
   /** A shared-sections Resource's session (MVP 0.2). */
   openSection(resource: ResourceId): Promise<unknown>;
+  /** An open section Resource: ready (§12.1), and no change held for a missing dependency. */
+  sectionLoad?(
+    resource: ResourceId,
+  ): { readonly ready: boolean; readonly loaded: boolean } | undefined;
   hasResource(resource: ResourceId): Promise<boolean>;
   supportsResource(resource: ResourceId): Promise<boolean>;
   profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
@@ -106,6 +110,8 @@ export interface CollabOptions {
   readonly sleep: (ms: number) => Promise<void>;
   /** The clock for a shared Task's created_at, in ms since the epoch (default Date.now). */
   readonly now?: () => number;
+  /** Shared sections (the `sectionsPreview` flag): invite to and join section Resources. */
+  readonly sections?: boolean;
 }
 
 /** Why something needs the network and could not get it, or was refused. */
@@ -140,7 +146,9 @@ export type JoinStage =
   | "validating invitation"
   | "retrieving key"
   | "claiming capability"
-  | "synchronizing";
+  | "synchronizing"
+  /** A shared section: until it is ready and every change known so far is here. */
+  | "loading section";
 
 const SDK_STAGE: Readonly<Record<AcceptInvitationStage, JoinStage>> = {
   connecting: "connecting",
@@ -155,6 +163,8 @@ export type JoinOutcome =
       readonly resourceId: ResourceId;
       /** Ability names the claim granted. */
       readonly abilities: readonly string[];
+      /** A shared section (MVP 0.2): whether it was ready and fully loaded when the join returned. */
+      readonly section?: { readonly loaded: boolean };
     }
   | { readonly kind: "already-member"; readonly resourceId: ResourceId }
   /**
@@ -240,6 +250,8 @@ export class CollabError extends Error {
 const SHORT = 8;
 const short = (hex: string): string => hex.slice(0, SHORT);
 const hostingKey = (R: ResourceId): string => `collab-hosting:${toHex(R)}`;
+/** A claim sent without an answer (LFCP-02-051): the next attempt says what a refusal then means. */
+const uncertainClaimKey = (R: ResourceId): string => `collab-claim-uncertain:${toHex(R)}`;
 const WS_URL = /^wss?:\/\/[^\s/]+/i;
 
 export class Collaboration {
@@ -254,6 +266,7 @@ export class Collaboration {
       joinTimeoutMs: options.joinTimeoutMs ?? 30_000,
       sleep: options.sleep,
       now: options.now ?? Date.now,
+      sections: options.sections ?? false,
     };
   }
 
@@ -373,6 +386,8 @@ export class Collaboration {
   async invite(R: ResourceId, preset: InvitePreset): Promise<Invitation> {
     const entry = await this.#entry(R);
     if (entry.state === "control_conflict") throw new CollabError("CONTROL_CONFLICT");
+    const section = entry.profile === SECTIONS_PROFILE_ID;
+    await this.checkInvitable(R);
     const c = this.#context();
     const chain = await loadControlChain(c.storage, R);
     if (chain?.kind !== "linear") throw new CollabError("CONTROL_CONFLICT");
@@ -418,8 +433,12 @@ export class Collaboration {
       if (wanted.size === 0) resolve();
     });
     try {
-      const open = await this.#runtime.openResource(R);
-      const client = open.url === null ? null : c.session(open.url);
+      let url: string | null;
+      if (section) {
+        await this.#runtime.openSection(R);
+        url = chain.state.route.coordinatorUrl;
+      } else url = (await this.#runtime.openResource(R)).url;
+      const client = url === null ? null : c.session(url);
       // Offline: queued, and sent when the session is back; no point waiting for ACKs.
       const online = client !== null && (await this.#ready(client));
       if (online) client.flush();
@@ -432,18 +451,48 @@ export class Collaboration {
     }
   }
 
+  /**
+   * A section is offered for invitation only once it is hosted and ready
+   * (SSP §12.1, LFCP-02-050): never while it imports or before the server
+   * holds it.
+   */
+  async checkInvitable(R: ResourceId): Promise<void> {
+    if ((await this.#entry(R)).profile !== SECTIONS_PROFILE_ID) return;
+    if (!this.#o.sections) throw new CollabError("NEWER_VERSION_NEEDED", NEEDS_NEWER_VERSION);
+    if ((await this.#runtime.localState.get(hostingKey(R))) !== "hosted")
+      throw new CollabError(
+        "NOT_HOSTED",
+        'This section is not on its server yet, so nobody could join it. Host it first from "Resource status".',
+      );
+    await this.#runtime.openSection(R);
+    if (this.#runtime.sectionLoad?.(R)?.ready !== true)
+      throw new CollabError(
+        "SECTION_IMPORTING",
+        "This section is still being created. Invite once it is ready.",
+      );
+  }
+
   /** "Join collaboration": claim a bearer invitation (§73) as this vault's identity. */
   async join(
     uri: string,
     options: { readonly name: string; readonly onStage?: (stage: JoinStage) => void },
   ): Promise<JoinOutcome> {
-    const stage = options.onStage ?? (() => undefined);
+    const reported = options.onStage ?? (() => undefined);
+    let last: JoinStage | null = null;
+    const stage = (s: JoinStage) => {
+      last = s;
+      reported(s);
+    };
     const c = this.#context();
     const R = parseInviteUri(uri.trim()).resourceId;
-    if (await this.#runtime.hasResource(R))
-      return (await this.#runtime.supportsResource(R))
+    const profiles = this.#o.sections ? [PROFILE_ID, SECTIONS_PROFILE_ID] : [PROFILE_ID];
+    if (await this.#runtime.hasResource(R)) {
+      const profile = (await c.storage.resources.get(R))?.dataProfile;
+      return profile !== undefined && profiles.includes(profile)
         ? { kind: "already-member", resourceId: R }
         : { kind: "needs-newer-version", resourceId: R };
+    }
+    const uncertain = ((await this.#runtime.localState.get(uncertainClaimKey(R))) ?? null) !== null;
     const accepted: AcceptedInvitation = await acceptInvitation({
       onProgress: (p) => stage(SDK_STAGE[p.stage]),
       link: uri.trim(),
@@ -454,21 +503,40 @@ export class Collaboration {
       ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
       timeout: this.#o.sleep(this.#o.joinTimeoutMs),
       // Another profile is refused before the claim, so the link stays unused.
-      dataProfiles: [PROFILE_ID],
+      dataProfiles: profiles,
     });
     if (accepted.kind === "profile-unsupported")
       return { kind: "needs-newer-version", resourceId: R };
-    if (accepted.kind === "refused")
+    if (accepted.kind === "refused") {
+      if (uncertain && accepted.code === "AUTHORIZATION_FAILED") {
+        await this.#runtime.localState.put(uncertainClaimKey(R), null);
+        return {
+          kind: "refused",
+          code: accepted.code,
+          message:
+            "This invitation is already used, most likely by this device's earlier attempt that the server never confirmed. Ask for a new invitation; your notes are unchanged.",
+        };
+      }
       return { kind: "refused", code: accepted.code, message: plainCode(accepted.code) };
-    if (accepted.kind === "unavailable")
+    }
+    if (accepted.kind === "unavailable") {
+      // The claim went out and no answer came: it may have been accepted.
+      if (last === "claiming capability") {
+        await this.#runtime.localState.put(uncertainClaimKey(R), { at: this.#o.now() });
+        return {
+          kind: "unavailable",
+          message: `The server did not confirm the claim (${accepted.reason}). It may have gone through: join again with the same link when online. If it is then refused as used, ask for a new invitation.`,
+        };
+      }
       return {
         kind: "unavailable",
         message: `The collaboration's server could not complete the join (${accepted.reason}). Joining needs a connection; try again when online.`,
       };
+    }
     const chain = await loadControlChain(c.storage, R);
     if (chain?.kind !== "linear") throw new CollabError("INVALID_CONTROL_CHAIN");
     // Unreachable since the SDK checks before the claim (dataProfiles); kept as a guard.
-    if (chain.state.dataProfile !== PROFILE_ID)
+    if (!profiles.includes(chain.state.dataProfile))
       throw new CollabError("NEWER_VERSION_NEEDED", NEEDS_NEWER_VERSION);
     const id = c.principal.id;
     const r = await c.storage.commit([
@@ -490,17 +558,26 @@ export class Collaboration {
     ]);
     if (!r.ok) throw new CollabError("UNSUPPORTED_VALUE", "The collaboration could not be stored.");
     await this.#runtime.localState.put(hostingKey(R), "hosted");
+    await this.#runtime.localState.put(uncertainClaimKey(R), null);
+    const abilities = accepted.abilities.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`);
     stage("synchronizing");
-    await this.#runtime.openResource(R);
+    const section = chain.state.dataProfile === SECTIONS_PROFILE_ID;
+    if (section) await this.#runtime.openSection(R);
+    else await this.#runtime.openResource(R);
     // Until the session is live, or the connect timeout: joined either way.
     const until = this.#o.connectTimeoutMs;
-    for (let waited = 0; this.#runtime.phase(R) !== "LIVE" && waited < until; waited += 50)
+    let waited = 0;
+    for (; this.#runtime.phase(R) !== "LIVE" && waited < until; waited += 50)
       await this.#o.sleep(50);
-    return {
-      kind: "joined",
-      resourceId: R,
-      abilities: accepted.abilities.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`),
+    if (!section) return { kind: "joined", resourceId: R, abilities };
+    // A section is inserted only once ready and fully loaded (LFCP-02-052).
+    stage("loading section");
+    const loaded = () => {
+      const l = this.#runtime.sectionLoad?.(R);
+      return l?.ready === true && l.loaded;
     };
+    for (; !loaded() && waited < until; waited += 50) await this.#o.sleep(50);
+    return { kind: "joined", resourceId: R, abilities, section: { loaded: loaded() } };
   }
 
   /**
