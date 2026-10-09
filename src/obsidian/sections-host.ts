@@ -54,7 +54,7 @@ import {
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
-import { accessView } from "../core/status/access";
+import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { observedFacts } from "../core/status/facts";
 import { type StatusView, statusView } from "../core/status/reducer";
@@ -71,7 +71,7 @@ import { ImportSectionModal } from "./ui/import-section";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
 import { RecoveryModal } from "./ui/recovery";
 import { type LostBase, RepairModal } from "./ui/repair";
-import { AliasModal, SectionCardModal } from "./ui/section-card";
+import { AliasModal, ConfirmModal, SectionCardModal } from "./ui/section-card";
 import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
@@ -409,6 +409,48 @@ export class SectionsHost {
             });
             const fresh = await this.#cardContent(key, title);
             if (fresh !== null) modal.update(fresh);
+          });
+        },
+        // 060: confirmed first; queued is pending until the server commits it.
+        remove: (principal, label) => {
+          const ask = new ConfirmModal(
+            this.app,
+            `Remove access: ${label}`,
+            REMOVE_CONFIRMATION,
+            "Remove access",
+          );
+          ask.open();
+          void ask.result.then(async (yes) => {
+            const runtime = this.#runtime;
+            if (!yes || runtime === null) return;
+            const aliases = ((await runtime.localState.get(ALIASES)) ?? {}) as Record<
+              string,
+              string
+            >;
+            let message: string;
+            try {
+              const r = await runtime.revokeSectionAccess(R, fromHex(principal) as PrincipalId);
+              message = revokeMessage(
+                r.kind === "refused"
+                  ? { kind: "refused", reason: r.reason }
+                  : {
+                      kind: "queued",
+                      rotated: r.epoch !== null,
+                      remainingPaths: r.remainingPaths.map((p) => ({
+                        issuer: toHex(p.issuer),
+                        abilities: p.abilities,
+                      })),
+                    },
+                (hex) => aliases[hex.slice(0, 8)] ?? `Member ${hex.slice(0, 8)}`,
+              );
+            } catch {
+              // Outcome unknown: the access list says whether a change is pending.
+              message =
+                "Removing access failed. The access list shows whether a change is pending.";
+            }
+            new Notice(`Shared Tasks: ${message}`);
+            const fresh = await this.#cardContent(key, title);
+            if (fresh !== null && this.#card?.modal === modal) modal.update(fresh);
           });
         },
       },

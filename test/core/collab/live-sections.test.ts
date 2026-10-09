@@ -7,8 +7,10 @@
 
 import {
   fromBase64url,
+  fromHex,
   generateObjectId,
   generateResourceId,
+  type PrincipalId,
   type ResourceId,
   toBase64url,
   toHex,
@@ -360,7 +362,52 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
       code: "AUTHORIZATION_FAILED",
     });
     expect(await late.runtime.hasResource(R)).toBe(false);
-  }, 90_000);
+
+    // 060: removing access. A member without capability/revoke is refused,
+    // nothing queued; the owner's removal is queued, pending until the server
+    // commits it, and rotates the key: the reader gets no later edit.
+    const readerRow = ownerView.rows.find((r) => r.role === "can read");
+    if (readerRow === undefined) throw new Error("no reader row");
+    const subject = fromHex(readerRow.principal) as PrincipalId;
+    expect(await member.runtime.revokeSectionAccess(R, subject)).toMatchObject({
+      kind: "refused",
+      reason: "not-authorized",
+    });
+    const removed = await owner.runtime.revokeSectionAccess(R, subject);
+    expect(removed).toMatchObject({ kind: "queued", remainingPaths: [] });
+    expect(removed.kind === "queued" && removed.epoch !== null).toBe(true);
+    await until("the removal committed on the owner's validated view", async () => {
+      const v = await view(owner);
+      return v.pending.length === 0 && !v.rows.some((r) => r.principal === readerRow.principal)
+        ? true
+        : undefined;
+    });
+    const later = owner.port.snapshot(toBase64url(R), sectionId);
+    const text = later?.nodes[paragraph]?.text as string;
+    await owner.port.commit(
+      toBase64url(R),
+      [
+        {
+          intent: "text.edit",
+          id: paragraph,
+          edits: [{ index: text.length, deleteCount: 0, insert: " After removal" }],
+          base: later?.revision as string,
+        },
+      ],
+      { operationId: "edit-after-removal" },
+    );
+    await until("the edit after the removal on the member", async () =>
+      member.port
+        .snapshot(toBase64url(R), sectionId)
+        ?.nodes[paragraph]?.text?.endsWith(" After removal")
+        ? true
+        : undefined,
+    );
+    await sleep(1000);
+    expect(reader.port.snapshot(toBase64url(R), sectionId)?.nodes[paragraph]?.text).not.toContain(
+      "After removal",
+    );
+  }, 120_000);
 
   it("POST-007: the owner's plugin publishes a Snapshot; a new member catches up from it and the tail", async () => {
     const owner = await vault(true, undefined, 3);

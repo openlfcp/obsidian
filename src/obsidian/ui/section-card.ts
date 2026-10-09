@@ -23,7 +23,11 @@ export class SectionCardModal extends Modal {
     private readonly actions: readonly CardAction[],
     private readonly onClosed: () => void = () => undefined,
     /** Per identity: set its local alias (a label of this device only). */
-    private readonly rowActions: { readonly alias?: (id: string, label: string) => void } = {},
+    private readonly rowActions: {
+      readonly alias?: (id: string, label: string) => void;
+      /** Remove this identity's access (060): the host confirms first. */
+      readonly remove?: (principal: string, label: string) => void;
+    } = {},
   ) {
     super(app);
     this.#card = card;
@@ -73,7 +77,15 @@ export class SectionCardModal extends Modal {
               text: "Name…",
               cls: "openlfcp-card-row-action",
             }).addEventListener("click", () => this.rowActions.alias?.(row.id, row.label));
+          // Offered by the validated abilities, and only while removing can be done now.
+          if (row.removable && access.removeNote === null && this.rowActions.remove !== undefined)
+            li.createEl("button", {
+              text: "Remove access…",
+              cls: "openlfcp-card-row-action mod-warning",
+            }).addEventListener("click", () => this.rowActions.remove?.(row.principal, row.label));
         }
+        if (access.removeNote !== null)
+          el.createEl("p", { text: access.removeNote, cls: "setting-item-description" });
       }
       list(access.invitations, "openlfcp-card-invitations");
       list(access.pending, "openlfcp-card-pending");
@@ -140,5 +152,44 @@ export class AliasModal extends Modal {
   override onClose(): void {
     this.contentEl.empty();
     this.#done(this.#value);
+  }
+}
+
+/** A yes/no question before an action that cannot be taken back. */
+export class ConfirmModal extends Modal {
+  #done: (yes: boolean) => void = () => undefined;
+  #yes = false;
+  readonly result = new Promise<boolean>((r) => {
+    this.#done = r;
+  });
+
+  constructor(
+    app: App,
+    private readonly title: string,
+    private readonly question: string,
+    private readonly action: string,
+  ) {
+    super(app);
+  }
+
+  override onOpen(): void {
+    this.setTitle(this.title);
+    this.contentEl.createEl("p", { text: this.question });
+    const buttons = this.contentEl.createDiv({ cls: "modal-button-container" });
+    buttons
+      .createEl("button", { text: this.action, cls: "mod-warning" })
+      .addEventListener("click", () => {
+        this.#yes = true;
+        this.close();
+      });
+    // The safe choice has the focus.
+    const cancel = buttons.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.close());
+    cancel.focus();
+  }
+
+  override onClose(): void {
+    this.contentEl.empty();
+    this.#done(this.#yes);
   }
 }
