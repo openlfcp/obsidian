@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
+    "@codemirror/language": "6.11.3",
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "6.38.6",
     "@types/node": "^24.19.1",
