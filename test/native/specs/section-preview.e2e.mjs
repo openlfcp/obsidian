@@ -1,4 +1,4 @@
-// The shared sections preview in Shared Tasks itself (`sectionsPreview` on):
+// Shared sections in Shared Tasks itself (on unless `sectionsDisabled`):
 // the plugin's runtime, the real SDK, its install database. A section
 // Resource is created and its section committed locally (no server: the
 // session never connects), then typing in a note becomes a commit in the
@@ -8,11 +8,11 @@
 const SECTION_ID = "268a166f-4891-7243-840e-e7fea9fe6390";
 const FILE = "preview.md";
 
-/** Shared Tasks restarted with `sectionsPreview` set, runtime ready. */
+/** Shared Tasks restarted with sections on or off (`sectionsDisabled`), runtime ready. */
 async function restartWith(preview) {
   await browser.executeObsidian(async ({ app }, preview) => {
     const plugin = app.plugins.plugins["shared-tasks"];
-    plugin.settings.sectionsPreview = preview;
+    plugin.settings.sectionsDisabled = !preview;
     await plugin.saveData(plugin.settings);
     await app.plugins.disablePlugin("shared-tasks");
     await app.plugins.enablePlugin("shared-tasks");

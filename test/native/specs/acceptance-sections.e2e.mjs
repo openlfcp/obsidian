@@ -93,7 +93,7 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
     await inA(async ({ app }, url) => {
       const plugin = app.plugins.plugins["shared-tasks"];
       plugin.settings.defaultServer = url;
-      plugin.settings.sectionsPreview = true;
+      plugin.settings.sectionsDisabled = false;
       await plugin.saveData(plugin.settings);
       await app.plugins.disablePlugin("shared-tasks");
       await app.plugins.enablePlugin("shared-tasks");
