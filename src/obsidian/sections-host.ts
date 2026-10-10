@@ -643,6 +643,7 @@ export class SectionsHost {
     const count = (kind: string) => nodes.filter((n) => n.kind === kind).length;
     const runtime = this.#runtime;
     const mine = await runtime?.sectionAccessState(R).catch(() => undefined);
+    const history = runtime?.sectionHistory(R);
     const aliases = ((await runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>;
     const access = accessView({
       participants: status?.participants ?? [],
@@ -670,6 +671,7 @@ export class SectionsHost {
       ...(status === undefined ? {} : { hosting: status.hosting }),
       access,
       counts: { tasks: count("task"), paragraphs: count("paragraph"), items: count("item") },
+      ...(history === undefined ? {} : { history }),
     });
   }
 

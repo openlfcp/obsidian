@@ -19,6 +19,8 @@ export interface CardInput {
   /** What the model holds now (visible nodes by kind). */
   readonly counts?: { readonly tasks: number; readonly paragraphs: number; readonly items: number };
   readonly hosting?: "hosted" | "pending" | "unknown";
+  /** LFCP-02-117: the history's size (§13.1, inserted characters), when measured. */
+  readonly history?: number;
 }
 
 export interface SectionCard {
@@ -36,6 +38,9 @@ export interface SectionCard {
   /** Secondary: identifiers and raw state names. */
   readonly technical: readonly string[];
 }
+
+/** LFCP-02-117: from here the card suggests a new section for new material (§13.1 floor: 262,144). */
+export const HISTORY_ADVICE_AT = 200_000;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -119,6 +124,16 @@ export function sectionCard(input: CardInput): SectionCard {
     "Everything between this section's start and end markers is shared, including future additions.",
     "Text after the end marker, and anywhere else in the note, stays on this device.",
   ];
+  // LFCP-02-117: the history only grows; past about 200,000 a new section is suggested (no action taken).
+  if (input.history !== undefined) {
+    shared.push(
+      `History: about ${input.history.toLocaleString("en-US")} characters inserted since the section was shared (deleted text counts too).`,
+    );
+    if (input.history >= HISTORY_ADVICE_AT)
+      shared.push(
+        "This section's history is large. For new material, consider starting a new section; this one keeps working as it is.",
+      );
+  }
   if (input.counts !== undefined)
     shared.push(
       `Now: ${plural(input.counts.tasks, "task", "tasks")}, ${plural(input.counts.paragraphs, "paragraph", "paragraphs")}, ${plural(input.counts.items, "list item", "list items")}.`,

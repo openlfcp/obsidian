@@ -3,7 +3,7 @@
 // user's words, technical identifiers last, markup kept as plain text.
 
 import { describe, expect, it } from "vitest";
-import { sectionCard } from "../../../src/core/status/card";
+import { HISTORY_ADVICE_AT, sectionCard } from "../../../src/core/status/card";
 import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 
 const base: StatusFacts = {
@@ -96,5 +96,38 @@ describe("the section card", () => {
     expect(c.heading).toBe('Shared section "<img src=x onerror="alert(1)">"');
     expect(c.facts).toContain("You can read this section, not edit it.");
     expect(c.access).toBeUndefined();
+  });
+});
+
+describe("LFCP-02-117: the history's size", () => {
+  const withHistory = (history?: number) =>
+    sectionCard({
+      title: "Launch",
+      view: statusView(base),
+      resource: "r",
+      sectionId: "s",
+      ...(history === undefined ? {} : { history }),
+    });
+  const advice = (c: ReturnType<typeof withHistory>) =>
+    c.shared.some((l) => l.includes("consider starting a new section"));
+
+  it("shown when measured; no advice below about 200,000", () => {
+    const c = withHistory(12_345);
+    expect(c.shared).toContain(
+      "History: about 12,345 characters inserted since the section was shared (deleted text counts too).",
+    );
+    expect(advice(c)).toBe(false);
+    expect(advice(withHistory(HISTORY_ADVICE_AT - 1))).toBe(false);
+  });
+
+  it("from about 200,000 a new section is suggested; the status does not change", () => {
+    const c = withHistory(HISTORY_ADVICE_AT);
+    expect(advice(c)).toBe(true);
+    expect(c.problems).toEqual([]);
+    expect(c.status).toBe(withHistory(undefined).status);
+  });
+
+  it("not measured: nothing said", () => {
+    expect(withHistory(undefined).shared.join(" ")).not.toMatch(/History/);
   });
 });

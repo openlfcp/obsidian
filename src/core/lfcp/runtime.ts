@@ -72,6 +72,7 @@ import {
   type SecretStore,
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
+import { historyRows } from "./history";
 import {
   createInstall,
   databaseName,
@@ -1133,6 +1134,21 @@ export class LfcpRuntime {
    * which local batches are committed with receipts.
    */
   /** An open section Resource: ready (SSP §12.1), and no change held for a missing dependency. */
+  /**
+   * LFCP-02-117: the size of an open section's history (§13.1: the largest
+   * column of its save), measured when asked; undefined when not open or
+   * not readable.
+   */
+  sectionHistory(resource: ResourceId): number | undefined {
+    const profile = this.sectionProfile(resource);
+    if (profile === undefined) return undefined;
+    try {
+      return historyRows(profile.snapshotState());
+    } catch {
+      return undefined;
+    }
+  }
+
   sectionLoad(
     resource: ResourceId,
   ): { readonly ready: boolean; readonly loaded: boolean } | undefined {
