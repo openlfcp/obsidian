@@ -64,6 +64,28 @@ On a pushed tag `X.Y.Z`:
    release the next patch version. Never re-tag a published version:
    BRAT users may have it.
 
+## Patch releases of the catalog line
+
+While `main` carries the next minor version, a patch of the catalog line
+(0.3.3, 0.3.4) is released from a branch `release-X.Y.Z` cut from the
+previous patch tag: the version files and the release notes are set on that
+branch, and the tag is made there. The community directory and Obsidian's
+update check read `manifest.json` from `main`, not from the release, so the
+patch reaches catalog users only once `main` names it.
+
+After the patch's release is published, on `main`:
+
+1. Set `version` to `X.Y.Z` in `manifest.json` and `package.json`, and
+   add `"X.Y.Z": "<minAppVersion>"` to `versions.json`, keeping the entries
+   of the patches before it.
+2. Check: `node scripts/release-assets.mjs --tag X.Y.Z` ends with
+   `release: Shared Tasks X.Y.Z (shared-tasks) in release/`.
+3. Commit and push. A beta must stay newer than the catalog version:
+   `scripts/release-assets.mjs` refuses one that is not.
+
+0.3.3 and 0.3.4 missed this step at first: `main` said 0.3.2, and neither
+reached catalog users until it was fixed.
+
 ## Betas (pre-releases)
 
 A beta (LFCP-02-094) runs the pilot without updating catalog users: it is
