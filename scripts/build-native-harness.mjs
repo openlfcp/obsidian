@@ -35,3 +35,23 @@ await build({
   minify: false,
   plugins: [automergeSlim, automergeWasmDeflated],
 });
+
+// LFCP-02-066: the native acceptance runs' peer and server, for the specs'
+// Node process (test/native/peer/main.ts into test/native/peer.bundle.mjs).
+await build({
+  absWorkingDir: root,
+  entryPoints: ["test/native/peer/main.ts"],
+  outfile: "test/native/peer.bundle.mjs",
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: "node22",
+  external: [...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
+  banner: {
+    js: 'import { createRequire as __cr } from "node:module"; const require = __cr(import.meta.url);',
+  },
+  logLevel: "warning",
+  sourcemap: false,
+  minify: false,
+  plugins: [automergeSlim, automergeWasmDeflated],
+});

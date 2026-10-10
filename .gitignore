@@ -28,6 +28,8 @@ pnpm-debug.log*
 /main.js
 # Native harness plugin bundle (built by scripts/build-native-harness.mjs)
 /test/native/plugins/section-sync/main.js
+# Native acceptance peer bundle (LFCP-02-066, same script)
+/test/native/peer.bundle.mjs
 # Release assets (scripts/release-assets.mjs)
 /release/
 
