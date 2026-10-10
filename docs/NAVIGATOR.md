@@ -34,6 +34,8 @@
 | [releases/0.4.0-beta.1.md](releases/0.4.0-beta.1.md) | everyone | Draft release notes of Shared Tasks 0.4.0-beta.1, the first beta with shared sections: BRAT install, no way back to 0.3.x, what to report |
 | [releases/0.4.0.md](releases/0.4.0.md) | everyone | Release notes of Shared Tasks 0.4.0 (draft): shared sections, status marks, conflicts, removing access, detach, diagnostics, limits, updating from 0.3 (the GitHub release body) |
 | [releases/0.4-compatibility.md](releases/0.4-compatibility.md) | everyone | Shared Tasks 0.4: upgrade and downgrade, the compatibility matrix and the release-notes text |
+| [releases/0.3.4.md](releases/0.3.4.md) | everyone | Release notes of Shared Tasks 0.3.4: the security fix for a change a collaborator could send that stopped a collaboration on the devices that received it (the GitHub release body) |
+| [releases/0.3.3.md](releases/0.3.3.md) | everyone | Release notes of Shared Tasks 0.3.3: the security fix for changes a collaborator could send that made a collaboration fail to open, and recovery without reinstalling (the GitHub release body) |
 | [releases/0.3.2.md](releases/0.3.2.md) | everyone | Release notes of Shared Tasks 0.3.2: Obsidian 1.13.4, joining newer collaborations safely, the revert fix, a server that repairs itself (the GitHub release body) |
 | [releases/0.3.1.md](releases/0.3.1.md) | everyone | Release notes of Shared Tasks 0.3.1: smaller main.js, declarative settings, three attested release files, the SDK from npm (the GitHub release body) |
 | [releases/0.3.0.md](releases/0.3.0.md) | everyone | Release notes of Shared Tasks 0.3.0: share selected tasks, insert all tasks from a collaboration, created_at (the GitHub release body) |
