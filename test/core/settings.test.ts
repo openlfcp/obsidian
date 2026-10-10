@@ -23,12 +23,22 @@ describe("settings", () => {
       defaultServer: "wss://a.example/ws",
       showSharingMetadata: false,
       sectionComments: "local",
-      sectionsPreview: false,
+      sectionsDisabled: false,
       settingsVersion: SETTINGS_VERSION,
     });
     expect(
       normalizeSettings({ refPlacement: "sideways", defaultServer: 42, future: true }),
     ).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it("0.4.0: sections on unless disabled; the 0.3.x sectionsPreview key, saved false by most installs, is dropped", () => {
+    for (const sectionsPreview of [false, true, "yes"]) {
+      const s = normalizeSettings({ sectionsPreview });
+      expect(s).not.toHaveProperty("sectionsPreview");
+      expect(s.sectionsDisabled).toBe(false);
+    }
+    expect(normalizeSettings({ sectionsDisabled: true }).sectionsDisabled).toBe(true);
+    expect(normalizeSettings({ sectionsDisabled: "yes" }).sectionsDisabled).toBe(false);
   });
 
   it("offer the project server on a fresh install", () => {
@@ -45,7 +55,7 @@ describe("settings", () => {
       defaultServer: PROJECT_SERVER,
       showSharingMetadata: false,
       sectionComments: "local",
-      sectionsPreview: false,
+      sectionsDisabled: false,
       settingsVersion: 2,
     });
     expect(normalizeSettings({ refPlacement: "inline" }).defaultServer).toBe(PROJECT_SERVER);

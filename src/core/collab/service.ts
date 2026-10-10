@@ -118,7 +118,7 @@ export interface CollabOptions {
   readonly sleep: (ms: number) => Promise<void>;
   /** The clock for a shared Task's created_at, in ms since the epoch (default Date.now). */
   readonly now?: () => number;
-  /** Shared sections (the `sectionsPreview` flag): invite to and join section Resources. */
+  /** Shared sections: invite to and join section Resources. */
   readonly sections?: boolean;
   /** LFCP-02-095 (V3): sections are read-only on this device, so nobody is invited from it. */
   readonly sectionsReadOnly?: boolean;

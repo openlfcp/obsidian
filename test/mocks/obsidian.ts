@@ -364,8 +364,15 @@ export class Plugin {
     this.settingTabs.push(tab);
   }
 
+  /**
+   * The plugin's unit tests run without a DOM, where shared sections cannot
+   * be hosted: they are off unless the stored data says otherwise.
+   */
   async loadData(): Promise<unknown> {
-    return this.stored;
+    const s = this.stored;
+    if (s !== undefined && (typeof s !== "object" || s === null || "sectionsDisabled" in s))
+      return s;
+    return { sectionsDisabled: true, ...(s ?? {}) };
   }
 
   async saveData(data: unknown): Promise<void> {

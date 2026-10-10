@@ -28,7 +28,7 @@ describe("plugin", () => {
       defaultServer: PROJECT_SERVER,
       showSharingMetadata: false,
       sectionComments: "local",
-      sectionsPreview: false,
+      sectionsDisabled: true,
       settingsVersion: 2,
     });
   });
@@ -74,7 +74,7 @@ describe("plugin", () => {
       defaultServer: PROJECT_SERVER,
       showSharingMetadata: false,
       sectionComments: "local",
-      sectionsPreview: false,
+      sectionsDisabled: true,
       settingsVersion: 2,
     });
     expect(server?.text?.value).toBe(PROJECT_SERVER);
@@ -89,7 +89,7 @@ describe("plugin", () => {
       defaultServer: "wss://a.example/ws",
       showSharingMetadata: false,
       sectionComments: "local",
-      sectionsPreview: false,
+      sectionsDisabled: true,
       settingsVersion: 2,
     });
 

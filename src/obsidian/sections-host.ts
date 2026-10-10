@@ -1,9 +1,7 @@
-// Shared sections in the plugin (MVP 0.2), behind the `sectionsPreview`
-// development flag (off by default, set in data.json only): the editor
-// extension, the engine on the real SDK (the runtime's sessions, its
+// Shared sections in the plugin (MVP 0.2; on in every 0.4 build): the
+// editor extension, the engine on the real SDK (the runtime's sessions, its
 // install database), the notes that hold sections, and the events that
-// start passes. Not reachable with the flag off: the plugin then creates
-// none of this.
+// start passes.
 //
 // The sync status comes from the SDK's status stream (026) and what the
 // plugin observes of the session and the model (core/status/facts.ts).

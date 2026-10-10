@@ -88,7 +88,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
       defaultServer: "wss://sync.example/v1/ws",
       showSharingMetadata: false,
       sectionComments: "local",
-      sectionsPreview: false,
+      sectionsDisabled: true,
       settingsVersion: 2,
     });
     const dump = JSON.stringify(stored);

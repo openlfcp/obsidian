@@ -49,10 +49,11 @@ export interface Settings {
   /** New comments in shared sections: local (default) or shared. */
   sectionComments: SectionComments;
   /**
-   * Development preview of shared sections (MVP 0.2), off by default and not
-   * in the settings tab: set in data.json only, until sync statuses (026).
+   * Turns shared sections off (data.json only, not in the settings tab).
+   * Sections are on in every 0.4 build; a new key, so the `sectionsPreview:
+   * false` most 0.3.x installs saved does not turn them off.
    */
-  sectionsPreview: boolean;
+  sectionsDisabled: boolean;
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */
   settingsVersion: number;
 }
@@ -62,7 +63,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   defaultServer: PROJECT_SERVER,
   showSharingMetadata: false,
   sectionComments: "local",
-  sectionsPreview: false,
+  sectionsDisabled: false,
   settingsVersion: SETTINGS_VERSION,
 };
 
@@ -102,7 +103,8 @@ export function normalizeSettings(stored: unknown): Settings {
     sectionComments: isSectionComments(data.sectionComments)
       ? data.sectionComments
       : DEFAULT_SETTINGS.sectionComments,
-    sectionsPreview: data.sectionsPreview === true,
+    // 0.4.0: the 0.3.x `sectionsPreview` key is dropped; sections are on unless disabled.
+    sectionsDisabled: data.sectionsDisabled === true,
     settingsVersion: SETTINGS_VERSION,
   };
 }

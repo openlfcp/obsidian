@@ -96,7 +96,7 @@ export interface CommandEnv {
   readonly guard: MutationGuard;
   readonly placement: () => RefPlacement;
   readonly defaultServer: () => string;
-  /** Shared sections (the `sectionsPreview` flag): their Resources can be invited to. */
+  /** Shared sections: their Resources can be invited to. */
   readonly sections?: () => boolean;
   /**
    * A command wrote `markdown` to `path`: the projection records it as the

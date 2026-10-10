@@ -108,7 +108,7 @@ export default class OpenLfcpPlugin extends Plugin {
       guard: this.guard,
       placement: () => this.settings.refPlacement,
       defaultServer: () => this.settings.defaultServer,
-      sections: () => this.settings.sectionsPreview,
+      sections: () => !this.settings.sectionsDisabled,
       wrote: (path, markdown) => this.#enqueue(() => this.projection.reindex(path, markdown)),
     });
     const handlers: Readonly<Record<string, () => Promise<void>>> = {
@@ -158,8 +158,8 @@ export default class OpenLfcpPlugin extends Plugin {
     const sections = sectionPresentationExtension(() => this.settings.showSharingMetadata);
     this.#sectionViews = sections.views;
     this.registerEditorExtension(sections.extension);
-    // Development preview of shared sections (data.json only, off by default).
-    if (this.settings.sectionsPreview) {
+    // Shared sections: on unless `sectionsDisabled` (data.json); read-only on mobile.
+    if (!this.settings.sectionsDisabled) {
       // LFCP-02-064: one live region for what is said once.
       const live = new LiveRegion(document);
       this.register(() => live.detach());
@@ -309,7 +309,7 @@ export default class OpenLfcpPlugin extends Plugin {
         runtime,
         flows: new Collaboration(runtime, {
           sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
-          sections: this.settings.sectionsPreview,
+          sections: !this.settings.sectionsDisabled,
           sectionsReadOnly: Platform.isMobile,
         }),
       };
@@ -788,7 +788,7 @@ export default class OpenLfcpPlugin extends Plugin {
     }
   }
 
-  /** The shared sections preview (null unless `sectionsPreview` is on). */
+  /** Shared sections (null until the runtime is ready). */
   sections: SectionsHost | null = null;
 
   #sectionViews: ReadonlySet<EditorView> = new Set();
