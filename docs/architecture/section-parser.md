@@ -352,8 +352,8 @@ stop), reads its profile synchronously (`sectionProfile`, for the snapshot
 rule) and commits batches through its session (`commitSection`). The 0.1
 paths keep refusing such a Resource (`UnsupportedProfileError`).
 
-The plugin runs all of it only behind the `sectionsPreview` development
-flag (`data.json`, off by default, not in the settings tab) through
+The plugin runs all of it (on in every 0.4 build; `sectionsDisabled` in
+`data.json` turns it off) through
 `src/obsidian/sections-host.ts`: the editor extension, the engine on
 `SdkSectionPort` and the install database, the section Resources opened at
 start, the notes that hold a section (found with `cachedRead`, as the

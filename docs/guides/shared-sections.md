@@ -15,34 +15,20 @@ This differs from sharing tasks one by one (the
 - Each section has its own collaboration, with its own key. The server
   stores it encrypted and cannot read it.
 
-> **Preview.** Shared sections are in development for Shared Tasks 0.4.
-> They are off by default and may change. Don't use them yet for data you
-> need to protect, and keep your vault: it holds the full data of every
-> collaboration.
+> **New in 0.4.** Shared sections are on in Shared Tasks 0.4 and its
+> betas. Keep your vault: it holds the full data of every collaboration.
 
 Every command below runs from the command palette (`Ctrl/Cmd + P`), where
 its name starts with "Shared Tasks:". Do the set-up of the
 [step-by-step guide](user-guide.md) (Part 1) first.
 
-## 1. Turn the preview on
+## 1. Before you start
 
-The preview is not in the settings tab. In each vault:
-
-1. Quit Obsidian.
-2. Open `.obsidian/plugins/shared-tasks/data.json` in the vault and add
-   `"sectionsPreview": true` to its settings, for example:
-
-   ```json
-   {
-     "defaultServer": "wss://sync.openlfcp.org/v1/ws",
-     "sectionsPreview": true
-   }
-   ```
-
-3. Start Obsidian again.
-
-The section commands appear in the palette: "Share section…", "Insert
-shared section…" and the others below.
+The section commands are in the palette: "Share section…", "Insert shared
+section…" and the others below. (Version 0.3's `"sectionsPreview"` setting
+is no longer used. To turn shared sections off, add
+`"sectionsDisabled": true` to `.obsidian/plugins/shared-tasks/data.json`
+while Obsidian is closed.)
 
 A section is created on the **Default server** (Settings → Shared Tasks).
 With no default server, sharing is refused: "set a default sync server in
