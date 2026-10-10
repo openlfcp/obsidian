@@ -1,7 +1,8 @@
 # Shared sections: native acceptance of UX and statuses
 
 **Task:** LFCP-02-066, with the two-vault demonstration of LFCP-02-072.
-**Date:** 2026-10-09. **Status:** draft. C14 is waiting for a native recheck.
+**Dates:** 2026-10-09 to 2026-10-10. **Status:** all automated checks pass
+(C01–C20 and SI20); the reviewer's manual run is still owed (§1).
 
 ## 1. What this covers, and what it does not
 
@@ -30,7 +31,8 @@ LFCP_SERVER_BIN=<lfcp-server> NATIVE_OBSIDIAN=1.13.4 \
 ```
 
 - **Environment:** Obsidian 1.13.4 on macOS 26.5 (Apple silicon), Node 24.4.
-- **Pins:** reference server 79c240e, sdk-ts 32e801f, spec mvp-0.2-baseline.4.
+- **Pins:** reference server 79c240e; sdk-ts 32e801f (phase 3) and 19665ca
+  (phase 4); spec mvp-0.2-baseline.4.
 - **Fixture:** a 200-Task note with paragraphs, list items and a canary in
   private text on each side.
 - **The server:** restartable at the same address with its state (offline,
@@ -46,7 +48,7 @@ LFCP_SERVER_BIN=<lfcp-server> NATIVE_OBSIDIAN=1.13.4 \
 | 1 | f8d0a90 | C01–C11 pass | Defects fixed before: 564bcd7, d54b2a6, 52960aa, e835b53; sdk-ts ec595b2 |
 | 2 | 3025b20 | 11/13: C14, C17–C18 fail | Defects 1 and 2 (below) |
 | 3 | 7586b43 | 12/13: C14 fails | C17–C18 pass with the fix of defect 2; the diagnostics locate defect 1 |
-| 4 | ebdd9e0 + sdk-ts 19665ca | **pending** | C14 recheck after the fixes of defect 1 |
+| 4 | a156bca + sdk-ts 19665ca | 14/14 pass (C01–C20, SI20) | C14 passes after the fixes of defect 1; SI20 added |
 
 ### Defects found, and their fixes
 
@@ -102,7 +104,7 @@ names the unit or e2e test files under `test/`.
 | UX08 Revoke with delayed Control result | C16 | core/status/access.test.ts | PASS |
 | UX09 Fold a section with a conflict | section-a11y.e2e.mjs, C10 | core/status/a11y.test.ts | PASS |
 | UX10 Copy in all supported modes | C12–C13 | core/sections/clipboard.test.ts | PASS |
-| UX11 Detach one of two projections | C14 | core/sections/rules.test.ts | PENDING (C14 recheck) |
+| UX11 Detach one of two projections | C14 | core/sections/rules.test.ts | PASS |
 | UX12 Delete node vs whole projection | section-sync.e2e.mjs | core/sections/engine.test.ts | PASS |
 | UX13 Damaged boundary near private text | C17–C18 | core/sections/repair.test.ts, share.test.ts, parser.test.ts | PASS |
 | UX14 Unsupported block while a remote edit arrives | — | core/sections/repair.test.ts | PASS (headless) |
@@ -129,17 +131,16 @@ names the unit or e2e test files under `test/`.
 | SI17 Storage commit fails after typing | — | core/sections/commit.test.ts, core/status/reducer.test.ts | PASS (headless) |
 | SI18 Read-only replica, caught up | — | core/status/reducer.test.ts | PASS (headless) |
 | SI19 No ACK evidence mapping | — | core/status/reducer.test.ts | PASS (headless) |
-| SI20 Status-only changes keep source bytes and undo | — | — | GAP: no dedicated check (below) |
+| SI20 Status-only changes keep source bytes and undo | SI20 step | — | PASS |
 
-**SI20 is a gap.**
-- What holds by construction: the badge and the row cues are CodeMirror
-  widget decorations, and status changes reach the editor only as a state
-  effect without document changes (`src/obsidian/section-status.ts`). The
-  clipboard checks (C12, clipboard.test.ts) show that no status text is
-  copied.
-- What is missing: a test that compares the document bytes and the undo
-  history across every visual state. It is a native check, for the next
-  window.
+**SI20.** The badge and the row cues are CodeMirror widget decorations, and
+status changes reach the editor only as a state effect without document
+changes (`src/obsidian/section-status.ts`). The native step SI20 cycles the
+status (CURRENT, OFFLINE, CURRENT) with the server going down and up. It
+compares the editor's text, the file's bytes and the depth of the undo
+history before and after: all equal (undo done/undone 4/0 before and after).
+The clipboard checks (C12, clipboard.test.ts) show that no status text is
+copied.
 
 ## 5. Observations, not defects
 
@@ -154,11 +155,21 @@ names the unit or e2e test files under `test/`.
   text was not seen here, because B is headless.
 - **UX16:** forced colors were not run. The harness's driver has no
   emulated media (no puppeteer-core).
+- **Harness, 2026-10-10:** macOS deleted files from the harness's Obsidian
+  cache in the temp directory, so the cached apps lost their `Info.plist`
+  and signature and were killed at launch. The cache moved to the user's
+  cache directory, and `pnpm native` now refuses a damaged app (e4cb29c,
+  `docs/devel/testing/native-harness.md`). The phase 4 run also showed that
+  the harness runs beside the user's own open Obsidian.
+- **C14, phase 4:** at the moment the first copy showed B's edit, the second
+  copy (in a note not open in the editor) did not yet show it. The step does
+  not assert it; it is followed up headless.
 
 ## Appendix A. The reviewer checklist, filled (automated run)
 
-From the run of phase 3 (7586b43), except C14. "Result" is what the run
-observed. "Deviation" is any difference from the template's expectation.
+From the run of phase 3 (7586b43); C14 from phase 4 (a156bca), where every
+other step passed again. "Result" is what the run observed. "Deviation" is
+any difference from the template's expectation.
 
 | # | Result | Deviation |
 | --- | --- | --- |
@@ -176,7 +187,7 @@ observed. "Deviation" is any difference from the template's expectation.
 | C11 | One choice applied; the Task title once on both sides; CURRENT | — |
 | C12 | No `lfcp-` line in the readable copy (253 lines) | — |
 | C13 | "…it gives nobody access." | — |
-| C14 | Detach: pending the recheck (defect 1) | Failed before the fixes; to be rechecked |
+| C14 | Detach on the second copy in A: the confirmation, then the notice: "Launch" is no longer shared in this note. The shared section itself is unchanged; markers gone, text kept; the first copy goes on syncing B's edits; the detached copy is not touched | — |
 | C15 | 0.1 sharing beside the section works; refused inside it | — |
 | C16 | A: "waiting for the server"; Remove access warns that copies cannot be erased; B refused by the server; A never got B's later edit | B's text is the refused state (§5) |
 | C17 | ATTENTION; the card: "One copy of this section has a damaged boundary or binding line." | — |
