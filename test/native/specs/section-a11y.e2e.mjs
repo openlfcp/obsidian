@@ -38,8 +38,21 @@ const failed = (id) => ({
   batches: [{ id, nodeIds: [task(3)], durable: false, failed: true, unitIds: [], acceptedUnitIds: [] }],
 });
 
+
+/** Shared Tasks' own shared sections on or off (0.4: on by default), plugin restarted. */
+const sharedTasksSections = (on) =>
+  browser.executeObsidian(async ({ app }, on) => {
+    const plugin = app.plugins.plugins["shared-tasks"];
+    plugin.settings.sectionsDisabled = !on;
+    await plugin.saveData(plugin.settings);
+    await app.plugins.disablePlugin("shared-tasks");
+    await app.plugins.enablePlugin("shared-tasks");
+  }, on);
+
 describe("LFCP-02-064: keyboard and accessible status (harness statuses, real editor)", () => {
   before(async () => {
+    // The harness's statuses only: Shared Tasks' own sections would decorate the same note.
+    await sharedTasksSections(false);
     await browser.executeObsidian(async ({ app, obsidian }, note) => {
       await app.plugins.enablePlugin("lfcp-section-sync");
       if (app.vault.getFileByPath("a11y.md") === null) await app.vault.create("a11y.md", note);
@@ -55,6 +68,7 @@ describe("LFCP-02-064: keyboard and accessible status (harness statuses, real ed
     await browser.executeObsidian(async ({ app }) => {
       await app.plugins.disablePlugin("lfcp-section-sync");
     });
+    await sharedTasksSections(true);
   });
 
   it("200 pending rows: one Tab stop (the badge); row cues are labelled images, not controls", async () => {

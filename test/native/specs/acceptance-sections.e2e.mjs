@@ -712,8 +712,12 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
     await openA("Launch plan.md", "", inside);
     const before = (await notices()).length;
     await inA(({ app }) => app.commands.executeCommandById("shared-tasks:share-task-under-cursor"));
-    await new Promise((r) => setTimeout(r, 1000));
-    const refused = (await notices()).slice(before);
+    // The refusal is a notice; it can take a moment under load.
+    let refused = [];
+    for (let i = 0; i < 25 && refused.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      refused = (await notices()).slice(before);
+    }
     evidence("C15", { legacy, refused });
     expect(legacy).toBe(true);
     expect(refused.join(" ")).toMatch(/section/i);

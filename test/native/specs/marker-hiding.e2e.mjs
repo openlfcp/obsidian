@@ -67,7 +67,22 @@ const text = () =>
     app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getValue(),
   );
 
+
+/** Shared Tasks' own shared sections on or off (0.4: on by default), plugin restarted. */
+const sharedTasksSections = (on) =>
+  browser.executeObsidian(async ({ app }, on) => {
+    const plugin = app.plugins.plugins["shared-tasks"];
+    plugin.settings.sectionsDisabled = !on;
+    await plugin.saveData(plugin.settings);
+    await app.plugins.disablePlugin("shared-tasks");
+    await app.plugins.enablePlugin("shared-tasks");
+  }, on);
+
 describe("LFCP-02-048 spike: hiding binding lines", () => {
+  // The spike's mechanism only: Shared Tasks' own sections would edit the same notes.
+  before(() => sharedTasksSections(false));
+  after(() => sharedTasksSections(true));
+
   before(async () => {
     await browser.executeObsidian(async ({ app }) => {
       await app.plugins.enablePlugin("lfcp-marker-spike");
