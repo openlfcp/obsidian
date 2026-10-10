@@ -235,6 +235,9 @@ describe("LFCP-02-064: keyboard and accessible status (harness statuses, real ed
       for (const theme of ["moonstone", "obsidian"]) {
         app.vault.setConfig("theme", theme);
         app.updateTheme?.();
+        // The theme switch can lag under load (full suite): wait for the body class.
+        const dark = theme === "obsidian";
+        for (let i = 0; i < 30 && document.body.classList.contains("theme-dark") !== dark; i++) await wait();
         await wait();
         const row = { body: document.body.classList.contains("theme-dark") ? "dark" : "light" };
         for (const [state, [facts, sel]] of Object.entries(cases)) {
