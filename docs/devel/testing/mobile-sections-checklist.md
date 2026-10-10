@@ -11,14 +11,12 @@ Use test vaults and a test collaboration only, never a personal vault.
 
 ## Setup
 
-1. On a desktop, in a test vault with the sections preview on
-   (`sectionsPreview: true` in the plugin's `data.json`, or
-   `node scripts/demo-vaults.mjs --sections`): share a section and invite a
-   second identity with "Read + write".
+1. On a desktop, in a test vault (`node scripts/demo-vaults.mjs --sections`
+   prepares one): share a section and invite a second identity with
+   "Read + write".
 2. On the phone or tablet: install the build (BRAT beta or the plugin
-   files copied into `.obsidian/plugins/shared-tasks/`), set
-   `sectionsPreview: true`, join with the invitation, and insert the
-   section into a note.
+   files copied into `.obsidian/plugins/shared-tasks/`), join with the
+   invitation, and insert the section into a note.
 
 ## Checks
 
