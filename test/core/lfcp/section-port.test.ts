@@ -1,4 +1,4 @@
-// The section port on the real SDK (sdk-ts at sdk-ts.lock): an offline
+// The section port on the real SDK (@openlfcp/*): an offline
 // SyncClient with the Shared Sections profile, as sdk-ts's own
 // conformance/shared-sections/sync-commit.test.ts sets it up. The engine
 // runs on it end to end: what the user types becomes a durable commit in

@@ -1,5 +1,5 @@
 // The section engine's port (core/sections/port.ts) on the real SDK
-// (sdk-ts at sdk-ts.lock): the snapshot of a section's replica, commits
+// (@openlfcp/*): the snapshot of a section's replica, commits
 // through the sync client with durable receipts, and the receipts' store.
 // SDK errors become the port's refusals; nothing is retried here.
 

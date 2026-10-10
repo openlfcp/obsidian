@@ -1,4 +1,4 @@
-// The port against the real SDK (sdk-ts at sdk-ts.lock): SectionReplica's
+// The port against the real SDK (@openlfcp/*): SectionReplica's
 // snapshot in the port's terms, and the batches the engine builds accepted
 // by the replica as they are. Not a fake: these are the SDK's own rules.
 

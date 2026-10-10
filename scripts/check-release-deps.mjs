@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // A tag release is built from the @openlfcp/* npm packages only (the
-// community directory's review reproduces the build from npm). During MVP
-// 0.4 development main links the SDK from ../sdk-ts at sdk-ts.lock; a tag
-// made on such a commit must not ship that build, so release.yml runs this
-// first and stops on any problem.
+// community directory's review reproduces the build from npm). A commit that
+// links the SDK from a local sdk-ts (sdk-ts.lock, link: dependencies), as
+// main did while 0.4 was developed, must not ship that build, so
+// release.yml runs this first and stops on any problem.
 //
 //   node scripts/check-release-deps.mjs
 

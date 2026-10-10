@@ -332,7 +332,7 @@ adapter's events (`opened`, `closed`, `editorChanged`, `fileChanged`,
 
 ## The port on the real SDK (`src/core/lfcp/section-port.ts`)
 
-`SdkSectionPort` implements the port over sdk-ts (at `sdk-ts.lock`): the
+`SdkSectionPort` implements the port over the SDK (`@openlfcp/*`): the
 snapshot of an open Resource's sections replica (`fromSdkSnapshot`),
 commits through the Resource's `SyncClient.commit` (the profile's
 `commitBinding` stages the batch; units, outbound entries, checkpoint and
@@ -387,7 +387,7 @@ problems that freeze structure, and concurrent Task field values are not
 `PROFILE_INVALID` gives no snapshot, `IMPORTING` is `ready: false`, and a
 node of an unknown kind or without a placement is left out.
 `test/core/sections/sdk-snapshot.test.ts` runs against the real
-`SectionReplica` at `sdk-ts.lock`: the mapping, and the engine's batches
+`SectionReplica` of `@openlfcp/shared-objects`: the mapping, and the engine's batches
 (creations, a Text edit against the snapshot's revision, a move, a
 deletion) accepted by the replica as they are.
 
