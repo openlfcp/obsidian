@@ -9,26 +9,26 @@ importers:
   .:
     dependencies:
       '@openlfcp/client':
-        specifier: link:../sdk-ts/packages/client
-        version: link:../sdk-ts/packages/client
+        specifier: 0.2.0-beta.1
+        version: 0.2.0-beta.1
       '@openlfcp/core':
-        specifier: link:../sdk-ts/packages/core
-        version: link:../sdk-ts/packages/core
+        specifier: 0.2.0-beta.1
+        version: 0.2.0-beta.1
       '@openlfcp/crypto':
-        specifier: link:../sdk-ts/packages/crypto
-        version: link:../sdk-ts/packages/crypto
+        specifier: 0.2.0-beta.1
+        version: 0.2.0-beta.1
       '@openlfcp/shared-objects':
-        specifier: link:../sdk-ts/packages/shared-objects
-        version: link:../sdk-ts/packages/shared-objects
+        specifier: 0.2.0-beta.1
+        version: 0.2.0-beta.1
       '@openlfcp/storage':
-        specifier: link:../sdk-ts/packages/storage
-        version: link:../sdk-ts/packages/storage
+        specifier: 0.2.0-beta.1
+        version: 0.2.0-beta.1
       '@openlfcp/storage-idb':
-        specifier: link:../sdk-ts/packages/storage-idb
-        version: link:../sdk-ts/packages/storage-idb
+        specifier: 0.2.0-beta.1
+        version: 0.2.0-beta.1
       '@openlfcp/wire':
-        specifier: link:../sdk-ts/packages/wire
-        version: link:../sdk-ts/packages/wire
+        specifier: 0.2.0-beta.1
+        version: 0.2.0-beta.1
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.15
@@ -62,6 +62,9 @@ importers:
         version: 5.0.3(@types/node@24.19.1)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.28.2))
 
 packages:
+
+  '@automerge/automerge@3.5.0':
+    resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
 
   '@biomejs/biome@2.5.15':
     resolution: {integrity: sha512-WZTW4slm/pdkh92K6t/3aEN++44JD1PQ7squ7RCMLI1flHGl43DVOIGXvCjHiZgBMO1V4uYxoFNtqrIA4qGuIQ==}
@@ -307,8 +310,57 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
+  '@noble/ciphers@2.4.0':
+    resolution: {integrity: sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/post-quantum@0.7.1':
+    resolution: {integrity: sha512-+P9981IiAnVh+rmcubozzVwrEy3XsN/tMhTnvsjV9VDaYpOnNCqWqKo2FLWxbu92YHfjGIlE5XnW175UK+ln+Q==}
+    engines: {node: '>= 20.19.0'}
+
+  '@openlfcp/client@0.2.0-beta.1':
+    resolution: {integrity: sha512-ADS/FQof8eQrGNlkKfHwIjcc4uRmlpXoE1b4b9bCUInabK/lAXSVNF4WilxVNJ2z9EwNHAYg2p29dy2Pc29UUA==}
+    engines: {node: '>=24'}
+
+  '@openlfcp/core@0.2.0-beta.1':
+    resolution: {integrity: sha512-r7UeFsAIPXTsQ+jRG2DgsQWF3g1GuaQMaQrL48GQVQuPH4v68J005mjlNHxExgDKfwZaDZJolHW1nWeEYyXtgg==}
+    engines: {node: '>=24'}
+
+  '@openlfcp/crypto@0.2.0-beta.1':
+    resolution: {integrity: sha512-YTAsFcSc/Vt93LzK2EfcqmO50p1CExq4Gm69BSHBk6VyY8HoyoA7KjqlTW4OV3GA6kPtsM+xg2+EAz5f+s1ZtQ==}
+    engines: {node: '>=24'}
+
+  '@openlfcp/shared-objects@0.2.0-beta.1':
+    resolution: {integrity: sha512-CNVOgh27o4B4Rl3JAH3gsGfiC0S2F32N615bHhGmUwlbnYZFtsfb+/B0mMB3LZhzNip9c1vd7HOLHRHb5f1Ifw==}
+    engines: {node: '>=24'}
+
+  '@openlfcp/storage-idb@0.2.0-beta.1':
+    resolution: {integrity: sha512-NsuqUGV8SXu7td7WNjWdXoP8oHXO4EH3KTcrBnYVzKIZFd6uhMaXSyCOds/dMPObnNA90XFBFcOCZXGVYLgLKQ==}
+    engines: {node: '>=24'}
+
+  '@openlfcp/storage@0.2.0-beta.1':
+    resolution: {integrity: sha512-4FzdlJgxjavrC9OAsuk4YhVH1yRiXF4MRGby0gN2FHnnbWJxiJnaC36ugkakyHP7rNA25C5i3lQ5pNI8sB2Zhw==}
+    engines: {node: '>=24'}
+
+  '@openlfcp/wire@0.2.0-beta.1':
+    resolution: {integrity: sha512-a4ZOhw4zE4U1QI9BBWnnZYfD2uePHyT6K615WRdh/MdtDC/3he2qm6+BgpOtc4KXhwzflEVVsKTTTMr1/XCKHg==}
+    engines: {node: '>=24'}
+
   '@oxc-project/types@0.152.0':
     resolution: {integrity: sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw==}
+
+  '@panva/hpke-noble@1.1.7':
+    resolution: {integrity: sha512-PYjl0Oi1vGMvJIRY0zbHC7FsUw+WZLSFhCgL5emcqVePmyC1sREWrPb3r3lUDRnT+AcgLV2JRitunuwQmh0IBA==}
+    peerDependencies:
+      hpke: ^1.0.0
 
   '@rolldown/binding-android-arm-eabi@1.2.12':
     resolution: {integrity: sha512-dB/a1214qKfHMXCpgqR4OZT+jS4kTyEXbQGJPqzobt5EwH5rX080pxE37alt3RzvR1bf1Yz/yGqRfrYAxuPw0A==}
@@ -484,10 +536,16 @@ packages:
       picomatch:
         optional: true
 
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  hpke@1.1.7:
+    resolution: {integrity: sha512-wQGOBpFBFlP2h7euuLuey8yJGUtJ+c8D/ohPxtTQqpICItFtHDpbXk2B29xfUpIFPn0miS9TJVObFGAeEZzDJA==}
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
@@ -724,6 +782,8 @@ packages:
 
 snapshots:
 
+  '@automerge/automerge@3.5.0': {}
+
   '@biomejs/biome@2.5.15':
     optionalDependencies:
       '@biomejs/cli-darwin-arm64': 2.5.15
@@ -878,7 +938,68 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
+  '@noble/ciphers@2.4.0': {}
+
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
+  '@noble/hashes@2.4.0': {}
+
+  '@noble/post-quantum@0.7.1':
+    dependencies:
+      '@noble/ciphers': 2.4.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+
+  '@openlfcp/client@0.2.0-beta.1':
+    dependencies:
+      '@openlfcp/core': 0.2.0-beta.1
+      '@openlfcp/crypto': 0.2.0-beta.1
+      '@openlfcp/storage': 0.2.0-beta.1
+      '@openlfcp/wire': 0.2.0-beta.1
+
+  '@openlfcp/core@0.2.0-beta.1': {}
+
+  '@openlfcp/crypto@0.2.0-beta.1':
+    dependencies:
+      '@noble/ciphers': 2.4.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@openlfcp/core': 0.2.0-beta.1
+      '@panva/hpke-noble': 1.1.7(hpke@1.1.7)
+      hpke: 1.1.7
+
+  '@openlfcp/shared-objects@0.2.0-beta.1':
+    dependencies:
+      '@automerge/automerge': 3.5.0
+      '@openlfcp/core': 0.2.0-beta.1
+      '@openlfcp/crypto': 0.2.0-beta.1
+      fflate: 0.8.3
+
+  '@openlfcp/storage-idb@0.2.0-beta.1':
+    dependencies:
+      '@openlfcp/core': 0.2.0-beta.1
+      '@openlfcp/storage': 0.2.0-beta.1
+
+  '@openlfcp/storage@0.2.0-beta.1':
+    dependencies:
+      '@openlfcp/core': 0.2.0-beta.1
+
+  '@openlfcp/wire@0.2.0-beta.1':
+    dependencies:
+      '@openlfcp/core': 0.2.0-beta.1
+      '@openlfcp/crypto': 0.2.0-beta.1
+
   '@oxc-project/types@0.152.0': {}
+
+  '@panva/hpke-noble@1.1.7(hpke@1.1.7)':
+    dependencies:
+      '@noble/ciphers': 2.4.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@noble/post-quantum': 0.7.1
+      hpke: 1.1.7
 
   '@rolldown/binding-android-arm-eabi@1.2.12':
     optional: true
@@ -1010,8 +1131,12 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.7
 
+  fflate@0.8.3: {}
+
   fsevents@2.3.3:
     optional: true
+
+  hpke@1.1.7: {}
 
   lightningcss-android-arm64@1.33.0:
     optional: true
