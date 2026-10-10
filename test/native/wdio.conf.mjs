@@ -11,9 +11,20 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-/** Where Obsidian builds are downloaded (about 630 MB per version); safe to delete. */
+/**
+ * Where Obsidian builds are downloaded (about 630 MB per version); safe to
+ * delete. Not in the temp directory: macOS deletes temp files it has not
+ * seen accessed for some days, which left a cached app without its
+ * Info.plist and signature, killed at launch (2026-10-10).
+ */
 export const cacheDir =
-  process.env.OPENLFCP_OBSIDIAN_CACHE ?? path.join(os.tmpdir(), "openlfcp-obsidian-cache");
+  process.env.OPENLFCP_OBSIDIAN_CACHE ??
+  path.join(
+    process.platform === "darwin"
+      ? path.join(os.homedir(), "Library", "Caches")
+      : (process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache")),
+    "openlfcp-obsidian-cache",
+  );
 
 /**
  * The Obsidian versions (app = installer) the specs run on, one after the

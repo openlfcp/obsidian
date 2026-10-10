@@ -50,10 +50,11 @@ downloads Obsidian. Later runs take about 20 seconds for both versions.
 
 | | |
 | --- | --- |
-| Where | `$TMPDIR/openlfcp-obsidian-cache`, or `OPENLFCP_OBSIDIAN_CACHE` |
+| Where | `~/Library/Caches/openlfcp-obsidian-cache` on macOS, `${XDG_CACHE_HOME:-~/.cache}/openlfcp-obsidian-cache` elsewhere, or `OPENLFCP_OBSIDIAN_CACHE` |
+| Not in the temp directory | macOS deletes temp files it has not seen accessed for some days. On 2026-10-10 that left a cached app without its `Info.plist` and signature, and macOS killed it at launch ("Chrome instance exited"). `pnpm native` now refuses to start with such an app and names it |
 | What | per version: the desktop installer (~540 MB), the app bundle (~25 MB); plus chromedriver (~70 MB) |
 | Size | about 630 MB for one version, 1.2 GB for both pinned versions |
-| Delete | any time: `trash "$TMPDIR/openlfcp-obsidian-cache"`. The next run downloads again |
+| Delete | any time: `trash ~/Library/Caches/openlfcp-obsidian-cache` (macOS). The next run downloads again |
 
 ## Pinned Obsidian versions
 

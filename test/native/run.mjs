@@ -7,7 +7,7 @@
 // are ever looked at, so an Obsidian the user runs is never touched.
 
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cacheDir } from "./wdio.conf.mjs";
@@ -62,6 +62,26 @@ if (!existsSync(path.join(root, "main.js"))) {
   console.error("native: build the plugin first (pnpm build); main.js is missing.");
   process.exit(2);
 }
+// A cached macOS app that lost files (its Info.plist, its signature) is
+// killed at launch with no message but "Chrome instance exited": say which.
+if (process.platform === "darwin") {
+  const installers = path.join(cacheDir, "obsidian-installer");
+  const list = (dir) => (existsSync(dir) ? readdirSync(dir).map((n) => path.join(dir, n)) : []);
+  const broken = list(installers)
+    .filter((arch) => path.basename(arch).startsWith("darwin"))
+    .flatMap(list)
+    .filter(
+      (app) =>
+        !existsSync(path.join(app, "Contents", "Info.plist")) ||
+        !existsSync(path.join(app, "Contents", "_CodeSignature", "CodeResources")),
+    );
+  if (broken.length > 0) {
+    console.error("native: these cached Obsidian apps lost files and cannot start; delete them:");
+    for (const app of broken) console.error(`  trash "${app}"`);
+    process.exit(2);
+  }
+}
+
 const before = harnessProcesses();
 if (before.length > 0) {
   console.error(`native: an Obsidian from ${cacheDir} is already running; stop it first:`);
