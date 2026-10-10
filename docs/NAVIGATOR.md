@@ -25,6 +25,7 @@
 | [devel/reports/host-and-platform-baseline.md](devel/reports/host-and-platform-baseline.md) | developers | LFCP-02-005 evidence: environments, host facts, baselines, the platform matrix (V4) and a proposal for the native harness in CI |
 | [devel/release.md](devel/release.md) | release | Releasing the plugin: the bare version tag, the release workflow, the owner's tag and BRAT steps (POST-011) |
 | [devel/community-submission.md](devel/community-submission.md) | release | Draft community directory submission: the community-plugins.json entry, the PR text, the owner's checklist (POST-011) |
+| [releases/0.3.4.md](releases/0.3.4.md) | everyone | Release notes of Shared Tasks 0.3.4: the security fix for a change a collaborator could send that stopped a collaboration on the devices that received it (the GitHub release body) |
 | [releases/0.3.3.md](releases/0.3.3.md) | everyone | Release notes of Shared Tasks 0.3.3: the security fix for changes a collaborator could send that made a collaboration fail to open, and recovery without reinstalling (the GitHub release body) |
 | [releases/0.3.2.md](releases/0.3.2.md) | everyone | Release notes of Shared Tasks 0.3.2: Obsidian 1.13.4, joining newer collaborations safely, the revert fix, a server that repairs itself (the GitHub release body) |
 | [releases/0.3.1.md](releases/0.3.1.md) | everyone | Release notes of Shared Tasks 0.3.1: smaller main.js, declarative settings, three attested release files, the SDK from npm (the GitHub release body) |
