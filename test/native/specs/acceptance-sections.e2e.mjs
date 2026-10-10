@@ -605,11 +605,22 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
       await new Promise((r) => setTimeout(r, 1000));
       pre = (await noteOfA("Launch plan.md")).includes("Task 13 edited before the detach");
     }
+    // Both copies get it: the open one and the closed one (each its own pass).
+    const t0 = Date.now();
+    let secondGot = false;
+    for (let i = 0; i < 20 && !secondGot; i++) {
+      secondGot = (await noteOfA("Second copy.md")).includes("Task 13 edited before the detach");
+      if (!secondGot) await new Promise((r) => setTimeout(r, 500));
+    }
     evidence("C14-before-detach", {
       bCommitted: preB.pass.sections.map((x) => x.local?.kind ?? null),
       firstGot: pre,
-      secondGot: (await noteOfA("Second copy.md")).includes("Task 13 edited before the detach"),
+      secondGot,
+      secondAfterFirstMs: Date.now() - t0,
+      active: await inA(({ app }) => app.workspace.getActiveFile()?.path ?? null),
     });
+    expect(pre).toBe(true);
+    expect(secondGot).toBe(true);
     await openA("Second copy.md", "", 5);
     await inA(({ app }) => app.commands.executeCommandById("shared-tasks:detach-section"));
     await inA(async () => {
