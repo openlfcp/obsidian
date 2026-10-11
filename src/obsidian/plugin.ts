@@ -100,6 +100,12 @@ export default class OpenLfcpPlugin extends Plugin {
 
   override async onload(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
+    // Back online, or shown again after a while in the background: connect
+    // now, not at the end of the reconnect backoff (up to 60 s).
+    this.registerDomEvent(window, "online", () => this.runtime?.networkBack());
+    this.registerDomEvent(window.document, "visibilitychange", () => {
+      if (window.document.visibilityState === "visible") this.runtime?.networkBack();
+    });
     // LFCP-065: the product commands, over the collaboration flows.
     const ui = new CollabCommands({
       collab: () => this.#collaboration(),

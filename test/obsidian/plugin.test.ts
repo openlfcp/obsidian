@@ -33,6 +33,30 @@ describe("plugin", () => {
     });
   });
 
+  it("connects at once when the network comes back, or the app is shown again", async () => {
+    const { plugin, host } = await loaded();
+    let calls = 0;
+    plugin.runtime = { networkBack: () => calls++ } as never;
+    const fire = (type: string) => {
+      for (const d of host.domEvents) if (d.type === type) d.callback({});
+    };
+    fire("online");
+    expect(calls).toBe(1);
+    const g = globalThis as Record<string, unknown>;
+    const had = g.document;
+    try {
+      g.document = { visibilityState: "hidden" };
+      fire("visibilitychange");
+      expect(calls).toBe(1);
+      g.document = { visibilityState: "visible" };
+      fire("visibilitychange");
+      expect(calls).toBe(2);
+    } finally {
+      g.document = had;
+    }
+    plugin.runtime = null;
+  });
+
   it("reloads settings changed outside the plugin", async () => {
     const { plugin, host } = await loaded();
     host.stored = { refPlacement: "inline" };

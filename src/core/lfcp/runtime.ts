@@ -85,6 +85,7 @@ import {
   openInstall,
 } from "./install";
 import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
+import { type RestartableReconnect, restartableReconnect } from "./reconnect";
 import { isInstallId, SlotSecretStore } from "./secrets";
 
 export interface Timers {
@@ -337,6 +338,7 @@ interface Pooled {
   readonly client: SyncClient;
   readonly stopDriver: () => void;
   readonly unsubscribe: () => void;
+  readonly reconnect: RestartableReconnect;
 }
 
 interface Opened {
@@ -1345,6 +1347,19 @@ export class LfcpRuntime {
     return { R, chain, dek };
   }
 
+  /**
+   * The network is back (the window's "online", the app shown again): each
+   * disconnected session connects now instead of at the end of its backoff
+   * (up to 60 s), and later attempts wait as from the start. A live or
+   * connecting session is left alone.
+   */
+  networkBack(): void {
+    for (const p of this.#pool.values()) {
+      p.reconnect.restart();
+      if (p.client.connectionState === "DISCONNECTED") p.client.start();
+    }
+  }
+
   #session(url: string): Pooled {
     const pooled = this.#pool.get(url);
     if (pooled !== undefined) return pooled;
@@ -1355,8 +1370,10 @@ export class LfcpRuntime {
     // connection retries only its own (a shared queue applied one server's
     // limits to another and retried other sessions' items, racing their
     // ACKs). The items themselves are in storage, per Resource.
+    const reconnect = restartableReconnect();
     const client = new SyncClient({
       url,
+      reconnect: reconnect.policy,
       signer: i.principal.signer,
       agreement: i.principal.agreement,
       storage: i.storage,
@@ -1388,7 +1405,7 @@ export class LfcpRuntime {
     });
     client.start();
     const stopDriver = startSyncDriver(client, this.#env.timers, this.#env.tickMs ?? 250);
-    const created: Pooled = { client, stopDriver, unsubscribe };
+    const created: Pooled = { client, stopDriver, unsubscribe, reconnect };
     this.#pool.set(url, created);
     return created;
   }

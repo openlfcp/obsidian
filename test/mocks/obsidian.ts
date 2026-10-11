@@ -329,6 +329,12 @@ export class Plugin {
     this.events.push(ref);
   }
 
+  /** DOM listeners registered for unload, by event type (a test calls them). */
+  readonly domEvents: { type: string; callback: (e: unknown) => unknown }[] = [];
+  registerDomEvent(_el: unknown, type: string, callback: (e: unknown) => unknown): void {
+    this.domEvents.push({ type, callback });
+  }
+
   /** Status bar items, with their current text. */
   readonly statusBar: { text: string; setText(t: string): void }[] = [];
   addStatusBarItem(): { text: string; setText(t: string): void } {
