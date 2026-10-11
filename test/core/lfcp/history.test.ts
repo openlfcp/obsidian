@@ -43,8 +43,8 @@ describe("historyRows", () => {
     expect(historyRows(r.save())).toBeGreaterThanOrEqual(before + 10);
   });
 
-  // Building and expanding a 300,000-character section takes about 1 s here
-  // and past 5 s (Vitest's default) on the Windows CI runner.
+  // Building and expanding a 300,000-character section takes 2-3 s in a
+  // full local run and past 5 s (Vitest's default) on the Windows CI runner.
   it("measures past the §13.1 floor (262,144) instead of refusing", () => {
     expect(historyRows(section("z".repeat(300_000)).save())).toBeGreaterThan(262_144);
   }, 20_000);
