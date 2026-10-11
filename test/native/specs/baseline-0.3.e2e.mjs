@@ -18,8 +18,12 @@ describe("0.3 baselines (LFCP-02-005)", () => {
         const lines = ["## Sprint", ""];
         for (let i = 0; i < n; i++) lines.push(`- [ ] Task number ${i + 1} 📅 2026-11-${String((i % 28) + 1).padStart(2, "0")}`);
         await app.vault.create("big.md", `${lines.join("\n")}\n`);
-        const runtime = app.plugins.plugins["shared-tasks"].runtime;
-        await runtime.createResource({ name: "Baseline", endpoints: [url], coordinatorUrl: url });
+        // The plugin's runtime starts in the background: wait until it is
+        // ready (the first spec of a run can get here before it exists).
+        const plugin = app.plugins.plugins["shared-tasks"];
+        for (let i = 0; i < 200 && plugin.runtime?.status.kind !== "ready"; i++)
+          await new Promise((r) => setTimeout(r, 50));
+        await plugin.runtime.createResource({ name: "Baseline", endpoints: [url], coordinatorUrl: url });
         await app.workspace.openLinkText("big.md", "", false);
       },
       N,
