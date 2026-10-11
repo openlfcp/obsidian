@@ -8,120 +8,33 @@
 // 0.4.0-beta.1 (row 6): the pasted Task stayed deleted in the model, the
 // other vault's move then lost it, and both badges were green.
 
-import type { Receipt } from "@openlfcp/client";
-import { type PrincipalId, principalId, resourceId, toBase64url } from "@openlfcp/core";
-import { type SectionIntent as SdkIntent, SectionReplica } from "@openlfcp/shared-objects/sections";
-import { InMemoryLfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it } from "vitest";
-import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
-import { MemorySectionBaseStore } from "../../../src/core/sections/base";
-import { applyChanges, type PassContext, SectionEngine } from "../../../src/core/sections/engine";
 import {
-  formatBoundary,
-  parseSectionRef,
-  type SectionRef,
-} from "../../../src/core/sections/grammar";
-import { MemorySectionJournalStore } from "../../../src/core/sections/journal";
-import { newSectionTask } from "../../../src/core/sections/task-fields";
+  count,
+  cut,
+  id,
+  paste,
+  placementConflict,
+  reconnect,
+  type Vault,
+  twoVaults as vaults,
+} from "../../support/section-vaults";
 
-const RID = resourceId(new Uint8Array(32).fill(7));
-const R = toBase64url(RID);
-const id = (n: number) => `019a2f85-7b31-7c42-b85a-fc843e2f4${n.toString(16).padStart(3, "0")}`;
-const SID = id(1);
-const S = parseSectionRef(`lfcp1:${R}#section:${SID}`) as SectionRef;
-const A_ME = principalId(new Uint8Array(32).fill(4));
-const B_ME = principalId(new Uint8Array(32).fill(5));
 // The engine of the first vault allocates IDs from 100: the three Tasks, then the paragraph.
 const MILK = id(100);
 const REPORT = id(101);
 const MOVED = id(102);
+const BODY = ["- [ ] Buy milk", "- [ ] Write report", "- [ ] Task from B", "", "A paragraph"];
 
-/** One vault: its replica, the port over it, and the engine as sections-host wires it. */
-function vault(name: string, replica: SectionReplica, me: PrincipalId) {
-  let unit = 0;
-  const port = new SdkSectionPort({
-    profile: () => ({ replica }) as never,
-    commit: async (_r, intents, o): Promise<Receipt> => {
-      const change = replica.commit(intents as readonly SdkIntent[]);
-      return {
-        operationId: o.operationId,
-        unitIds: [new Uint8Array(32).fill(++unit)] as never,
-        affectedNodeIds: change?.affectedNodeIds ?? [],
-        modelRevision: replica.revision(),
-        intentsHash: `${name}-${unit}`,
-        durable: true,
-      };
-    },
-    storage: new InMemoryLfcpStorage(),
-    canWrite: async () => ({ allowed: true, reason: null, controlHead: null, verifiedAt: null }),
-  });
-  let node = 100;
-  let op = 0;
-  const engine = new SectionEngine({
-    port,
-    journal: new MemorySectionJournalStore(),
-    bases: new MemorySectionBaseStore(),
-    newNodeId: () => id(node++),
-    newOperationId: () => `${name}-op-${++op}`,
-    createdBy: me,
-    newProjectionId: () => `${name}-projection`,
-    tasks: (r, taskId) => ({ view: port.taskView(r, taskId) }),
-    newTask: (line, taskId) => newSectionTask(line, me, taskId),
-  });
-  let note = "";
-  /** One pass on `md`, written as the host writes it; the note is what it leaves. */
-  const pass = async (md: string, ctx: Partial<PassContext> = {}) => {
-    const p = await engine.pass("Plan.md", md, {
-      caretLine: null,
-      deletedIds: new Set(),
-      origin: "other",
-      ...ctx,
-    });
-    note = applyChanges(md, p.changes);
-    await engine.written(p, note);
-    return p.sections[0];
-  };
-  return {
-    replica,
-    pass,
-    note: () => note,
-    model: () => port.snapshot(R, SID),
-  };
-}
-
-const lines = (md: string) => md.split("\n");
-const count = (md: string, title: string) =>
-  lines(md).filter((l) => l.includes(`[ ] ${title}`)).length;
-
-/** The lines of the Task titled `title` with its ref (and nested lines). */
-function block(md: string, title: string): [number, number] {
-  const L = lines(md);
-  const from = L.findIndex((l) => l.includes(`[ ] ${title}`));
-  let to = from + 1;
-  while (/^[ \t]/.test(L[to] ?? "")) to++;
-  return [from, to];
-}
-
-/** `md` with the Task `title` (and its ref) cut. */
-function cut(md: string, title: string): string {
-  const L = lines(md);
-  const [from, to] = block(md, title);
-  return [...L.slice(0, from), ...L.slice(to)].join("\n");
-}
-
-/** `after` with the cut lines of `title` from `before` pasted under the Task `parent`, at `indent`. */
-function paste(before: string, after: string, title: string, parent: string, indent = ""): string {
-  const [from, to] = block(before, title);
-  const pasted = lines(before)
-    .slice(from, to)
-    .map((l) => indent + l);
-  const L = lines(after);
-  const [, end] = block(after, parent);
-  return [...L.slice(0, end), ...pasted, ...L.slice(end)].join("\n");
+/** Vault A with three Tasks and a paragraph shared, and vault B showing the same note. */
+async function twoVaults() {
+  const v = await vaults(BODY);
+  expect(v.a.model()?.nodes[MOVED]?.lifecycle).toBe("active");
+  return v;
 }
 
 /** A in Obsidian: the cut, the paste and the Tab, each its own pass. */
-async function moveInSteps(v: ReturnType<typeof vault>, title: string, parent: string) {
+async function moveInSteps(v: Vault, title: string, parent: string) {
   const before = v.note();
   const removed = cut(before, title);
   const ids = new Set([MOVED]);
@@ -131,44 +44,10 @@ async function moveInSteps(v: ReturnType<typeof vault>, title: string, parent: s
 }
 
 /** The same move as one edit (all within one pass). */
-async function moveAtOnce(v: ReturnType<typeof vault>, title: string, parent: string) {
+async function moveAtOnce(v: Vault, title: string, parent: string) {
   const before = v.note();
   await v.pass(paste(before, cut(before, title), title, parent, "\t"));
 }
-
-/** Vault A with three Tasks and a paragraph shared, and vault B showing the same note. */
-async function twoVaults() {
-  const ra = SectionReplica.empty({ resource: RID, principal: A_ME });
-  ra.commit([{ intent: "section.create", sectionId: SID, title: "Plan", createdBy: A_ME }]);
-  const a = vault("A", ra, A_ME);
-  const end = formatBoundary("end", S);
-  const empty = ["Intro", "## Plan", formatBoundary("start", S), end, ""].join("\n");
-  await a.pass(empty);
-  const body = ["- [ ] Buy milk", "- [ ] Write report", "- [ ] Task from B", "", "A paragraph"];
-  await a.pass(empty.replace(end, [...body, end].join("\n")));
-  await a.pass(a.note());
-  expect(a.model()?.nodes[MOVED]?.lifecycle).toBe("active");
-  const rb = SectionReplica.empty({ resource: RID, principal: B_ME });
-  rb.receiveChanges(ra.changes());
-  const b = vault("B", rb, B_ME);
-  await b.pass(a.note());
-  expect(b.note()).toBe(a.note());
-  return { a, b };
-}
-
-/** The network comes back: each replica receives the other's changes, then each note is passed twice. */
-async function reconnect(a: ReturnType<typeof vault>, b: ReturnType<typeof vault>) {
-  const fromA = a.replica.changes();
-  a.replica.receiveChanges(b.replica.changes());
-  b.replica.receiveChanges(fromA);
-  for (const v of [a, b]) {
-    await v.pass(v.note());
-    await v.pass(v.note());
-  }
-}
-
-const placementConflict = (v: ReturnType<typeof vault>) =>
-  v.model()?.problems.some((p) => p.code === "PLACEMENT_CONFLICT" && p.nodeIds.includes(MOVED));
 
 describe("moving a Task by cut and paste", () => {
   it("in one vault: the paste of the cut restores the Task where it was pasted", async () => {
@@ -184,7 +63,7 @@ describe("moving a Task by cut and paste", () => {
     await moveInSteps(a, "Task from B", "Buy milk");
     await a.pass(a.note());
     await a.pass(a.note().replace("[ ] Task from B", "[ ] Task from B today"));
-    expect(a.replica.task(MOVED)?.task?.title).toBe("Task from B today");
+    expect(a.replica().task(MOVED)?.task?.title).toBe("Task from B today");
   });
 
   it("a cut without a paste stays a delete", async () => {
@@ -225,7 +104,7 @@ describe("moving a Task by cut and paste", () => {
       await reconnect(a, b);
       for (const v of [a, b]) {
         expect(v.model()?.nodes[MOVED]?.lifecycle).toBe("active");
-        expect(placementConflict(v)).toBe(true);
+        expect(placementConflict(v, MOVED)).toBe(true);
         expect(count(v.note(), "Task from B")).toBe(1);
       }
       expect([MILK, REPORT]).toContain(a.model()?.nodes[MOVED]?.parent);
