@@ -45,3 +45,4 @@
 
 The Markdown ref grammar is normative and lives in
 `spec: integration/MARKDOWN-REFS-01.md`.
+| [releases/0.4.0-beta.2.md](releases/0.4.0-beta.2.md) | everyone | Draft release notes of Shared Tasks 0.4.0-beta.2: what is new since beta.1 (SDK 0.2.0-beta.2, baseline.6), BRAT install and update |
