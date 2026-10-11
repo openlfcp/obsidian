@@ -15,7 +15,7 @@ const FIELD: Readonly<Record<string, string>> = {
 };
 
 /** What to ask about an item, and its options as choices. */
-function options(item: RecoveryItem): {
+export function recoveryOptions(item: RecoveryItem): {
   readonly question: string;
   readonly choices: readonly { readonly label: string; readonly choice: RecoveryChoice }[];
 } {
@@ -52,11 +52,17 @@ function options(item: RecoveryItem): {
           { label: "Delete it", choice: { keep: false } },
         ],
       };
+    // The model names the node, not whether it was edited or moved (§9).
     case "retained":
-      return {
-        question: `Deleted content contains other changes: ${item.label} was edited while ${item.ancestorLabel} was deleted.`,
-        choices: [{ label: `Restore ${item.ancestorLabel}`, choice: { restore: true } }],
-      };
+      return item.ancestor === item.nodeId
+        ? {
+            question: `${item.label} was changed or moved while it was deleted. Restore it?`,
+            choices: [{ label: "Restore it", choice: { restore: true } }],
+          }
+        : {
+            question: `${item.label} was changed or moved while ${item.ancestorLabel}, which holds it, was deleted. Restore ${item.ancestorLabel}?`,
+            choices: [{ label: `Restore ${item.ancestorLabel}`, choice: { restore: true } }],
+          };
     case "reappeared":
       return {
         question: `${item.label} is in your note, but it was deleted from the shared section. Restore it or remove it from your note?`,
@@ -105,7 +111,7 @@ export class RecoveryModal extends Modal {
       cls: "setting-item-description",
     });
     for (const item of this.#items) {
-      const { question, choices } = options(item);
+      const { question, choices } = recoveryOptions(item);
       const box = el.createDiv({ cls: "openlfcp-recovery-item" });
       box.createEl("p", { text: question });
       let picked: RecoveryChoice | null =
