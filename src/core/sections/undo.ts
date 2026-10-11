@@ -12,9 +12,12 @@
 //   the shared state has it deleted: node.restore, a fresh lifecycle
 //   operation (SHARED-SECTIONS-PROFILE-01 §9);
 // - redo: the same, the other way round;
+// - a paste of the session's own cut (rules.ts pasteDecision): the cut was
+//   committed as a node.delete on its own pass, so the pasted node is
+//   restored, and the engine places it where it was pasted;
 // - anything else (a marker lost by hand, an external edit, a paste of a
-//   deleted node): not inferred. Missing nodes stay NODE_BINDING_LOST and
-//   reappearing ones need review (MARKDOWN-SECTIONS-01 §7).
+//   deleted node not cut here): not inferred. Missing nodes stay
+//   NODE_BINDING_LOST and reappearing ones need review (MARKDOWN-SECTIONS-01 §7).
 
 /** Who changed the note, from the editor transaction (ADR 0001 S1: undo/redo carry these userEvents). */
 export type ChangeOrigin = "undo" | "redo" | "other";
@@ -55,7 +58,7 @@ export class SessionLedger {
 export interface Compensation {
   /** node.delete: undo of a creation, or redo of a deletion. */
   readonly deletes: readonly string[];
-  /** node.restore (a fresh lifecycle operation): undo of a deletion, or redo of a creation. */
+  /** node.restore (a fresh lifecycle operation): undo of a deletion, redo of a creation, or a paste of the cut. */
   readonly restores: readonly string[];
   /** Missing, not explained by undo or redo: NODE_BINDING_LOST, text kept. */
   readonly lost: readonly string[];
@@ -73,6 +76,8 @@ export function compensate(
   missing: readonly string[],
   reappeared: readonly string[],
   ledger: SessionLedger,
+  /** The nodes of the session's last cut. */
+  cut: ReadonlySet<string> = new Set(),
 ): Compensation {
   const deletes: string[] = [];
   const restores: string[] = [];
@@ -88,10 +93,12 @@ export function compensate(
     else lost.push(id);
   }
   for (const id of reappeared) {
-    // Undo brings back what this session deleted; redo brings back what it created.
+    // Undo brings back what this session deleted; redo brings back what it
+    // created; a paste brings back what it cut.
     if (
       (origin === "undo" && ledger.wasDeleted(id)) ||
-      (origin === "redo" && ledger.wasCreated(id))
+      (origin === "redo" && ledger.wasCreated(id)) ||
+      cut.has(id)
     )
       restores.push(id);
     else unexplained.push(id);

@@ -28,9 +28,11 @@ import {
   markdownState,
   planSection,
   ROOT,
+  restoredMoves,
   type SectionBaseStore,
   type SectionState,
   type StoredBase,
+  withRestored,
 } from "./base";
 import {
   applyBatch,
@@ -82,6 +84,12 @@ export interface PassContext {
   readonly deletedIds: ReadonlySet<string>;
   /** undo / redo / other, from the transactions' userEvent (undo.ts). */
   readonly origin: ChangeOrigin;
+  /**
+   * Bound nodes of the editing session's last cut (rules.ts CutRecord). One
+   * back in the note while deleted in the model is that cut pasted: a move,
+   * its node restored where it was pasted (§10).
+   */
+  readonly cut?: ReadonlySet<string>;
   /**
    * An external plugin edit since the last pass (a transaction without an
    * editor userEvent): a recurring Task's next occurrence may carry a copied
@@ -549,7 +557,8 @@ export class SectionEngine {
     const reappeared = Object.keys(note.state.nodes).filter(
       (id) => snap.nodes[id]?.lifecycle === "deleted",
     );
-    const comp = compensate(ctx.origin, plan.missing, reappeared, this.#ledger);
+    const comp = compensate(ctx.origin, plan.missing, reappeared, this.#ledger, ctx.cut);
+    const pasted = comp.restores.filter((id) => ctx.cut?.has(id) === true);
     const deletes = [
       ...new Set([...comp.deletes, ...comp.lost.filter((id) => ctx.deletedIds.has(id))]),
     ];
@@ -599,7 +608,11 @@ export class SectionEngine {
       sourceText,
       baseRevision: stored.revision ?? snap.revision,
       textBase: (id) => revisionOf(id) ?? undefined,
-      plan: { ...plan, textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)) },
+      plan: {
+        ...plan,
+        textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)),
+        moves: [...plan.moves, ...restoredMoves(note.state, pasted)],
+      },
       deletes,
       restores: comp.restores,
       creations,
@@ -649,8 +662,11 @@ export class SectionEngine {
       const lineOf = new Map(bindings.map((b) => [b.id, lineText0(b.line)]));
       // A Task whose fields were sent: its line as the note shows it is its base now.
       for (const i of fields.intents) lineOf.set(i.id, note.state.nodes[i.id]?.line ?? "");
-      localBase = applyBatch(baseState, local.entry.intents ?? [], ref.sectionId, (id) =>
-        lineOf.get(id),
+      localBase = applyBatch(
+        withRestored(baseState, note.state, comp.restores),
+        local.entry.intents ?? [],
+        ref.sectionId,
+        (id) => lineOf.get(id),
       );
     }
     const md1 = applyChanges(md0, markerChanges);

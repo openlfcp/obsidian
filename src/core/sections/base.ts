@@ -236,6 +236,52 @@ export function planSection(
 }
 
 /**
+ * The placements of restored nodes as the note shows them: a paste of a cut
+ * puts them where they were pasted. A node pasted with its parent keeps its
+ * placement under it; one under a parent without a binding yet has none.
+ */
+export function restoredMoves(
+  note: SectionState,
+  restored: readonly string[],
+): SectionPlan["moves"] {
+  const out: { nodeId: string; parent: string | null; after: string | null }[] = [];
+  for (const id of restored) {
+    const n = note.nodes[id];
+    if (n === undefined || n.parent === UNBOUND_PARENT) continue;
+    if (n.parent !== null && restored.includes(n.parent)) continue;
+    out.push({ nodeId: id, parent: n.parent, after: predecessor(note, n.parent, id) });
+  }
+  return out;
+}
+
+/**
+ * `base` with the restored nodes as the note shows them, each after its
+ * bound predecessor: the restore brings back the model's node, and the
+ * note's copy is what this projection shows of it from now on.
+ */
+export function withRestored(
+  base: SectionState,
+  note: SectionState,
+  restored: readonly string[],
+): SectionState {
+  const nodes = { ...base.nodes };
+  const order: Record<string, string[]> = Object.fromEntries(
+    Object.entries(base.order).map(([k, v]) => [k, [...v]]),
+  );
+  for (const id of restored) {
+    const n = note.nodes[id];
+    if (n === undefined || n.parent === UNBOUND_PARENT || nodes[id] !== undefined) continue;
+    nodes[id] = n;
+    const key = n.parent ?? ROOT;
+    const list = order[key] ?? [];
+    const after = predecessor(note, n.parent, id);
+    list.splice(after === null ? 0 : list.indexOf(after) + 1, 0, id);
+    order[key] = list;
+  }
+  return { ...base, nodes, order };
+}
+
+/**
  * Keeps only the moves that explain the new order: a sibling that merely
  * shifted because another one moved is not moved itself.
  */

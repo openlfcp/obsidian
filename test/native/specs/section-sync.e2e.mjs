@@ -61,6 +61,7 @@ const model = (resource) => browser.execute((r) => window.__lfcpSectionSync.mode
 
 /** Waits until `fn` is true, a condition rather than a fixed time. */
 const until = (fn, what) => browser.waitUntil(fn, { timeout: 8000, timeoutMsg: what });
+const mod = process.platform === "darwin" ? "Meta" : "Control";
 
 describe("LFCP-02-041..043: shared sections in the editor (fake SDK)", () => {
   before(async () => {
@@ -253,5 +254,45 @@ describe("LFCP-02-047 in the editor: Enter after a Task, and deletion (fake SDK)
     const last = (await sync()).port.changes.at(-1);
     expect(last.intents).toEqual([{ intent: "node.delete", id: Q }]);
     expect((await model(resource)).nodes[Q]).toBeUndefined();
+  });
+
+  it("§10: a Task cut, then pasted after a pause, is moved: restored where it was pasted", async () => {
+    // The pause lets the cut be its own pass (a node.delete), as a person's
+    // cut and paste always are. Found in the two-vault check of 0.4.0-beta.1.
+    const file = "cut-paste.md";
+    await browser.execute((note) => window.__lfcpSectionSync.host(note), TASKS);
+    await open(file, TASKS, true, 4);
+    await browser.execute((f) => window.__lfcpSectionSync.sync(f), file);
+    await until(async () => (await sync()).passes.some((p) => p.path === file), "seed pass");
+    const start = (await sync()).port.changes.length;
+    // The Task, its ref and its child paragraph (lines 4-7), cut.
+    await browser.executeObsidian(({ app, obsidian }) => {
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.setSelection({ line: 4, ch: 0 }, { line: 8, ch: 0 });
+    });
+    await browser.keys([mod, "x"]);
+    await until(async () => (await sync()).port.changes.length > start, "cut committed");
+    const cutChange = (await sync()).port.changes.at(-1);
+    await browser.pause(1000);
+    // Pasted after "Notes", before the section's end marker (line 7 once cut).
+    await browser.executeObsidian(({ app, obsidian }) => {
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.setCursor({ line: 7, ch: 0 });
+    });
+    await browser.keys([mod, "v"]);
+    await until(async () => (await sync()).port.changes.length > start + 1, "paste committed");
+    const pasteChange = (await sync()).port.changes.at(-1);
+    const text = await doc();
+    evidence("CUT-PASTE", { cut: cutChange.intents, paste: pasteChange.intents, text });
+    expect(cutChange.intents).toEqual([
+      { intent: "node.delete", id: T },
+      { intent: "node.delete", id: P },
+    ]);
+    expect(pasteChange.intents).toEqual([
+      { intent: "node.restore", id: T },
+      { intent: "node.restore", id: P },
+      { intent: "node.move", id: T, parent: "268a166f-4891-7243-840e-e7fea9fe6390", after: Q },
+    ]);
+    expect(text.match(/- \[ \] Prepare contract/g)).toHaveLength(1);
+    expect(text.split("\n").slice(7, 11)).toEqual(["- [ ] Prepare contract", `  ${REF}`, `  <!-- lfcp-node: paragraph:${P} -->`, "  Draft contract"]);
+    expect((await sync()).errors).toEqual([]);
   });
 });

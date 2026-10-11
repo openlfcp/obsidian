@@ -122,6 +122,8 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
 } {
   const views = new Map<EditorView, ViewState>();
   let nextId = 0;
+  /** The bound nodes of the last cut in any view: their paste is a move (rules.ts CutRecord). */
+  let cut: ReadonlySet<string> = new Set();
   const status = (path: string, s: EditorSyncStatus) => o.onStatus?.(path, s);
 
   const viewOf = (path: string): [EditorView, ViewState] | undefined => {
@@ -170,6 +172,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       deletedIds,
       origin: st.origin,
       external: st.external,
+      cut,
     };
     st.origin = "other";
     st.external = false;
@@ -245,7 +248,9 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         if (userEvent === undefined) this.st.external = true;
         const origin = originOf(userEvent);
         if (origin !== "other") this.st.origin = origin;
-        for (const id of removedWithEveryLine(tr)) this.st.deletedIds.add(id);
+        const removed = removedWithEveryLine(tr);
+        for (const id of removed) this.st.deletedIds.add(id);
+        if (tr.isUserEvent("delete.cut")) cut = new Set(removed);
       }
       if (edited) this.st.scheduler.edit(this.view.composing);
     }
