@@ -37,12 +37,17 @@ export type RecoveryItem =
       readonly key: string;
       readonly members: readonly { readonly nodeId: string; readonly label: string }[];
     }
-  /** Deleted and restored concurrently (§7.6, §9): keep it or delete it. */
+  /**
+   * Deleted and restored concurrently (§7.6, §9), or deleted (or restored)
+   * twice at once, which leaves the same value twice: keep it or delete it.
+   */
   | {
       readonly kind: "lifecycle";
       readonly key: string;
       readonly nodeId: string;
       readonly label: string;
+      /** Two equal values ("active" twice, "deleted" twice) when not a delete versus a restore. */
+      readonly values?: readonly string[];
     }
   /**
    * Deleted in the model, yet shown again in a note (not a paste of this
@@ -145,6 +150,18 @@ export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
         label: labelOf(m, r.id),
       });
   }
+  // Two lifecycle writes with the same value at once (two vaults both
+  // deleted, or both restored, a node) are a scalar conflict, not a delete
+  // versus a restore: the same choice clears it with a fresh write (§9).
+  for (const c of m.tree.scalarConflicts)
+    if (c.field === "lifecycle" && !out.some((i) => i.key === `lifecycle:${c.id}`))
+      out.push({
+        kind: "lifecycle",
+        key: `lifecycle:${c.id}`,
+        nodeId: c.id,
+        label: labelOf(m, c.id),
+        values: c.values,
+      });
   if (cycle.length > 0)
     out.push({
       kind: "cycle",

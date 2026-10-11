@@ -187,6 +187,34 @@ describe("recovery items (061)", () => {
     ).toThrow();
   });
 
+  for (const [what, write] of [
+    ["deleted", "node.delete"],
+    ["restored", "node.restore"],
+  ] as const)
+    it(`a Task ${what} twice at once: a lifecycle item whose choice clears it`, () => {
+      const b = base();
+      if (write === "node.restore") b.commit([{ intent: "node.delete", id: T }] as SectionIntent[]);
+      const r = merged(b, [
+        [{ intent: write, id: T }],
+        [{ intent: write, id: T }],
+      ] as SectionIntent[][]);
+      expect(r.tree().scalarConflicts.map((c) => c.field)).toEqual(["lifecycle"]);
+      const items = recoveryItems(model(r));
+      expect(items).toEqual([
+        {
+          kind: "lifecycle",
+          key: `lifecycle:${T}`,
+          nodeId: T,
+          label: 'Task "Prepare contract"',
+          values: write === "node.delete" ? ["deleted", "deleted"] : ["active", "active"],
+        },
+      ]);
+      r.commit(resolution(items[0] as RecoveryItem, { keep: true }, SECTION) as never);
+      expect(r.tree().scalarConflicts).toEqual([]);
+      expect(recoveryItems(model(r))).toEqual([]);
+      expect(r.snapshot().nodes[T]?.deleted).not.toBe(true);
+    });
+
   it("a comparison that changed meanwhile is shown again, not applied", () => {
     const b = base();
     const A = [

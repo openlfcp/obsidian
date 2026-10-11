@@ -43,7 +43,10 @@ function options(item: RecoveryItem): {
       };
     case "lifecycle":
       return {
-        question: `${item.label} was deleted and restored at the same time. Keep it or delete it?`,
+        question:
+          item.values === undefined
+            ? `${item.label} was deleted and restored at the same time. Keep it or delete it?`
+            : `${item.label} was ${item.values[0] === "deleted" ? "deleted" : "restored"} in two places at the same time. Keep it or delete it?`,
         choices: [
           { label: "Keep it", choice: { keep: true } },
           { label: "Delete it", choice: { keep: false } },
