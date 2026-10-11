@@ -195,6 +195,24 @@ describe("moving a Task by cut and paste", () => {
     expect(a.model()?.nodes[MOVED]?.lifecycle).toBe("deleted");
   });
 
+  it("a deleted Task back in the note without the cut: reported, nothing sent; restored when chosen", async () => {
+    const { a } = await twoVaults();
+    const before = a.note();
+    const removed = cut(before, "Task from B");
+    const ids = new Set([MOVED]);
+    await a.pass(removed, { deletedIds: ids, cut: ids });
+    // Pasted in another session (the cut is not this one's).
+    const pasted = paste(before, removed, "Task from B", "Buy milk", "\t");
+    const shown = await a.pass(pasted);
+    expect(shown?.reappeared).toEqual([MOVED]);
+    expect(a.model()?.nodes[MOVED]?.lifecycle).toBe("deleted");
+    expect(count(a.note(), "Task from B")).toBe(1);
+    // "Restore it where your note shows it".
+    const restored = await a.pass(a.note(), { restore: ids });
+    expect(restored?.reappeared).toBeUndefined();
+    expect(a.model()?.nodes[MOVED]).toMatchObject({ lifecycle: "active", parent: MILK });
+  });
+
   for (const [name, moveA, moveB] of [
     ["A in steps, B at once", moveInSteps, moveAtOnce],
     ["A at once, B in steps", moveAtOnce, moveInSteps],

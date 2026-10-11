@@ -43,6 +43,11 @@ describe("projection facts from passes", () => {
     expect(projectionFact(result({ skipped: "blocked" })).facts.source).toBe("unsupported");
     expect(projectionFact(result({ lost: ["n1"] })).facts.source).toBe("binding-error");
     expect(projectionFact(result({ held: ["n1"] })).facts.application).toBe("patch-pending");
+    // A node deleted in the model shown again in the note: the note differs until resolved.
+    expect(projectionFact(result({ reappeared: ["n1"] })).facts).toMatchObject({
+      source: "diverged",
+      application: "current",
+    });
     expect(projectionFact(result({})).facts).toMatchObject({
       source: "clean",
       application: "current",

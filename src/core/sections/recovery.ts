@@ -44,6 +44,17 @@ export type RecoveryItem =
       readonly nodeId: string;
       readonly label: string;
     }
+  /**
+   * Deleted in the model, yet shown again in a note (not a paste of this
+   * session's cut): restore it where the note shows it, or remove it from
+   * the note. The note's, not the model's: the host applies it.
+   */
+  | {
+      readonly kind: "reappeared";
+      readonly key: string;
+      readonly nodeId: string;
+      readonly label: string;
+    }
   /** Changed while an ancestor was deleted (§9, EDIT_UNDER_DELETED_ANCESTOR): restore the ancestor to see it. */
   | {
       readonly kind: "retained";
@@ -161,6 +172,19 @@ export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
   return out;
 }
 
+/** The items of nodes deleted in the model that notes show again (`ids`, from the passes). */
+export function reappearedItems(m: RecoveryModel, ids: Iterable<string>): RecoveryItem[] {
+  return [...new Set(ids)]
+    .filter((id) => m.snapshot.nodes[id]?.deleted === true)
+    .sort()
+    .map((id) => ({
+      kind: "reappeared",
+      key: `reappeared:${id}`,
+      nodeId: id,
+      label: labelOf(m, id),
+    }));
+}
+
 /** A choice for an item: a value, a parent, a cycle member, keep/delete, or restore. */
 export type RecoveryChoice =
   | { readonly value: string }
@@ -211,6 +235,9 @@ export function resolution(
       break;
     case "retained":
       if ("restore" in choice) return [{ intent: "node.restore", id: item.ancestor }];
+      break;
+    case "reappeared":
+      // Restored by the next pass of the note that shows it, where it shows it.
       break;
   }
   throw new Error(`the choice does not fit this ${item.kind} item`);

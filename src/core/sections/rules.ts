@@ -11,6 +11,7 @@ import {
   type SectionNode,
   scanSectionRefs,
 } from "./parser";
+import { lineStarts } from "./source-map";
 
 /** The note's lines that only carry bindings of `section`, and its inline refs. */
 function bindingsOf(markdown: string, section: ParsedSection) {
@@ -192,6 +193,38 @@ export function keepRefWithTask(
   for (let i = 0; i <= last; i++)
     end += (lines[i]?.text.length ?? 0) + (i < last ? (lines[i]?.eol.length ?? 0) : 0);
   return { from: end, to: end, insert: change.insert };
+}
+
+/**
+ * Removes node `id` of `section` from the note (Review conflicts: a node
+ * deleted in the model that the note shows again): its own lines, and those
+ * of its descendants in `gone`. Other descendants keep their lines. Null
+ * when the note does not show the node.
+ */
+export function removeNodeLines(
+  markdown: string,
+  section: SectionRef,
+  id: string,
+  gone: ReadonlySet<string> = new Set(),
+): { readonly from: number; readonly to: number; readonly insert: string }[] | null {
+  const s = parseSections(markdown).sections.find((x) => sameSection(x.ref, section));
+  const node = s === undefined ? undefined : [...walkNodes(s.nodes)].find((n) => n.id === id);
+  if (node === undefined) return null;
+  const ranges = [node.lines];
+  for (const d of walkNodes(node.children))
+    if (d.id !== null && gone.has(d.id)) ranges.push(d.lines);
+  const lines = splitLines(markdown);
+  const starts = lineStarts(lines);
+  const at = (line: number) => starts[line] ?? markdown.length;
+  const out: { from: number; to: number; insert: string }[] = [];
+  for (const r of ranges.sort((a, b) => a.from - b.from)) {
+    const from = at(r.from);
+    const to = at(r.to + 1);
+    const last = out.at(-1);
+    if (last !== undefined && last.to === from) last.to = to;
+    else out.push({ from, to, insert: "" });
+  }
+  return out;
 }
 
 function* walkNodes(nodes: readonly SectionNode[]): Generator<SectionNode> {

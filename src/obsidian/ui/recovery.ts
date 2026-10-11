@@ -54,6 +54,14 @@ function options(item: RecoveryItem): {
         question: `Deleted content contains other changes: ${item.label} was edited while ${item.ancestorLabel} was deleted.`,
         choices: [{ label: `Restore ${item.ancestorLabel}`, choice: { restore: true } }],
       };
+    case "reappeared":
+      return {
+        question: `${item.label} is in your note, but it was deleted from the shared section. Restore it or remove it from your note?`,
+        choices: [
+          { label: "Restore it where your note shows it", choice: { restore: true } },
+          { label: "Remove it from your note", choice: { keep: false } },
+        ],
+      };
   }
 }
 

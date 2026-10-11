@@ -21,6 +21,7 @@ import {
   keepRefWithTask,
   pasteDecision,
   readableSection,
+  removeNodeLines,
 } from "../../../src/core/sections/rules";
 
 const R = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -141,6 +142,30 @@ describe("cut and paste (§10)", () => {
     );
     expect(pasteDecision(null, S, [id(3)])).toBe("not-a-cut");
     expect(pasteDecision({ section: S, ids: [id(3)] }, S, [id(3), id(7)])).toBe("not-a-cut");
+  });
+});
+
+describe("removing a node from the note (Review conflicts)", () => {
+  const apply = (md: string, cs: readonly { from: number; to: number; insert: string }[]) =>
+    [...cs].reverse().reduce((t, c) => t.slice(0, c.from) + c.insert + t.slice(c.to), md);
+
+  it("removes its own lines and those of its descendants that are gone too", () => {
+    const md = note();
+    const out = apply(md, removeNodeLines(md, S, id(3), new Set([id(4)])) ?? []);
+    expect(out).toBe(
+      note().replace(
+        `- [ ] Child\n  ${ref(3)}\n  ${formatNodeMarker("paragraph", id(4))}\n  Draft\n`,
+        "",
+      ),
+    );
+  });
+
+  it("keeps a descendant that is not gone, and finds nothing in another section", () => {
+    const md = note();
+    const out = apply(md, removeNodeLines(md, S, id(3)) ?? []);
+    expect(out).toContain("  Draft");
+    expect(out).not.toContain("- [ ] Child");
+    expect(removeNodeLines(md, T, id(3))).toBeNull();
   });
 });
 

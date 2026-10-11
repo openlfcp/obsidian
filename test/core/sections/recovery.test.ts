@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyRecovery,
   type RecoveryItem,
+  reappearedItems,
   recoveryItems,
   resolution,
   revalidate,
@@ -172,6 +173,18 @@ describe("recovery items (061)", () => {
     r.commit(resolution(items[0] as RecoveryItem, { restore: true }, SECTION) as never);
     expect(r.tree().retainedConcurrentEdits).toEqual([]);
     expect(r.tree().hidden).toEqual([]);
+  });
+
+  it("a node deleted in the model that a note shows again: an item for it alone", () => {
+    const r = base();
+    r.commit([{ intent: "node.delete", id: T }] as SectionIntent[]);
+    // P is active: a note showing it is no problem; T is deleted: an item.
+    expect(reappearedItems(model(r), [T, P, T])).toEqual([
+      { kind: "reappeared", key: `reappeared:${T}`, nodeId: T, label: 'Task "Prepare contract"' },
+    ]);
+    expect(() =>
+      resolution(reappearedItems(model(r), [T])[0] as RecoveryItem, { restore: true }, SECTION),
+    ).toThrow();
   });
 
   it("a comparison that changed meanwhile is shown again, not applied", () => {

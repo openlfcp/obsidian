@@ -93,6 +93,8 @@ export interface SectionEditorOptions {
   /** A pass finished and was written (diagnostics, tests). */
   readonly onPass?: (path: string, pass: NotePass) => void;
   readonly onError?: (path: string, error: unknown) => void;
+  /** Nodes the user chose to restore where a note shows them (PassContext.restore). */
+  readonly restore?: () => ReadonlySet<string>;
 }
 
 interface ViewState {
@@ -137,7 +139,12 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   const reconcileFile = async (req: PassRequest, engine: SectionEngine): Promise<void> => {
     if (o.files === undefined) return;
     status(req.path, "reconciling");
-    const ctx: PassContext = { caretLine: null, deletedIds: new Set(), origin: "other" };
+    const ctx: PassContext = {
+      caretLine: null,
+      deletedIds: new Set(),
+      origin: "other",
+      ...(o.restore === undefined ? {} : { restore: o.restore() }),
+    };
     const pass = await engine.pass(req.path, req.source, ctx);
     let current = req.source;
     const written = await o.files.rewrite(req.path, (text) => {
@@ -173,6 +180,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       origin: st.origin,
       external: st.external,
       cut,
+      ...(o.restore === undefined ? {} : { restore: o.restore() }),
     };
     st.origin = "other";
     st.external = false;

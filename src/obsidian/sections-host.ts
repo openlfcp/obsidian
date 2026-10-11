@@ -29,14 +29,19 @@ import { splitLines } from "../core/refs/lines";
 import { markdownState, newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
 import { applyChanges, SectionEngine, sameState, sharedState } from "../core/sections/engine";
-import { sameSection } from "../core/sections/grammar";
+import { type SectionRef, sameSection } from "../core/sections/grammar";
 import { type InsertResult, renderSection, SectionInsertion } from "../core/sections/insert";
 import { advance } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { type ParsedSection, parseSections } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
 import { CommitRefused, type ModelNode, type SectionSnapshot } from "../core/sections/port";
-import { applyRecovery, recoveryItems } from "../core/sections/recovery";
+import {
+  applyRecovery,
+  type RecoveryItem,
+  reappearedItems,
+  recoveryItems,
+} from "../core/sections/recovery";
 import {
   adoptedBase,
   boundaryRepair,
@@ -44,7 +49,7 @@ import {
   repairItems,
   sharedVersionChange,
 } from "../core/sections/repair";
-import { detachAt } from "../core/sections/rules";
+import { detachAt, removeNodeLines } from "../core/sections/rules";
 import {
   preflight,
   proposeRange,
@@ -151,12 +156,18 @@ export class SectionsHost {
         )
           onError(path, error);
       },
+      restore: () => this.#restoreHere,
       // SI12, SI16: each projection's pass result reaches its section's badge.
       onPass: (path, pass) => {
         this.#passErrors.passed(path);
         let changed = false;
-        for (const r of pass.sections)
+        for (const r of pass.sections) {
           if (this.#projectionFacts.note(sectionKey(r.section), r)) changed = true;
+          this.#noteReappeared(path, r.section, r.reappeared ?? []);
+          if (r.local?.kind === "committed")
+            for (const i of r.local.entry.intents ?? [])
+              if (i.intent === "node.restore") this.#restoreHere.delete(i.id);
+        }
         // C17: a copy whose boundary is damaged yields no section result; it is still a problem.
         const damaged = new Set(parseSections(pass.source).damaged.map((d) => sectionKey(d.ref)));
         if (this.#projectionFacts.damaged(path, damaged)) changed = true;
@@ -172,6 +183,56 @@ export class SectionsHost {
   readonly #passErrors = new PassErrorNotices();
   /** D1: each watched Resource's last section key, for its status when its model throws. */
   readonly #statusKeys = new Map<string, string>();
+  /** Nodes deleted in the model that notes show again, by section key and note (Review conflicts). */
+  readonly #reappeared = new Map<
+    string,
+    Map<string, { readonly section: SectionRef; readonly ids: readonly string[] }>
+  >();
+  /** Nodes the user chose to restore where a note shows them; the next pass of that note does. */
+  readonly #restoreHere = new Set<string>();
+
+  #noteReappeared(path: string, section: SectionRef, ids: readonly string[]): void {
+    const key = sectionKey(section);
+    const notes = this.#reappeared.get(key) ?? new Map();
+    if (ids.length > 0) notes.set(path, { section, ids });
+    else notes.delete(path);
+    if (notes.size > 0) this.#reappeared.set(key, notes);
+    else this.#reappeared.delete(key);
+  }
+
+  /** The review items of section `key`: the model's conflicts, then nodes notes show again. */
+  #recoveryItems(key: string): RecoveryItem[] {
+    const b64 = key.slice(0, key.indexOf("#"));
+    const sectionId = key.slice(key.indexOf("#") + 1);
+    const m = this.#port?.recoveryModel(b64, sectionId);
+    if (m === undefined) return [];
+    const shown = [...(this.#reappeared.get(key)?.values() ?? [])].flatMap((n) => n.ids);
+    return [...recoveryItems(m), ...reappearedItems(m, shown)];
+  }
+
+  /**
+   * A node deleted in the model, shown again in notes: restored where a note
+   * shows it (its next pass), or removed from every note that shows it.
+   */
+  async #resolveReappeared(key: string, nodeId: string, restore: boolean): Promise<string> {
+    const notes = [...(this.#reappeared.get(key)?.entries() ?? [])].filter(([, n]) =>
+      n.ids.includes(nodeId),
+    );
+    if (restore) {
+      this.#restoreHere.add(nodeId);
+      for (const [path] of notes.slice(0, 1)) {
+        const file = this.app.vault.getFileByPath(path);
+        if (this.#openEditor(path) !== null) this.editor.remoteChanged(path);
+        else if (file !== null) this.editor.remoteChanged(path, await this.app.vault.read(file));
+      }
+      return "Restoring it where your note shows it.";
+    }
+    for (const [path, n] of notes)
+      await this.#edit(path, (current) =>
+        removeNodeLines(current, n.section, nodeId, new Set(n.ids)),
+      );
+    return "Removed from your note.";
+  }
 
   /** The runtime is ready: the engine on the real SDK, section Resources opened, their notes reconciled. */
   async start(runtime: LfcpRuntime, principal: PrincipalId): Promise<void> {
@@ -406,10 +467,7 @@ export class SectionsHost {
         }
         void run(commands);
       };
-    const b64 = key.slice(0, key.indexOf("#"));
-    const sectionId = key.slice(key.indexOf("#") + 1);
-    const model = this.#port?.recoveryModel(b64, sectionId);
-    const conflicts = model === undefined ? [] : recoveryItems(model);
+    const conflicts = this.#recoveryItems(key);
     const actions = [
       // Conflicts are resolved one by one, by the user (061).
       ...(conflicts.length > 0
@@ -608,11 +666,12 @@ export class SectionsHost {
     if (port === null) return;
     const b64 = key.slice(0, key.indexOf("#"));
     const sectionId = key.slice(key.indexOf("#") + 1);
-    const items = () => {
-      const m = port.recoveryModel(b64, sectionId);
-      return m === undefined ? [] : recoveryItems(m);
-    };
-    new RecoveryModal(this.app, title, items(), async (item, choice) => {
+    new RecoveryModal(this.app, title, this.#recoveryItems(key), async (item, choice) => {
+      if (item.kind === "reappeared") {
+        const note = await this.#resolveReappeared(key, item.nodeId, "restore" in choice);
+        this.scheduleStatus();
+        return { items: this.#recoveryItems(key).filter((i) => i.key !== item.key), note };
+      }
       const out = await applyRecovery(port, b64, sectionId, item, choice, crypto.randomUUID());
       if (out.applied) this.scheduleStatus();
       return out;

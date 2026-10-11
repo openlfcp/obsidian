@@ -91,6 +91,12 @@ export interface PassContext {
    */
   readonly cut?: ReadonlySet<string>;
   /**
+   * Nodes the user chose to restore where the note shows them (Review
+   * conflicts: a node back in the note while deleted in the model). Restored
+   * and placed as a paste of the cut is.
+   */
+  readonly restore?: ReadonlySet<string>;
+  /**
    * An external plugin edit since the last pass (a transaction without an
    * editor userEvent): a recurring Task's next occurrence may carry a copied
    * ref (MS43, recurrence.ts).
@@ -113,6 +119,12 @@ export interface SectionResult {
   readonly remote?: RemotePlan;
   /** Missing bound nodes not explained as a deletion: NODE_BINDING_LOST. */
   readonly lost: readonly string[];
+  /**
+   * Back in the note while deleted in the model, not explained by undo, redo
+   * or the cut: the note differs from the model until the user restores the
+   * node or removes it from the note. Nothing is sent for it.
+   */
+  readonly reappeared?: readonly string[];
   /** Text edits held because the node's base revision is unknown. */
   readonly held: readonly string[];
   /** The base to store once the changes are written. */
@@ -557,8 +569,9 @@ export class SectionEngine {
     const reappeared = Object.keys(note.state.nodes).filter(
       (id) => snap.nodes[id]?.lifecycle === "deleted",
     );
-    const comp = compensate(ctx.origin, plan.missing, reappeared, this.#ledger, ctx.cut);
-    const pasted = comp.restores.filter((id) => ctx.cut?.has(id) === true);
+    const here = new Set([...(ctx.cut ?? []), ...(ctx.restore ?? [])]);
+    const comp = compensate(ctx.origin, plan.missing, reappeared, this.#ledger, here);
+    const pasted = comp.restores.filter((id) => here.has(id));
     const deletes = [
       ...new Set([...comp.deletes, ...comp.lost.filter((id) => ctx.deletedIds.has(id))]),
     ];
@@ -633,6 +646,7 @@ export class SectionEngine {
           section: ref,
           local,
           lost,
+          ...(comp.unexplained.length > 0 ? { reappeared: comp.unexplained } : {}),
           held,
           entries,
           ...(entries.length > 0 ? { base: resumedBase } : {}),
@@ -764,6 +778,7 @@ export class SectionEngine {
         local,
         ...(remote === undefined ? {} : { remote }),
         lost,
+        ...(comp.unexplained.length > 0 ? { reappeared: comp.unexplained } : {}),
         held,
         entries,
         ...(structure === undefined ? {} : { structure }),
