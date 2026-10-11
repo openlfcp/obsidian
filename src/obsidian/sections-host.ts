@@ -88,6 +88,12 @@ import { ShareSectionModal } from "./ui/share-section";
 /** The text a note with a shared section always contains. */
 const SECTION_MARK = "lfcp-section:";
 
+/** The nodes deleted in the model that one note shows again, in one section. */
+interface ReappearedInNote {
+  readonly section: SectionRef;
+  readonly ids: readonly string[];
+}
+
 export class SectionsHost {
   #engine: SectionEngine | null = null;
   #creation: SectionCreation | null = null;
@@ -184,16 +190,13 @@ export class SectionsHost {
   /** D1: each watched Resource's last section key, for its status when its model throws. */
   readonly #statusKeys = new Map<string, string>();
   /** Nodes deleted in the model that notes show again, by section key and note (Review conflicts). */
-  readonly #reappeared = new Map<
-    string,
-    Map<string, { readonly section: SectionRef; readonly ids: readonly string[] }>
-  >();
+  readonly #reappeared = new Map<string, Map<string, ReappearedInNote>>();
   /** Nodes the user chose to restore where a note shows them; the next pass of that note does. */
   readonly #restoreHere = new Set<string>();
 
   #noteReappeared(path: string, section: SectionRef, ids: readonly string[]): void {
     const key = sectionKey(section);
-    const notes = this.#reappeared.get(key) ?? new Map();
+    const notes = this.#reappeared.get(key) ?? new Map<string, ReappearedInNote>();
     if (ids.length > 0) notes.set(path, { section, ids });
     else notes.delete(path);
     if (notes.size > 0) this.#reappeared.set(key, notes);
