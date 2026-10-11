@@ -174,7 +174,7 @@ describe("LFCP-065 in the plugin", () => {
     expect(view.saves).toBe(1);
   });
 
-  it("invitation dialog: copy and show on request only; nothing in notices or data.json", async () => {
+  it("invitation dialog: copy, and show on request only (no empty field before); nothing in notices or data.json", async () => {
     const { plugin, host } = await load();
     await createTeam(host);
     const seen = mock.modals.length;
@@ -184,6 +184,7 @@ describe("LFCP-065 in the plugin", () => {
     const dialog = await next(seen + 2);
     const shown = input(dialog);
     expect(shown.type).toBe("password");
+    expect(shown.hidden).toBe(true);
     expect(dialog.contentEl.textContent).not.toContain("lfcp://join");
     button(dialog, "Copy link").click();
     await settle(() => copied.length === 1);
@@ -192,6 +193,7 @@ describe("LFCP-065 in the plugin", () => {
     button(dialog, "Show link").click();
     expect(shown.value).toBe(link);
     expect(shown.type).toBe("text");
+    expect(shown.hidden).toBe(false);
     button(dialog, "Done").click();
     await plugin.saveSettings();
     const secret = link.slice(link.indexOf("#secret=") + 8);

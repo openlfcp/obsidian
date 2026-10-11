@@ -173,16 +173,19 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
       if (modal === undefined)
         throw new Error(`no invitation dialog; notices: ${[...document.querySelectorAll(".notice")].map((n) => n.textContent).join(" | ")}`);
       const input = modal.querySelector("input");
-      const before = { type: input.type, value: input.value };
+      const shownNow = () => getComputedStyle(input).display !== "none";
+      const before = { type: input.type, value: input.value, visible: shownNow() };
       [...modal.querySelectorAll("button")].find((x) => x.textContent === "Show link").click();
       const after = input.value;
+      const visibleAfter = shownNow();
       const text = modal.textContent;
       [...modal.querySelectorAll("button")].find((x) => x.textContent === "Done").click();
-      return { before, after, confirmed: text.includes("the link works now") };
+      return { before, after, visibleAfter, confirmed: text.includes("the link works now") };
     });
     link = shown.after;
     evidence("C04", { collaborations, presets, before: shown.before, confirmed: shown.confirmed, linkShape: link.replace(/#secret=.*/, "#secret=…") });
-    expect(shown.before).toEqual({ type: "password", value: "" });
+    expect(shown.before).toEqual({ type: "password", value: "", visible: false });
+    expect(shown.visibleAfter).toBe(true);
     expect(link.startsWith("lfcp://join/")).toBe(true);
     expect(shown.confirmed).toBe(true);
     expect(presets.join(" ")).toMatch(/shared section/);

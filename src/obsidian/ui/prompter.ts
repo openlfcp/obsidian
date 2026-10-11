@@ -152,8 +152,10 @@ class InvitationModal extends Modal {
         ? "The server has the invitation: the link works now."
         : "The server has not confirmed the invitation yet (offline?). The link works once this device has synced.",
     });
+    // Hidden until "Show link": an empty field reads as a broken one.
     const shown = el.createEl("input", { type: "password", value: "" });
     shown.readOnly = true;
+    shown.hidden = true;
     const buttons = el.createDiv({ cls: "modal-button-container" });
     const copy = buttons.createEl("button", { text: "Copy link", cls: "mod-cta" });
     copy.addEventListener("click", () => {
@@ -165,6 +167,7 @@ class InvitationModal extends Modal {
     buttons.createEl("button", { text: "Show link" }).addEventListener("click", () => {
       shown.type = "text";
       shown.value = this.o.link.reveal();
+      shown.hidden = false;
       shown.select();
     });
     buttons.createEl("button", { text: "Done" }).addEventListener("click", () => this.close());

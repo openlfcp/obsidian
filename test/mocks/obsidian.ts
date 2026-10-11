@@ -197,6 +197,7 @@ export class FakeElement {
   cls = "";
   href = "";
   readOnly = false;
+  hidden = false;
   readonly children: FakeElement[] = [];
   readonly listeners = new Map<string, ((event?: unknown) => unknown)[]>();
   constructor(readonly tag: string) {}
