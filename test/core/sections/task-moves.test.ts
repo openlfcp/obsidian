@@ -255,11 +255,10 @@ describe("moving one Task in two vaults offline", () => {
     expect(count(a.note("Copy.md"), "Call Anna")).toBe(1);
   });
 
-  // Open (sdk-ts, bd): a move concurrent with the Task's deletion is not
-  // retained the way a concurrent title edit is (EDIT_UNDER_DELETED_ANCESTOR),
-  // so the mover's note loses the Task with nothing to review. This case
-  // starts passing when the SDK reports it; then drop `.fails`.
-  it.fails("one Tabs it while the other deletes it: the mover is asked, as for an edit", async () => {
+  // A move concurrent with the Task's deletion is retained the way a
+  // concurrent title edit is (mvp-0.2-baseline.8, EDIT_UNDER_DELETED_ANCESTOR),
+  // so the mover's note does not lose the Task with nothing to review.
+  it("one Tabs it while the other deletes it: the mover is asked, as for an edit", async () => {
     const { a, b } = await twoVaults(BODY);
     const report = taskId(a.note(), "Write report");
     await a.pass(indent(a.note(), "Write report"));
