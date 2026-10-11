@@ -13,6 +13,12 @@ import { MemorySectionBaseStore } from "../../src/core/sections/base";
 import { applyChanges, type PassContext, SectionEngine } from "../../src/core/sections/engine";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
 import { MemorySectionJournalStore } from "../../src/core/sections/journal";
+import {
+  applyRecovery,
+  type RecoveryChoice,
+  type RecoveryItem,
+  recoveryItems,
+} from "../../src/core/sections/recovery";
 import { bindsOwnNode, pasteBindings } from "../../src/core/sections/rules";
 import { newSectionTask } from "../../src/core/sections/task-fields";
 
@@ -109,6 +115,14 @@ export function vault(
     pass,
     note: (path = PATH) => notes.get(path) ?? "",
     model: (s: Shared = PLAN) => port.snapshot(s.R, s.sid),
+    /** What "Review conflicts…" lists for `s`. */
+    recovery: (s: Shared = PLAN): RecoveryItem[] => {
+      const m = port.recoveryModel(s.R, s.sid);
+      return m === undefined ? [] : recoveryItems(m);
+    },
+    /** A choice made in "Review conflicts…", applied as the host applies it. */
+    choose: (item: RecoveryItem, choice: RecoveryChoice, s: Shared = PLAN) =>
+      applyRecovery(port, s.R, s.sid, item, choice, `${name}-recovery-${++op}`),
   };
 }
 

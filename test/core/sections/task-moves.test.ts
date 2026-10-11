@@ -267,4 +267,25 @@ describe("moving one Task in two vaults offline", () => {
     await reconnect(a, b);
     expect(a.replica().tree().retainedConcurrentEdits).toContain(report);
   });
+
+  // mvp-0.2-baseline.9: a fresh deletion after the move ends the attention,
+  // for every member.
+  it("the mover keeps it deleted: gone from both notes, nothing left to review", async () => {
+    const { a, b } = await twoVaults(BODY);
+    const report = taskId(a.note(), "Write report");
+    await a.pass(indent(a.note(), "Write report"));
+    const ids = new Set([report, taskId(b.note(), "Draft")]);
+    await b.pass(cut(b.note(), "Write report"), { deletedIds: ids });
+    await reconnect(a, b);
+    const item = a.recovery().find((i) => i.kind === "retained" && i.nodeId === report);
+    if (item === undefined) throw new Error("the move is not offered for review");
+    expect((await a.choose(item, { keep: false })).applied).toBe(true);
+    await reconnect(a, b);
+    for (const v of [a, b]) {
+      expect(v.replica().tree().retainedConcurrentEdits).toEqual([]);
+      expect(v.recovery()).toEqual([]);
+      expect(v.model()?.nodes[report]?.lifecycle).toBe("deleted");
+      expect(count(v.note(), "Write report")).toBe(0);
+    }
+  });
 });

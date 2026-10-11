@@ -168,11 +168,56 @@ describe("recovery items (061)", () => {
         label: 'Paragraph "Notes more" under "Prepare contract"',
         ancestor: T,
         ancestorLabel: 'Task "Prepare contract"',
+        deleted: [T],
       },
     ]);
     r.commit(resolution(items[0] as RecoveryItem, { restore: true }, SECTION) as never);
     expect(r.tree().retainedConcurrentEdits).toEqual([]);
     expect(r.tree().hidden).toEqual([]);
+  });
+
+  it("an edit under a deleted ancestor kept deleted: deleted again after it, nothing to review", () => {
+    const b = base();
+    const r = merged(b, [
+      [{ intent: "node.delete", id: T }],
+      [
+        {
+          intent: "text.edit",
+          id: P,
+          base: b.revision(),
+          edits: [{ index: 5, deleteCount: 0, insert: " more" }],
+        },
+      ],
+    ] as SectionIntent[][]);
+    const [item] = recoveryItems(model(r));
+    expect(resolution(item as RecoveryItem, { keep: false }, SECTION)).toEqual([
+      { intent: "node.delete", id: T },
+    ]);
+    r.commit(resolution(item as RecoveryItem, { keep: false }, SECTION) as never);
+    expect(r.tree().retainedConcurrentEdits).toEqual([]);
+    expect(recoveryItems(model(r))).toEqual([]);
+    expect(r.snapshot().nodes[T]?.deleted).toBe(true);
+    expect([...r.tree().hidden].sort()).toEqual([P, T].sort());
+  });
+
+  it("a node deleted under a deleted ancestor, edited meanwhile: both are deleted again", () => {
+    const b = base();
+    b.commit([{ intent: "node.delete", id: P }] as SectionIntent[]);
+    const r = merged(b, [
+      [{ intent: "node.delete", id: T }],
+      [
+        {
+          intent: "text.edit",
+          id: P,
+          base: b.revision(),
+          edits: [{ index: 5, deleteCount: 0, insert: " more" }],
+        },
+      ],
+    ] as SectionIntent[][]);
+    const [item] = recoveryItems(model(r));
+    expect(item).toMatchObject({ kind: "retained", nodeId: P, ancestor: P, deleted: [P, T] });
+    r.commit(resolution(item as RecoveryItem, { keep: false }, SECTION) as never);
+    expect(r.tree().retainedConcurrentEdits).toEqual([]);
   });
 
   it("a node deleted in the model that a note shows again: an item for it alone", () => {

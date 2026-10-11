@@ -60,7 +60,12 @@ export type RecoveryItem =
       readonly nodeId: string;
       readonly label: string;
     }
-  /** Changed while an ancestor was deleted (§9, EDIT_UNDER_DELETED_ANCESTOR): restore the ancestor to see it. */
+  /**
+   * Changed or moved while it or an ancestor was deleted (§9,
+   * EDIT_UNDER_DELETED_ANCESTOR): restore the nearest deleted one to see it,
+   * or delete again every deleted one on its path (`deleted`, nearest first),
+   * after the change, to keep it deleted.
+   */
   | {
       readonly kind: "retained";
       readonly key: string;
@@ -68,6 +73,7 @@ export type RecoveryItem =
       readonly label: string;
       readonly ancestor: string;
       readonly ancestorLabel: string;
+      readonly deleted: readonly string[];
     };
 
 /** What the model holds, as one read (the same revision for both). */
@@ -169,13 +175,19 @@ export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
       members: cycle,
     });
   for (const id of m.tree.retainedConcurrentEdits) {
-    // The nearest ancestor deleted itself: restoring it shows the retained edit.
-    let at = m.snapshot.nodes[id]?.parent;
-    let ancestor = m.snapshot.nodes[id]?.deleted === true ? id : undefined;
-    while (ancestor === undefined && at !== undefined && at !== m.sectionId) {
-      if (m.snapshot.nodes[at]?.deleted === true) ancestor = at;
-      at = m.snapshot.nodes[at]?.parent;
+    // The deleted nodes from it up to the section: restoring the nearest
+    // shows the retained change; deleting them all again keeps it deleted.
+    const deleted: string[] = [];
+    const seen = new Set<string>();
+    for (
+      let at: string | undefined = id;
+      at !== undefined && at !== m.sectionId && !seen.has(at);
+      at = m.snapshot.nodes[at]?.parent
+    ) {
+      seen.add(at);
+      if (m.snapshot.nodes[at]?.deleted === true) deleted.push(at);
     }
+    const ancestor = deleted[0];
     if (ancestor === undefined) continue;
     out.push({
       kind: "retained",
@@ -184,6 +196,7 @@ export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
       label: labelOf(m, id),
       ancestor,
       ancestorLabel: labelOf(m, ancestor),
+      deleted,
     });
   }
   return out;
@@ -252,6 +265,9 @@ export function resolution(
       break;
     case "retained":
       if ("restore" in choice) return [{ intent: "node.restore", id: item.ancestor }];
+      // A fresh deletion after the change: the change no longer needs attention (§9).
+      if ("keep" in choice && !choice.keep)
+        return item.deleted.map((id) => ({ intent: "node.delete", id }));
       break;
     case "reappeared":
       // Restored by the next pass of the note that shows it, where it shows it.

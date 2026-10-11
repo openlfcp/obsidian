@@ -56,12 +56,18 @@ export function recoveryOptions(item: RecoveryItem): {
     case "retained":
       return item.ancestor === item.nodeId
         ? {
-            question: `${item.label} was changed or moved while it was deleted. Restore it?`,
-            choices: [{ label: "Restore it", choice: { restore: true } }],
+            question: `${item.label} was changed or moved while it was deleted. Restore it, or keep it deleted?`,
+            choices: [
+              { label: "Restore it", choice: { restore: true } },
+              { label: "Keep it deleted", choice: { keep: false } },
+            ],
           }
         : {
-            question: `${item.label} was changed or moved while ${item.ancestorLabel}, which holds it, was deleted. Restore ${item.ancestorLabel}?`,
-            choices: [{ label: `Restore ${item.ancestorLabel}`, choice: { restore: true } }],
+            question: `${item.label} was changed or moved while ${item.ancestorLabel}, which holds it, was deleted. Restore ${item.ancestorLabel}, or keep it deleted?`,
+            choices: [
+              { label: `Restore ${item.ancestorLabel}`, choice: { restore: true } },
+              { label: "Keep it deleted", choice: { keep: false } },
+            ],
           };
     case "reappeared":
       return {
