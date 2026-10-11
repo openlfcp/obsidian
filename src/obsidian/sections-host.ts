@@ -49,7 +49,12 @@ import {
   repairItems,
   sharedVersionChange,
 } from "../core/sections/repair";
-import { detachAt, removeNodeLines } from "../core/sections/rules";
+import {
+  bindsOwnNode,
+  detachAt,
+  type PastedBinding,
+  removeNodeLines,
+} from "../core/sections/rules";
 import {
   preflight,
   proposeRange,
@@ -163,6 +168,7 @@ export class SectionsHost {
           onError(path, error);
       },
       restore: () => this.#restoreHere,
+      keepPasted: (b, into) => this.#keepPasted(b, into),
       // SI12, SI16: each projection's pass result reaches its section's badge.
       onPass: (path, pass) => {
         this.#passErrors.passed(path);
@@ -193,6 +199,16 @@ export class SectionsHost {
   readonly #reappeared = new Map<string, Map<string, ReappearedInNote>>();
   /** Nodes the user chose to restore where a note shows them; the next pass of that note does. */
   readonly #restoreHere = new Set<string>();
+
+  /** §10: whether a pasted binding binds its own node where it lands (rules.ts bindsOwnNode). */
+  #keepPasted(b: PastedBinding, into: SectionRef | null): boolean {
+    return bindsOwnNode(
+      b,
+      into,
+      (s) => this.#port?.snapshot(toBase64url(s.resourceId), s.sectionId)?.nodes,
+      (r) => this.#runtime?.sectionProfile(fromBase64url(r) as ResourceId) !== undefined,
+    );
+  }
 
   #noteReappeared(path: string, section: SectionRef, ids: readonly string[]): void {
     const key = sectionKey(section);

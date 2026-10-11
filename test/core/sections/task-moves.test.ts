@@ -14,6 +14,7 @@ import {
   id,
   lines,
   paste,
+  pasteInto,
   placementConflict,
   reconnect,
   sectionNote,
@@ -140,8 +141,9 @@ describe("moving a Task in one vault", () => {
     expect([count(a.note(), "Call Anna"), count(a.note("Copy.md"), "Call Anna")]).toEqual([1, 1]);
   });
 
-  it("a paste into another Resource's section: the cut stays a delete, the other section needs attention", async () => {
-    const { a } = await twoVaults(BODY);
+  /** Vault A with a second section, of another Resource, in Other.md. */
+  async function withOther() {
+    const { a, b } = await twoVaults(BODY);
     const other = shared(9, id(900));
     const replica = SectionReplica.empty({ resource: other.rid, principal: A_ME });
     replica.commit([
@@ -149,16 +151,60 @@ describe("moving a Task in one vault", () => {
     ]);
     a.replicas.set(other.R, replica);
     await a.pass(sectionNote(other, "Other", []), {}, "Other.md");
+    await a.pass(sectionNote(other, "Other", ["- [ ] Existing"]), {}, "Other.md");
+    await a.pass(a.note("Other.md"), {}, "Other.md");
+    return { a, b, other };
+  }
+
+  /** A cuts "Call Anna" (a delete) and returns its lines as cut. */
+  async function cutAnna(a: Vault) {
     const before = a.note();
     const anna = taskId(before, "Call Anna");
     const ids = new Set([anna]);
     await a.pass(cut(before, "Call Anna"), { deletedIds: ids, cut: ids });
     const [from, to] = block(before, "Call Anna");
-    const into = sectionNote(other, "Other", lines(before).slice(from, to));
-    // Not a copy with new identities yet (§10): the foreign ref pauses that section.
-    expect((await a.pass(into, { cut: ids }, "Other.md"))?.skipped).toBe("blocked");
-    expect(a.model(other)?.nodes).toEqual({});
+    return { anna, ids, text: `${lines(before).slice(from, to).join("\n")}\n` };
+  }
+
+  it("a paste into another Resource's section is a copy with a new identity, shared there (§10)", async () => {
+    const { a, other } = await withOther();
+    const { anna, ids, text } = await cutAnna(a);
+    const target = a.note("Other.md");
+    const end = lines(target).findIndex((l) => l.includes("/lfcp-section"));
+    const pasted = pasteInto(a, target, end, text);
+    // The old ref is gone before the engine sees the text: it binds nothing there.
+    expect(pasted).not.toContain(anna);
+    const r = await a.pass(pasted, { cut: ids }, "Other.md");
+    expect(r?.skipped).toBeUndefined();
+    expect(r?.local?.kind).toBe("committed");
+    const copy = taskId(a.note("Other.md"), "Call Anna");
+    expect(copy).not.toBe(anna);
+    expect(a.model(other)?.nodes[copy]?.lifecycle).toBe("active");
+    expect(a.replica(other).task(copy)?.task?.title).toBe("Call Anna");
+    expect(count(a.note("Other.md"), "Call Anna")).toBe(1);
+    // The cut stays a delete in its own section; neither projection differs from its model.
     expect(a.model()?.nodes[anna]?.lifecycle).toBe("deleted");
+    expect(r?.reappeared).toBeUndefined();
+    expect((await a.pass(a.note()))?.reappeared).toBeUndefined();
+  });
+
+  it("a paste outside every section is plain text: the section's bindings are removed", async () => {
+    const { a } = await withOther();
+    const { anna, text } = await cutAnna(a);
+    const plain = pasteInto(a, "# Notes\n\nEnd\n", 2, text);
+    expect(plain).toBe("# Notes\n\n- [ ] Call Anna\nEnd\n");
+    expect(plain).not.toContain(anna);
+  });
+
+  it("a paste of the cut back into its own section keeps the binding: a move", async () => {
+    const { a } = await withOther();
+    const { anna, ids, text } = await cutAnna(a);
+    const [, end] = block(a.note(), "Buy milk");
+    const pasted = pasteInto(a, a.note(), end, text);
+    expect(pasted).toContain(anna);
+    await a.pass(pasted, { cut: ids });
+    expect(active(a, anna)).toBe(true);
+    expect(count(a.note(), "Call Anna")).toBe(1);
   });
 });
 

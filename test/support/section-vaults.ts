@@ -13,6 +13,7 @@ import { MemorySectionBaseStore } from "../../src/core/sections/base";
 import { applyChanges, type PassContext, SectionEngine } from "../../src/core/sections/engine";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
 import { MemorySectionJournalStore } from "../../src/core/sections/journal";
+import { bindsOwnNode, pasteBindings } from "../../src/core/sections/rules";
 import { newSectionTask } from "../../src/core/sections/task-fields";
 
 export const id = (n: number) =>
@@ -227,3 +228,29 @@ export const placementConflict = (v: Vault, nodeId: string, s: Shared = PLAN) =>
   v
     .model(s)
     ?.problems.some((p) => p.code === "PLACEMENT_CONFLICT" && p.nodeIds.includes(nodeId)) === true;
+
+/**
+ * `md` with `text` pasted before line `at`, as the editor's paste filter
+ * leaves it (§10: only bindings of their own nodes there are kept).
+ */
+export function pasteInto(v: Vault, md: string, at: number, text: string): string {
+  const L = lines(md);
+  const from = L.slice(0, at).reduce((n, l) => n + l.length + 1, 0);
+  const change = { from, to: from, insert: text };
+  const kept =
+    pasteBindings(md, change, (b, into) =>
+      bindsOwnNode(
+        b,
+        into,
+        (s) =>
+          v.model({
+            rid: s.resourceId as Shared["rid"],
+            R: toBase64url(s.resourceId),
+            sid: s.sectionId,
+            ref: s,
+          })?.nodes,
+        (r) => v.replicas.has(r),
+      ),
+    ) ?? change;
+  return md.slice(0, kept.from) + kept.insert + md.slice(kept.to);
+}

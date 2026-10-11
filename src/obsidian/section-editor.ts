@@ -25,9 +25,15 @@ import {
   type PassContext,
   type SectionEngine,
 } from "../core/sections/engine";
+import type { SectionRef } from "../core/sections/grammar";
 import { ReconcileScheduler, type Timer } from "../core/sections/input";
 import { parseSections, type SectionNode } from "../core/sections/parser";
-import { classifyRemoval, keepRefWithTask } from "../core/sections/rules";
+import {
+  classifyRemoval,
+  keepRefWithTask,
+  type PastedBinding,
+  pasteBindings,
+} from "../core/sections/rules";
 import { type ChangeOrigin, originOf } from "../core/sections/undo";
 
 /** The plugin's own writes into a note, by pass (ADR 0001 §2). */
@@ -95,6 +101,12 @@ export interface SectionEditorOptions {
   readonly onError?: (path: string, error: unknown) => void;
   /** Nodes the user chose to restore where a note shows them (PassContext.restore). */
   readonly restore?: () => ReadonlySet<string>;
+  /**
+   * Whether a binding in pasted or dropped text binds its own node where it
+   * lands (`into`: the section, or null outside every section). Without it,
+   * pasted text is left as it is.
+   */
+  readonly keepPasted?: (binding: PastedBinding, into: SectionRef | null) => boolean;
 }
 
 interface ViewState {
@@ -307,6 +319,33 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       scrollIntoView: true,
     };
   });
+  // §10: a paste or a drop keeps only the bindings of its own nodes where it
+  // lands; the others are removed, so the text is a copy with new
+  // identities in another section, or plain text outside sections.
+  const keep = o.keepPasted;
+  const pasted = EditorState.transactionFilter.of((tr) => {
+    if (
+      keep === undefined ||
+      !tr.docChanged ||
+      tr.annotation(sectionWrite) !== undefined ||
+      !(tr.isUserEvent("input.paste") || tr.isUserEvent("input.drop"))
+    )
+      return tr;
+    const changes: { from: number; to: number; insert: string }[] = [];
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      changes.push({ from: fromA, to: toA, insert: inserted.toString() });
+    });
+    const only = changes.length === 1 ? changes[0] : undefined;
+    if (only === undefined) return tr;
+    const rewritten = pasteBindings(tr.startState.doc.toString(), only, keep);
+    if (rewritten === null) return tr;
+    return {
+      changes: rewritten,
+      selection: { anchor: rewritten.from + rewritten.insert.length },
+      userEvent: tr.annotation(Transaction.userEvent) ?? "input.paste",
+      scrollIntoView: true,
+    };
+  });
   const events = EditorView.domEventHandlers({
     compositionstart: (_e, view) => {
       view.plugin(plugin)?.st.scheduler.compositionStart();
@@ -320,7 +359,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   });
 
   return {
-    extension: [plugin, events, enter],
+    extension: [plugin, events, enter, pasted],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
     renamed: (oldPath, newPath) => coordinator.renamed(oldPath, newPath),

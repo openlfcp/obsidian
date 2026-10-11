@@ -11,6 +11,7 @@ import { MemorySectionBaseStore, markdownState } from "../../../src/core/section
 import { SectionEngine } from "../../../src/core/sections/engine";
 import { MemorySectionJournalStore } from "../../../src/core/sections/journal";
 import { parseSections } from "../../../src/core/sections/parser";
+import { bindsOwnNode } from "../../../src/core/sections/rules";
 import { Announcer } from "../../../src/core/status/a11y";
 import { type StatusFacts, type StatusView, statusView } from "../../../src/core/status/reducer";
 import { LiveRegion } from "../../../src/obsidian/live-region";
@@ -47,6 +48,14 @@ export default class SectionSyncHarness extends Plugin {
     const errors: string[] = [];
     const editor = sectionEditorExtension({
       engine: () => engine,
+      // §10, as sections-host decides it (no 0.1 Resources here).
+      keepPasted: (b, into) =>
+        bindsOwnNode(
+          b,
+          into,
+          (s) => port.snapshot(toBase64url(s.resourceId), s.sectionId)?.nodes,
+          () => true,
+        ),
       onPass: (path, pass) =>
         passes.push({ path, changes: pass.changes.length, local: pass.sections[0]?.local?.kind }),
       onStatus: (path, status) => statuses.push({ path, status, at: Date.now() }),

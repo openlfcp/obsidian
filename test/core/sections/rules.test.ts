@@ -1,12 +1,14 @@
 // LFCP-02-046: context-aware delete, detach, duplicate and cut/paste
 // inside shared sections (MARKDOWN-SECTIONS-01 §7, §10).
 
+import { toBase64url } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
 import {
   formatBoundary,
   formatNodeMarker,
   parseSectionRef,
   type SectionRef,
+  sameSection,
 } from "../../../src/core/sections/grammar";
 import {
   type ParsedSection,
@@ -14,11 +16,13 @@ import {
   type SectionNode,
 } from "../../../src/core/sections/parser";
 import {
+  bindsOwnNode,
   classifyRemoval,
   detachAt,
   detachSection,
   duplicates,
   keepRefWithTask,
+  pasteBindings,
   pasteDecision,
   readableSection,
   removeNodeLines,
@@ -166,6 +170,64 @@ describe("removing a node from the note (Review conflicts)", () => {
     expect(out).toContain("  Draft");
     expect(out).not.toContain("- [ ] Child");
     expect(removeNodeLines(md, T, id(3))).toBeNull();
+  });
+});
+
+describe("bindings in pasted text (§10)", () => {
+  const O = toBase64url(new Uint8Array(32).fill(9));
+  const foreign = `<!-- lfcp-ref: lfcp1:${O}#task:${id(30)} -->`;
+  const md = note();
+  /** Offset of the start of line `n` of `md`. */
+  const at = (n: number) =>
+    md
+      .split("\n")
+      .slice(0, n)
+      .reduce((k, l) => k + l.length + 1, 0);
+  const paste = (line: number, insert: string, keep = (b: { id: string }) => b.id === id(3)) =>
+    pasteBindings(md, { from: at(line), to: at(line), insert }, (b) => keep(b));
+
+  it("removes a binding that is not its own there: a child-line ref with its line, an inline ref, a marker", () => {
+    expect(paste(8, `- [ ] Copied\n  ${foreign}\n`)?.insert).toBe("- [ ] Copied\n");
+    expect(paste(8, `- [ ] Copied ${foreign}\n`)?.insert).toBe("- [ ] Copied\n");
+    expect(paste(8, `${formatNodeMarker("paragraph", id(31))}\nText\n`)?.insert).toBe("Text\n");
+  });
+
+  it("keeps its own binding, and changes nothing without bindings to remove", () => {
+    expect(paste(8, `- [ ] Child\n  ${ref(3)}\n`)).toBeNull();
+    expect(paste(8, "- [ ] Plain\n")).toBeNull();
+  });
+
+  it("tells where the text lands: in the section before its end marker, outside before its start", () => {
+    const into: (SectionRef | null)[] = [];
+    const record = (line: number) =>
+      pasteBindings(md, { from: at(line), to: at(line), insert: `x ${foreign}` }, (_b, s) => {
+        into.push(s);
+        return true;
+      });
+    record(8);
+    record(2);
+    record(9);
+    expect(into).toEqual([S, null, null]);
+  });
+
+  it("binds its own node: a node of that section there, a 0.1 Task ref outside sections", () => {
+    const nodes = (s: SectionRef) => (sameSection(s, S) ? { [id(3)]: {} } : undefined);
+    const isSection = (r: string) => r === R;
+    expect(bindsOwnNode({ kind: "task", id: id(3), resource: R }, S, nodes, isSection)).toBe(true);
+    expect(bindsOwnNode({ kind: "task", id: id(30), resource: R }, S, nodes, isSection)).toBe(
+      false,
+    );
+    expect(bindsOwnNode({ kind: "task", id: id(3), resource: O }, S, nodes, isSection)).toBe(false);
+    expect(bindsOwnNode({ kind: "paragraph", id: id(3) }, S, nodes, isSection)).toBe(true);
+    // Not loaded: what is pasted is kept.
+    expect(bindsOwnNode({ kind: "task", id: id(30), resource: O }, T, nodes, isSection)).toBe(true);
+    expect(bindsOwnNode({ kind: "task", id: id(3), resource: R }, null, nodes, isSection)).toBe(
+      false,
+    );
+    expect(bindsOwnNode({ kind: "task", id: id(30), resource: O }, null, nodes, isSection)).toBe(
+      true,
+    );
+    expect(bindsOwnNode({ kind: "paragraph", id: id(3) }, null, nodes, isSection)).toBe(false);
   });
 });
 

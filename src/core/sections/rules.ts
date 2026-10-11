@@ -2,6 +2,8 @@
 // sections (LFCP-02-046, MARKDOWN-SECTIONS-01 §7, §10). Pure rules over the
 // parser's output and the editor transaction's facts; not wired in.
 
+import { toBase64url } from "@openlfcp/core";
+import { findRefComments } from "../refs/comments";
 import { joinLines, type Line, splitLines } from "../refs/lines";
 import { parseNodeMarker, type SectionRef, sameSection } from "./grammar";
 import {
@@ -152,6 +154,84 @@ export function pasteDecision(
   if (cut === null || pastedIds.length === 0 || !pastedIds.every((id) => cut.ids.includes(id)))
     return "not-a-cut";
   return sameSection(cut.section, into) ? "move" : "copy-with-new-identities";
+}
+
+/** A binding in pasted text: a Task ref (with its Resource) or a node marker. */
+export interface PastedBinding {
+  readonly kind: "task" | "paragraph" | "item" | "raw";
+  readonly id: string;
+  /** The Task ref's Resource (base64url); none for a node marker. */
+  readonly resource?: string;
+}
+
+/**
+ * Whether a pasted binding binds its own node where it lands (§10). In a
+ * section, a node of that section, whatever its lifecycle (a paste of a cut
+ * is a move, a copy a duplicate); outside sections, a 0.1 Task ref, which
+ * may stand anywhere. `nodes` is the section's model (undefined while it is
+ * not loaded: what is pasted is kept), `isSection` whether a Resource holds
+ * shared sections.
+ */
+export function bindsOwnNode(
+  b: PastedBinding,
+  into: SectionRef | null,
+  nodes: (into: SectionRef) => Readonly<Record<string, unknown>> | undefined,
+  isSection: (resource: string) => boolean,
+): boolean {
+  if (into === null) return b.resource !== undefined && !isSection(b.resource);
+  const known = nodes(into);
+  if (known === undefined) return true;
+  const resource = toBase64url(into.resourceId);
+  return known[b.id] !== undefined && (b.resource ?? resource) === resource;
+}
+
+/**
+ * A paste (or a drop) of text with bindings, as §10 keeps it: a binding
+ * stays only where `keep` says it binds its own node (`into`: the section
+ * the text lands in, or null outside every section). Any other binding is
+ * removed, its line if it has nothing else, so the text is new content
+ * there (a copy with new identities, or plain text) and a stale ref never
+ * binds a node that is not its own. Null when nothing is removed.
+ */
+export function pasteBindings(
+  markdown: string,
+  change: { readonly from: number; readonly to: number; readonly insert: string },
+  keep: (binding: PastedBinding, into: SectionRef | null) => boolean,
+): { readonly from: number; readonly to: number; readonly insert: string } | null {
+  if (!change.insert.includes("<!--")) return null;
+  const starts = lineStarts(splitLines(markdown));
+  let line = 0;
+  while (line + 1 < starts.length && (starts[line + 1] ?? 0) <= change.from) line++;
+  const into =
+    parseSections(markdown).sections.find((s) => s.startLine < line && line <= s.endLine)?.ref ??
+    null;
+  let removed = false;
+  const kept: Line[] = [];
+  for (const l of splitLines(change.insert)) {
+    const marker = parseNodeMarker(l.text);
+    if (marker !== null && marker.kind !== "malformed") {
+      if (keep({ kind: marker.kind, id: marker.nodeId }, into)) kept.push(l);
+      else removed = true;
+      continue;
+    }
+    let text = l.text;
+    for (const c of [...findRefComments(l.text).refs].reverse()) {
+      const ref = c.ref;
+      if (ref === undefined || ref.objectType !== "task") continue;
+      const binding = {
+        kind: "task" as const,
+        id: ref.objectId,
+        resource: toBase64url(ref.resourceId),
+      };
+      if (keep(binding, into)) continue;
+      removed = true;
+      text = text.slice(0, c.start).trimEnd() + text.slice(c.end);
+    }
+    // A ref alone on its line (the child-line placement) goes with its line.
+    if (text.trim() === "" && l.text.trim() !== "") continue;
+    kept.push({ text, eol: l.eol });
+  }
+  return removed ? { from: change.from, to: change.to, insert: joinLines(kept) } : null;
 }
 
 /**

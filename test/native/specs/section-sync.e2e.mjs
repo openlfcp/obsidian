@@ -256,6 +256,37 @@ describe("LFCP-02-047 in the editor: Enter after a Task, and deletion (fake SDK)
     expect((await model(resource)).nodes[Q]).toBeUndefined();
   });
 
+  it("§10: text pasted from another section loses that section's ref and is shared here as new", async () => {
+    const file = "paste-foreign.md";
+    const resource = await browser.execute((note) => window.__lfcpSectionSync.host(note), TASKS);
+    await open(file, TASKS, true, 10);
+    await browser.execute((f) => window.__lfcpSectionSync.sync(f), file);
+    await until(async () => (await sync()).passes.some((p) => p.path === file), "seed pass");
+    const OTHER = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
+    const FOREIGN = "84cf3237-3432-7041-881f-c34897689099";
+    const copied = `- [ ] From elsewhere\n  <!-- lfcp-ref: lfcp1:${OTHER}#task:${FOREIGN} -->\n`;
+    await browser.executeObsidian(async ({ app, obsidian }, text) => {
+      await navigator.clipboard.writeText(text);
+      // After "Notes", before the section's end marker.
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.setCursor({ line: 11, ch: 0 });
+    }, copied);
+    await browser.keys([mod, "v"]);
+    const pasted = await doc();
+    expect(pasted).toContain("- [ ] From elsewhere\n");
+    expect(pasted).not.toContain(FOREIGN);
+    await browser.executeObsidian(({ app, obsidian }) => {
+      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.cm.contentDOM.blur();
+    });
+    await until(
+      async () => (await sync()).port.changes.some((c) => c.intents.some((i) => i.intent === "task.create_in_section" && i.task.title === "From elsewhere")),
+      "the pasted Task created",
+    );
+    const text = await doc();
+    evidence("PASTE-FOREIGN", { pasted, text });
+    expect(text).toMatch(new RegExp(`- \\[ \\] From elsewhere\\n  <!-- lfcp-ref: lfcp1:${resource}#task:`));
+    expect((await sync()).errors).toEqual([]);
+  });
+
   it("§10: a Task cut, then pasted after a pause, is moved: restored where it was pasted", async () => {
     // The pause lets the cut be its own pass (a node.delete), as a person's
     // cut and paste always are. Found in the two-vault check of 0.4.0-beta.1.
