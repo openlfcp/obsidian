@@ -127,10 +127,16 @@ describe("LFCP-02-064: keyboard and accessible status (harness statuses, real ed
 
   it("UX09: problems in a folded section stay visible at the heading and are reached by command", async () => {
     await set({ [KEY]: conflict([task(150), task(20)]) });
+    // Independent of the OS focus of the Obsidian window (another app may be
+    // in front during a run): the editor's own fold, not the command, and
+    // focus read as the editor's element being the document's active one.
     const out = await browser.executeObsidian(async ({ app, obsidian }, headingLine) => {
       const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      const content = view.editor.cm.contentDOM;
+      view.editor.focus();
+      const focusedBefore = document.activeElement === content;
       view.editor.setCursor({ line: headingLine, ch: 0 });
-      app.commands.executeCommandById("editor:toggle-fold");
+      view.editor.exec("toggleFold");
       await new Promise((r) => setTimeout(r, 300));
       const root = view.containerEl;
       const headingCue = [...root.querySelectorAll(".cm-line")]
@@ -151,7 +157,9 @@ describe("LFCP-02-064: keyboard and accessible status (harness statuses, real ed
         folded,
         steps,
         foldedAfter: root.querySelectorAll(".cm-foldPlaceholder").length,
-        focused: view.editor.hasFocus(),
+        focusedBefore,
+        focused: document.activeElement === content,
+        windowFocused: document.hasFocus(),
       };
     }, 2);
     evidence("A11Y-NEXT-PROBLEM", out);
@@ -163,6 +171,7 @@ describe("LFCP-02-064: keyboard and accessible status (harness statuses, real ed
     );
     expect(out.steps[0].live).toBe(out.steps[0].said);
     expect(out.foldedAfter).toBe(0);
+    expect(out.focusedBefore).toBe(true);
     expect(out.focused).toBe(true);
   });
 
