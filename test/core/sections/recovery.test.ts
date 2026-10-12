@@ -16,6 +16,7 @@ import {
   resolution,
   revalidate,
 } from "../../../src/core/sections/recovery";
+import { fromSdkSnapshot } from "../../../src/core/sections/sdk-snapshot";
 
 const id = (n: number) => `0192e4a0-0000-7000-8000-${n.toString(16).padStart(12, "0")}`;
 const [SECTION, T, P, X, I1, I2, D] = [1, 2, 3, 4, 5, 6, 7].map(id) as [
@@ -240,28 +241,18 @@ describe("recovery items (061)", () => {
     ["deleted", "node.delete"],
     ["restored", "node.restore"],
   ] as const)
-    it(`a Task ${what} twice at once: a lifecycle item whose choice clears it`, () => {
+    it(`a Task ${what} twice at once: the values agree, nothing to choose`, () => {
       const b = base();
       if (write === "node.restore") b.commit([{ intent: "node.delete", id: T }] as SectionIntent[]);
       const r = merged(b, [
         [{ intent: write, id: T }],
         [{ intent: write, id: T }],
       ] as SectionIntent[][]);
+      // The SDK lists the two writes; equal, they are no conflict (§7.6).
       expect(r.tree().scalarConflicts.map((c) => c.field)).toEqual(["lifecycle"]);
-      const items = recoveryItems(model(r));
-      expect(items).toEqual([
-        {
-          kind: "lifecycle",
-          key: `lifecycle:${T}`,
-          nodeId: T,
-          label: 'Task "Prepare contract"',
-          values: write === "node.delete" ? ["deleted", "deleted"] : ["active", "active"],
-        },
-      ]);
-      r.commit(resolution(items[0] as RecoveryItem, { keep: true }, SECTION) as never);
-      expect(r.tree().scalarConflicts).toEqual([]);
       expect(recoveryItems(model(r))).toEqual([]);
-      expect(r.snapshot().nodes[T]?.deleted).not.toBe(true);
+      expect(fromSdkSnapshot(r.snapshot(), SECTION)?.problems).toEqual([]);
+      expect(r.snapshot().nodes[T]?.deleted).toBe(write === "node.delete");
     });
 
   it("a comparison that changed meanwhile is shown again, not applied", () => {

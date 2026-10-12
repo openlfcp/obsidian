@@ -354,4 +354,31 @@ describe("moving one Task in two vaults offline", () => {
       ]);
     }
   });
+
+  // The owner's check of 0.4.0-beta.6: after both moved the Task by a cut
+  // and a paste, Review conflicts also asked whether it was "restored in two
+  // places": each vault's cut (one pass) deleted it and its paste (a later
+  // pass) restored it, so the merge held "active" twice. Equal values agree.
+  it("both cut it and paste it later, each in two passes: only the placement needs attention", async () => {
+    const body = ["- [ ] First task", "- [ ] Second task", "- [ ] Third task", "", "A paragraph"];
+    const { a, b } = await twoVaults(body);
+    const third = taskId(a.note(), "Third task");
+    const ids = new Set([third]);
+    const cutThenPaste = async (v: Vault, parent: string) => {
+      const before = v.note();
+      await v.pass(cut(before, "Third task"), { deletedIds: ids, cut: ids });
+      expect(v.model()?.nodes[third]?.lifecycle).toBe("deleted");
+      await v.pass(paste(before, cut(before, "Third task"), "Third task", parent), { cut: ids });
+      expect(active(v, third)).toBe(true);
+    };
+    await cutThenPaste(a, "First task");
+    await cutThenPaste(b, "Second task");
+    await reconnect(a, b);
+    for (const v of [a, b]) {
+      expect(active(v, third)).toBe(true);
+      expect(count(v.note(), "Third task")).toBe(1);
+      expect(v.recovery().map((i) => i.kind)).toEqual(["placement"]);
+      expect(v.model()?.problems.map((p) => p.code)).toEqual(["PLACEMENT_CONFLICT"]);
+    }
+  });
 });

@@ -86,7 +86,7 @@ describe("Review conflicts: the user's choices", () => {
   });
 
   it("a question that changed meanwhile is asked again with nothing chosen", async () => {
-    const changed: RecoveryItem = { ...LIFECYCLE, values: ["active", "active"] };
+    const changed: RecoveryItem = { ...LIFECYCLE, label: 'Task "Third task" under "First task"' };
     const { m } = open([PLACEMENT, LIFECYCLE], [changed]);
     const [q1, q2] = questions(m);
     if (q1 === undefined || q2 === undefined) throw new Error("two questions");

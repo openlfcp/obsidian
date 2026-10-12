@@ -11,6 +11,9 @@
 // - Structural facts (recovery, invalid nodes, collisions, edits retained
 //   under a deletion) are the problems that freeze structure. Concurrent
 //   field values of Tasks are not: the 0.1 conflict marks show them.
+// - Concurrent writes of one equal value agree (§7.6 says so of lifecycle):
+//   no conflict, nothing to choose. Two vaults that each move a Task by a cut
+//   and a later paste each delete and restore it, which leaves "active" twice.
 // - A node of a kind this plugin does not know, or without a placement, is
 //   left out (it is not projected).
 
@@ -21,6 +24,10 @@ import type { SectionNodeKind } from "./parser";
 import type { ModelNode, SectionProblem, SectionSnapshot } from "./port";
 
 const KINDS: readonly string[] = ["task", ...NODE_KINDS];
+
+/** A field's concurrent values disagree: equal writes are agreement, not a conflict. */
+export const disagrees = (c: { readonly values: readonly string[] }): boolean =>
+  new Set(c.values).size > 1;
 
 export function fromSdkSnapshot(s: SdkSnapshot, sectionId: string): SectionSnapshot | undefined {
   if (s.classification === "PROFILE_INVALID") return undefined;
@@ -48,7 +55,9 @@ export function fromSdkSnapshot(s: SdkSnapshot, sectionId: string): SectionSnaps
     ...s.problems.invalid.map((r) => ({ code: r.diagnostic, nodeIds: [r.id] })),
     ...s.problems.collisions.map((id) => ({ code: "NODE_ID_COLLISION", nodeIds: [id] })),
     // A field with concurrent values (a Task's title, …): attention, never current (SI07).
-    ...s.problems.scalarConflicts.map((c) => ({ code: "SCALAR_CONFLICT", nodeIds: [c.id] })),
+    ...s.problems.scalarConflicts
+      .filter(disagrees)
+      .map((c) => ({ code: "SCALAR_CONFLICT", nodeIds: [c.id] })),
     ...s.problems.retainedConcurrentEdits.map((id) => ({
       code: "EDIT_UNDER_DELETED_ANCESTOR",
       nodeIds: [id],
