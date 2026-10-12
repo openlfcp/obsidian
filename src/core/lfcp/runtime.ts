@@ -210,6 +210,15 @@ export class UnsupportedProfileError extends Error {
 export const HELD_BLOCKED_MS = 10 * 60_000;
 
 /**
+ * How long a sent message waits for its ACK before the outbound queue sends
+ * its items again, doubling per unanswered send up to `maxMs`. The SDK's
+ * default starts at 10 s, which a lost ACK made the user wait; 4 s is still
+ * at least three times a healthy round trip, and a repeated PUT is harmless:
+ * the server answers it with the same ACK (§47, §70).
+ */
+export const OUTBOUND_REQUEST_TIMEOUT = { baseMs: 4000, maxMs: 60_000 } as const;
+
+/**
  * A collaborator whose units this device cannot apply: refused by the
  * profile, quarantined (a Key Epoch cutoff, the engine crash breaker,
  * no key), equivocating, or held unlinked for HELD_BLOCKED_MS. Codes and
@@ -888,7 +897,7 @@ export class LfcpRuntime {
     const storage = this.storage;
     if (storage === null) return;
     // Discarding touches only storage: any queue instance will do.
-    this.#outbound ??= new OutboundQueue({ storage });
+    this.#outbound ??= new OutboundQueue({ storage, requestTimeout: OUTBOUND_REQUEST_TIMEOUT });
     for (const unitHex of [...this.#staleToDiscard]) {
       const item = await storage.outbound.get(hash32(fromHex(unitHex)));
       if (item === undefined) this.#staleToDiscard.delete(unitHex);
@@ -1378,7 +1387,7 @@ export class LfcpRuntime {
       agreement: i.principal.agreement,
       storage: i.storage,
       secrets: i.secrets,
-      outbound: new OutboundQueue({ storage: i.storage }),
+      outbound: new OutboundQueue({ storage: i.storage, requestTimeout: OUTBOUND_REQUEST_TIMEOUT }),
       now: () => this.#env.timers.now(),
       ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
       // POST-007: a Snapshot every `snapshotEvery` merged units, by a member who may publish one.

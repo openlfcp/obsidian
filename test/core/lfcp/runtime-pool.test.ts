@@ -21,6 +21,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Device, FakeLocal } from "../../support/lfcp-env";
 
 const queues: unknown[] = [];
+/** The options of every OutboundQueue the runtime constructs. */
+const queueOptions: unknown[] = [];
 /** Each session's event listeners, to deliver events as the session would. */
 const listeners: ((event: unknown) => void)[][] = [];
 vi.mock("@openlfcp/client", async (original) => {
@@ -37,7 +39,13 @@ vi.mock("@openlfcp/client", async (original) => {
       return super.on(listener);
     }
   }
-  return { ...actual, SyncClient: RecordingSyncClient };
+  class RecordingOutboundQueue extends actual.OutboundQueue {
+    constructor(options: ConstructorParameters<typeof actual.OutboundQueue>[0]) {
+      queueOptions.push(options);
+      super(options);
+    }
+  }
+  return { ...actual, SyncClient: RecordingSyncClient, OutboundQueue: RecordingOutboundQueue };
 });
 
 const { saveControlChain } = await import("@openlfcp/client");
@@ -88,6 +96,19 @@ describe("LfcpRuntime session pool", () => {
     expect(r.sessions).toBe(2);
     expect(queues).toHaveLength(2);
     expect(queues[0]).not.toBe(queues[1]);
+  });
+
+  it("retries an unanswered send after 4 s, doubling up to 60 s", async () => {
+    queueOptions.length = 0;
+    const r = await LfcpRuntime.start(new Device().env(new FakeLocal()));
+    running.push(r);
+    const storage = r.storage as LfcpStorage;
+    const a = await storeResource(storage, "wss://a.example.invalid/v1/ws");
+    await r.openResource(a); // the session's queue
+    await r.cutOwnObjects(a); // the storage-only queue that discards stale items
+    expect(queueOptions).toHaveLength(2);
+    for (const options of queueOptions)
+      expect(options).toMatchObject({ requestTimeout: { baseMs: 4000, maxMs: 60_000 } });
   });
 
   it("a session's ENGINE_TRAP blocks the runtime once (needs-restart)", async () => {
