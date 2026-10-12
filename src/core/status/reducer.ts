@@ -12,6 +12,8 @@
 // to exactly the units it names, so a duplicate changes nothing and an old
 // one never clears a newer edit.
 
+import type { HeldEdits } from "./held";
+
 /** The state keys of §6. */
 export type StatusState =
   | "LOADING"
@@ -57,6 +59,8 @@ export interface ProjectionFacts {
   readonly id: string;
   readonly source: SourceFacts;
   readonly application: "current" | "patch-pending" | "blocked" | "unavailable";
+  /** Edits this projection holds back, not sent, and why (F-04). */
+  readonly held?: HeldEdits;
 }
 
 export interface ModelProblemFacts {
@@ -76,7 +80,22 @@ export interface StatusFacts {
    * "refused": the server refuses this client the Resource (LFCP-02-115) and
    * says no reason, so it is shown as refused, never as revoked or waiting.
    */
-  readonly access: "writer" | "reader" | "unavailable-key" | "unknown" | "revoked" | "refused";
+  readonly access:
+    | "writer"
+    | "reader"
+    | "unavailable-key"
+    | "unknown"
+    | "revoked"
+    /** Never a member here (another identity, a Resource not shared with it): not "revoked" (F-C05). */
+    | "not-member"
+    | "refused";
+  /**
+   * The access answer's freshness (§6, F-C05): when the Control state it
+   * comes from was verified (null: never), and whether that view is current
+   * with the server's. Absent: not known yet.
+   */
+  readonly accessVerifiedAt?: number | null;
+  readonly accessCurrent?: boolean | null;
   /** Control actions requested and not committed (SI14): shown as pending, never as done. */
   readonly pendingControl: readonly string[];
   /** The Control view is behind the server's (027): access is being checked. */
@@ -133,6 +152,11 @@ export interface StatusView {
   /** Per projection: its own state (a broken one does not drag a healthy one, SI12). */
   readonly projections: Readonly<Record<string, StatusState>>;
   readonly readOnly: boolean;
+  /**
+   * Edits held in notes, not sent (F-04): per projection, how many, why and
+   * where. While any is held the section is never shown as current.
+   */
+  readonly held: readonly HeldEdits[];
   /** The tooltip of the primary state (§6). */
   readonly label: string;
 }
@@ -172,6 +196,7 @@ export function statusView(facts: StatusFacts): StatusView {
   // 2. Access, key or control rejection; an invalid profile.
   if (
     facts.access === "revoked" ||
+    facts.access === "not-member" ||
     facts.access === "refused" ||
     facts.access === "unavailable-key"
   )
@@ -190,6 +215,9 @@ export function statusView(facts: StatusFacts): StatusView {
   for (const p of facts.projections)
     if (BROKEN_SOURCE.has(p.source))
       c.push({ kind: "source", projectionId: p.id, source: p.source });
+    // Edits held back are never current (F-04), whatever the source says.
+    else if (p.held !== undefined)
+      c.push({ kind: "source", projectionId: p.id, source: "diverged" });
   // 4. Structural or lifecycle conflicts, then scalar conflicts.
   const nodes = (kind: ModelProblemFacts["kind"]) =>
     facts.problems.filter((p) => p.kind === kind).flatMap((p) => p.nodeIds);
@@ -202,7 +230,12 @@ export function statusView(facts: StatusFacts): StatusView {
     facts.replica === "not-loaded" || facts.replica === "importing" || facts.access === "unknown";
   if (loading) c.push({ kind: "loading" });
   // Refused or removed, the Control view cannot catch up: nothing is being checked.
-  if (facts.accessChecking === true && facts.access !== "refused" && facts.access !== "revoked")
+  if (
+    facts.accessChecking === true &&
+    facts.access !== "refused" &&
+    facts.access !== "revoked" &&
+    facts.access !== "not-member"
+  )
     c.push({ kind: "access-checking" });
   const catching =
     facts.catchUp !== "current-at-checkpoint" ||
@@ -263,6 +296,7 @@ export function statusView(facts: StatusFacts): StatusView {
     projectionPaused: facts.problems.some((p) => p.kind === "structural"),
     projections,
     readOnly,
+    held: facts.projections.flatMap((p) => (p.held === undefined ? [] : [p.held])),
     label:
       c[0]?.kind === "access-checking"
         ? "Access being checked with the server"

@@ -9,7 +9,13 @@
 // lays them out.
 
 import { foldEffect, foldedRanges, unfoldEffect } from "@codemirror/language";
-import { type EditorState, type Extension, StateEffect, StateField } from "@codemirror/state";
+import {
+  EditorState,
+  type Extension,
+  StateEffect,
+  StateField,
+  type Transaction,
+} from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -18,9 +24,14 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import { toBase64url } from "@openlfcp/core";
-import { displayTooltip, type MarkdownPostProcessorContext } from "obsidian";
+import { displayTooltip, editorInfoField, type MarkdownPostProcessorContext } from "obsidian";
 import type { SectionRef } from "../core/sections/grammar";
-import { type ParsedSection, parseSections, type SectionNode } from "../core/sections/parser";
+import {
+  type ParsedSection,
+  parseSections,
+  type SectionNode,
+  type SectionScan,
+} from "../core/sections/parser";
 import { sectionPresentation } from "../core/sections/presentation";
 import { blockingSignature, nextProblem, type ProblemAt } from "../core/status/a11y";
 import {
@@ -31,6 +42,7 @@ import {
   rowCues,
   type SyncIcon,
 } from "../core/status/badge";
+import { blockingDiagnostics } from "../core/status/held";
 import type { StatusView } from "../core/status/reducer";
 
 /** A section's key: its Resource (base64url) and section ID. */
@@ -210,6 +222,36 @@ function rows(nodes: readonly SectionNode[], binding: ReadonlySet<number>): RowN
   });
 }
 
+/**
+ * The lines of section `s` in note `path` whose edits are held, not sent
+ * (F-04): rows of nodes the host found changed against their base, new rows
+ * not bound yet, and the lines that block the section (a heading inside it,
+ * a damaged binding), found in the text as it is now.
+ */
+export function heldLines(
+  view: StatusView,
+  s: ParsedSection,
+  scan: SectionScan,
+  binding: ReadonlySet<number>,
+  path: string | null,
+): number[] {
+  const held = view.held.filter((h) => path === null || h.path === path);
+  if (held.length === 0) return [];
+  const ids = new Set(held.flatMap((h) => h.nodeIds));
+  const out: number[] = blockingDiagnostics(scan, s).map((b) => b.d.line);
+  const walk = (ns: readonly RowNode[]) => {
+    for (const n of ns) {
+      if (n.id === "" || ids.has(n.id)) out.push(n.line);
+      walk(n.children);
+    }
+  };
+  walk(rows(s.nodes, binding));
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+const pathOf = (state: EditorState): string | null =>
+  state.field(editorInfoField, false)?.file?.path ?? null;
+
 function build(
   state: EditorState,
   statuses: ReadonlyMap<string, StatusView>,
@@ -246,7 +288,10 @@ function build(
       }).range(heading.to),
     );
     if (view === undefined) continue;
-    for (const [line, cue] of rowCues(view, rows(s.nodes, binding), foldedAt)) {
+    const cues = new Map(rowCues(view, rows(s.nodes, binding), foldedAt));
+    for (const line of heldLines(view, s, scan, binding, pathOf(state)))
+      cues.set(foldedAt(line) ?? line, "attention");
+    for (const [line, cue] of cues) {
       if (line + 1 > state.doc.lines) continue;
       out.push(
         Decoration.widget({ widget: new CueWidget(cue), side: 1 }).range(
@@ -282,9 +327,44 @@ interface Value {
  * The editor extension and its live editors (to send them new statuses);
  * `initial` gives the statuses known when an editor opens.
  */
+/** User edits a read-only section refuses (F-04); undo and redo stay allowed. */
+const TYPING = ["input", "delete", "move", "drop"];
+
+/**
+ * The ranges of the read-only sections a user transaction would change, as
+ * changeFilter's suppressed ranges (F-04: a read-only copy blocks typing,
+ * rather than holding edits that are never sent). Empty: nothing to stop.
+ */
+export function readOnlyRanges(
+  tr: Transaction,
+  statuses: ReadonlyMap<string, StatusView>,
+): { readonly ranges: number[]; readonly titles: string[] } {
+  if (!tr.docChanged || !TYPING.some((e) => tr.isUserEvent(e))) return { ranges: [], titles: [] };
+  const doc = tr.startState.doc;
+  const text = doc.toString();
+  if (!text.includes("lfcp-section")) return { ranges: [], titles: [] };
+  const ranges: number[] = [];
+  const titles: string[] = [];
+  for (const s of parseSections(text).sections) {
+    if (statuses.get(sectionKey(s.ref))?.readOnly !== true) continue;
+    const from = doc.line(s.heading.line + 1).from;
+    const to = doc.line(Math.min(s.endLine + 1, doc.lines)).to;
+    let touched = false;
+    tr.changes.iterChangedRanges((a, b) => {
+      if (a <= to && b >= from) touched = true;
+    });
+    if (!touched) continue;
+    ranges.push(from, to);
+    titles.push(s.heading.title);
+  }
+  return { ranges, titles };
+}
+
 export function sectionStatusExtension(
   initial: () => ReadonlyMap<string, StatusView>,
   open: OpenCard,
+  /** A user edit a read-only section stopped, with its title (said by the host). */
+  onReadOnly: (title: string) => void = () => undefined,
 ): {
   readonly extension: Extension;
   readonly views: ReadonlySet<EditorView>;
@@ -318,7 +398,15 @@ export function sectionStatusExtension(
       }
     },
   );
-  return { extension: [field, registry], views };
+  const readOnly = EditorState.changeFilter.of((tr) => {
+    const statuses = tr.startState.field(field, false)?.statuses;
+    if (statuses === undefined) return true;
+    const { ranges, titles } = readOnlyRanges(tr, statuses);
+    if (ranges.length === 0) return true;
+    for (const t of titles) queueMicrotask(() => onReadOnly(t));
+    return ranges;
+  });
+  return { extension: [field, registry, readOnly], views };
 }
 
 /**
@@ -395,16 +483,23 @@ export function sectionAtLine(
 export function sectionProblems(
   text: string,
   statuses: ReadonlyMap<string, StatusView>,
+  path: string | null = null,
 ): ProblemAt[] {
   if (!text.includes("lfcp-section")) return [];
   const binding = new Set(sectionPresentation(text).bindingLines);
   const out: ProblemAt[] = [];
-  for (const s of parseSections(text).sections) {
+  const scan = parseSections(text);
+  for (const s of scan.sections) {
     const view = statuses.get(sectionKey(s.ref));
     if (view === undefined) continue;
-    const lines = [...rowCues(view, rows(s.nodes, binding))]
-      .filter(([, cue]) => cue === "attention")
-      .map(([line]) => line);
+    const lines = [
+      ...new Set([
+        ...[...rowCues(view, rows(s.nodes, binding))]
+          .filter(([, cue]) => cue === "attention")
+          .map(([line]) => line),
+        ...heldLines(view, s, scan, binding, path),
+      ]),
+    ];
     if (lines.length === 0 && blockingSignature(view) !== null) lines.push(s.heading.line);
     for (const line of lines) out.push({ line, title: s.heading.title });
   }
@@ -438,7 +533,7 @@ export function goToNextProblem(
     view === undefined
       ? null
       : nextProblem(
-          sectionProblems(view.state.doc.toString(), statuses),
+          sectionProblems(view.state.doc.toString(), statuses, pathOf(view.state)),
           view.state.doc.lineAt(view.state.selection.main.head).number - 1,
         );
   if (view === undefined || found === null)

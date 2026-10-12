@@ -58,6 +58,8 @@ export function vault(
   options: { readonly now?: () => number } = {},
 ) {
   let unit = 0;
+  /** This vault's write access, as canWrite answers it (a test sets it with `setAccess`). */
+  let access: { allowed: boolean; reason: string | null } = { allowed: true, reason: null };
   const storage = new InMemoryLfcpStorage();
   /** The durable receipts by operation ID, as the runtime stores them (contract §3.2). */
   const receipts = new Map<string, Receipt>();
@@ -104,7 +106,7 @@ export function vault(
         return receipt;
       },
       storage,
-      canWrite: async () => ({ allowed: true, reason: null, controlHead: null, verifiedAt: null }),
+      canWrite: async () => ({ ...access, controlHead: null, verifiedAt: null }) as never,
     },
     options.now === undefined ? undefined : { now: options.now, onFlushed },
   );
@@ -154,6 +156,10 @@ export function vault(
     journal,
     bases,
     replica: (s: Shared = PLAN) => replicaOf(s.R),
+    /** This vault's write access from now on (read-only: `{ allowed: false, reason: "read-only" }`). */
+    setAccess: (a: { allowed: boolean; reason: string | null }) => {
+      access = a;
+    },
     pass,
     note: (path = PATH) => notes.get(path) ?? "",
     model: (s: Shared = PLAN) => port.snapshot(s.R, s.sid),

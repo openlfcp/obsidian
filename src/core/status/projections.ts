@@ -5,6 +5,7 @@
 // a healthy one in another note stays healthy (SI12). Pure.
 
 import type { SectionResult } from "../sections/engine";
+import { damagedHeld, type HeldEdits } from "./held";
 import type { ProjectionFacts } from "./reducer";
 
 /** A pass result as its projection's facts, and the operation it failed to save, if any. */
@@ -44,6 +45,39 @@ export class ProjectionFactsStore {
   readonly #failed = new Map<string, Map<string, string>>();
   /** The model revision each projection was last passed at, by section key. */
   readonly #revisions = new Map<string, Map<string, string>>();
+  /** What each projection holds back, by section key (F-04). */
+  readonly #held = new Map<string, Map<string, HeldEdits>>();
+
+  /** What projection `projectionId` of `key` holds back now (null: nothing). True when it changed. */
+  held(key: string, projectionId: string, h: HeldEdits | null): boolean {
+    const held = this.#held.get(key) ?? new Map<string, HeldEdits>();
+    const before = JSON.stringify(held.get(projectionId));
+    if (h === null) held.delete(projectionId);
+    else held.set(projectionId, h);
+    this.#held.set(key, held);
+    return before !== JSON.stringify(h ?? undefined);
+  }
+
+  /**
+   * After a pass of note `path`: what its projections other than `passed`
+   * held is gone (a provisional ID that got its base, a copy removed). A
+   * damaged copy's entry is damaged()'s to clear.
+   */
+  heldPassed(path: string, passed: ReadonlySet<string>): boolean {
+    let changed = false;
+    for (const held of this.#held.values())
+      for (const [id, h] of held)
+        if (h.path === path && !passed.has(id) && !id.startsWith("damaged:")) {
+          held.delete(id);
+          changed = true;
+        }
+    return changed;
+  }
+
+  /** Every held projection, by section key. */
+  allHeld(): ReadonlyMap<string, readonly HeldEdits[]> {
+    return new Map([...this.#held].map(([k, m]) => [k, [...m.values()]]));
+  }
 
   /** One pass result of the section `key`. True when something the badge shows changed. */
   note(key: string, r: SectionResult): boolean {
@@ -77,16 +111,20 @@ export class ProjectionFactsStore {
    * (C17): each is a broken projection of its section until repaired; a key
    * no longer damaged there drops it. True when something changed.
    */
-  damaged(path: string, keys: ReadonlySet<string>): boolean {
+  damaged(path: string, keys: ReadonlySet<string>, lines?: ReadonlyMap<string, number>): boolean {
     const id = `damaged:${path}`;
     let changed = false;
     for (const [key, projections] of this.#facts)
-      if (!keys.has(key) && projections.delete(id)) changed = true;
+      if (!keys.has(key) && projections.delete(id)) {
+        this.#held.get(key)?.delete(id);
+        changed = true;
+      }
     for (const key of keys) {
       const projections = this.#facts.get(key) ?? new Map<string, ProjectionFacts>();
       if (!projections.has(id)) changed = true;
       projections.set(id, { id, source: "binding-error", application: "blocked" });
       this.#facts.set(key, projections);
+      if (this.held(key, id, damagedHeld(path, id, lines?.get(key) ?? 0))) changed = true;
     }
     return changed;
   }
@@ -96,6 +134,7 @@ export class ProjectionFactsStore {
     this.#facts.get(key)?.delete(projectionId);
     this.#failed.get(key)?.delete(projectionId);
     this.#revisions.get(key)?.delete(projectionId);
+    this.#held.get(key)?.delete(projectionId);
   }
 
   /**
@@ -106,14 +145,17 @@ export class ProjectionFactsStore {
    */
   projections(key: string, revision?: string): ProjectionFacts[] {
     const passed = this.#revisions.get(key);
+    const held = this.#held.get(key);
     return [...(this.#facts.get(key)?.values() ?? [])].map((p) => {
       const at = passed?.get(p.id);
+      const h = held?.get(p.id);
+      const q = h === undefined ? p : { ...p, held: h };
       return revision !== undefined &&
         at !== undefined &&
         at !== revision &&
         p.application === "current"
-        ? { ...p, application: "patch-pending" }
-        : p;
+        ? { ...q, application: "patch-pending" }
+        : q;
     });
   }
 

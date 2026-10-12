@@ -30,12 +30,18 @@ import { scanRefs } from "../core/refs";
 import { splitLines } from "../core/refs/lines";
 import { markdownState, newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
-import { applyChanges, SectionEngine, sameState, sharedState } from "../core/sections/engine";
+import {
+  applyChanges,
+  type NotePass,
+  SectionEngine,
+  sameState,
+  sharedState,
+} from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
 import { type InsertResult, renderSection, SectionInsertion } from "../core/sections/insert";
 import { abandonOnce } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
-import { type ParsedSection, parseSections } from "../core/sections/parser";
+import { type ParsedSection, parseSections, type SectionScan } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
 import { CommitRefused, type ModelNode, type SectionSnapshot } from "../core/sections/port";
 import {
@@ -72,6 +78,13 @@ import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/a
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { collectStatuses } from "../core/status/collect";
 import { observedFacts } from "../core/status/facts";
+import {
+  damagedHeld,
+  HELD_CAUSE,
+  type HeldCause,
+  type HeldEdits,
+  heldEdits,
+} from "../core/status/held";
 import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
 import { type StatusView, statusView } from "../core/status/reducer";
 import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-status";
@@ -80,6 +93,7 @@ import { sectionEditorExtension } from "./section-editor";
 import {
   goToNextProblem,
   ReadingBadges,
+  revealLine,
   sectionAtLine,
   sectionKey,
   sectionStatusExtension,
@@ -118,7 +132,20 @@ export class SectionsHost {
   readonly status = sectionStatusExtension(
     () => this.#statuses,
     (key, title) => void this.openCard(key, title),
+    (title) => this.#readOnlyTyping(title),
   );
+  /** When a read-only section last said it stopped typing (F-04): once per few seconds. */
+  #readOnlySaid = 0;
+
+  /** Typing into a read-only section is stopped (F-04): said, at most every 5 s. */
+  #readOnlyTyping(title: string): void {
+    const now = Date.now();
+    if (now - this.#readOnlySaid < 5000) return;
+    this.#readOnlySaid = now;
+    const text = `Shared Tasks: "${title}" is read-only for you. Your typing was not applied; ask the section's owner for write access.`;
+    new Notice(text);
+    this.announce(text);
+  }
   readonly reading = new ReadingBadges(
     (key) => this.#statuses.get(key),
     (key, title) => void this.openCard(key, title),
@@ -197,11 +224,74 @@ export class SectionsHost {
           }
         }
         // C17: a copy whose boundary is damaged yields no section result; it is still a problem.
-        const damaged = new Set(parseSections(pass.source).damaged.map((d) => sectionKey(d.ref)));
-        if (this.#projectionFacts.damaged(path, damaged)) changed = true;
+        const scan = parseSections(pass.source);
+        const damaged = new Set(scan.damaged.map((d) => sectionKey(d.ref)));
+        const damagedLines = new Map(
+          scan.damaged.map((d) => [sectionKey(d.ref), d.heading?.line ?? d.startLine]),
+        );
+        if (this.#projectionFacts.damaged(path, damaged, damagedLines)) changed = true;
         if (changed) this.scheduleStatus();
+        // F-04: what each copy holds back, counted against its base.
+        void this.#noteHeld(path, pass, scan).catch((e) => this.#bookkeepingFailed(e));
       },
     });
+  }
+
+  /**
+   * F-04: each section result of a pass of `path` as the edits it holds
+   * back (counted against its base), into its projection's facts; a copy
+   * newly held says so once.
+   */
+  async #noteHeld(path: string, pass: NotePass, scan: SectionScan): Promise<void> {
+    let changed = false;
+    const passed = new Set<string>();
+    const seen = new Map<string, number>();
+    for (const r of pass.sections) {
+      const key = sectionKey(r.section);
+      // The k-th result of a section is its k-th copy in the note.
+      const k = seen.get(key) ?? 0;
+      seen.set(key, k + 1);
+      const section = scan.sections.filter((s) => sectionKey(s.ref) === key)[k];
+      if (section === undefined) continue;
+      passed.add(r.projectionId);
+      const base = (await this.#bases?.load(r.projectionId))?.state;
+      const h = heldEdits({ path, markdown: pass.source, scan, section, result: r, base });
+      if (this.#projectionFacts.held(key, r.projectionId, h)) changed = true;
+      this.#heldNotice(key, r.projectionId, section.heading.title, h);
+    }
+    if (this.#projectionFacts.heldPassed(path, passed)) changed = true;
+    for (const d of scan.damaged)
+      this.#heldNotice(
+        sectionKey(d.ref),
+        `damaged:${path}`,
+        d.heading?.title ?? "",
+        damagedHeld(path, `damaged:${path}`, d.heading?.line ?? d.startLine),
+      );
+    if (changed) this.scheduleStatus();
+  }
+
+  /** Projections whose held edits were announced, with their cause (once until they clear). */
+  readonly #heldSaid = new Map<string, HeldCause>();
+
+  /** A copy newly holding edits back says so once (F-04: no notice before). */
+  #heldNotice(key: string, projectionId: string, title: string, h: HeldEdits | null): void {
+    const id = `${key}|${projectionId}`;
+    if (h === null) {
+      this.#heldSaid.delete(id);
+      return;
+    }
+    if (this.#heldSaid.get(id) === h.cause) return;
+    this.#heldSaid.set(id, h.cause);
+    // Read-only typing is blocked and says so where it happens (section-status.ts).
+    if (h.cause === "read-only" && h.count === 0) return;
+    const what =
+      h.count === null || h.count === 0
+        ? "Edits"
+        : `${h.count} ${h.count === 1 ? "edit" : "edits"}`;
+    new Notice(
+      `Shared Tasks: ${what} in "${title}" not sent: ${HELD_CAUSE[h.cause]} (line ${h.line + 1}). Open the section's details to fix it.`,
+      10_000,
+    );
   }
 
   /** The note side of each section's status: projection facts and failed saves (SI12, SI16). */
@@ -557,6 +647,26 @@ export class SectionsHost {
       ...(content.access?.canInvite === true && this.#runtime?.sectionsReadOnly !== true
         ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
         : []),
+      // F-04: where edits are held, and the repair of that note.
+      ...(content.held[0] === undefined
+        ? []
+        : [
+            {
+              label: `Go to line ${content.held[0].line + 1}`,
+              run: () =>
+                void this.#goToLine(content.held[0]?.path ?? "", content.held[0]?.line ?? 0),
+            },
+            ...(["unsupported", "binding", "boundary", "base-unknown"].includes(
+              content.held[0].cause,
+            )
+              ? [
+                  {
+                    label: "Repair shared sections in this note",
+                    run: () => void this.#repairAt(content.held[0]?.path ?? ""),
+                  },
+                ]
+              : []),
+          ]),
       { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
       // Text kept on this device after a refusal (a local copy, never applied by itself).
       ...(kept.length > 0
@@ -1178,6 +1288,40 @@ export class SectionsHost {
     const said = goToNextProblem(cm, this.#statuses);
     if (said.found === 0) new Notice(`Shared Tasks: ${said.text}`);
     this.announce(said.text);
+  }
+
+  /** The note at `path` in an editor (opened if needed), the cursor on `line` (F-04). */
+  async #goToLine(path: string, line: number): Promise<Editor | null> {
+    let editor = this.#openEditor(path);
+    if (editor === null) {
+      const file = this.app.vault.getFileByPath(path);
+      if (file === null) {
+        new Notice("Shared Tasks: that note is no longer in the vault.");
+        return null;
+      }
+      const leaf = this.app.workspace.getLeaf(false);
+      await leaf.openFile(file);
+      editor = leaf.view instanceof MarkdownView ? leaf.view.editor : null;
+    }
+    if (editor === null) return null;
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown"))
+      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === path) {
+        this.app.workspace.setActiveLeaf(leaf, { focus: true });
+        const cm = [...this.status.views].find((v) => leaf.view.containerEl.contains(v.dom));
+        if (cm !== undefined) revealLine(cm, line);
+        else {
+          editor.setCursor({ line, ch: 0 });
+          editor.scrollIntoView({ from: { line, ch: 0 }, to: { line, ch: 0 } }, true);
+        }
+        break;
+      }
+    return editor;
+  }
+
+  /** "Repair shared sections in this note" from a card (F-04): the note opened first. */
+  async #repairAt(path: string): Promise<void> {
+    const editor = await this.#goToLine(path, this.#openEditor(path)?.getCursor().line ?? 0);
+    if (editor !== null) await this.repairNote(editor, path);
   }
 
   #openEditor(path: string): Editor | null {

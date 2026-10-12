@@ -96,6 +96,9 @@ export function observedFacts(o: ObservedSection): StatusFacts {
           : accessFact(sdk.access),
     pendingControl: sdk?.pendingControl ?? [],
     accessChecking: sdk?.accessCurrent === false,
+    ...(sdk?.access === null || sdk?.access === undefined
+      ? {}
+      : { accessVerifiedAt: sdk.access.verifiedAt ?? null, accessCurrent: sdk.accessCurrent }),
     connection: live || syncing ? "connected" : "offline",
     ...(o.refusal === null || o.refusal === undefined ? {} : { refusal: o.refusal }),
     // The SDK's catch-up fact (028); a skipped revision or a held change keeps receiving.
@@ -120,8 +123,9 @@ function accessFact(a: WriteAccess): StatusFacts["access"] {
     case "key-unavailable":
       return "unavailable-key";
     case "revoked":
-    case "not-member":
       return "revoked";
+    case "not-member":
+      return "not-member";
     case "server-refused":
       return "refused";
     default:

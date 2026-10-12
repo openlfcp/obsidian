@@ -5,6 +5,7 @@
 // as markup, so a title or a name cannot inject anything.
 
 import type { AccessView } from "./access";
+import { HELD_CAUSE, type HeldEdits, heldAdvice } from "./held";
 import type { Condition, StatusView } from "./reducer";
 
 export interface CardInput {
@@ -37,6 +38,11 @@ export interface SectionCard {
   readonly access?: AccessView;
   /** Secondary: identifiers and raw state names. */
   readonly technical: readonly string[];
+  /**
+   * Where edits are held (F-04), most edits first: the card offers "Go to
+   * line" and "Repair shared sections in this note" for the first.
+   */
+  readonly held: readonly HeldEdits[];
 }
 
 /** LFCP-02-117: from here the card suggests a new section for new material (§13.1 floor: 262,144). */
@@ -51,9 +57,11 @@ function problemText(c: Condition): string | null {
     case "access":
       return c.access === "revoked"
         ? "Your access to this section was removed. Your local copy stays; new edits are kept on this device only."
-        : c.access === "refused"
-          ? "The sync server no longer accepts changes from this vault for this section. Your local copy stays; new edits are kept on this device only. Ask the section's owner to check your access."
-          : "This device does not hold the section's key yet. Edits wait until it arrives.";
+        : c.access === "not-member"
+          ? "This vault is not a member of this section (it was not given access, or joined with another identity). Your local copy stays; new edits are kept on this device only."
+          : c.access === "refused"
+            ? "The sync server no longer accepts changes from this vault for this section. Your local copy stays; new edits are kept on this device only. Ask the section's owner to check your access."
+            : "This device does not hold the section's key yet. Edits wait until it arrives.";
     case "server-refused":
       return c.code === "RESOURCE_NOT_HOSTED"
         ? 'This section is not on its server, so nobody else gets its changes; they stay on this device. In "Resource status", choose "Host on the server now".'
@@ -83,7 +91,13 @@ function problemText(c: Condition): string | null {
 export function sectionCard(input: CardInput): SectionCard {
   const v = input.view;
   const kinds = new Set(v.conditions.map((c) => c.kind));
+  const held = [...v.held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1));
   const facts: string[] = [];
+  // F-04: edits held back come first, counted, with their cause.
+  for (const h of held)
+    facts.push(
+      `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).`,
+    );
   if (kinds.has("save-failed")) facts.push("Not all local changes are saved for sync.");
   else if (kinds.has("local-edit")) facts.push("Local changes are being processed.");
   if (v.pendingBatches > 0)
@@ -96,7 +110,7 @@ export function sectionCard(input: CardInput): SectionCard {
     const refused = v.conditions.find((c) => c.kind === "rejected");
     const n = refused?.kind === "rejected" ? refused.batchIds.length : 0;
     facts.push(`${plural(n, "refused update", "refused updates")} kept in your note, not sent.`);
-  } else if (!kinds.has("save-failed") && !kinds.has("local-edit"))
+  } else if (!kinds.has("save-failed") && !kinds.has("local-edit") && held.length === 0)
     facts.push("No local changes waiting.");
   if (kinds.has("evidence-unavailable"))
     facts.push(
@@ -110,6 +124,10 @@ export function sectionCard(input: CardInput): SectionCard {
   else if (kinds.has("offline")) facts.push("Offline: local updates wait on this device.");
   else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");
+  else if (held.length > 0)
+    facts.push(
+      "Not current: the server has not got the edits held in your note. Other changes are received as usual.",
+    );
   else
     facts.push("Current as last checked with the server. This does not mean others have seen it.");
   if (v.conditions.some((c) => c.kind === "access" && c.access === "refused"))
@@ -127,7 +145,18 @@ export function sectionCard(input: CardInput): SectionCard {
   if (input.hosting === "pending")
     facts.push("Not on its server yet: nobody can join until it is hosted.");
 
-  const problems = v.conditions.map(problemText).filter((p): p is string => p !== null);
+  // A held copy's problem says what, where and what to do; the generic text for the rest.
+  const heldBy = new Map(held.map((h) => [h.projectionId, h]));
+  const problems = v.conditions
+    .map((c) => {
+      const h = c.kind === "source" ? heldBy.get(c.projectionId) : undefined;
+      return h === undefined ? problemText(c) : heldAdvice(h);
+    })
+    .filter((p): p is string => p !== null);
+  // Held for a reason no source condition carries (read-only typing): said too.
+  for (const h of held)
+    if (!v.conditions.some((c) => c.kind === "source" && c.projectionId === h.projectionId))
+      problems.push(heldAdvice(h));
 
   const shared = [
     "Everything between this section's start and end markers is shared, including future additions.",
@@ -160,6 +189,10 @@ export function sectionCard(input: CardInput): SectionCard {
       `Resource: ${input.resource.slice(0, 12)}…`,
       `Section: ${input.sectionId}`,
       `Conditions: ${v.conditions.map((c) => c.kind).join(", ") || "none"}`,
+      ...held.map(
+        (h) => `Held: ${h.cause}${h.code === undefined ? "" : ` (${h.code})`}, ${h.path}`,
+      ),
     ],
+    held,
   };
 }
