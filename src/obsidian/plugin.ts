@@ -38,6 +38,7 @@ import {
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
+import { sdkErrorClass } from "../core/lfcp/sdk-errors";
 import { ConflictRegistry } from "../core/projection/conflicts";
 import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
 import { MutationGuard } from "../core/projection/guard";
@@ -386,6 +387,10 @@ export default class OpenLfcpPlugin extends Plugin {
       runtime.onNeedsRestart(() =>
         this.#diagnostics.add(safeEvent(Date.now(), "needs-restart", {})),
       );
+      // A connection loss finishing (not an error): its class, for a later report.
+      runtime.onLossNoise((errorClass) =>
+        this.#diagnostics.add(safeEvent(Date.now(), "connection-loss", { diagnostic: errorClass })),
+      );
       // SDK events, codes only: the frequent ones that say nothing new stay out of the bounded log.
       runtime.on((e) => {
         if (e.type === "status" || e.type === "ack") return;
@@ -395,6 +400,8 @@ export default class OpenLfcpPlugin extends Plugin {
           safeEvent(Date.now(), e.type, {
             ...outcome,
             ...(e as unknown as Record<string, unknown>),
+            // An SDK error's message is never kept: which known failure it is, only.
+            ...(e.type === "error" ? { diagnostic: sdkErrorClass(e.message) } : {}),
           }),
         );
       });

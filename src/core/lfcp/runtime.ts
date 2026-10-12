@@ -88,6 +88,7 @@ import {
 import { LIVENESS, type LivenessOptions, LivenessProbe } from "./liveness";
 import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
 import { type RestartableReconnect, restartableReconnect } from "./reconnect";
+import { lossNoise, sdkErrorClass } from "./sdk-errors";
 import { isInstallId, SlotSecretStore } from "./secrets";
 
 export interface Timers {
@@ -792,6 +793,17 @@ export class LfcpRuntime {
   #trapped: string | null = null;
   readonly #restartListeners = new Set<(message: string) => void>();
 
+  readonly #lossListeners = new Set<(errorClass: string) => void>();
+
+  /**
+   * An SDK INTERNAL error that was a connection loss finishing, not an
+   * error (sdk-errors.ts): its class only, for diagnostics.
+   */
+  onLossNoise(listener: (errorClass: string) => void): () => void {
+    this.#lossListeners.add(listener);
+    return () => this.#lossListeners.delete(listener);
+  }
+
   /** Called once if the profile engine traps and Obsidian must restart (status needs-restart). */
   onNeedsRestart(listener: (message: string) => void): () => void {
     this.#restartListeners.add(listener);
@@ -1479,7 +1491,24 @@ export class LfcpRuntime {
         // V3: no Snapshot of a section from a device where sections are read-only.
         !(this.#env.sectionsReadOnly === true && this.#sections.has(toHex(R))),
     });
+    // When this session's connection last went down (sdk-errors.ts).
+    let disconnectedAt: number | null = null;
     const unsubscribe = client.on((e) => {
+      if (e.type === "connection" && e.state === "DISCONNECTED")
+        disconnectedAt = this.#env.timers.now();
+      // The end of an ordinary connection loss is not an error event (beta.9 check).
+      if (
+        e.type === "error" &&
+        lossNoise({
+          code: e.code,
+          ready: client.connectionState === "READY",
+          now: this.#env.timers.now(),
+          disconnectedAt,
+        })
+      ) {
+        for (const l of this.#lossListeners) l(sdkErrorClass(e.message));
+        return;
+      }
       this.#onEvent(e);
       // Whether this vault may publish Snapshots, from the validated Control state.
       if (e.type === "snapshot-published") this.#ownUnits.delete(toHex(e.resourceId));
