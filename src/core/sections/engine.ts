@@ -127,6 +127,12 @@ export interface SectionResult {
   readonly reappeared?: readonly string[];
   /** Text edits held because the node's base revision is unknown. */
   readonly held: readonly string[];
+  /**
+   * Nodes whose shared Text was put back into the note after the SDK refused
+   * an edit planned on a base that drifted from the model: the note's text
+   * is kept as a local copy, the model's is shown (and nothing was sent).
+   */
+  readonly restored?: readonly string[];
   /** The base to store once the changes are written. */
   readonly base?: StoredBase;
   /** Committed operations whose bindings these changes write (resumed ones first). */
@@ -412,12 +418,33 @@ export class SectionEngine {
   async written(pass: NotePass, text: string): Promise<void> {
     const hash = contentHash(text);
     for (const r of pass.sections) {
-      if (r.base !== undefined) await this.deps.bases.save(r.projectionId, r.base);
+      if (r.base !== undefined) {
+        // A refusal reported meanwhile (drifted()) outlives this base.
+        const now = (await this.deps.bases.load(r.projectionId))?.drifted;
+        await this.deps.bases.save(
+          r.projectionId,
+          now === undefined || now.length === 0 ? r.base : { ...r.base, drifted: now },
+        );
+      }
       for (const entry of r.entries) {
         const projected = await markProjected(this.deps, entry, hash);
         await finish(this.deps, projected);
       }
     }
+  }
+
+  /**
+   * The SDK refused a Text edit of these nodes as INVALID_INTENT (at once or
+   * when a coalesced pass was flushed): the projection's base drifted from
+   * the model. The next pass shows the model's Text for them.
+   */
+  async drifted(projectionId: string, nodeIds: readonly string[]): Promise<void> {
+    const stored = await this.deps.bases.load(projectionId);
+    if (stored === undefined || nodeIds.length === 0) return;
+    await this.deps.bases.save(projectionId, {
+      ...stored,
+      drifted: [...new Set([...(stored.drifted ?? []), ...nodeIds])].sort(),
+    });
   }
 
   /**
@@ -458,6 +485,7 @@ export class SectionEngine {
     snap: SectionSnapshot | undefined,
     projectionId: string,
     ctx: PassContext,
+    healing = false,
   ): Promise<{ result: SectionResult; changes: DocChange[] }> {
     const ref = section.ref;
     const resource = toBase64url(ref.resourceId);
@@ -473,6 +501,38 @@ export class SectionEngine {
     const locator = { path, section: ref };
     const stored = await this.deps.bases.load(projectionId);
     const shared = sharedState(snap);
+    // Nodes whose base drifted from the model (drifted()): the model is
+    // authoritative, the note's text is not. Their base takes the note's Text
+    // at the model's revision, so this pass projects the model into the note:
+    // nothing is sent, nothing is deleted on a peer. The refused text stays a
+    // kept local copy (the candidate its refusal made).
+    if (!healing && stored !== undefined && (stored.drifted?.length ?? 0) > 0) {
+      const port = this.deps.port;
+      // What still waits was planned on the drifted base too: out now (a
+      // refusal is reported through onFlushed), not in front of the next edit.
+      if (port.waiting?.(resource, projectionId) !== undefined)
+        await port.flush?.(resource, projectionId);
+      const shown = markdownState(source, section).state.nodes;
+      const nodes = { ...stored.state.nodes };
+      const nodeRevisions = { ...(stored.nodeRevisions ?? {}) };
+      const restored: string[] = [];
+      for (const id of stored.drifted ?? []) {
+        const n = nodes[id];
+        const text = shown[id]?.text;
+        if (n === undefined || text === undefined) continue;
+        nodes[id] = { ...n, text };
+        nodeRevisions[id] = snap.revision;
+        restored.push(id);
+      }
+      const { drifted: _done, ...rest } = stored;
+      await this.deps.bases.save(projectionId, {
+        ...rest,
+        state: { ...stored.state, nodes },
+        nodeRevisions,
+      });
+      const again = await this.#section(path, source, section, snap, projectionId, ctx, true);
+      return restored.length === 0 ? again : { ...again, result: { ...again.result, restored } };
+    }
     if (stored === undefined) {
       // MS11, CM11: only a note that already shows the model seeds a base.
       // Otherwise its bindings are recovered but no causal base is guessed:
@@ -672,6 +732,14 @@ export class SectionEngine {
       newTask: (c, id) => this.deps.newTask(lineText0(c.line), id),
       taskIntents: fields.intents,
     });
+    // A Text edit refused as INVALID_INTENT at once: its base drifted (drifted()).
+    if (local.kind === "kept" && local.code === "INVALID_INTENT" && !healing) {
+      const ids = [...new Set(plan.textEdits.map((e) => e.nodeId))];
+      if (ids.length > 0) {
+        await this.drifted(projectionId, ids);
+        return this.#section(path, source, section, snap, projectionId, ctx);
+      }
+    }
     // Text kept after a refusal that the note now shows, and this pass synced:
     // it is in the shared state, no longer only on this device.
     if ((local.kind === "committed" || local.kind === "nothing") && held.length === 0)

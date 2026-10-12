@@ -5,6 +5,7 @@
 // structural change commits at once; a restart while one waits replans the
 // edit from the note, never loses or doubles it.
 
+import type { Flushed } from "@openlfcp/client";
 import { toBase64url } from "@openlfcp/core";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +13,7 @@ import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
 import { applyChanges, SectionEngine } from "../../../src/core/sections/engine";
 import { formatBoundary, formatNodeMarker } from "../../../src/core/sections/grammar";
+import { advance } from "../../../src/core/sections/journal";
 import {
   KeyValueSectionBaseStore,
   KeyValueSectionJournalStore,
@@ -53,6 +55,9 @@ async function setup(device = new Device(), local = new FakeLocal(), existing?: 
     );
   } else await r.openSection(R as never);
   const clock = { now: 0 };
+  /** What the host does with a coalesced pass the timer committed or that failed (default: nothing). */
+  const flushed: { fn: (f: Flushed) => void } = { fn: () => undefined };
+  const journal = new KeyValueSectionJournalStore(r.localState);
   const port = new SdkSectionPort(
     {
       profile: (res) => r.sectionProfile(res),
@@ -60,12 +65,12 @@ async function setup(device = new Device(), local = new FakeLocal(), existing?: 
       storage: r.storage as LfcpStorage,
       canWrite: (res) => r.canWriteSection(res),
     },
-    { now: () => clock.now, onFlushed: () => undefined },
+    { now: () => clock.now, onFlushed: (_r, f) => flushed.fn(f) },
   );
   let n = 10;
   const engine = new SectionEngine({
     port,
-    journal: new KeyValueSectionJournalStore(r.localState),
+    journal,
     bases: new KeyValueSectionBaseStore(r.localState),
     newNodeId: () => `0192e4a0-0000-7000-8000-${(++n).toString(16).padStart(12, "0")}`,
     newOperationId: () => `op-${++n}-${Math.random()}`,
@@ -95,7 +100,21 @@ async function setup(device = new Device(), local = new FakeLocal(), existing?: 
     ((await r.storage?.outbound.list(R as never)) ?? []).filter((i) => i.kind === "data-unit")
       .length;
   const text = () => port.snapshot(toBase64url(R as Uint8Array), SECTION)?.nodes[PARA]?.text;
-  return { r, R: R as Uint8Array, port, engine, note, pass, units, text, clock, device, local };
+  return {
+    r,
+    R: R as Uint8Array,
+    port,
+    engine,
+    journal,
+    flushed,
+    note,
+    pass,
+    units,
+    text,
+    clock,
+    device,
+    local,
+  };
 }
 
 describe("typing coalescing (025)", () => {
@@ -192,5 +211,122 @@ describe("typing coalescing (025)", () => {
     expect(env.text()).toBe(`${P}\u3000日本`);
     expect(md.split("\n").filter((l) => l.includes("日本"))).toEqual([`${P}\u3000日本`]);
     expect(md).toContain("仕事");
+  });
+});
+
+const P = "A paragraph for typing.";
+
+/**
+ * A vault in the state 0.4.0-beta.6 left after the race above (the lock
+ * off): the model holds the composed word twice, the projection's base three
+ * times. The host's handling of a failed coalesced pass is set as
+ * sections-host does it: the operation abandoned, its Text nodes drifted.
+ */
+async function drifted() {
+  const env = await setup();
+  const handled: Promise<void>[] = [];
+  env.flushed.fn = (f) => {
+    if (f.kind !== "failed") return;
+    handled.push(
+      (async () => {
+        const e = await env.journal.get(f.operationId);
+        if (e !== undefined)
+          await env.journal.put(advance(e, "abandoned", { reason: "INVALID_INTENT" }));
+        const ids = (f.intents as { intent: string; id?: string }[])
+          .filter((i) => i.intent === "text.edit")
+          .map((i) => i.id as string);
+        await env.engine.drifted("projection", ids);
+      })(),
+    );
+  };
+  await env.pass(env.note(""));
+  env.clock.now += 50;
+  await env.pass(env.note(P));
+  env.clock.now += 3000;
+  await env.port.tick(env.clock.now);
+  await env.pass(env.note(P));
+  env.clock.now += 50;
+  await env.pass(env.note(`${P}\u3000日本`));
+  const exclusive = env.port.exclusive;
+  env.port.exclusive = <T>(_r: string, fn: () => Promise<T>) => fn();
+  let ticking: Promise<void> | null = null;
+  const waiting = env.port.waiting.bind(env.port);
+  env.port.waiting = (resource: string, key: string) => {
+    const w = waiting(resource, key);
+    if (w !== undefined && ticking === null) ticking = env.port.tick(env.clock.now + 3000);
+    return w;
+  };
+  const md = await env.pass(env.note(`${P}\u3000日本\n\n仕事`));
+  await ticking;
+  env.port.exclusive = exclusive;
+  env.port.waiting = waiting;
+  expect(env.text()).toBe(`${P}\u3000日本\u3000日本`);
+  /** The host's handling of what the timer flushed is done (it starts the next pass). */
+  const idle = async () => {
+    while (handled.length > 0) await handled.shift();
+  };
+  return { env, md, idle };
+}
+
+/** Passes and timer ticks until the note settles (as the host's passes and timer do). */
+async function settle(
+  env: Awaited<ReturnType<typeof setup>>,
+  idle: () => Promise<void>,
+  md: string,
+  rounds = 4,
+) {
+  let out = md;
+  for (let k = 0; k < rounds; k++) {
+    out = await env.pass(out);
+    env.clock.now += 3000;
+    await env.port.tick(env.clock.now);
+    await idle();
+  }
+  return out;
+}
+
+const paragraph = (md: string) => md.split("\n").find((l) => l.startsWith("A paragraph"));
+
+describe("a base that drifted from the model heals (owner's IME check of 0.4.0-beta.6)", () => {
+  it("the model's Text is shown, nothing is sent or deleted, and the next edit syncs", async () => {
+    const { env, md, idle } = await drifted();
+    const units = await env.units();
+    const healed = await settle(env, idle, md);
+    expect(env.text()).toBe(`${P}\u3000日本\u3000日本`);
+    expect(paragraph(healed)).toBe(`${P}\u3000日本\u3000日本`);
+    expect(await env.units()).toBe(units);
+    const typed = healed.replace(/^(A paragraph.*)$/m, "$1 more");
+    const after = await settle(env, idle, typed);
+    expect(env.text()).toBe(`${P}\u3000日本\u3000日本 more`);
+    expect(paragraph(after)).toBe(`${P}\u3000日本\u3000日本 more`);
+  });
+
+  it("C's state: the note lost the word, the model has it twice, kept copies: the note shows the model", async () => {
+    const { env, md, idle } = await drifted();
+    for (let i = 0; i < 7; i++)
+      await env.journal.putCandidate({
+        candidateId: `beta6-${i}`,
+        projectionId: "projection",
+        reason: "rejected",
+        sourceText: `## Launch\n${P} \n`,
+      });
+    const lost = md.replace(/^(A paragraph.*)$/m, `${P} `);
+    const units = await env.units();
+    const healed = await settle(env, idle, lost, 5);
+    // Nothing deleted in the shared model: the peer keeps both words.
+    expect(env.text()).toBe(`${P}\u3000日本\u3000日本`);
+    expect(paragraph(healed)).toBe(`${P}\u3000日本\u3000日本`);
+    expect(await env.units()).toBe(units);
+    // The kept copies stay listed, not applied.
+    const kept = await env.journal.candidates("projection");
+    expect(kept.filter((c) => c.candidateId.startsWith("beta6-"))).toHaveLength(7);
+    // A pass now finds nothing to send or to heal.
+    const p = await env.engine.pass("L.md", healed, {
+      caretLine: null,
+      deletedIds: new Set(),
+      origin: "other",
+    });
+    expect(p.changes).toEqual([]);
+    expect(p.sections[0]?.local?.kind ?? "nothing").toBe("nothing");
   });
 });

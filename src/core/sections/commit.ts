@@ -88,8 +88,8 @@ export type PassOutcome =
       readonly receipt: Receipt;
       readonly ids: Readonly<Record<number, string>>;
     }
-  /** Not sent: kept locally with why (read-only, revoked, refused). */
-  | { readonly kind: "kept"; readonly candidate: PendingCandidate }
+  /** Not sent: kept locally with why (read-only, revoked, refused: then the refusal's code). */
+  | { readonly kind: "kept"; readonly candidate: PendingCandidate; readonly code?: string }
   /** STALE_BASE: plan again from a new snapshot (§7.5). */
   | { readonly kind: "stale" }
   /** The section is still importing (§4.3): nothing is created in it. */
@@ -281,7 +281,7 @@ async function refused(
     error.code !== "NOT_WRITABLE" ? "rejected" : deniedReason(error.access),
   );
   await deps.journal.putCandidate(kept);
-  return { kind: "kept", candidate: kept };
+  return { kind: "kept", candidate: kept, code: error.code };
 }
 
 /**

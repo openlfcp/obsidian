@@ -180,6 +180,16 @@ export class SectionsHost {
           if (r.local?.kind === "committed")
             for (const i of r.local.entry.intents ?? [])
               if (i.intent === "node.restore") this.#restoreHere.delete(i.id);
+          if ((r.restored?.length ?? 0) > 0) {
+            const title = this.#port?.snapshot(
+              toBase64url(r.section.resourceId),
+              r.section.sectionId,
+            )?.title;
+            new Notice(
+              `Shared Tasks: after a sync error, the shared text of "${title ?? "a shared section"}" was put back into this note. Check the section; your earlier text is kept as a local copy.`,
+              12_000,
+            );
+          }
         }
         // C17: a copy whose boundary is damaged yields no section result; it is still a problem.
         const damaged = new Set(parseSections(pass.source).damaged.map((d) => sectionKey(d.ref)));
@@ -692,7 +702,10 @@ export class SectionsHost {
         this.scheduleStatus();
         return { items: this.#recoveryItems(key).filter((i) => i.key !== item.key), note };
       }
-      const out = await applyRecovery(port, b64, sectionId, item, choice, crypto.randomUUID());
+      // Alone, as a pass: no coalesced pass is committed in the middle of it.
+      const out = await port.exclusive(b64, () =>
+        applyRecovery(port, b64, sectionId, item, choice, crypto.randomUUID()),
+      );
       if (out.applied) this.scheduleStatus();
       return out;
     }).open();
@@ -801,16 +814,29 @@ export class SectionsHost {
               .map((l) => l.text + l.eol)
               .join(""),
           });
-        this.scheduleStatus();
-        return;
+        // INVALID_INTENT: the Text edit was planned on a base that drifted
+        // from the model (0.4.0-beta.6). The next pass shows the model's Text
+        // for its nodes (SectionEngine.drifted), so a pass runs now.
+        if (refusal.code !== "INVALID_INTENT") {
+          this.scheduleStatus();
+          return;
+        }
+        const ids = (
+          (entry.intents ?? f.intents) as readonly {
+            readonly intent: string;
+            readonly id?: string;
+          }[]
+        ).flatMap((i) => (i.intent === "text.edit" && i.id !== undefined ? [i.id] : []));
+        await this.#engine?.drifted(entry.projectionId, ids);
+      } else {
+        await journal.put(advance(entry, "abandoned", { reason: "flush-failed" }));
+        if (base !== undefined)
+          this.#projectionFacts.fail(
+            sectionKey(base.locator.section),
+            entry.projectionId,
+            entry.operationId,
+          );
       }
-      await journal.put(advance(entry, "abandoned", { reason: "flush-failed" }));
-      if (base !== undefined)
-        this.#projectionFacts.fail(
-          sectionKey(base.locator.section),
-          entry.projectionId,
-          entry.operationId,
-        );
     }
     if (path === undefined) return;
     if (this.#openEditor(path) !== null) this.editor.remoteChanged(path);

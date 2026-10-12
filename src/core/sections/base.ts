@@ -367,6 +367,12 @@ export interface StoredBase {
    * yet), so the node's Text edits wait until it is projected.
    */
   readonly nodeRevisions?: Readonly<Record<string, string | null>>;
+  /**
+   * Nodes whose Text edit the SDK refused as INVALID_INTENT: the base's Text
+   * drifted from the model (0.4.0-beta.6, a coalesced pass sent twice). The
+   * next pass takes the model's Text for them (SectionEngine.drifted).
+   */
+  readonly drifted?: readonly string[];
 }
 
 /** Bases by projection ID (local state, never synced; OP-24). */
