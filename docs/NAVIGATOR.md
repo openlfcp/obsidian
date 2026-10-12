@@ -32,6 +32,7 @@
 | [devel/reports/sections-fixtures-and-privacy.md](devel/reports/sections-fixtures-and-privacy.md) | developers | LFCP-02-047 evidence: the Markdown fixture corpus through the product adapter (48/48, also by the spec's verifier), what it changed, the shared plaintext checks |
 | [devel/release.md](devel/release.md) | release | Releasing the plugin: the bare version tag, the release workflow, the owner's tag and BRAT steps (POST-011) |
 | [devel/community-submission.md](devel/community-submission.md) | release | Draft community directory submission: the community-plugins.json entry, the PR text, the owner's checklist (POST-011) |
+| [releases/0.4.0-beta.5.md](releases/0.4.0-beta.5.md) | everyone | Release notes of Shared Tasks 0.4.0-beta.5: a change is sent again 4 s after a lost confirmation, not 10 s, SDK 0.2.0-beta.5 and baseline.10 |
 | [releases/0.4.0-beta.4.md](releases/0.4.0-beta.4.md) | everyone | Release notes of Shared Tasks 0.4.0-beta.4: keep a task changed or moved under a deletion deleted, SDK 0.2.0-beta.4 and baseline.9 |
 | [releases/0.4.0-beta.3.md](releases/0.4.0-beta.3.md) | everyone | Release notes of Shared Tasks 0.4.0-beta.3: a move against a delete asks to restore, paste into another section makes a copy, reconnect when the network is back, SDK 0.2.0-beta.3 and baseline.8 |
 | [releases/0.4.0-beta.2.md](releases/0.4.0-beta.2.md) | everyone | Release notes of Shared Tasks 0.4.0-beta.2: moving a task by cut and paste keeps it, the conflicts it can raise, SDK 0.2.0-beta.2 and baseline.6, BRAT install and update |
