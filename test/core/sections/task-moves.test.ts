@@ -382,3 +382,82 @@ describe("moving one Task in two vaults offline", () => {
     }
   });
 });
+
+// The owner's check of 0.4.0-beta.9, step 6 again: the LAST Task moved ONE
+// place up (cut with its ref line, pasted at the start of the previous Task
+// line) in C while B moves it to the section's start, both offline. Without
+// a hint the swap went to the neighbour ("仕事終わり" moved down), B's move
+// won and C's was lost silently. The hint now also comes from the paste
+// itself (the bindings it inserted), whatever became of the cut.
+describe("the last Task one place up against a concurrent move (beta.9 step 6)", () => {
+  const NINE = [
+    "- [ ] Gamma",
+    "- [ ] Alpha",
+    "- [ ] Beta",
+    "- [ ] テスト",
+    "- [ ] 仕事終わり",
+    "- [ ] omega",
+  ];
+  /** `md` with the Task `title` (and its ref) put before the Task `before` (null: the first Task). */
+  const moveBefore = (md: string, title: string, before: string | null) => {
+    const L = lines(md);
+    const [f, t] = block(md, title);
+    const moved = L.slice(f, t);
+    const rest = [...L.slice(0, f), ...L.slice(t)];
+    const at =
+      before === null
+        ? rest.findIndex((l) => l.startsWith("- [ ]"))
+        : rest.findIndex((l) => l.includes(`[ ] ${before}`));
+    return [...rest.slice(0, at), ...moved, ...rest.slice(at)].join("\n");
+  };
+  const titles = (v: Vault) =>
+    lines(v.note())
+      .filter((l) => l.startsWith("- [ ]"))
+      .map((l) => l.slice(6));
+
+  type Hints = { deletedIds?: Set<string>; cut?: Set<string>; inserted?: Set<string> };
+  const cases: [string, Hints | null, Hints][] = [
+    ["one pass, the cut seen", null, { deletedIds: new Set(["ω"]), cut: new Set(["ω"]) }],
+    ["one pass, only the paste seen", null, { inserted: new Set(["ω"]) }],
+    [
+      "two passes, the cut seen",
+      { deletedIds: new Set(["ω"]), cut: new Set(["ω"]) },
+      { cut: new Set(["ω"]) },
+    ],
+    [
+      "two passes, the cut taken for a deletion",
+      { deletedIds: new Set(["ω"]) },
+      { inserted: new Set(["ω"]) },
+    ],
+    ["two passes, the cut not seen at all", {}, { inserted: new Set(["ω"]) }],
+  ];
+  for (const [name, first, second] of cases)
+    it(`${name}: a PLACEMENT_CONFLICT on both sides, never the neighbour's move`, async () => {
+      const { a: c, b } = await twoVaults(NINE);
+      const omega = taskId(c.note(), "omega");
+      const real = (h: Hints) =>
+        Object.fromEntries(
+          Object.entries(h).map(([k, v]) => [k, new Set([...v].map(() => omega))]),
+        );
+      const md = c.note();
+      if (first !== null) await c.pass(cut(md, "omega"), real(first));
+      await c.pass(moveBefore(md, "omega", "仕事終わり"), real(second));
+      expect(titles(c).map((t) => t.replace(/ <!--.*$/, ""))).toEqual([
+        "Gamma",
+        "Alpha",
+        "Beta",
+        "テスト",
+        "omega",
+        "仕事終わり",
+      ]);
+      expect(active(c, omega)).toBe(true);
+      const ids = new Set([omega]);
+      await b.pass(moveBefore(b.note(), "omega", null), { deletedIds: ids, cut: ids });
+      await reconnect(c, b);
+      for (const v of [c, b]) {
+        expect(placementConflict(v, omega)).toBe(true);
+        expect(v.model()?.problems.map((p) => p.code)).toEqual(["PLACEMENT_CONFLICT"]);
+        expect(count(v.note(), "omega")).toBe(1);
+      }
+    });
+});

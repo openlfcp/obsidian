@@ -91,6 +91,15 @@ export interface PassContext {
    */
   readonly cut?: ReadonlySet<string>;
   /**
+   * Bound nodes whose binding the user's own transactions inserted since the
+   * last pass (a paste, a drop, Move line): the user put them where the note
+   * shows them, so a one-place swap is theirs to have moved, not the
+   * neighbour's, and one deleted in the model is restored there, as a paste
+   * of the cut is. Unlike `cut`, it does not depend on the cut being seen as
+   * one (the owner's check of 0.4.0-beta.9, step 6).
+   */
+  readonly inserted?: ReadonlySet<string>;
+  /**
    * Nodes the user chose to restore where the note shows them (Review
    * conflicts: a node back in the note while deleted in the model). Restored
    * and placed as a paste of the cut is.
@@ -710,12 +719,12 @@ export class SectionEngine {
       baseState,
       note.state,
       shared,
-      new Set([...(ctx.cut ?? []), ...ctx.deletedIds]),
+      new Set([...(ctx.cut ?? []), ...ctx.deletedIds, ...(ctx.inserted ?? [])]),
     );
     const reappeared = Object.keys(note.state.nodes).filter(
       (id) => snap.nodes[id]?.lifecycle === "deleted",
     );
-    const here = new Set([...(ctx.cut ?? []), ...(ctx.restore ?? [])]);
+    const here = new Set([...(ctx.cut ?? []), ...(ctx.restore ?? []), ...(ctx.inserted ?? [])]);
     const comp = compensate(ctx.origin, plan.missing, reappeared, this.#ledger, here);
     const pasted = comp.restores.filter((id) => here.has(id));
     const deletes = [

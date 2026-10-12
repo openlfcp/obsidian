@@ -78,6 +78,17 @@ function removedWithEveryLine(tr: Transaction): string[] {
   return out;
 }
 
+/** The bound nodes whose binding comments a transaction inserted (a paste, a drop, Move line). */
+function insertedBindings(tr: Transaction): string[] {
+  const out: string[] = [];
+  tr.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
+    const text = inserted.toString();
+    if (!text.includes("lfcp-")) return;
+    for (const m of text.matchAll(BINDING_ID)) if (m[1] !== undefined) out.push(m[1]);
+  });
+  return out;
+}
+
 /** IDs in the binding comments of a removed text: node markers and Task refs. */
 const BINDING_ID =
   /<!--[ \t]+(?:lfcp-node:[ \t]*(?:paragraph|item|raw):|lfcp-ref:[^>]*#task:)[ \t]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/g;
@@ -115,6 +126,8 @@ interface ViewState {
   readonly id: string;
   readonly scheduler: ReconcileScheduler;
   deletedIds: Set<string>;
+  /** Bound nodes whose bindings the user's transactions inserted since the last pass. */
+  inserted: Set<string>;
   origin: ChangeOrigin;
   /** A transaction without a userEvent (another plugin's edit) since the last pass. */
   external: boolean;
@@ -190,6 +203,8 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     status(req.path, "reconciling");
     const deletedIds = st.deletedIds;
     st.deletedIds = new Set();
+    const inserted = st.inserted;
+    st.inserted = new Set();
     const caret = view.hasFocus
       ? view.state.doc.lineAt(view.state.selection.main.head).number - 1
       : null;
@@ -199,6 +214,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       origin: st.origin,
       external: st.external,
       cut,
+      inserted,
       ...(o.restore === undefined ? {} : { restore: o.restore() }),
     };
     st.origin = "other";
@@ -209,6 +225,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       // A composition opened during the pass: its result waits (the pass runs again after it).
       engine.abandoned(pass);
       for (const id of deletedIds) st.deletedIds.add(id);
+      for (const id of inserted) st.inserted.add(id);
       st.scheduler.defer();
       return;
     }
@@ -216,6 +233,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       // The user typed meanwhile: nothing is written; the pass runs again on the new document.
       engine.abandoned(pass);
       for (const id of deletedIds) st.deletedIds.add(id);
+      for (const id of inserted) st.inserted.add(id);
       coordinator.editorChanged(req.path, current);
       return;
     }
@@ -255,6 +273,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
           },
         ),
         deletedIds: new Set(),
+        inserted: new Set(),
         origin: "other",
         external: false,
       };
@@ -284,6 +303,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         if (origin !== "other") this.st.origin = origin;
         const removed = removedWithEveryLine(tr);
         for (const id of removed) this.st.deletedIds.add(id);
+        for (const id of insertedBindings(tr)) this.st.inserted.add(id);
         if (tr.isUserEvent("delete.cut")) cut = new Set(removed);
       }
       if (edited) this.st.scheduler.edit(this.view.composing);
