@@ -84,10 +84,12 @@ export function vault(
   let node = firstNode;
   let op = 0;
   let projection = 0;
+  const journal = new MemorySectionJournalStore();
+  const bases = new MemorySectionBaseStore();
   const engine = new SectionEngine({
     port,
-    journal: new MemorySectionJournalStore(),
-    bases: new MemorySectionBaseStore(),
+    journal,
+    bases,
     newNodeId: () => id(node++),
     newOperationId: () => `${name}-op-${++op}`,
     createdBy: me,
@@ -111,6 +113,9 @@ export function vault(
   };
   return {
     replicas,
+    /** The engine's stores, to set up a persisted state. */
+    journal,
+    bases,
     replica: (s: Shared = PLAN) => replicaOf(s.R),
     pass,
     note: (path = PATH) => notes.get(path) ?? "",

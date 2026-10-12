@@ -511,6 +511,12 @@ export class SectionEngine {
     //    unfinished: their batch is in the base, their new nodes get the
     //    IDs already allocated (matched by content), never new ones.
     let baseState = stored.state;
+    /**
+     * The revision a resumed batch left its nodes at: their base Text now
+     * includes it, so a Text edit planned on it goes against that revision,
+     * not the stored one (a coalesced pass the timer committed, 025).
+     */
+    const resumedRevisions = new Map<string, string>();
     const entries: JournalEntry[] = [];
     const resumed: NewBinding[] = [];
     const used = new Set<number>();
@@ -539,6 +545,7 @@ export class SectionEngine {
           changes: [],
         };
       if (r.kind !== "project") continue;
+      for (const id of r.receipt.affectedNodeIds) resumedRevisions.set(id, r.receipt.modelRevision);
       const found = relocate(r.entry.intents ?? [], unbound0, used, (l) => {
         const text = sourceLines[l]?.text ?? "";
         return this.deps.newTask(text, "relocate").title;
@@ -588,8 +595,17 @@ export class SectionEngine {
         result: { projectionId, section: ref, lost, held: [], entries },
         changes: resumedChanges,
       };
-    const revisionOf = (id: string) =>
-      stored.nodeRevisions?.[id] === undefined ? stored.revision : stored.nodeRevisions[id];
+    const revisionOf = (id: string) => {
+      // The model's Text is the base's now: an edit planned on it goes against
+      // the model as it is. This also heals a base whose stored revision fell
+      // behind its Text (0.4.0-beta.5: every edit of the node refused).
+      const now = shared.nodes[id]?.text;
+      if (now !== undefined && now === baseState.nodes[id]?.text) return snap.revision;
+      return (
+        resumedRevisions.get(id) ??
+        (stored.nodeRevisions?.[id] === undefined ? stored.revision : stored.nodeRevisions[id])
+      );
+    };
     const held = plan.textEdits.filter((e) => revisionOf(e.nodeId) === null).map((e) => e.nodeId);
     const fields = planTaskFields(
       note.state,
@@ -637,6 +653,12 @@ export class SectionEngine {
       newTask: (c, id) => this.deps.newTask(lineText0(c.line), id),
       taskIntents: fields.intents,
     });
+    // Text kept after a refusal that the note now shows, and this pass synced:
+    // it is in the shared state, no longer only on this device.
+    if ((local.kind === "committed" || local.kind === "nothing") && held.length === 0)
+      for (const c of await this.deps.journal.candidates(projectionId))
+        if (c.reason === "rejected" && c.sourceText === sourceText)
+          await this.deps.journal.resolveCandidate(c.candidateId);
     const resumedBase: StoredBase = {
       locator,
       state: baseState,
