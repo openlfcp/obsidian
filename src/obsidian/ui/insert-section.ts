@@ -68,7 +68,7 @@ export class InsertSectionModal extends Modal {
     });
     if (this.preview.readOnly)
       el.createEl("p", {
-        text: "You can read this section but not edit it: changes you make here stay on this device.",
+        text: "You can read this section but not edit it: typing in it is not applied, and edits made to the note by other means stay on this device.",
         cls: "setting-item-description",
       });
     el.createDiv({ text: this.preview.block, cls: "openlfcp-share-content" });

@@ -110,7 +110,11 @@ first from "Resource status"."
 
 Bob's other text in that note stays private: only the section is shared.
 A reader (Read only) sees "You can read this section but not edit it:
-changes you make here stay on this device."
+typing in it is not applied, and edits made to the note by other means
+stay on this device." Typing into a read-only section is stopped, and a
+notice says so; an edit that reaches the note another way (another
+plugin, a file sync tool) stays in the note, is not sent, and the
+section's details count it (see "Edits not sent" below).
 
 ## 5. Work in it together
 
@@ -163,6 +167,27 @@ Run **"Open shared section details"**, or click the icon. The card shows:
   status".
 
 **"Name…"** gives a person a local name that only you see.
+
+### Edits not sent
+
+Some edits cannot be sent as they are: a heading typed inside the section
+(sections hold no headings), a damaged marker or task line, or an edit in
+a section you can only read. Then nothing of that copy is sent until it
+is put right, and Shared Tasks says so:
+
+- a notice, once: `2 edits in "…" not sent: the section has content it
+  cannot share (line 12). Open the section's details to fix it.`;
+- the icon shows "Needs your attention", and the lines concerned show
+  "Needs attention";
+- the details say how many edits are held and why, for example `2 edits
+  not sent: the section has content it cannot share (Plan.md, line 12).`,
+  what to do about it, and never "No local changes waiting" or "Current as
+  last checked" while an edit is held. **"Go to line …"** takes you
+  there, and **"Repair shared sections in this note"** is offered when a
+  repair can help.
+
+Undo the edit, or move the heading below the section's end, and the
+section syncs again.
 
 ## 6. Offline
 
