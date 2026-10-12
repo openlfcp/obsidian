@@ -15,6 +15,14 @@ const CONTROL = `CONTROL_${Math.random().toString(36).slice(2)}_${Date.now().toS
 
 describe("local state encrypted at rest (LFCP-02-098)", () => {
   it("no IndexedDB file holds a shared Task's title; an unsealed control is found", async () => {
+    // The plugin's runtime starts after Obsidian is up: the first step needs it.
+    await browser.waitUntil(
+      () =>
+        browser.executeObsidian(
+          ({ app }) => app.plugins.plugins["shared-tasks"]?.runtime?.status.kind === "ready",
+        ),
+      { timeout: 10_000, timeoutMsg: "the runtime ready" },
+    );
     await browser.executeObsidian(
       async ({ app, obsidian }, canary, url, name) => {
         // Obsidian's File recovery snapshots note text into the same IndexedDB
