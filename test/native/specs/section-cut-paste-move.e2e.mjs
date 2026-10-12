@@ -8,6 +8,8 @@ import { peer, restartableServer } from "../peer.bundle.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
+// Cmd on macOS, Ctrl elsewhere: Meta does not cut or paste on Linux.
+const mod = process.platform === "darwin" ? "Meta" : "Control";
 const NOTE = [
   "PRIVATE-A",
   "",
@@ -158,14 +160,14 @@ describe("a Task cut and pasted one place up while the other vault moves it (ste
       view.editor.focus();
       view.editor.setSelection({ line: at, ch: 0 }, { line: at + 2, ch: 0 });
     });
-    await browser.keys(["Meta", "x"]);
+    await browser.keys([mod, "x"]);
     await browser.pause(100);
     await inA(({ app, obsidian }) => {
       const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
       const at = view.editor.getValue().split("\n").findIndex((l) => l.includes("[ ] Write the brief"));
       view.editor.setCursor({ line: at + 2, ch: 0 });
     });
-    await browser.keys(["Meta", "v"]);
+    await browser.keys([mod, "v"]);
     await browser.pause(2500);
     const localA = titles(await noteA());
     expect(localA.slice(0, 2)).toEqual(["Write the brief", "Send to the client"]);
