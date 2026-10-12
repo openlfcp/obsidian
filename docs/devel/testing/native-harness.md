@@ -102,6 +102,7 @@ touch it either.
 | `specs/section-preview.e2e.mjs` | The shared sections preview in Shared Tasks itself (sections on, real SDK, no server): a section Resource created and its section committed locally; typing in a note becomes a commit in the section's replica and the new paragraph's marker is written; the flag is switched off again; "Share section…" shows exactly the range under the heading, private text outside, and a heading inside disables Share |
 | `specs/baseline-0.3.e2e.mjs` | Baselines of the 0.3 plugin: start, "Share selected tasks" with 200 Tasks, edit → queued, change → render. Prints `METRIC {…}` lines; results in [obsidian-host-facts.md](obsidian-host-facts.md) |
 | `specs/section-cut-paste-move.e2e.mjs` | Two-Obsidian check step 6 (0.4.0-beta.5): A, offline, cuts a Task and pastes it one place up within one pass (real Cmd+X, Cmd+V); the headless peer moves it last; after reconnecting both report one placement conflict, on that Task. Reference server at `LFCP_SERVER_BIN`. |
+| `specs/section-ime.e2e.mjs` | IME in a shared section (owner check B13): a simulated composition (compositionstart/end, composed edits) in real Obsidian commits nothing while open, then the composed word and its deletion sync: no refused Text edit, no LOCAL_SAVE_FAILED. Reference server at `LFCP_SERVER_BIN`. |
 
 Each run also installs the Obsidian Tasks plugin 8.4.0 (released
 2026-08-25) **disabled**; only `specs/tasks-plugin.e2e.mjs` enables it, so
