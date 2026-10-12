@@ -36,7 +36,11 @@ export function recoveryOptions(item: RecoveryItem): {
     case "placement":
       return {
         question: `This item's location needs a choice: ${item.label} was moved to two places.`,
-        choices: item.choices.map((c) => ({ label: c.label, choice: { parent: c.parent } })),
+        choices: item.choices.map((c) => ({
+          label: c.label,
+          choice:
+            c.after === undefined ? { parent: c.parent } : { parent: c.parent, after: c.after },
+        })),
       };
     case "cycle":
       return {

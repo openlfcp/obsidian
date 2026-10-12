@@ -23,13 +23,20 @@ export type RecoveryItem =
       readonly field: string;
       readonly values: readonly string[];
     }
-  /** A node placed in two places at once (§7.2): which parent. */
+  /**
+   * A node placed in two places at once (§7.2): which place, a parent and
+   * the shown sibling it follows (null: first), labelled by that position.
+   */
   | {
       readonly kind: "placement";
       readonly key: string;
       readonly nodeId: string;
       readonly label: string;
-      readonly choices: readonly { readonly parent: string; readonly label: string }[];
+      readonly choices: readonly {
+        readonly parent: string;
+        readonly after?: string | null;
+        readonly label: string;
+      }[];
     }
   /** Nodes whose parents form a cycle (§7.4): which one moves out, to the section's top level. */
   | {
@@ -83,9 +90,25 @@ export interface RecoveryModel {
     SectionTree,
     "recovery" | "candidates" | "scalarConflicts" | "retainedConcurrentEdits"
   >;
-  readonly snapshot: Pick<SectionSnapshot, "nodes" | "title">;
+  readonly snapshot: Pick<SectionSnapshot, "nodes" | "title"> &
+    Partial<Pick<SectionSnapshot, "order">>;
   /** A Task's title as the model holds it, for labels. */
   readonly taskTitle: (taskId: string) => string | undefined;
+  /**
+   * The section's document as JSON (SectionReplica.toJSON): where in its
+   * parent's children each candidate placement is. Without it a placement
+   * is named by its parent only.
+   */
+  readonly document?: () => unknown;
+}
+
+/** What of the document's JSON the placements' positions are read from (§3, §4). */
+interface DocumentShape {
+  readonly section?: { readonly children?: readonly string[] };
+  readonly nodes?: Readonly<
+    Record<string, { readonly children?: readonly string[]; readonly placement?: string }>
+  >;
+  readonly placements?: Readonly<Record<string, { readonly node_id?: string }>>;
 }
 
 const KIND_WORD: Readonly<Record<string, string>> = {
@@ -112,6 +135,79 @@ function labelOf(m: RecoveryModel, id: string, withParent = true): string {
 
 const parentLabel = (m: RecoveryModel, parent: string) =>
   parent === m.sectionId ? "The section's top level" : `Under ${labelOf(m, parent)}`;
+
+/**
+ * Where a candidate placement of `nodeId` is: the nearest shown siblings
+ * before and after its entry in its parent's merged children list (§7: the
+ * list's order, not IDs or times). Another node's entry counts only when it
+ * is that node's selected placement and the node is shown under the parent.
+ */
+function positionOf(
+  m: RecoveryModel,
+  doc: DocumentShape,
+  nodeId: string,
+  c: { readonly placement: string; readonly parent: string },
+): { readonly after: string | null; readonly before: string | null } {
+  const list =
+    (c.parent === m.sectionId ? doc.section?.children : doc.nodes?.[c.parent]?.children) ?? [];
+  const shown = new Set(
+    (m.snapshot.order ?? []).filter((e) => e.parent === c.parent).map((e) => e.id),
+  );
+  const sibling = (entry: string | undefined) => {
+    const n = entry === undefined ? undefined : doc.placements?.[entry]?.node_id;
+    return n !== undefined && n !== nodeId && shown.has(n) && doc.nodes?.[n]?.placement === entry
+      ? n
+      : undefined;
+  };
+  const at = list.indexOf(c.placement);
+  let after: string | null = null;
+  for (let k = at - 1; at >= 0 && k >= 0 && after === null; k--) after = sibling(list[k]) ?? null;
+  let before: string | null = null;
+  for (let k = at + 1; at >= 0 && k < list.length && before === null; k++)
+    before = sibling(list[k]) ?? null;
+  return { after, before };
+}
+
+/**
+ * The candidates of a placement conflict, each named by its position: "First
+ * in the section", 'After Task "First task"', under a parent its path. Two
+ * that read the same add the sibling they precede, then their order.
+ */
+function placementChoices(
+  m: RecoveryModel,
+  nodeId: string,
+  candidates: readonly { readonly placement: string; readonly parent: string }[],
+): { parent: string; after?: string | null; label: string }[] {
+  const doc = m.document?.() as DocumentShape | undefined;
+  if (doc === undefined)
+    return candidates.map((c) => ({ parent: c.parent, label: parentLabel(m, c.parent) }));
+  const name = (id: string) => labelOf(m, id, false);
+  const out = candidates.map((c) => {
+    const { after, before } = positionOf(m, doc, nodeId, c);
+    const top = c.parent === m.sectionId;
+    const where =
+      after === null
+        ? top
+          ? "First in the section"
+          : `First under ${labelOf(m, c.parent)}`
+        : top
+          ? `After ${name(after)}`
+          : `Under ${labelOf(m, c.parent)}, after ${name(after)}`;
+    const end = before === null ? "last" : `before ${name(before)}`;
+    return { parent: c.parent, after, where, end };
+  });
+  const count = (f: (o: (typeof out)[number]) => string, o: (typeof out)[number]) =>
+    out.filter((x) => f(x) === f(o)).length;
+  return out.map((o, k) => {
+    const label =
+      count((x) => x.where, o) === 1
+        ? o.where
+        : count((x) => `${x.where}, ${x.end}`, o) === 1
+          ? `${o.where}, ${o.end}`
+          : `${o.where}, ${o.end} (${k + 1})`;
+    return { parent: o.parent, after: o.after, label };
+  });
+}
 
 /** The recovery items of a section, in a stable order (by node ID, for presentation only). */
 export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
@@ -142,10 +238,7 @@ export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
         nodeId: r.id,
         // Its parent is what is in question: no provisional one in its label.
         label: labelOf(m, r.id, false),
-        choices: (m.tree.candidates.get(r.id) ?? []).map((c) => ({
-          parent: c.parent,
-          label: parentLabel(m, c.parent),
-        })),
+        choices: placementChoices(m, r.id, m.tree.candidates.get(r.id) ?? []),
       });
     else if (r.code === "PARENT_CYCLE") cycle.push({ nodeId: r.id, label: labelOf(m, r.id) });
     else if (r.code === "LIFECYCLE_CONFLICT")
@@ -218,7 +311,7 @@ export function reappearedItems(m: RecoveryModel, ids: Iterable<string>): Recove
 /** A choice for an item: a value, a parent, a cycle member, keep/delete, or restore. */
 export type RecoveryChoice =
   | { readonly value: string }
-  | { readonly parent: string }
+  | { readonly parent: string; readonly after?: string | null }
   | { readonly move: string }
   | { readonly keep: boolean }
   | { readonly restore: true };
@@ -244,12 +337,27 @@ export function resolution(
           } as unknown as SectionIntent,
         ];
       break;
-    case "placement":
-      if ("parent" in choice && item.choices.some((c) => c.parent === choice.parent))
+    case "placement": {
+      // A choice by parent alone takes that parent's first candidate's place.
+      const c =
+        "parent" in choice
+          ? item.choices.find(
+              (c) =>
+                c.parent === choice.parent &&
+                (choice.after === undefined || (c.after ?? null) === choice.after),
+            )
+          : undefined;
+      if (c !== undefined)
         return [
-          { intent: "node.resolve_placement", id: item.nodeId, parent: choice.parent, after: null },
+          {
+            intent: "node.resolve_placement",
+            id: item.nodeId,
+            parent: c.parent,
+            after: c.after ?? null,
+          },
         ];
       break;
+    }
     case "cycle":
       if ("move" in choice && item.members.some((m) => m.nodeId === choice.move))
         return [

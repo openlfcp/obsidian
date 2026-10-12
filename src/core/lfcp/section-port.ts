@@ -132,6 +132,7 @@ export class SdkSectionPort implements SectionPort {
       tree: replica.tree(),
       snapshot: this.#replicaSnapshot(replica),
       taskTitle: (taskId) => replica.task(taskId)?.task?.title,
+      document: () => replica.toJSON(),
     };
   }
 

@@ -82,6 +82,7 @@ const model = (r: SectionReplica) => ({
   tree: r.tree(),
   snapshot: r.snapshot(),
   taskTitle: (taskId: string) => r.task(taskId)?.task?.title,
+  document: () => r.toJSON(),
 });
 
 const kinds = (items: readonly RecoveryItem[]) => items.map((i) => i.kind).sort();
@@ -112,7 +113,10 @@ describe("recovery items (061)", () => {
     expect(placement).toMatchObject({ nodeId: X, label: 'Paragraph "Draft"' });
     expect(placement?.kind === "placement" && placement.choices.map((c) => c.label).sort()).toEqual(
       // "Two" is itself in the cycle: its own place is shown too.
-      ['Under List item "Two" under "One"', 'Under Task "Prepare contract v2"'],
+      [
+        'First under List item "Two" under "One"',
+        'Under Task "Prepare contract v2", after Paragraph "Notes"',
+      ],
     );
     const field = items.find((i) => i.kind === "field");
     expect(field).toMatchObject({ nodeId: T, field: "title" });

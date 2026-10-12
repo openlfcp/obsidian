@@ -313,4 +313,45 @@ describe("moving one Task in two vaults offline", () => {
       expect(count(v.note(), "Write report")).toBe(0);
     }
   });
+
+  // The owner's check of 0.4.0-beta.6: both choices read "The section's top
+  // level" and either put the Task first. Each is named by its position now,
+  // and the one chosen is where the Task goes.
+  it("the places a Task was moved to are named by position, and the chosen one is applied", async () => {
+    const body = ["- [ ] First task", "- [ ] Second task", "- [ ] Third task", "", "A paragraph"];
+    const { a, b } = await twoVaults(body);
+    const third = taskId(a.note(), "Third task");
+    const ids = new Set([third]);
+    const before = a.note();
+    await a.pass(paste(before, cut(before, "Third task"), "Third task", "First task"), {
+      deletedIds: ids,
+      cut: ids,
+    });
+    const bBefore = b.note();
+    const [from, to] = block(bBefore, "Third task");
+    await b.pass(moveLines(bBefore, [from, to], block(bBefore, "First task")[0]), {
+      deletedIds: ids,
+      cut: ids,
+    });
+    await reconnect(a, b);
+    const item = a.recovery().find((i) => i.kind === "placement");
+    if (item?.kind !== "placement") throw new Error("no placement question");
+    expect(item.choices.map((c) => c.label).sort()).toEqual([
+      'After Task "First task"',
+      "First in the section",
+    ]);
+    const choice = item.choices.find((c) => c.label === 'After Task "First task"');
+    if (choice === undefined) throw new Error("no such place");
+    expect((await a.choose(item, choice)).applied).toBe(true);
+    await reconnect(a, b);
+    for (const v of [a, b]) {
+      expect(placementConflict(v, third)).toBe(false);
+      const order = lines(v.note()).filter((l) => l.startsWith("- [ ]"));
+      expect(order.map((l) => l.replace(/ <!--.*$|\s*\^.*$/, ""))).toEqual([
+        "- [ ] First task",
+        "- [ ] Third task",
+        "- [ ] Second task",
+      ]);
+    }
+  });
 });
