@@ -159,6 +159,25 @@ export function recovery(entry: JournalEntry): Recovery {
   }
 }
 
+/**
+ * Abandons an operation with `reason` unless it is settled already (done or
+ * abandoned): a late caller, such as the bookkeeping of a coalesced pass the
+ * timer flushed after a pass resumed and refused it, is a no-op. The entry
+ * as abandoned, or undefined when there was nothing to do.
+ */
+export async function abandonOnce(
+  journal: Pick<SectionJournalStore, "get" | "put">,
+  operationId: string,
+  reason: string,
+): Promise<JournalEntry | undefined> {
+  const entry = await journal.get(operationId);
+  if (entry === undefined || entry.phase === "done" || entry.phase === "abandoned")
+    return undefined;
+  const abandoned = advance(entry, "abandoned", { reason });
+  await journal.put(abandoned);
+  return abandoned;
+}
+
 /** The local records of section projections (one install, never synced). */
 export interface SectionJournalStore {
   put(entry: JournalEntry): Promise<void>;

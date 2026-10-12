@@ -32,7 +32,7 @@ import { type CreationEntry, type CreationResult, SectionCreation } from "../cor
 import { applyChanges, SectionEngine, sameState, sharedState } from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
 import { type InsertResult, renderSection, SectionInsertion } from "../core/sections/insert";
-import { advance } from "../core/sections/journal";
+import { abandonOnce } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { type ParsedSection, parseSections } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
@@ -136,7 +136,7 @@ export class SectionsHost {
 
   constructor(
     private readonly app: App,
-    onError: (path: string, error: unknown) => void,
+    private readonly onError: (path: string, error: unknown) => void,
     /** The binding placement setting for new Task refs (§4.1). */
     private readonly refPlacement: () => RefPlacement,
     /** The section comments setting (§4.5). */
@@ -280,7 +280,15 @@ export class SectionsHost {
         canWrite: (r) => runtime.canWriteSection(r),
       },
       // Typing coalescing (025): a burst of typing is one unit, not one per key.
-      { now: () => Date.now(), onFlushed: (_r, f) => void this.#flushed(journal, f) },
+      {
+        now: () => Date.now(),
+        // Alone, after the tick that flushed it, never inside a pass that also
+        // resumes the same operation; a failure is never left unhandled.
+        onFlushed: (r, f) =>
+          void port
+            .exclusive(r, () => this.#flushed(journal, f))
+            .catch((error) => this.#bookkeepingFailed(error)),
+      },
     );
     this.#bases = new KeyValueSectionBaseStore(runtime.localState);
     this.#engine = new SectionEngine({
@@ -750,6 +758,12 @@ export class SectionsHost {
     );
   }
 
+  /** A failure of the bookkeeping after a flushed pass: said once, never an unhandled rejection. */
+  #bookkeepingFailed(error: unknown): void {
+    if (this.#passErrors.shouldShow("", error instanceof Error ? error.message : String(error)))
+      this.onError("a note", error);
+  }
+
   /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
   #openRecovery(key: string, title: string): void {
     const port = this.#port;
@@ -833,7 +847,8 @@ export class SectionsHost {
    */
   async #flushed(journal: KeyValueSectionJournalStore, f: Flushed): Promise<void> {
     const entry = await journal.get(f.operationId);
-    if (entry === undefined) return;
+    // A pass may have settled it meanwhile (resumed, replaced or refused): nothing left to do.
+    if (entry === undefined || entry.phase === "done" || entry.phase === "abandoned") return;
     const base = await this.#bases?.load(entry.projectionId);
     const path = base?.locator.path;
     const file = path === undefined ? null : this.app.vault.getFileByPath(path);
@@ -848,7 +863,7 @@ export class SectionsHost {
         refusal.code !== "STALE_BASE" &&
         refusal.code !== "SECTION_IMPORTING"
       ) {
-        await journal.put(advance(entry, "abandoned", { reason: refusal.code }));
+        if ((await abandonOnce(journal, entry.operationId, refusal.code)) === undefined) return;
         if (base !== undefined)
           this.#projectionFacts.fail(
             sectionKey(base.locator.section),
@@ -889,7 +904,7 @@ export class SectionsHost {
         ).flatMap((i) => (i.intent === "text.edit" && i.id !== undefined ? [i.id] : []));
         await this.#engine?.drifted(entry.projectionId, ids);
       } else {
-        await journal.put(advance(entry, "abandoned", { reason: "flush-failed" }));
+        if ((await abandonOnce(journal, entry.operationId, "flush-failed")) === undefined) return;
         if (base !== undefined)
           this.#projectionFacts.fail(
             sectionKey(base.locator.section),

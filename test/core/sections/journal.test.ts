@@ -9,6 +9,7 @@ import {
   type SectionRef,
 } from "../../../src/core/sections/grammar";
 import {
+  abandonOnce,
   advance,
   diagnosticView,
   type JournalEntry,
@@ -143,5 +144,42 @@ describe("rebuild from the note alone", () => {
     expect(rebuildFromNote(md)).toEqual([
       { section: S, lines: { from: 1, to: 8 }, ids: [id(2), id(3)], baseUnknown: true },
     ]);
+  });
+});
+
+// The owner's console on 0.4.0-beta.7: "JournalError: operation … is already
+// abandoned", unhandled. The bookkeeping of a coalesced pass the timer
+// flushed abandoned its operation after a pass had resumed, resubmitted and
+// abandoned it (refused). A late abandon is a no-op.
+describe("abandonOnce", () => {
+  it("abandons an unfinished operation once; a late caller changes nothing and does not throw", async () => {
+    const journal = new MemorySectionJournalStore();
+    await journal.put(captured);
+    const allocated = advance(captured, "ids-allocated", { allocatedIds: {}, intents: [] });
+    await journal.put(allocated);
+    const first = await abandonOnce(journal, "op-1", "INVALID_INTENT");
+    expect(first?.phase).toBe("abandoned");
+    expect(await abandonOnce(journal, "op-1", "flush-failed")).toBeUndefined();
+    expect((await journal.get("op-1"))?.reason).toBe("INVALID_INTENT");
+    // advance on the stale copy is what threw before.
+    expect(() => advance(first as JournalEntry, "abandoned", { reason: "late" })).toThrow(
+      JournalError,
+    );
+  });
+
+  it("is a no-op for a finished or unknown operation", async () => {
+    const journal = new MemorySectionJournalStore();
+    expect(await abandonOnce(journal, "nope", "flush-failed")).toBeUndefined();
+    const committed = advance(
+      advance(captured, "ids-allocated", { allocatedIds: {}, intents: [] }),
+      "committed",
+      {
+        receipt: receipt("u1"),
+      },
+    );
+    const done = advance(advance(committed, "projected", { patchedHash: "h1" }), "done");
+    await journal.put(done);
+    expect(await abandonOnce(journal, "op-1", "flush-failed")).toBeUndefined();
+    expect((await journal.get("op-1"))?.phase).toBe("done");
   });
 });

@@ -13,7 +13,7 @@ import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
 import { applyChanges, SectionEngine } from "../../../src/core/sections/engine";
 import { formatBoundary, formatNodeMarker } from "../../../src/core/sections/grammar";
-import { advance } from "../../../src/core/sections/journal";
+import { abandonOnce } from "../../../src/core/sections/journal";
 import {
   KeyValueSectionBaseStore,
   KeyValueSectionJournalStore,
@@ -225,19 +225,22 @@ const P = "A paragraph for typing.";
 async function drifted() {
   const env = await setup();
   const handled: Promise<void>[] = [];
+  // sections-host reads the note first: its bookkeeping may come after passes.
+  const late = { gate: Promise.resolve() };
+  // One after the other, as sections-host runs them (port.exclusive).
+  let chain = Promise.resolve();
   env.flushed.fn = (f) => {
     if (f.kind !== "failed") return;
-    handled.push(
-      (async () => {
-        const e = await env.journal.get(f.operationId);
-        if (e !== undefined)
-          await env.journal.put(advance(e, "abandoned", { reason: "INVALID_INTENT" }));
-        const ids = (f.intents as { intent: string; id?: string }[])
-          .filter((i) => i.intent === "text.edit")
-          .map((i) => i.id as string);
-        await env.engine.drifted("projection", ids);
-      })(),
-    );
+    chain = chain.then(async () => {
+      await late.gate;
+      // As sections-host: a pass may have settled the operation already.
+      if ((await abandonOnce(env.journal, f.operationId, "INVALID_INTENT")) === undefined) return;
+      const ids = (f.intents as { intent: string; id?: string }[])
+        .filter((i) => i.intent === "text.edit")
+        .map((i) => i.id as string);
+      await env.engine.drifted("projection", ids);
+    });
+    handled.push(chain);
   };
   await env.pass(env.note(""));
   env.clock.now += 50;
@@ -265,7 +268,7 @@ async function drifted() {
   const idle = async () => {
     while (handled.length > 0) await handled.shift();
   };
-  return { env, md, idle };
+  return { env, md, idle, late };
 }
 
 /** Passes and timer ticks until the note settles (as the host's passes and timer do). */
@@ -382,5 +385,28 @@ describe("a base that drifted from the model heals (owner's IME check of 0.4.0-b
       expect(paragraph(out)).toBe(paragraph(cur));
       cur = out;
     }
+  });
+
+  // The owner's console on 0.4.0-beta.7: "operation … is already abandoned",
+  // unhandled. One refused operation was reported failed twice: by the
+  // timer's flush, and again when a pass had sent it once more (it waited
+  // in the coalescer) and the next edit committed it first. The second
+  // bookkeeping found it abandoned by the first. It is a no-op now.
+  it("a refused operation reported failed twice is abandoned once, the second report does nothing", async () => {
+    const { env, md, idle, late } = await drifted();
+    const cur = await env.pass(md);
+    let release: () => void = () => undefined;
+    late.gate = new Promise<void>((r) => {
+      release = r;
+    });
+    env.clock.now += 3000;
+    await env.port.tick(env.clock.now);
+    // Passes run before the bookkeeping of that flush: the first sends the
+    // operation again (it waits in the coalescer), the next replaces it.
+    const again = await env.pass(cur);
+    env.clock.now += 50;
+    await env.pass(again.replace(/^(A paragraph.*)$/m, "$1!"));
+    release();
+    await expect(idle()).resolves.toBeUndefined();
   });
 });
