@@ -419,11 +419,16 @@ export class SectionEngine {
     const hash = contentHash(text);
     for (const r of pass.sections) {
       if (r.base !== undefined) {
-        // A refusal reported meanwhile (drifted()) outlives this base.
-        const now = (await this.deps.bases.load(r.projectionId))?.drifted;
+        // Marks reported meanwhile (drifted()) outlive this base; those this
+        // pass healed (its `restored`) are done.
+        const now = driftMarks(await this.deps.bases.load(r.projectionId));
+        const marks: Record<string, string | null> = { ...driftMarks(r.base) };
+        for (const [id, text] of Object.entries(now))
+          if (!(id in marks) && !(r.restored ?? []).includes(id)) marks[id] = text;
+        const { drifted: _marks, ...base } = r.base;
         await this.deps.bases.save(
           r.projectionId,
-          now === undefined || now.length === 0 ? r.base : { ...r.base, drifted: now },
+          Object.keys(marks).length === 0 ? base : { ...base, drifted: marks },
         );
       }
       for (const entry of r.entries) {
@@ -441,10 +446,9 @@ export class SectionEngine {
   async drifted(projectionId: string, nodeIds: readonly string[]): Promise<void> {
     const stored = await this.deps.bases.load(projectionId);
     if (stored === undefined || nodeIds.length === 0) return;
-    await this.deps.bases.save(projectionId, {
-      ...stored,
-      drifted: [...new Set([...(stored.drifted ?? []), ...nodeIds])].sort(),
-    });
+    const marks = driftMarks(stored);
+    for (const id of nodeIds) if (!(id in marks)) marks[id] = null;
+    await this.deps.bases.save(projectionId, { ...stored, drifted: marks });
   }
 
   /**
@@ -485,7 +489,6 @@ export class SectionEngine {
     snap: SectionSnapshot | undefined,
     projectionId: string,
     ctx: PassContext,
-    healing = false,
   ): Promise<{ result: SectionResult; changes: DocChange[] }> {
     const ref = section.ref;
     const resource = toBase64url(ref.resourceId);
@@ -501,38 +504,6 @@ export class SectionEngine {
     const locator = { path, section: ref };
     const stored = await this.deps.bases.load(projectionId);
     const shared = sharedState(snap);
-    // Nodes whose base drifted from the model (drifted()): the model is
-    // authoritative, the note's text is not. Their base takes the note's Text
-    // at the model's revision, so this pass projects the model into the note:
-    // nothing is sent, nothing is deleted on a peer. The refused text stays a
-    // kept local copy (the candidate its refusal made).
-    if (!healing && stored !== undefined && (stored.drifted?.length ?? 0) > 0) {
-      const port = this.deps.port;
-      // What still waits was planned on the drifted base too: out now (a
-      // refusal is reported through onFlushed), not in front of the next edit.
-      if (port.waiting?.(resource, projectionId) !== undefined)
-        await port.flush?.(resource, projectionId);
-      const shown = markdownState(source, section).state.nodes;
-      const nodes = { ...stored.state.nodes };
-      const nodeRevisions = { ...(stored.nodeRevisions ?? {}) };
-      const restored: string[] = [];
-      for (const id of stored.drifted ?? []) {
-        const n = nodes[id];
-        const text = shown[id]?.text;
-        if (n === undefined || text === undefined) continue;
-        nodes[id] = { ...n, text };
-        nodeRevisions[id] = snap.revision;
-        restored.push(id);
-      }
-      const { drifted: _done, ...rest } = stored;
-      await this.deps.bases.save(projectionId, {
-        ...rest,
-        state: { ...stored.state, nodes },
-        nodeRevisions,
-      });
-      const again = await this.#section(path, source, section, snap, projectionId, ctx, true);
-      return restored.length === 0 ? again : { ...again, result: { ...again.result, restored } };
-    }
     if (stored === undefined) {
       // MS11, CM11: only a note that already shows the model seeds a base.
       // Otherwise its bindings are recovered but no causal base is guessed:
@@ -650,6 +621,43 @@ export class SectionEngine {
     const lineText0 = (l: number) => lines0[l]?.text ?? "";
     const note = markdownState(md0, section0);
 
+    // Nodes whose base drifted from the model (drifted()): the model is
+    // authoritative for them, their note Text is not, but never Text the user
+    // is still typing. A node heals once its note Text is the same as at the
+    // last pass: in this pass only (nothing is stored before the pass is
+    // written), its base takes that Text at the model's revision, so the pass
+    // projects the model's Text into the note; nothing is sent, nothing is
+    // deleted on a peer, the refused text stays a kept local copy. Until then
+    // its Text edits are held: planned on a base the model never had, they
+    // would land at the wrong places (the SDK maps an insert, it cannot check it).
+    const marks = driftMarks(stored);
+    const healing = new Set<string>();
+    const pendingMarks: Record<string, string> = {};
+    for (const [id, seen] of Object.entries(marks)) {
+      const text = note.state.nodes[id]?.text;
+      const n = baseState.nodes[id];
+      if (text === undefined || n === undefined) continue;
+      if (seen === text) {
+        baseState = { ...baseState, nodes: { ...baseState.nodes, [id]: { ...n, text } } };
+        healing.add(id);
+      } else pendingMarks[id] = text;
+    }
+    // What the note shows of them and the model does not is kept first, as a
+    // local copy (typed after the refusal, it was held and never sent).
+    if ([...healing].some((id) => note.state.nodes[id]?.text !== shared.nodes[id]?.text))
+      await this.deps.journal.putCandidate({
+        candidateId: `drift:${projectionId}:${contentHash(sourceText).slice(0, 16)}`,
+        projectionId,
+        reason: "rejected",
+        sourceText,
+      });
+    // The Text seen now, for the next pass to compare (marks only, no base).
+    if (Object.entries(pendingMarks).some(([id, text]) => marks[id] !== text))
+      await this.deps.bases.save(projectionId, {
+        ...stored,
+        drifted: { ...marks, ...pendingMarks },
+      });
+
     // 2. The user's edits since then, as one batch.
     const plan = planSection(
       baseState,
@@ -675,6 +683,8 @@ export class SectionEngine {
         changes: resumedChanges,
       };
     const revisionOf = (id: string) => {
+      if (id in pendingMarks) return null;
+      if (healing.has(id)) return snap.revision;
       // The model's Text is the base's now: an edit planned on it goes against
       // the model as it is. This also heals a base whose stored revision fell
       // behind its Text (0.4.0-beta.5: every edit of the node refused).
@@ -733,16 +743,18 @@ export class SectionEngine {
       taskIntents: fields.intents,
     });
     // A Text edit refused as INVALID_INTENT at once: its base drifted (drifted()).
-    if (local.kind === "kept" && local.code === "INVALID_INTENT" && !healing) {
+    if (local.kind === "kept" && local.code === "INVALID_INTENT") {
       const ids = [...new Set(plan.textEdits.map((e) => e.nodeId))];
-      if (ids.length > 0) {
-        await this.drifted(projectionId, ids);
-        return this.#section(path, source, section, snap, projectionId, ctx);
-      }
+      if (ids.length > 0) await this.drifted(projectionId, ids);
     }
     // Text kept after a refusal that the note now shows, and this pass synced:
     // it is in the shared state, no longer only on this device.
-    if ((local.kind === "committed" || local.kind === "nothing") && held.length === 0)
+    // Not in a pass that heals: it replaces the note's Text, it does not sync it.
+    if (
+      (local.kind === "committed" || local.kind === "nothing") &&
+      held.length === 0 &&
+      healing.size === 0
+    )
       for (const c of await this.deps.journal.candidates(projectionId))
         if (c.reason === "rejected" && c.sourceText === sourceText)
           await this.deps.journal.resolveCandidate(c.candidateId);
@@ -882,14 +894,25 @@ export class SectionEngine {
       const m = after.nodes[id];
       if (n.text === undefined || (m !== undefined && m.text === n.text))
         nodeRevisions[id] = after.revision;
-      // Not the model's Text: still the old base's, or unknown after our own merged edit.
-      else nodeRevisions[id] = affected.has(id) ? null : (revisionOf(id) ?? null);
+      // Not the model's Text: still the old base's, or unknown after our own
+      // merged edit; for a drifted node unknown (its Text was never the model's).
+      else nodeRevisions[id] = affected.has(id) || id in marks ? null : (revisionOf(id) ?? null);
     }
+    // A drifted node is healed once the note shows the model's Text; the
+    // others keep their mark (with the Text seen now).
+    const restored = [...healing].filter(
+      (id) => base.nodes[id]?.text !== undefined && base.nodes[id]?.text === after.nodes[id]?.text,
+    );
+    const remaining: Record<string, string | null> = {};
+    for (const [id, seen] of Object.entries(marks))
+      if (!restored.includes(id) && base.nodes[id] !== undefined)
+        remaining[id] = pendingMarks[id] ?? note.state.nodes[id]?.text ?? seen;
     return {
       result: {
         projectionId,
         section: ref,
         local,
+        ...(restored.length === 0 ? {} : { restored }),
         ...(remote === undefined ? {} : { remote }),
         lost,
         ...(comp.unexplained.length > 0 ? { reappeared: comp.unexplained } : {}),
@@ -904,9 +927,18 @@ export class SectionEngine {
           },
           revision: after.revision,
           nodeRevisions,
+          ...(Object.keys(remaining).length === 0 ? {} : { drifted: remaining }),
         },
       },
       changes,
     };
   }
+}
+
+/** A base's drift marks by node (driftMarks of 0.4.0-beta.7's list: no Text seen yet). */
+function driftMarks(base: Pick<StoredBase, "drifted"> | undefined): Record<string, string | null> {
+  const d = base?.drifted;
+  if (d === undefined) return {};
+  if (Array.isArray(d)) return Object.fromEntries(d.map((id: string) => [id, null]));
+  return { ...(d as Readonly<Record<string, string | null>>) };
 }

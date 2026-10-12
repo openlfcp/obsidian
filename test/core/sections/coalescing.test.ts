@@ -329,4 +329,58 @@ describe("a base that drifted from the model heals (owner's IME check of 0.4.0-b
     expect(p.changes).toEqual([]);
     expect(p.sections[0]?.local?.kind ?? "nothing").toBe("nothing");
   });
+
+  // The owner's check of 0.4.0-beta.7: after the heal, edits typed into the
+  // healed paragraph were replaced by older text, or landed at wrong places
+  // ("日本本本"). The heal stored its base ("the note's Text at the model's
+  // revision") before its pass, and a pass the user's typing abandoned left
+  // it stored: later edits were planned on Text the model never had.
+  it("a heal pass that is not written stores nothing; typing after it never lands wrong", async () => {
+    const { env, md, idle } = await drifted();
+    let cur = await env.pass(md);
+    env.clock.now += 3000;
+    await env.port.tick(env.clock.now);
+    await idle();
+    const before = env.text();
+    // Two passes see the same Text: the second would heal; it is not written.
+    cur = await env.pass(cur);
+    const p = await env.engine.pass("L.md", cur, {
+      caretLine: null,
+      deletedIds: new Set(),
+      origin: "other",
+    });
+    env.engine.abandoned(p);
+    // The user types at the end of the paragraph meanwhile.
+    for (const add of ["k", "a", "m", "i"]) {
+      cur = cur.replace(/^(A paragraph.*)$/m, `$1${add}`);
+      cur = await env.pass(cur);
+      env.clock.now += 300;
+      await env.port.tick(env.clock.now);
+      await idle();
+      // Nothing the user typed reached the model at a wrong place: it is held.
+      expect(env.text()).toBe(before);
+      expect(paragraph(cur)?.endsWith("kami".slice(0, "kami".indexOf(add) + 1))).toBe(true);
+    }
+    const healed = await settle(env, idle, cur, 4);
+    expect(env.text()).toBe(before);
+    expect(paragraph(healed)).toBe(before);
+    // What the user typed is kept on this device.
+    const kept = await env.journal.candidates("projection");
+    expect(kept.some((c) => c.sourceText.includes(`${before}kami`))).toBe(true);
+  });
+
+  it("a drifted node the user keeps typing in is not overwritten while the Text changes", async () => {
+    const { env, md, idle } = await drifted();
+    let cur = await env.pass(md);
+    env.clock.now += 3000;
+    await env.port.tick(env.clock.now);
+    await idle();
+    for (let i = 1; i <= 5; i++) {
+      cur = cur.replace(/^(A paragraph.*)$/m, `$1${i}`);
+      const out = await env.pass(cur);
+      // Each pass leaves the user's line as typed.
+      expect(paragraph(out)).toBe(paragraph(cur));
+      cur = out;
+    }
+  });
 });

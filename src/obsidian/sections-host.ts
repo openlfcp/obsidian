@@ -180,6 +180,8 @@ export class SectionsHost {
           if (r.local?.kind === "committed")
             for (const i of r.local.entry.intents ?? [])
               if (i.intent === "node.restore") this.#restoreHere.delete(i.id);
+          // A drifted node heals once its Text is the same at two passes: one more, soon.
+          if (r.base?.drifted !== undefined) this.#passSoon(path);
           if ((r.restored?.length ?? 0) > 0) {
             const title = this.#port?.snapshot(
               toBase64url(r.section.resourceId),
@@ -732,6 +734,22 @@ export class SectionsHost {
     this.scheduleStatus();
   }
 
+  readonly #soon = new Map<string, number>();
+  /** One more pass of note `path` in 2 s (drift marks wait for a pass with the same Text). */
+  #passSoon(path: string): void {
+    if (this.#soon.has(path)) return;
+    this.#soon.set(
+      path,
+      window.setTimeout(() => {
+        this.#soon.delete(path);
+        const file = this.app.vault.getFileByPath(path);
+        if (this.#openEditor(path) !== null) this.editor.remoteChanged(path);
+        else if (file !== null)
+          void this.app.vault.read(file).then((md) => this.editor.remoteChanged(path, md));
+      }, 2000),
+    );
+  }
+
   /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
   #openRecovery(key: string, title: string): void {
     const port = this.#port;
@@ -891,8 +909,10 @@ export class SectionsHost {
     void this.#port?.tick(Date.now()).catch(() => undefined);
   }
 
-  /** Commits all waiting typing (unloading). */
+  /** Commits all waiting typing (unloading); no pass is due later. */
   async flushTyping(): Promise<void> {
+    for (const t of this.#soon.values()) window.clearTimeout(t);
+    this.#soon.clear();
     await this.#port?.flushAll().catch(() => undefined);
   }
 

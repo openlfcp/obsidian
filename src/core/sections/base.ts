@@ -369,10 +369,12 @@ export interface StoredBase {
   readonly nodeRevisions?: Readonly<Record<string, string | null>>;
   /**
    * Nodes whose Text edit the SDK refused as INVALID_INTENT: the base's Text
-   * drifted from the model (0.4.0-beta.6, a coalesced pass sent twice). The
-   * next pass takes the model's Text for them (SectionEngine.drifted).
+   * drifted from the model (0.4.0-beta.6, a coalesced pass sent twice). Each
+   * with the note's Text the last pass saw (null: none yet); a node heals
+   * once its Text is unchanged from one pass to the next (SectionEngine.drifted).
+   * 0.4.0-beta.7 stored a list of IDs.
    */
-  readonly drifted?: readonly string[];
+  readonly drifted?: readonly string[] | Readonly<Record<string, string | null>>;
 }
 
 /** Bases by projection ID (local state, never synced; OP-24). */
