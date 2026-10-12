@@ -498,6 +498,7 @@ export class SectionsHost {
         void run(commands);
       };
     const conflicts = this.#recoveryItems(key);
+    const kept = await this.#keptCopies(key);
     const actions = [
       // Conflicts are resolved one by one, by the user (061).
       ...(conflicts.length > 0
@@ -508,6 +509,15 @@ export class SectionsHost {
         ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
         : []),
       { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
+      // Text kept on this device after a refusal (a local copy, never applied by itself).
+      ...(kept.length > 0
+        ? [
+            {
+              label: `Discard ${kept.length === 1 ? "the local copy" : `${kept.length} local copies`}…`,
+              run: () => void this.#discardKept(key, title),
+            },
+          ]
+        : []),
     ];
     this.#card?.modal.close();
     const modal = new SectionCardModal(
@@ -688,6 +698,38 @@ export class SectionsHost {
         );
       },
     }).open();
+  }
+
+  /** The copies of section `key`'s text kept on this device after a refusal (not shared). */
+  async #keptCopies(key: string): Promise<string[]> {
+    const journal = this.#journal;
+    if (journal === null) return [];
+    const ids: string[] = [];
+    for (const c of await journal.allCandidates()) {
+      const base = await this.#bases?.load(c.projectionId);
+      const section = base === undefined ? undefined : sectionKey(base.locator.section);
+      if (section === key || c.projectionId.includes(`#${key}#`)) ids.push(c.candidateId);
+    }
+    return ids;
+  }
+
+  /** Discards the kept copies of section `key`, after asking: the note and the section stay. */
+  async #discardKept(key: string, title: string): Promise<void> {
+    const ids = await this.#keptCopies(key);
+    if (ids.length === 0) return;
+    const ask = new ConfirmModal(
+      this.app,
+      `Local copies of "${title}"`,
+      `${ids.length === 1 ? "One copy" : `${ids.length} copies`} of this section's text ${ids.length === 1 ? "was" : "were"} kept on this device when the sync server refused ${ids.length === 1 ? "it" : "them"}. ${ids.length === 1 ? "It is" : "They are"} not shared. Discard ${ids.length === 1 ? "it" : "them"}? Your note and the shared section are not changed.`,
+      "Discard",
+    );
+    ask.open();
+    if (!(await ask.result)) return;
+    for (const id of ids) await this.#journal?.resolveCandidate(id);
+    new Notice(
+      `Shared Tasks: ${ids.length === 1 ? "the local copy was" : `${ids.length} local copies were`} discarded.`,
+    );
+    this.scheduleStatus();
   }
 
   /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
