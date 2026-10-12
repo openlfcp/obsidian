@@ -30,6 +30,7 @@ import { ReconcileScheduler, type Timer } from "../core/sections/input";
 import { parseSections, type SectionNode } from "../core/sections/parser";
 import {
   classifyRemoval,
+  keepMarkerWithParagraph,
   keepRefWithTask,
   type PastedBinding,
   pasteBindings,
@@ -297,7 +298,8 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
 
   const plugin = ViewPlugin.fromClass(SectionSync);
   // MS27, MS28: Enter at the end of a Task line whose ref is on its child
-  // line goes past the Task's subtree, in the same transaction (one undo step).
+  // line goes past the Task's subtree, in the same transaction (one undo step);
+  // Enter at the start of a paragraph's text goes before its marker.
   const enter = EditorState.transactionFilter.of((tr) => {
     if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined || !tr.isUserEvent("input"))
       return tr;
@@ -322,7 +324,18 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     const before = tr.startState.doc.toString();
     if (!before.includes("lfcp-section:")) return tr;
     const kept = keepRefWithTask(before, change);
-    if (kept === null) return tr;
+    if (kept === null) {
+      // Enter at the start of a paragraph's text: the new line goes before its
+      // marker, the text keeps its node; the caret stays at the text's start.
+      const moved = keepMarkerWithParagraph(before, change);
+      if (moved === null) return tr;
+      return {
+        changes: moved,
+        selection: { anchor: tr.newSelection.main.head },
+        userEvent: tr.annotation(Transaction.userEvent) ?? "input",
+        scrollIntoView: true,
+      };
+    }
     // The caret where it would be on the new line, moved with it.
     const offset = tr.newSelection.main.head - (change.from + change.insert.length);
     return {

@@ -276,6 +276,43 @@ export function keepRefWithTask(
 }
 
 /**
+ * Enter at the start of a paragraph's first line, right under its marker
+ * (the owner's check of 0.4.0-beta.8): the new line would come between the
+ * marker and the text, so the marker would bind an empty paragraph (§4.3)
+ * and the text would become a new node. The insertion moves before the
+ * marker, in the same transaction: the text keeps its node, and the blank
+ * line is local layout (§5, "not a standalone shared node"). The inserted
+ * text moves as it is (CRLF, the indentation of a nested paragraph). Null
+ * when `change` is not such an insertion in a section of `before`.
+ */
+export function keepMarkerWithParagraph(
+  before: string,
+  change: { readonly from: number; readonly to: number; readonly insert: string },
+): { readonly from: number; readonly to: number; readonly insert: string } | null {
+  if (change.to !== change.from || !/^(\r?\n)+[ \t]*$/.test(change.insert)) return null;
+  const lines = splitLines(before);
+  let at = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i]?.text ?? "";
+    const lead = /^[ \t]*/.exec(text)?.[0].length ?? 0;
+    if (change.from === at + lead && i > 0 && text.trim() !== "") {
+      const marker = parseNodeMarker(lines[i - 1]?.text ?? "");
+      if (marker === null || marker.kind !== "paragraph") return null;
+      // The paragraph's own first line, as the parser binds it.
+      const bound = parseSections(before)
+        .sections.flatMap((s) => [...walkNodes(s.nodes)])
+        .some((n) => n.kind === "paragraph" && n.id === marker.nodeId && n.lines.from === i - 1);
+      if (!bound) return null;
+      const markerStart = at - (lines[i - 1]?.text.length ?? 0) - (lines[i - 1]?.eol.length ?? 0);
+      return { from: markerStart, to: markerStart, insert: change.insert };
+    }
+    if (change.from < at + text.length) return null;
+    at += text.length + (lines[i]?.eol.length ?? 0);
+  }
+  return null;
+}
+
+/**
  * Removes node `id` of `section` from the note (Review conflicts: a node
  * deleted in the model that the note shows again): its own lines, and those
  * of its descendants in `gone`. Other descendants keep their lines. Null

@@ -21,6 +21,7 @@ import {
   detachAt,
   detachSection,
   duplicates,
+  keepMarkerWithParagraph,
   keepRefWithTask,
   pasteBindings,
   pasteDecision,
@@ -268,5 +269,97 @@ describe("Enter after a Task with a child-line ref (§4.1, MS27, MS28)", () => {
     expect(
       keepRefWithTask(doc, { from: endOf("- [ ] Child"), to: endOf("- [ ] Child"), insert: "x" }),
     ).toBeNull();
+  });
+});
+
+// The owner's check of 0.4.0-beta.8: Enter at the start of a paragraph put
+// the new line between its marker and its text, so the marker bound an empty
+// paragraph and the text became a new node, on every vault.
+describe("Enter at the start of a paragraph's text (§4.3, §5)", () => {
+  const apply = (md: string, c: { from: number; to: number; insert: string }) =>
+    md.slice(0, c.from) + c.insert + md.slice(c.to);
+  const all = (ns: readonly SectionNode[]): SectionNode[] =>
+    ns.flatMap((n) => [n, ...all(n.children)]);
+  const paragraphs = (md: string) =>
+    all(sectionOf(md).nodes)
+      .filter((n) => n.kind === "paragraph")
+      .map((n) => ({
+        id: n.id,
+        text: md
+          .split(/\r?\n/)
+          .slice(n.lines.from, n.lines.to + 1)
+          .join("|"),
+      }));
+
+  for (const [name, eol] of [
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ] as const)
+    it(`the new line goes before the marker; the text keeps its node (first node, ${name})`, () => {
+      const md = [
+        "## Launch",
+        formatBoundary("start", S),
+        formatNodeMarker("paragraph", id(4)),
+        "A paragraph for typing.",
+        formatBoundary("end", S),
+        "",
+      ].join(eol);
+      const at = md.indexOf("A paragraph");
+      const moved = keepMarkerWithParagraph(md, { from: at, to: at, insert: eol });
+      const marker = md.indexOf(formatNodeMarker("paragraph", id(4)));
+      expect(moved).toEqual({ from: marker, to: marker, insert: eol });
+      const after = apply(md, moved as NonNullable<typeof moved>);
+      expect(paragraphs(after)).toEqual([
+        { id: id(4), text: `${formatNodeMarker("paragraph", id(4))}|A paragraph for typing.` },
+      ]);
+    });
+
+  it("after a Task, and nested under one with its indentation", () => {
+    const md = [
+      "## Launch",
+      formatBoundary("start", S),
+      "- [ ] 仕事",
+      `  ${ref(3)}`,
+      `  ${formatNodeMarker("paragraph", id(5))}`,
+      "  Nested text",
+      formatNodeMarker("paragraph", id(4)),
+      "A paragraph for typing.",
+      formatBoundary("end", S),
+      "",
+    ].join("\n");
+    const top = md.indexOf("A paragraph");
+    expect(keepMarkerWithParagraph(md, { from: top, to: top, insert: "\n" })).toEqual({
+      from: md.indexOf(formatNodeMarker("paragraph", id(4))),
+      to: md.indexOf(formatNodeMarker("paragraph", id(4))),
+      insert: "\n",
+    });
+    const nested = md.indexOf("Nested text");
+    const moved = keepMarkerWithParagraph(md, { from: nested, to: nested, insert: "\n  " });
+    const marker = md.indexOf(`  ${formatNodeMarker("paragraph", id(5))}`);
+    expect(moved).toEqual({ from: marker, to: marker, insert: "\n  " });
+  });
+
+  it("leaves any other edit alone", () => {
+    const md = [
+      "## Launch",
+      formatBoundary("start", S),
+      formatNodeMarker("paragraph", id(4)),
+      "A paragraph for typing.",
+      "",
+      "Unbound paragraph",
+      formatBoundary("end", S),
+      "",
+    ].join("\n");
+    const start = md.indexOf("A paragraph");
+    const mid = start + 2;
+    const end = start + "A paragraph for typing.".length;
+    const unbound = md.indexOf("Unbound");
+    // Enter in the middle or at the end of the text: an ordinary split or new paragraph.
+    expect(keepMarkerWithParagraph(md, { from: mid, to: mid, insert: "\n" })).toBeNull();
+    expect(keepMarkerWithParagraph(md, { from: end, to: end, insert: "\n" })).toBeNull();
+    // A paragraph without a marker, typed text, a replacement.
+    expect(keepMarkerWithParagraph(md, { from: unbound, to: unbound, insert: "\n" })).toBeNull();
+    expect(keepMarkerWithParagraph(md, { from: start, to: start, insert: "x" })).toBeNull();
+    expect(keepMarkerWithParagraph(md, { from: start, to: start + 1, insert: "\n" })).toBeNull();
   });
 });
