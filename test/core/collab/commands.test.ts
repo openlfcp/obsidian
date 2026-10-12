@@ -405,9 +405,11 @@ describe("LFCP-065 commands", () => {
     expect(s.prompter.progressLines).toContain(
       "Creating the invitation and waiting for the server to confirm it…",
     );
-    // Once it is done, the command creates the next one.
+    // Once it is done the command runs again; offline, the first grant still
+    // waits for the server, so no second one is signed on the same head.
     await s.commands.inviteCollaborator();
-    expect(s.prompter.invitations).toHaveLength(2);
+    expect(s.prompter.invitations).toHaveLength(1);
+    expect(s.prompter.notices.at(-1)).toMatch(/has not reached the server yet/);
   });
 
   it("Join collaboration: masked link prompt, stages, plain failure, no secret anywhere", async () => {

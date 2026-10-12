@@ -565,6 +565,12 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
     expect((refused as CollabError).code).toBe("RESOURCE_NOT_HOSTED");
     expect((refused as CollabError).message).toContain("the invitation would not work");
     expect(Date.now() - started).toBeLessThan(5000);
+    // Its grant waits on this device: another one would carry the same Control Head.
+    const again = await owner.collab.invite(R, "read").catch((e: unknown) => e);
+    expect((again as CollabError).code).toBe("CONTROL_PENDING");
+    expect((again as CollabError).message).toBe(
+      "An earlier access change to this collaboration has not reached the server yet. Invite again once it has.",
+    );
   });
 
   it("offers no invitation before the section is hosted", async () => {

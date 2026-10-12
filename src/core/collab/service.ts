@@ -459,6 +459,14 @@ export class Collaboration {
         "KEY_PACKAGE_UNAVAILABLE",
         "This device does not hold the collaboration's current key yet.",
       );
+    // A grant is signed on the committed Control Head: one made while an
+    // earlier record of this device waits for the server would carry the
+    // same head, be refused (CONTROL_HEAD_MISMATCH) and never be sent again.
+    if ((await c.storage.outbound.list(R)).some((i) => i.kind === "control-record"))
+      throw new CollabError(
+        "CONTROL_PENDING",
+        "An earlier access change to this collaboration has not reached the server yet. Invite again once it has.",
+      );
     const endpoints = [...chain.state.route.endpoints]
       .sort((a, b) => (a.priority < b.priority ? -1 : a.priority > b.priority ? 1 : 0))
       .map((e) => e.url);
