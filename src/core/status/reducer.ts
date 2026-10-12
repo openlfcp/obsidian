@@ -201,7 +201,9 @@ export function statusView(facts: StatusFacts): StatusView {
   const loading =
     facts.replica === "not-loaded" || facts.replica === "importing" || facts.access === "unknown";
   if (loading) c.push({ kind: "loading" });
-  if (facts.accessChecking === true) c.push({ kind: "access-checking" });
+  // Refused or removed, the Control view cannot catch up: nothing is being checked.
+  if (facts.accessChecking === true && facts.access !== "refused" && facts.access !== "revoked")
+    c.push({ kind: "access-checking" });
   const catching =
     facts.catchUp !== "current-at-checkpoint" ||
     facts.projections.some((p) => p.application === "patch-pending");

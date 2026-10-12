@@ -92,7 +92,11 @@ export function sectionCard(input: CardInput): SectionCard {
         ? `${plural(v.pendingBatches, "local update", "local updates")} saved on this device, waiting to be sent.`
         : "Pending local changes are saved on this device, waiting to be sent.",
     );
-  else if (!kinds.has("save-failed") && !kinds.has("local-edit"))
+  else if (kinds.has("rejected")) {
+    const refused = v.conditions.find((c) => c.kind === "rejected");
+    const n = refused?.kind === "rejected" ? refused.batchIds.length : 0;
+    facts.push(`${plural(n, "refused update", "refused updates")} kept in your note, not sent.`);
+  } else if (!kinds.has("save-failed") && !kinds.has("local-edit"))
     facts.push("No local changes waiting.");
   if (kinds.has("evidence-unavailable"))
     facts.push(

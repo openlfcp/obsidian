@@ -48,7 +48,8 @@ export interface AccessRow {
   readonly label: string;
   /** The identity detail always shown next to an alias. */
   readonly detail: string;
-  readonly role: "owner" | "can edit" | "can read";
+  /** As the chain grants it; for this vault, what the server says once it refuses (LFCP-02-115). */
+  readonly role: "owner" | "can edit" | "can read" | "refused by the server" | "access removed";
   readonly you: boolean;
   /** Removing this identity's access may be offered (by our abilities; not ourselves, not the owner). */
   readonly removable: boolean;
@@ -84,6 +85,13 @@ export function accessView(input: AccessInput): AccessView {
       ? `Access as last verified ${input.time(mine.verifiedAt)}; it may have changed.`
       : `Access verified with the server ${input.time(mine.verifiedAt)}.`;
   const mayRevoke = mine?.abilities.includes("capability/revoke") === true;
+  // The chain this device holds may still grant what the server refuses.
+  const mineDenied =
+    mine?.allowed === false && mine.reason === "server-refused"
+      ? "refused by the server"
+      : mine?.allowed === false && (mine.reason === "revoked" || mine.reason === "not-member")
+        ? "access removed"
+        : null;
   const rows: AccessRow[] = unknown
     ? []
     : input.participants
@@ -93,7 +101,14 @@ export function accessView(input: AccessInput): AccessView {
           principal: p.principal,
           label: p.you ? "You" : (input.aliases[p.id] ?? `Member ${p.id}`),
           detail: p.id,
-          role: p.owner ? "owner" : p.abilities.includes("data/write") ? "can edit" : "can read",
+          role:
+            p.you && mineDenied !== null
+              ? mineDenied
+              : p.owner
+                ? "owner"
+                : p.abilities.includes("data/write")
+                  ? "can edit"
+                  : "can read",
           you: p.you,
           removable: mayRevoke && !p.you && !p.owner,
         }));

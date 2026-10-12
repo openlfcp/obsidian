@@ -61,6 +61,35 @@ const input = (o: Partial<AccessInput> = {}): AccessInput => ({
 });
 
 describe("the access list (060)", () => {
+  it("this vault refused or removed: its own row says so, not what the old chain grants", () => {
+    const member: MyAccess = {
+      allowed: false,
+      current: false,
+      verifiedAt: 1000,
+      abilities: ["data/read", "data/write"],
+      owner: false,
+      pendingControl: [],
+    };
+    const you = (reason: string) =>
+      accessView(
+        input({
+          mine: { ...member, reason },
+          participants: [
+            {
+              id: "bbbb2222",
+              principal: "bbbb222200",
+              you: true,
+              owner: false,
+              abilities: ["data/read", "data/write"],
+            },
+          ],
+        }),
+      ).rows[0]?.role;
+    expect(you("server-refused")).toBe("refused by the server");
+    expect(you("revoked")).toBe("access removed");
+    expect(you("read-only")).toBe("can edit"); // only a refusal or a removal replaces the chain's role
+  });
+
   it("identities with roles; the alias with its identity detail; invitations apart", () => {
     const v = accessView(input());
     expect(v.heading).toBe("Identities with access");

@@ -65,6 +65,28 @@ describe("the section card", () => {
     expect(c.facts.join(" ")).not.toMatch(/Offline/);
   });
 
+  it("refused by the server (step 8): a refused update counted, nothing said to be checked", () => {
+    const c = card({
+      connection: "offline",
+      access: "refused",
+      refusal: "AUTHORIZATION_FAILED",
+      accessChecking: true,
+      batches: [
+        {
+          id: "b1",
+          nodeIds: ["n"],
+          durable: true,
+          unitIds: ["u1"],
+          acceptedUnitIds: [],
+          rejection: { code: "STALE_DATA_EPOCH", unitIds: ["u1"] },
+        },
+      ],
+    });
+    expect(c.facts).toContain("1 refused update kept in your note, not sent.");
+    expect(c.facts).not.toContain("No local changes waiting.");
+    expect(c.facts.join(" ")).not.toMatch(/Offline|being checked/);
+  });
+
   it("another refusal names its code; an access refusal is not said twice", () => {
     expect(card({ connection: "offline", refusal: "RESOURCE_TOMBSTONED" }).problems).toEqual([
       "The sync server refused this section (RESOURCE_TOMBSTONED). Your local copy stays; new edits are kept on this device only.",
