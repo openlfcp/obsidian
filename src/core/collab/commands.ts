@@ -149,6 +149,8 @@ class Abort extends Error {}
 
 export class CollabCommands {
   readonly #env: CommandEnv;
+  /** An invitation being created: a second "Invite collaborator" meanwhile makes no second one. */
+  #inviting = false;
 
   constructor(env: CommandEnv) {
     this.#env = env;
@@ -568,10 +570,9 @@ export class CollabCommands {
   }
 
   inviteCollaborator(): Promise<void> {
-    return this.#run("Creating the invitation", async () => {
+    return this.#oneInvitation(async () => {
       const collab = this.#collab();
       if (collab === null) return;
-      const p = this.#env.prompter;
       const R = await this.#pickResource(collab, "Invite to…", {
         sectionsOk: this.#env.sections?.() === true,
       });
@@ -582,10 +583,24 @@ export class CollabCommands {
 
   /** "Invite collaborator" for one Resource (a section's details card, LFCP-02-059). */
   inviteTo(R: ResourceId): Promise<void> {
-    return this.#run("Creating the invitation", async () => {
+    return this.#oneInvitation(async () => {
       const collab = this.#collab();
       if (collab === null) return;
       await this.#inviteTo(collab, R);
+    });
+  }
+
+  /** Runs an invitation flow unless one is running: its link comes in its own dialog. */
+  #oneInvitation(body: () => Promise<void>): Promise<void> {
+    if (this.#inviting) {
+      this.#env.prompter.notice(
+        "Shared Tasks: an invitation is being created. Its link appears when the server has it.",
+      );
+      return Promise.resolve();
+    }
+    this.#inviting = true;
+    return this.#run("Creating the invitation", body).finally(() => {
+      this.#inviting = false;
     });
   }
 
@@ -607,7 +622,7 @@ export class CollabCommands {
     const progress = p.progress("Creating invitation");
     let invitation: Awaited<ReturnType<Collaboration["invite"]>>;
     try {
-      progress.update("Recording the invitation and sending it to the server…");
+      progress.update("Creating the invitation and waiting for the server to confirm it…");
       invitation = await collab.invite(R, preset);
     } finally {
       progress.close();

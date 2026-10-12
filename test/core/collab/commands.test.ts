@@ -391,6 +391,25 @@ describe("LFCP-065 commands", () => {
     }
   });
 
+  it("Invite collaborator again while an invitation is being created: no second one", async () => {
+    const s = await setup();
+    await created(s);
+    s.prompter.picks.push("Team", "Read + write", "Team", "Read + write");
+    const first = s.commands.inviteCollaborator();
+    await s.commands.inviteCollaborator();
+    expect(s.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: an invitation is being created. Its link appears when the server has it.",
+    );
+    await first;
+    expect(s.prompter.invitations).toHaveLength(1);
+    expect(s.prompter.progressLines).toContain(
+      "Creating the invitation and waiting for the server to confirm it…",
+    );
+    // Once it is done, the command creates the next one.
+    await s.commands.inviteCollaborator();
+    expect(s.prompter.invitations).toHaveLength(2);
+  });
+
   it("Join collaboration: masked link prompt, stages, plain failure, no secret anywhere", async () => {
     const owner = await setup();
     const R = await created(owner);
