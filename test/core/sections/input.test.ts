@@ -126,7 +126,7 @@ describe("transientCandidates (MS17-transient)", () => {
   });
   const lines = ["- [ ] ", "- ", "- [ ] Title", "- Text", "Para"];
 
-  it("holds an empty item or a Task without a title on the caret's line", () => {
+  it("holds an empty item on the caret's line, and a Task without a title anywhere", () => {
     const at = (line: number) =>
       transientCandidates(
         [
@@ -140,14 +140,17 @@ describe("transientCandidates (MS17-transient)", () => {
         line,
       );
     expect([...at(0)]).toEqual([0]);
-    expect([...at(1)]).toEqual([1]);
-    expect([...at(2)]).toEqual([]);
-    expect([...at(3)]).toEqual([]);
-    expect([...at(4)]).toEqual([]);
+    expect([...at(1)]).toEqual([0, 1]);
+    expect([...at(2)]).toEqual([0]);
+    expect([...at(3)]).toEqual([0]);
+    expect([...at(4)]).toEqual([0]);
   });
 
-  it("holds nothing once the caret is elsewhere", () => {
-    expect([...transientCandidates([c("task", 0)], (l) => lines[l] ?? "", null)]).toEqual([]);
-    expect([...transientCandidates([c("task", 0)], (l) => lines[l] ?? "", 3)]).toEqual([]);
+  // 0.4.0-beta.8: once the caret left it, an empty Task was created, which
+  // threw ("no title to share") and failed every pass of the note.
+  it("holds a Task without a title once the caret is elsewhere too, and an empty item not", () => {
+    expect([...transientCandidates([c("task", 0)], (l) => lines[l] ?? "", null)]).toEqual([0]);
+    expect([...transientCandidates([c("task", 0)], (l) => lines[l] ?? "", 3)]).toEqual([0]);
+    expect([...transientCandidates([c("item", 1, "")], (l) => lines[l] ?? "", null)]).toEqual([]);
   });
 });

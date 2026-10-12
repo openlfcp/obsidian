@@ -124,9 +124,10 @@ const EMPTY_TASK = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[.\][ \t]*$/;
 
 /**
  * New content not ready to be shared yet, so it gets no identity in this
- * pass (MS17-transient): on the caret's line, an item without text, or a
- * Task without a title (`- [ ] `, the line Enter leaves behind). It stays
- * in the note and is reconciled once the caret leaves or it has content.
+ * pass (MS17-transient): an item without text on the caret's line, which is
+ * reconciled once the caret leaves or it has content; and a Task without a
+ * title (`- [ ] `, the line Enter leaves behind) wherever it is, until it has
+ * one (MS27: unbound and unpublished).
  */
 export function transientCandidates(
   unbound: readonly UnboundNode[],
@@ -135,9 +136,12 @@ export function transientCandidates(
 ): Set<number> {
   const out = new Set<number>();
   for (const c of unbound) {
+    // A Task without a title is never created, wherever the caret is (MS27:
+    // unbound and unpublished): it has nothing to share, and creating it threw,
+    // failing every pass of the note while it stayed (0.4.0-beta.8).
+    if (c.kind === "task" && EMPTY_TASK.test(lineText(c.line))) out.add(c.line);
     if (c.line !== caretLine) continue;
     if (c.kind === "item" && (c.text ?? "").trim() === "") out.add(c.line);
-    if (c.kind === "task" && EMPTY_TASK.test(lineText(c.line))) out.add(c.line);
   }
   return out;
 }
