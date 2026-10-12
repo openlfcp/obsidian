@@ -273,6 +273,21 @@ interface JoinRecord {
   readonly url: string;
 }
 const joinNameKey = (R: ResourceId): string => `collab-join-name:${toHex(R)}`;
+
+/**
+ * Why a join did not finish, from the SDK's reason. A claim sent without an
+ * answer is journaled by the SDK (LFCP-02-110): the same link, or the next
+ * start, settles it without spending it twice. A request the server refused
+ * ("RESOURCE_OPEN was refused: AUTHORIZATION_FAILED") was answered: the
+ * connection is not the problem, so the user is not told to go online.
+ */
+export function joinUnavailableMessage(reason: string, claimSent: boolean): string {
+  if (claimSent)
+    return `The server did not confirm the claim (${reason}). It is kept on this device: join again with the same link, or it finishes at the next start.`;
+  if (/ was refused: [A-Z_]+$/.test(reason))
+    return `The collaboration's server refused the join (${reason}). The invitation was not used: ask the person who invited you to check that the collaboration is on its server, then join again with the same link.`;
+  return `The collaboration's server could not complete the join (${reason}). Joining needs a connection; try again when online.`;
+}
 const WS_URL = /^wss?:\/\/[^\s/]+/i;
 
 export class Collaboration {
@@ -559,17 +574,10 @@ export class Collaboration {
     if (accepted.kind === "refused")
       return { kind: "refused", code: accepted.code, message: plainCode(accepted.code) };
     if (accepted.kind === "unavailable")
-      // A claim sent without an answer is journaled by the SDK (LFCP-02-110):
-      // the same link, or the next start, settles it without spending it twice.
-      return last === "claiming capability"
-        ? {
-            kind: "unavailable",
-            message: `The server did not confirm the claim (${accepted.reason}). It is kept on this device: join again with the same link, or it finishes at the next start.`,
-          }
-        : {
-            kind: "unavailable",
-            message: `The collaboration's server could not complete the join (${accepted.reason}). Joining needs a connection; try again when online.`,
-          };
+      return {
+        kind: "unavailable",
+        message: joinUnavailableMessage(accepted.reason, last === "claiming capability"),
+      };
     return this.#finishJoin(R, accepted.abilities, options.name, stage);
   }
 
