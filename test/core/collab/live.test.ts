@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { type JoinStage, taskAt } from "../../../src/core/collab";
 import { Collaboration } from "../../../src/core/collab/service";
 import { statusView } from "../../../src/core/collab/view";
-import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
+import { LfcpRuntime, type RuntimeEnv } from "../../../src/core/lfcp/runtime";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 import { type LiveServer, liveSkipReason, startLiveServer } from "../../support/live-server";
 
@@ -30,13 +30,14 @@ afterEach(() => {
 });
 
 /** A device with the platform WebSocket (online). */
-async function device(snapshotEvery?: number) {
+async function device(snapshotEvery?: number, env: Partial<RuntimeEnv> = {}) {
   const d = new Device();
   // The platform WebSocket: the device's offline factory is left out.
   const { webSocket: _offline, ...online } = d.env(new FakeLocal(), { tickMs: 20 });
   const runtime = await LfcpRuntime.start({
     ...online,
     ...(snapshotEvery === undefined ? {} : { snapshotEvery }),
+    ...env,
   });
   running.push(runtime);
   return { runtime, collab: new Collaboration(runtime, { connectTimeoutMs: 5000, sleep }) };
@@ -275,6 +276,48 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
     // The server is still there: the session comes back on its own.
     await until("LIVE again", async () => (d.runtime.phase(R) === "LIVE" ? true : undefined));
   });
+
+  it("the network gone without a close or an offline event: the probe closes the session, it reconnects", async () => {
+    // The owner's macOS check of 0.4.0-beta.6: the Wi-Fi off, no "offline"
+    // event, nothing closed. The connection's frames stop both ways and its
+    // socket stays open; a new connection goes through.
+    const dead = new Set<WebSocket>();
+    const sockets: WebSocket[] = [];
+    const webSocket = (url: string, protocols: readonly string[]) => {
+      const ws = new WebSocket(url, [...protocols]);
+      sockets.push(ws);
+      const send = ws.send.bind(ws);
+      ws.send = (data: Parameters<WebSocket["send"]>[0]) => {
+        if (!dead.has(ws)) send(data);
+      };
+      let handler: ((ev: MessageEvent) => void) | null = null;
+      Object.defineProperty(ws, "onmessage", {
+        get: () => handler,
+        set: (fn) => {
+          handler = fn;
+        },
+      });
+      ws.addEventListener("message", (ev) => {
+        if (!dead.has(ws)) handler?.(ev);
+      });
+      return ws as never;
+    };
+    const d = await device(undefined, { webSocket, liveness: { idleMs: 400, replyMs: 400 } });
+    const created = await d.collab.create({ name: "Team", server: server.url });
+    const R = created.resourceId;
+    await until("LIVE", async () => (d.runtime.phase(R) === "LIVE" ? true : undefined));
+    const phases: string[] = [];
+    d.runtime.on((e) => {
+      if (e.type === "resource-state" && toHex(e.resourceId) === toHex(R)) phases.push(e.state);
+    });
+    for (const ws of sockets) dead.add(ws);
+    const t0 = Date.now();
+    await until("CLOSED", async () => (phases.includes("CLOSED") ? true : undefined), 3000);
+    // At most the idle time, the reply wait and a probe tick: far below 3 × 30 s (§38).
+    expect(Date.now() - t0).toBeLessThan(2000);
+    await until("LIVE again", async () => (d.runtime.phase(R) === "LIVE" ? true : undefined));
+    expect(sockets.length).toBeGreaterThan(1);
+  }, 30_000);
 
   it("a collaboration the server does not host: refused once, shown in status, not retried (POST-017)", async () => {
     const d = await device();

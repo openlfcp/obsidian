@@ -19,6 +19,7 @@ import {
   loadControlChain,
   OutboundQueue,
   ProfileCheckpointer,
+  platformWebSocket,
   type ResourcePhase,
   type ResourceRefusal,
   type RevokeAccessResult,
@@ -84,6 +85,7 @@ import {
   type LockReason,
   openInstall,
 } from "./install";
+import { LIVENESS, type LivenessOptions, LivenessProbe } from "./liveness";
 import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
 import { type RestartableReconnect, restartableReconnect } from "./reconnect";
 import { isInstallId, SlotSecretStore } from "./secrets";
@@ -107,6 +109,11 @@ export interface RuntimeEnv extends InstallEnv {
   acquireLock?(name: string): Promise<HeldLock | null>;
   /** Initializes Automerge's wasm before any replica exists (default: the SDK's). */
   initializeAutomerge?(): Promise<void>;
+  /**
+   * The liveness probe of each session (liveness.ts): a PING after this much
+   * silence, the connection dropped when it stays unanswered. Default 15 s and 5 s.
+   */
+  readonly liveness?: LivenessOptions;
   /** How often the sync driver ticks (default 250 ms). */
   readonly tickMs?: number;
   /**
@@ -1410,6 +1417,12 @@ export class LfcpRuntime {
     // limits to another and retried other sessions' items, racing their
     // ACKs). The items themselves are in storage, per Resource.
     const reconnect = restartableReconnect();
+    const liveness = this.#env.liveness ?? LIVENESS;
+    const probe = new LivenessProbe(
+      () => this.#env.webSocket ?? platformWebSocket(),
+      () => this.#env.timers.now(),
+      liveness,
+    );
     const client = new SyncClient({
       url,
       reconnect: reconnect.policy,
@@ -1419,7 +1432,7 @@ export class LfcpRuntime {
       secrets: i.secrets,
       outbound: new OutboundQueue({ storage: i.storage, requestTimeout: OUTBOUND_REQUEST_TIMEOUT }),
       now: () => this.#env.timers.now(),
-      ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
+      webSocket: probe.factory,
       // POST-007: a Snapshot every `snapshotEvery` merged units, by a member who may publish one.
       // The SDK counts merged units and those of sync.commit; the 0.1 writes
       // (writeIntent queues its units directly) are added here.
@@ -1443,7 +1456,29 @@ export class LfcpRuntime {
           .catch(() => undefined);
     });
     client.start();
-    const stopDriver = startSyncDriver(client, this.#env.timers, this.#env.tickMs ?? 250);
+    // A connection that answers nothing is dropped and reconnected, as on the
+    // window's "offline": the probe runs on the sync driver's own timer.
+    const probing = () => {
+      if (!probe.tick(this.#env.timers.now(), client.connectionState === "READY"))
+        void client
+          .stop()
+          .then(() => client.start())
+          .catch(() => undefined);
+    };
+    const stopDriver = startSyncDriver(
+      client,
+      {
+        ...this.#env.timers,
+        setInterval: (fn, ms) =>
+          this.#env.timers.setInterval(() => {
+            fn();
+            probing();
+          }, ms),
+        clearInterval: (h) => this.#env.timers.clearInterval(h),
+        now: () => this.#env.timers.now(),
+      },
+      this.#env.tickMs ?? 250,
+    );
     const created: Pooled = { client, stopDriver, unsubscribe, reconnect };
     this.#pool.set(url, created);
     return created;
