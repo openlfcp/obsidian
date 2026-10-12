@@ -565,7 +565,12 @@ export class SectionEngine {
     const note = markdownState(md0, section0);
 
     // 2. The user's edits since then, as one batch.
-    const plan = planSection(baseState, note.state, shared);
+    const plan = planSection(
+      baseState,
+      note.state,
+      shared,
+      new Set([...(ctx.cut ?? []), ...ctx.deletedIds]),
+    );
     const reappeared = Object.keys(note.state.nodes).filter(
       (id) => snap.nodes[id]?.lifecycle === "deleted",
     );

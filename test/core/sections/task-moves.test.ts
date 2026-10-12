@@ -209,6 +209,31 @@ describe("moving a Task in one vault", () => {
 });
 
 describe("moving one Task in two vaults offline", () => {
+  it("one cuts it and pastes it one place up in one pass, the other moves it last: both need attention", async () => {
+    // two-obsidian-beta-check step 6: Cmd+X, ↑, Cmd+V within one pass.
+    const body = ["- [ ] Write", "- [ ] Review", "- [ ] Send", "- [ ] Bob", "", "A paragraph"];
+    const { a, b } = await twoVaults(body);
+    const send = taskId(a.note(), "Send");
+    const before = a.note();
+    const ids = new Set([send]);
+    await a.pass(paste(before, cut(before, "Send"), "Send", "Write"), {
+      deletedIds: ids,
+      cut: ids,
+    });
+    const bBefore = b.note();
+    const bIds = new Set([taskId(bBefore, "Send")]);
+    await b.pass(paste(bBefore, cut(bBefore, "Send"), "Send", "Bob"), {
+      deletedIds: bIds,
+      cut: bIds,
+    });
+    await reconnect(a, b);
+    for (const v of [a, b]) {
+      expect(placementConflict(v, send)).toBe(true);
+      expect(placementConflict(v, taskId(v.note(), "Review"))).toBe(false);
+      expect(count(v.note(), "Send")).toBe(1);
+    }
+  });
+
   it("both drag it under different Tasks: both keep it once and need attention", async () => {
     const { a, b } = await twoVaults(BODY);
     const anna = taskId(a.note(), "Call Anna");

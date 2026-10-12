@@ -201,6 +201,8 @@ export function planSection(
   base: SectionState | undefined,
   note: SectionState,
   shared: SectionState,
+  /** Bound nodes whose lines the user removed in this pass (a cut, a drag): they moved, not their neighbours. */
+  removed: ReadonlySet<string> = new Set(),
 ): SectionPlan {
   const from = base ?? shared;
   const textEdits: { nodeId: string; edit: TextEdit }[] = [];
@@ -229,7 +231,7 @@ export function planSection(
   return {
     ...(note.title !== from.title ? { title: note.title } : {}),
     textEdits,
-    moves: reduceMoves(moves, note, from),
+    moves: reduceMoves(moves, note, from, removed),
     missing,
     kindMismatch,
   };
@@ -283,12 +285,16 @@ export function withRestored(
 
 /**
  * Keeps only the moves that explain the new order: a sibling that merely
- * shifted because another one moved is not moved itself.
+ * shifted because another one moved is not moved itself. Of the orders that
+ * keep the most siblings in place, the one keeping those the user did not
+ * remove: a Task cut and pasted one place up is the one that moved, not the
+ * neighbour it passed (two-obsidian-beta-check step 6).
  */
 function reduceMoves(
   moves: readonly { nodeId: string; parent: string | null; after: string | null }[],
   note: SectionState,
   from: SectionState,
+  removed: ReadonlySet<string>,
 ) {
   const reparented = moves.filter((m) => from.nodes[m.nodeId]?.parent !== m.parent);
   const reordered = moves.filter((m) => from.nodes[m.nodeId]?.parent === m.parent);
@@ -304,19 +310,28 @@ function reduceMoves(
       (id) => from.nodes[id]?.parent === (key === ROOT ? null : key),
     );
     const original = (from.order[key] ?? []).filter((id) => target.includes(id));
-    const keep = new Set(longestCommonSubsequence(original, target));
+    // Most siblings kept first (each worth more than all tie-breaks together), then the unremoved.
+    const most = original.length + 1;
+    const keep = new Set(
+      longestCommonSubsequence(original, target, (id) => most + (removed.has(id) ? 0 : 1)),
+    );
     for (const m of ms) if (!keep.has(m.nodeId)) out.push(m);
   }
   return out;
 }
 
-export function longestCommonSubsequence(a: readonly string[], b: readonly string[]): string[] {
+/** The common subsequence of most `weight` (by default the longest); `a` and `b` hold distinct IDs. */
+export function longestCommonSubsequence(
+  a: readonly string[],
+  b: readonly string[],
+  weight: (id: string) => number = () => 1,
+): string[] {
   const dp = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--)
     for (let j = b.length - 1; j >= 0; j--)
       (dp[i] as number[])[j] =
         a[i] === b[j]
-          ? ((dp[i + 1] as number[])[j + 1] as number) + 1
+          ? ((dp[i + 1] as number[])[j + 1] as number) + weight(a[i] as string)
           : Math.max((dp[i + 1] as number[])[j] as number, (dp[i] as number[])[j + 1] as number);
   const out: string[] = [];
   let i = 0;

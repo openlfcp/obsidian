@@ -92,6 +92,36 @@ describe("planSection (three-way)", () => {
     expect(plan.missing).toEqual([]);
   });
 
+  it("a Task cut and pasted one place up: it moved, not the neighbour it passed", () => {
+    const four = state("T", [
+      ["w", "task", null],
+      ["r", "task", null],
+      ["s", "task", null],
+      ["b", "task", null],
+    ]);
+    const swapped = state("T", [
+      ["w", "task", null],
+      ["s", "task", null],
+      ["r", "task", null],
+      ["b", "task", null],
+    ]);
+    expect(planSection(four, swapped, four, new Set(["s"])).moves).toEqual([
+      { nodeId: "s", parent: null, after: "w" },
+    ]);
+    // Without knowing what was removed, the order alone cannot tell.
+    expect(planSection(four, swapped, four).moves).toHaveLength(1);
+    // A move further away is attributed as before, with or without the hint.
+    const far = state("T", [
+      ["b", "task", null],
+      ["w", "task", null],
+      ["r", "task", null],
+      ["s", "task", null],
+    ]);
+    expect(planSection(four, far, four).moves).toEqual([
+      { nodeId: "b", parent: null, after: null },
+    ]);
+  });
+
   it("a remote change only: the note equals the base, nothing is sent (the render shows it)", () => {
     const shared = state("T2", [
       ["a", "paragraph", null, "ALPHA"],
