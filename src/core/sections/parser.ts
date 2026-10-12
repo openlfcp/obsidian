@@ -432,7 +432,15 @@ function parseBody(
         blocked = true;
         continue;
       }
-      if (pendingId !== null) note("NODE_BINDING_ORPHAN", pendingId.line);
+      if (pendingId?.kind === "paragraph")
+        // §4.3: an empty paragraph whose empty line was deleted (a blank line
+        // to the eye: markers are hidden) keeps its marker and identity, as
+        // before the section's end; never a binding error. MARKDOWN-SECTIONS-01
+        // is silent on a paragraph marker right before another node marker:
+        // this is the most conservative reading (fixture MS17-empty-adjacent
+        // is queued for the spec).
+        place(node("paragraph", pendingId.id, pendingId.line, pendingId.line, 0), -1);
+      else if (pendingId !== null) note("NODE_BINDING_ORPHAN", pendingId.line);
       pendingId = { kind: marker.kind, id: marker.nodeId, line: i };
       continue;
     }

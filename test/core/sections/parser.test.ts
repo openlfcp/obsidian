@@ -256,6 +256,29 @@ describe("nodes", () => {
     expect(shape(s?.nodes ?? [])).toEqual(["paragraph:002"]);
   });
 
+  // The owner's check of 0.4.0-beta.8: the empty line of an empty paragraph
+  // deleted (a blank line to the eye), its marker right before the next one,
+  // was NODE_BINDING_ORPHAN and paused the section. MARKDOWN-SECTIONS-01 is
+  // silent (MS17-empty-adjacent is queued): an empty paragraph, as before
+  // the section's end.
+  it("an empty paragraph whose empty line was deleted keeps its identity, no diagnostic", () => {
+    const parsed = parseSections(
+      lines(
+        "## S",
+        start,
+        formatNodeMarker("paragraph", id(2)),
+        formatNodeMarker("paragraph", id(3)),
+        "A paragraph for typing.",
+        "",
+        end,
+      ),
+    );
+    const [s] = parsed.sections;
+    expect(s?.blocked).toBe(false);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(shape(s?.nodes ?? [])).toEqual(["paragraph:002", "paragraph:003"]);
+  });
+
   it("§4.5: an Obsidian comment is not shared: kept in place, the rest of the section syncs", () => {
     const text = lines(
       "## S",
