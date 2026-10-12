@@ -21,7 +21,8 @@ import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import type { Collaboration } from "../core/collab/service";
-import type { SectionFacts } from "../core/diagnostics";
+import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
+import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
 import { type LfcpRuntime, SECTIONS_READ_ONLY } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { scanRefs } from "../core/refs";
@@ -920,31 +921,40 @@ export class SectionsHost {
 
   /**
    * What diagnostics show of the shared sections (LFCP-02-065): each one's
-   * state, condition kinds and codes and pending count; the kept candidates'
-   * reasons and sizes. No text, path, title or node ID.
+   * state, condition kinds and codes (a save failure's refusal code) and
+   * pending count; the kept candidates' reasons, sizes and refusal codes. No
+   * text, path, title or node ID.
    */
   async diagnostics(): Promise<{
     readonly sections: SectionFacts[];
-    readonly candidates: { readonly reason: string; readonly characters: number }[];
+    readonly candidates: KeptCandidate[];
   }> {
-    const sections = [...this.#statuses].map(([key, v]) => ({
-      key,
-      state: v.state,
-      conditions: v.conditions.map((c) =>
-        c.kind === "rejected"
-          ? `rejected:${c.code}`
-          : c.kind === "source"
-            ? `source-${c.source}`
-            : c.kind === "access"
-              ? `access-${c.access}`
-              : c.kind,
-      ),
-      pendingBatches: v.pendingBatches,
-    }));
-    const kept = (await this.#journal?.allCandidates()) ?? [];
+    const journal = this.#journal;
+    const sections: SectionFacts[] = [];
+    for (const [key, v] of this.#statuses) {
+      const conditions: string[] = [];
+      for (const c of v.conditions)
+        if (c.kind === "save-failed")
+          conditions.push(
+            ...(journal === null
+              ? ["save-failed"]
+              : await saveFailedConditions(journal, c.batchIds)),
+          );
+        else
+          conditions.push(
+            c.kind === "rejected"
+              ? `rejected:${c.code}`
+              : c.kind === "source"
+                ? `source-${c.source}`
+                : c.kind === "access"
+                  ? `access-${c.access}`
+                  : c.kind,
+          );
+      sections.push({ key, state: v.state, conditions, pendingBatches: v.pendingBatches });
+    }
     return {
       sections,
-      candidates: kept.map((c) => ({ reason: c.reason, characters: c.sourceText.length })),
+      candidates: journal === null ? [] : await keptCandidates(journal),
     };
   }
 

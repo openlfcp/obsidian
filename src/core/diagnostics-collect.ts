@@ -5,8 +5,15 @@
 
 import { toHex } from "@openlfcp/core";
 import type { Collaboration } from "./collab/service";
-import type { DiagnosticEvent, DiagnosticInput, ResourceFacts, SectionFacts } from "./diagnostics";
+import type {
+  DiagnosticEvent,
+  DiagnosticInput,
+  KeptCandidate,
+  ResourceFacts,
+  SectionFacts,
+} from "./diagnostics";
 import type { LfcpRuntime } from "./lfcp/runtime";
+import type { JournalEntry, PendingCandidate } from "./sections/journal";
 
 export interface DiagnosticSources {
   readonly runtime: LfcpRuntime | null;
@@ -15,7 +22,7 @@ export interface DiagnosticSources {
   readonly sections: {
     diagnostics(): Promise<{
       readonly sections: readonly SectionFacts[];
-      readonly candidates: readonly { readonly reason: string; readonly characters: number }[];
+      readonly candidates: readonly KeptCandidate[];
     }>;
   } | null;
   readonly events: readonly DiagnosticEvent[];
@@ -65,4 +72,50 @@ export async function collectDiagnostics(src: DiagnosticSources): Promise<Diagno
     candidates: sections.candidates,
     events: src.events,
   };
+}
+
+/** What the sections' diagnostics read of the journal: kept candidates and operations. */
+export interface DiagnosticJournal {
+  allCandidates(): Promise<PendingCandidate[]>;
+  get(operationId: string): Promise<JournalEntry | undefined>;
+}
+
+/** A refusal code an abandoned operation recorded; a local reason ("flush-failed") is none. */
+const refusalOf = (entry: JournalEntry | undefined): string | undefined =>
+  entry?.phase === "abandoned" &&
+  entry.reason !== undefined &&
+  /^[A-Z][A-Z0-9_]*$/.test(entry.reason)
+    ? entry.reason
+    : undefined;
+
+/**
+ * The kept candidates as diagnostics show them: reason and size, and for a
+ * refused edit the server's code, from its abandoned operation (the
+ * candidate has the operation's ID). Never their text.
+ */
+export async function keptCandidates(journal: DiagnosticJournal): Promise<KeptCandidate[]> {
+  const out: KeptCandidate[] = [];
+  for (const c of await journal.allCandidates()) {
+    const code = c.reason === "rejected" ? refusalOf(await journal.get(c.candidateId)) : undefined;
+    const kept = { reason: c.reason, characters: c.sourceText.length };
+    out.push(code === undefined ? kept : { ...kept, code });
+  }
+  return out;
+}
+
+/**
+ * A LOCAL_SAVE_FAILED condition as diagnostics name it: "save-failed:<CODE>"
+ * for each refusal code its failed operations recorded, "save-failed" when
+ * none did.
+ */
+export async function saveFailedConditions(
+  journal: DiagnosticJournal,
+  operationIds: readonly string[],
+): Promise<string[]> {
+  const codes = new Set<string>();
+  for (const id of operationIds) {
+    const c = refusalOf(await journal.get(id));
+    if (c !== undefined) codes.add(c);
+  }
+  return codes.size === 0 ? ["save-failed"] : [...codes].sort().map((c) => `save-failed:${c}`);
 }

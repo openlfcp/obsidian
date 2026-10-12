@@ -3,15 +3,19 @@
 // local candidate with one, and an SDK error whose message carries one and
 // an invitation link. The report, by default and detailed, holds none of
 // them; the default one holds no identifier or server address either. The
-// sections side is the journal the plugin's host reads (its mapping:
-// reason and size only).
+// sections side is the journal the plugin's host reads, with its mapping
+// (keptCandidates: reason, size and refusal code only).
 
 import { type ObjectId, toHex } from "@openlfcp/core";
 import { createTask } from "@openlfcp/shared-objects";
 import { afterEach, describe, expect, it } from "vitest";
 import { Collaboration } from "../../src/core/collab/service";
 import { DiagnosticLog, diagnosticReport, safeEvent } from "../../src/core/diagnostics";
-import { collectDiagnostics } from "../../src/core/diagnostics-collect";
+import {
+  collectDiagnostics,
+  keptCandidates,
+  saveFailedConditions,
+} from "../../src/core/diagnostics-collect";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
 import { KeyValueSectionJournalStore } from "../../src/core/sections/stores";
 import { Device, FakeLocal, sleep } from "../support/lfcp-env";
@@ -78,10 +82,7 @@ describe("diagnostics from a real runtime (LFCP-02-065)", () => {
       sections: {
         diagnostics: async () => ({
           sections: [],
-          candidates: (await journal.allCandidates()).map((c) => ({
-            reason: c.reason,
-            characters: c.sourceText.length,
-          })),
+          candidates: await keptCandidates(journal),
         }),
       },
       events: log.events,
@@ -103,5 +104,96 @@ describe("diagnostics from a real runtime (LFCP-02-065)", () => {
     expect(plain).toContain("Text kept on this device, not shared: 1 (rejected 1)");
     expect(plain).toContain("error code=AUTHORIZATION_FAILED");
     expect(plain).toMatch(/^Local encryption: lse-v1/m);
+  });
+
+  it("a refused edit kept on this device names its code; a save failure names it too", async () => {
+    const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
+    running.push(runtime);
+    const journal = new KeyValueSectionJournalStore(runtime.localState);
+    const projectionId = "pending:Private/Notes.md#x#0";
+    const ops: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const operationId = `op-${i}`;
+      ops.push(operationId);
+      await journal.put({
+        operationId,
+        projectionId,
+        resource: "UkVTT1VSQ0U",
+        phase: "abandoned",
+        sourceHash: "0".repeat(64),
+        allocatedIds: {},
+        reason: "INVALID_INTENT",
+      });
+      // A refused edit's candidate has its operation's ID (sections-host #flushed).
+      await journal.putCandidate({
+        candidateId: operationId,
+        projectionId,
+        reason: "rejected",
+        sourceText: `## Launch\n${KEPT}\n`,
+      });
+    }
+    // An operation abandoned for a local reason, and one never recorded: no code.
+    await journal.put({
+      operationId: "op-local",
+      projectionId,
+      resource: "UkVTT1VSQ0U",
+      phase: "abandoned",
+      sourceHash: "0".repeat(64),
+      allocatedIds: {},
+      reason: "flush-failed",
+    });
+    await journal.putCandidate({
+      candidateId: "base-unknown:x",
+      projectionId,
+      reason: "base-unknown",
+      sourceText: `${KEPT}\n`,
+    });
+    const conditions = await saveFailedConditions(journal, ops);
+    expect(conditions).toEqual(["save-failed:INVALID_INTENT"]);
+    expect(await saveFailedConditions(journal, ["op-local", "op-missing"])).toEqual([
+      "save-failed",
+    ]);
+    const input = await collectDiagnostics({
+      runtime,
+      collab: null,
+      sections: {
+        diagnostics: async () => ({
+          sections: [{ key: "k", state: "LOCAL_SAVE_FAILED", conditions, pendingBatches: 7 }],
+          candidates: await keptCandidates(journal),
+        }),
+      },
+      events: [],
+      plugin: "0.4.0",
+      obsidian: "1.13.4",
+      platform: "desktop-linux",
+      needsRestart: false,
+    });
+    const plain = diagnosticReport(input, false);
+    expect(plain).toContain(
+      "Text kept on this device, not shared: 8 (base-unknown 1, rejected 7: INVALID_INTENT 7)",
+    );
+    expect(plain).toContain(
+      "1. state LOCAL_SAVE_FAILED · pending batches 7 · conditions save-failed:INVALID_INTENT",
+    );
+    expect(plain).not.toContain("PRIVATE_");
+  });
+
+  it("only codes pass: a recorded reason that is free text is not shown as one", async () => {
+    const journal = {
+      allCandidates: async () => [
+        { candidateId: "op", projectionId: "p", reason: "rejected" as const, sourceText: "x" },
+      ],
+      get: async () => ({
+        operationId: "op",
+        projectionId: "p",
+        resource: "R",
+        phase: "abandoned" as const,
+        sourceHash: "",
+        allocatedIds: {},
+        reason: `${KEPT} refused`,
+      }),
+    };
+    expect(await keptCandidates(journal)).toEqual([{ reason: "rejected", characters: 1 }]);
+    expect(await saveFailedConditions(journal, ["op"])).toEqual(["save-failed"]);
   });
 });

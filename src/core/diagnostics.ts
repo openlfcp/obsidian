@@ -44,6 +44,14 @@ export interface SectionFacts {
   readonly pendingBatches: number;
 }
 
+/** A kept local candidate (text that could not be shared): its reason and size, never its text. */
+export interface KeptCandidate {
+  readonly reason: string;
+  readonly characters: number;
+  /** A refused edit's code (INVALID_INTENT…), when its operation recorded one. */
+  readonly code?: string;
+}
+
 export interface DiagnosticInput {
   readonly generatedAt: number;
   readonly plugin: string;
@@ -54,8 +62,8 @@ export interface DiagnosticInput {
   readonly localEncryption: string | null;
   readonly resources: readonly ResourceFacts[];
   readonly sections: readonly SectionFacts[];
-  /** Kept local candidates (text that could not be shared): reasons only. */
-  readonly candidates: readonly { readonly reason: string; readonly characters: number }[];
+  /** Kept local candidates (text that could not be shared): reasons and codes only. */
+  readonly candidates: readonly KeptCandidate[];
   readonly events: readonly DiagnosticEvent[];
 }
 
@@ -166,13 +174,23 @@ export function diagnosticReport(input: DiagnosticInput, detailed: boolean): str
     );
     if (detailed) lines.push(`     key ${s.key}`);
   });
-  const reasons = new Map<string, number>();
-  for (const c of input.candidates)
-    reasons.set(code(c.reason), (reasons.get(code(c.reason)) ?? 0) + 1);
+  // Per reason its count, and the codes of those that have one: "rejected 7: INVALID_INTENT 7".
+  const reasons = new Map<string, { n: number; codes: Map<string, number> }>();
+  for (const c of input.candidates) {
+    const r = reasons.get(code(c.reason)) ?? { n: 0, codes: new Map<string, number>() };
+    r.n++;
+    if (c.code !== undefined) r.codes.set(code(c.code), (r.codes.get(code(c.code)) ?? 0) + 1);
+    reasons.set(code(c.reason), r);
+  }
+  const counted = [...reasons].map(([r, { n, codes }]) =>
+    codes.size === 0
+      ? `${r} ${n}`
+      : `${r} ${n}: ${[...codes].map(([c, k]) => `${c} ${k}`).join(" / ")}`,
+  );
   lines.push(
     "",
     `Text kept on this device, not shared: ${input.candidates.length}${
-      reasons.size === 0 ? "" : ` (${[...reasons].map(([r, n]) => `${r} ${n}`).join(", ")})`
+      counted.length === 0 ? "" : ` (${counted.join(", ")})`
     }`,
     "",
     `Recent events: ${input.events.length}`,
