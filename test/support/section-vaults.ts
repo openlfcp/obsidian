@@ -3,7 +3,7 @@
 // path, and the Markdown edits a person makes to move a Task (cut, paste,
 // indent). Changes between vaults are exchanged by hand (reconnect).
 
-import type { Receipt } from "@openlfcp/client";
+import type { Flushed, Receipt } from "@openlfcp/client";
 import { type PrincipalId, principalId, resourceId, toBase64url } from "@openlfcp/core";
 import { type SectionIntent as SdkIntent, SectionReplica } from "@openlfcp/shared-objects/sections";
 import { InMemoryLfcpStorage } from "@openlfcp/storage";
@@ -12,7 +12,7 @@ import { SdkSectionPort } from "../../src/core/lfcp/section-port";
 import { MemorySectionBaseStore } from "../../src/core/sections/base";
 import { applyChanges, type PassContext, SectionEngine } from "../../src/core/sections/engine";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
-import { MemorySectionJournalStore } from "../../src/core/sections/journal";
+import { abandonOnce, MemorySectionJournalStore } from "../../src/core/sections/journal";
 import {
   applyRecovery,
   type RecoveryChoice,
@@ -54,33 +54,64 @@ export function vault(
   me: PrincipalId,
   replicas: Map<string, SectionReplica>,
   firstNode = 100,
+  /** With a clock: Text edits coalesce (025) as on the plugin's runtime; `port.tick` commits them. */
+  options: { readonly now?: () => number } = {},
 ) {
   let unit = 0;
+  const storage = new InMemoryLfcpStorage();
+  /** The durable receipts by operation ID, as the runtime stores them (contract §3.2). */
+  const receipts = new Map<string, Receipt>();
+  // What the host does with a coalesced pass the timer committed or refused
+  // (sections-host #flushed): a refused one is abandoned, its Text nodes drifted.
+  let flushing = Promise.resolve();
+  const onFlushed = (_r: string, f: Flushed) => {
+    if (f.kind !== "failed") return;
+    flushing = flushing.then(async () => {
+      const e = await abandonOnce(journal, f.operationId, "INVALID_INTENT");
+      if (e === undefined) return;
+      const ids = (f.intents as { intent: string; id?: string }[]).flatMap((i) =>
+        i.intent === "text.edit" && i.id !== undefined ? [i.id] : [],
+      );
+      await engine.drifted(e.projectionId, ids);
+    });
+  };
   const replicaOf = (r: string) => {
     const replica = replicas.get(r);
     if (replica === undefined) throw new Error(`${name} has no replica of ${r}`);
     return replica;
   };
-  const port = new SdkSectionPort({
-    profile: (r) => {
-      const replica = replicas.get(toBase64url(r));
-      return replica === undefined ? undefined : ({ replica } as never);
+  const port = new SdkSectionPort(
+    {
+      profile: (r) => {
+        const replica = replicas.get(toBase64url(r));
+        return replica === undefined ? undefined : ({ replica } as never);
+      },
+      // As the runtime: an operation ID commits once, its receipt is stored.
+      commit: async (r, intents, o): Promise<Receipt> => {
+        const known = receipts.get(o.operationId);
+        if (known !== undefined) return known;
+        const replica = replicaOf(toBase64url(r));
+        const change = replica.commit(intents as readonly SdkIntent[]);
+        const receipt = {
+          operationId: o.operationId,
+          unitIds: [new Uint8Array(32).fill(++unit)] as never,
+          affectedNodeIds: change?.affectedNodeIds ?? [],
+          modelRevision: replica.revision(),
+          intentsHash: `${name}-${unit}`,
+          durable: true as const,
+        };
+        receipts.set(o.operationId, receipt);
+        return receipt;
+      },
+      storage,
+      canWrite: async () => ({ allowed: true, reason: null, controlHead: null, verifiedAt: null }),
     },
-    commit: async (r, intents, o): Promise<Receipt> => {
-      const replica = replicaOf(toBase64url(r));
-      const change = replica.commit(intents as readonly SdkIntent[]);
-      return {
-        operationId: o.operationId,
-        unitIds: [new Uint8Array(32).fill(++unit)] as never,
-        affectedNodeIds: change?.affectedNodeIds ?? [],
-        modelRevision: replica.revision(),
-        intentsHash: `${name}-${unit}`,
-        durable: true,
-      };
-    },
-    storage: new InMemoryLfcpStorage(),
-    canWrite: async () => ({ allowed: true, reason: null, controlHead: null, verifiedAt: null }),
-  });
+    options.now === undefined ? undefined : { now: options.now, onFlushed },
+  );
+  port.receiptOf = async (_r, operationId) => receipts.get(operationId) as never;
+  port.releaseReceipt = async (_r, operationId) => {
+    receipts.delete(operationId);
+  };
   let node = firstNode;
   let op = 0;
   let projection = 0;
@@ -115,6 +146,10 @@ export function vault(
     replicas,
     /** The engine, to run a pass the host does not write (abandoned). */
     engine,
+    /** The port: `tick` is the coalescer's timer. */
+    port,
+    /** The host's handling of what the timer flushed is done. */
+    flushed: () => flushing,
     /** The engine's stores, to set up a persisted state. */
     journal,
     bases,
@@ -208,10 +243,14 @@ export function sectionNote(s: Shared, title: string, body: readonly string[]): 
  * Vault A shares `body` in section `s` (typed into an empty section, then
  * bound), and vault B, with A's changes, shows the same note.
  */
-export async function twoVaults(body: readonly string[], s: Shared = PLAN) {
+export async function twoVaults(
+  body: readonly string[],
+  s: Shared = PLAN,
+  options: { readonly now?: () => number } = {},
+) {
   const ra = SectionReplica.empty({ resource: s.rid, principal: A_ME });
   ra.commit([{ intent: "section.create", sectionId: s.sid, title: "Plan", createdBy: A_ME }]);
-  const a = vault("A", A_ME, new Map([[s.R, ra]]));
+  const a = vault("A", A_ME, new Map([[s.R, ra]]), 100, options);
   const empty = sectionNote(s, "Plan", []);
   await a.pass(empty);
   await a.pass(sectionNote(s, "Plan", body));
@@ -222,7 +261,7 @@ export async function twoVaults(body: readonly string[], s: Shared = PLAN) {
   }
   const rb = SectionReplica.empty({ resource: s.rid, principal: B_ME });
   rb.receiveChanges(ra.changes());
-  const b = vault("B", B_ME, new Map([[s.R, rb]]), 500);
+  const b = vault("B", B_ME, new Map([[s.R, rb]]), 500, options);
   await b.pass(a.note());
   expect(b.note()).toBe(a.note());
   return { a, b };

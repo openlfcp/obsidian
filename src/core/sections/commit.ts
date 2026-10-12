@@ -68,6 +68,10 @@ export interface LocalPass {
   readonly taskIntents?: readonly TaskFieldIntent[];
   /** The note line of each Task in `taskIntents`, recorded with the batch (JournalEntry.taskLines). */
   readonly taskLines?: Readonly<Record<string, string>>;
+  /** A source line's text: a new Task's line is recorded with the batch too. */
+  readonly lineOf?: (line: number) => string;
+  /** A working-copy line as a line of the source the pass read (JournalEntry.createdLines). */
+  readonly sourceLineOf?: (line: number) => number | undefined;
 }
 
 export interface CommitDeps {
@@ -226,12 +230,25 @@ export async function commitPass(
   };
   if (resume === undefined) await deps.journal.put(entry);
   // IDs and the batch are durable before anything that could be retried.
+  // The lines the batch was planned from, new Tasks' included: a pass that
+  // resumes the operation takes them as their base lines.
+  const taskLines: Record<string, string> = { ...(pass.taskLines ?? {}) };
+  for (const c of pass.creations ?? []) {
+    const id = ids[c.line];
+    if (c.kind === "task" && id !== undefined && pass.lineOf !== undefined)
+      taskLines[id] = pass.lineOf(c.line);
+  }
+  const createdLines: Record<string, number> = {};
+  for (const c of pass.creations ?? []) {
+    const id = ids[c.line];
+    const at = pass.sourceLineOf?.(c.line);
+    if (id !== undefined && at !== undefined) createdLines[id] = at;
+  }
   entry = advance(entry, "ids-allocated", {
     allocatedIds: ids,
     intents,
-    ...(pass.taskLines === undefined || Object.keys(pass.taskLines).length === 0
-      ? {}
-      : { taskLines: pass.taskLines }),
+    ...(Object.keys(taskLines).length === 0 ? {} : { taskLines }),
+    ...(Object.keys(createdLines).length === 0 ? {} : { createdLines }),
   });
   await deps.journal.put(entry);
   return submit(deps, entry, pass);

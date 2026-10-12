@@ -290,9 +290,33 @@ function relocate(
   used: Set<number>,
   /** A Task line's title, read as a new Task with the batch's own Task ID. */
   titleOf: (line: number, taskId: string) => string | undefined,
+  /** The note line of each new node of the batch (JournalEntry.createdLines). */
+  createdAt: Readonly<Record<string, number>> = {},
 ): NewBinding[] {
   const out: NewBinding[] = [];
+  const kindOf = (i: SectionIntent) =>
+    i.intent === "task.create_in_section" ? "task" : i.intent.slice(0, i.intent.indexOf("."));
   for (const i of intents) {
+    const createdId =
+      i.intent === "task.create_in_section"
+        ? i.task.id
+        : i.intent === "paragraph.create" || i.intent === "item.create" || i.intent === "raw.create"
+          ? i.id
+          : undefined;
+    if (createdId === undefined) continue;
+    // The line its ID was allocated for, when an unbound node of its kind is
+    // still there: the user may have typed on since (its title or Text
+    // differs then, and is the user's newer edit, not the model's).
+    const line = createdAt[createdId];
+    const there =
+      line === undefined
+        ? undefined
+        : unbound.find((u) => u.line === line && !used.has(u.line) && u.kind === kindOf(i));
+    if (there !== undefined) {
+      used.add(there.line);
+      out.push({ line: there.line, kind: there.kind, id: createdId });
+      continue;
+    }
     const match = (u: UnboundNode) => {
       if (used.has(u.line)) return false;
       if (i.intent === "task.create_in_section")
@@ -599,20 +623,26 @@ export class SectionEngine {
       for (const id of r.receipt.affectedNodeIds) resumedRevisions.set(id, r.receipt.modelRevision);
       // The line read as the batch's own Task (a made-up ID is not a valid
       // Task ID: it threw, and every later pass with it, 0.4.0-beta.8).
-      const found = relocate(r.entry.intents ?? [], unbound0, used, (l, taskId) => {
-        const text = sourceLines[l]?.text ?? "";
-        try {
-          return this.deps.newTask(text, taskId).title;
-        } catch {
-          return undefined; // not a Task line (any more)
-        }
-      });
+      const found = relocate(
+        r.entry.intents ?? [],
+        unbound0,
+        used,
+        (l, taskId) => {
+          const text = sourceLines[l]?.text ?? "";
+          try {
+            return this.deps.newTask(text, taskId).title;
+          } catch {
+            return undefined; // not a Task line (any more)
+          }
+        },
+        r.entry.createdLines,
+      );
       resumed.push(...found);
       // New Tasks: their lines found again; Tasks whose fields the batch sent:
       // their lines as the batch was planned (JournalEntry.taskLines).
       const lineOf = new Map<string, string | undefined>([
-        ...Object.entries(r.entry.taskLines ?? {}),
         ...found.map((b) => [b.id, sourceLines[b.line]?.text] as const),
+        ...Object.entries(r.entry.taskLines ?? {}),
       ]);
       baseState = applyBatch(baseState, r.entry.intents ?? [], ref.sectionId, (id) =>
         lineOf.get(id),
@@ -631,6 +661,11 @@ export class SectionEngine {
     if (section0 === undefined) return skip("blocked");
     const lines0 = splitLines(md0);
     const lineText0 = (l: number) => lines0[l]?.text ?? "";
+    // The source line of each working-copy (md0: the source with the bindings
+    // this pass resumes) line: new nodes are recorded by source line.
+    const sourceLineOf = new Map<number, number>();
+    for (let l = 0; l < sourceLines.length; l++)
+      sourceLineOf.set(shiftLine(l, source, resumedChanges), l);
     const note = markdownState(md0, section0);
 
     // Nodes whose base drifted from the model (drifted()): the model is
@@ -753,6 +788,8 @@ export class SectionEngine {
       creations,
       newTask: (c, id) => this.deps.newTask(lineText0(c.line), id),
       taskIntents: fields.intents,
+      lineOf: lineText0,
+      sourceLineOf: (l) => sourceLineOf.get(l),
       taskLines: Object.fromEntries(
         fields.intents.map((i) => [i.id, note.state.nodes[i.id]?.line ?? ""]),
       ),

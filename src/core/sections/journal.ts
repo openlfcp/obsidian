@@ -48,6 +48,13 @@ export interface JournalEntry {
    * title rendered over newer typing).
    */
   readonly taskLines?: Readonly<Record<string, string>>;
+  /**
+   * The note line (of the source the pass read, before it wrote anything)
+   * of each new node: a pass that resumes the operation finds it there,
+   * whatever the user typed on it since. `allocatedIds` count lines in the
+   * pass's working copy, with the bindings it was about to write.
+   */
+  readonly createdLines?: Readonly<Record<string, number>>;
 }
 
 /** Text that cannot be shared yet, kept locally with why (never discarded to meet a quota). */
@@ -95,6 +102,7 @@ export function advance(
     allocatedIds?: Record<number, string>;
     intents?: readonly SectionIntent[];
     taskLines?: Readonly<Record<string, string>>;
+    createdLines?: Readonly<Record<string, number>>;
   } = {},
 ): JournalEntry {
   if (entry.phase === "done" || entry.phase === "abandoned")
@@ -128,6 +136,7 @@ export function advance(
     ...(extra.receipt === undefined ? {} : { receipt: extra.receipt }),
     ...(extra.intents === undefined ? {} : { intents: extra.intents }),
     ...(extra.taskLines === undefined ? {} : { taskLines: extra.taskLines }),
+    ...(extra.createdLines === undefined ? {} : { createdLines: extra.createdLines }),
     ...(extra.patchedHash === undefined ? {} : { patchedHash: extra.patchedHash }),
     ...(extra.reason === undefined ? {} : { reason: extra.reason }),
   };
