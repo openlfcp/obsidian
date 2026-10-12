@@ -884,6 +884,7 @@ export class SectionsHost {
           queuedUnits:
             (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit")
               .length ?? 0,
+          refusal: runtime.refusal(R)?.code ?? null,
         });
         return { key: `${r}#${sectionId}`, view: statusView(facts) };
       },

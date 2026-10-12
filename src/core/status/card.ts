@@ -54,6 +54,10 @@ function problemText(c: Condition): string | null {
         : c.access === "refused"
           ? "The sync server no longer accepts changes from this vault for this section. Your local copy stays; new edits are kept on this device only. Ask the section's owner to check your access."
           : "This device does not hold the section's key yet. Edits wait until it arrives.";
+    case "server-refused":
+      return c.code === "RESOURCE_NOT_HOSTED"
+        ? 'This section is not on its server, so nobody else gets its changes; they stay on this device. In "Resource status", choose "Host on the server now".'
+        : `The sync server refused this section (${c.code}). Your local copy stays; new edits are kept on this device only.`;
     case "invalid-profile":
       return "This section's data is not valid for this version of Shared Tasks.";
     case "rejected":
@@ -98,7 +102,8 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push(
       `${plural(v.acceptedBatches, "update was", "updates were")} accepted by the server.`,
     );
-  if (kinds.has("offline")) facts.push("Offline: local updates wait on this device.");
+  if (kinds.has("server-refused")) facts.push("Not synced: the server refuses this section.");
+  else if (kinds.has("offline")) facts.push("Offline: local updates wait on this device.");
   else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");
   else

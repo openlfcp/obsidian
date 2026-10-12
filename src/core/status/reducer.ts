@@ -82,6 +82,11 @@ export interface StatusFacts {
   /** The Control view is behind the server's (027): access is being checked. */
   readonly accessChecking?: boolean;
   readonly connection: "offline" | "connecting" | "connected" | "failed";
+  /**
+   * The server refuses the Resource for good (its code): not a connection
+   * problem, so never shown as offline.
+   */
+  readonly refusal?: string;
   readonly catchUp: "not-started" | "receiving" | "current-at-checkpoint" | "unknown";
   readonly problems: readonly ModelProblemFacts[];
   readonly batches: readonly BatchFacts[];
@@ -94,6 +99,7 @@ export interface StatusFacts {
 export type Condition =
   | { readonly kind: "save-failed"; readonly batchIds: readonly string[] }
   | { readonly kind: "access"; readonly access: StatusFacts["access"] }
+  | { readonly kind: "server-refused"; readonly code: string }
   | { readonly kind: "invalid-profile" }
   | { readonly kind: "rejected"; readonly batchIds: readonly string[]; readonly code: string }
   | { readonly kind: "source"; readonly projectionId: string; readonly source: SourceFacts }
@@ -170,6 +176,8 @@ export function statusView(facts: StatusFacts): StatusView {
     facts.access === "unavailable-key"
   )
     c.push({ kind: "access", access: facts.access });
+  // An access refusal already says why; another refusal says its own.
+  else if (facts.refusal !== undefined) c.push({ kind: "server-refused", code: facts.refusal });
   if (facts.replica === "invalid-profile") c.push({ kind: "invalid-profile" });
   const rejected = facts.batches.filter((b) => b.rejection !== undefined);
   if (rejected.length > 0)
@@ -209,7 +217,12 @@ export function statusView(facts: StatusFacts): StatusView {
   )
     c.push({ kind: "local-edit" });
   // 7. Offline or a failed connection.
-  if (facts.connection === "offline" || facts.connection === "failed") c.push({ kind: "offline" });
+  if (
+    facts.refusal === undefined &&
+    facts.access !== "refused" &&
+    (facts.connection === "offline" || facts.connection === "failed")
+  )
+    c.push({ kind: "offline" });
   // 8. Pending updates, control actions, evidence unavailable.
   const waiting = facts.batches.filter(pending);
   if (waiting.length > 0) c.push({ kind: "pending", batches: waiting.length });
@@ -266,6 +279,7 @@ function primary(
     case "save-failed":
       return "LOCAL_SAVE_FAILED";
     case "access":
+    case "server-refused":
     case "invalid-profile":
     case "rejected":
     case "source":

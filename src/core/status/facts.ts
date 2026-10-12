@@ -33,6 +33,11 @@ export interface ObservedSection {
    * from, but they are still pending; never "accepted" while they wait.
    */
   readonly queuedUnits?: number;
+  /**
+   * The code of the server's refusal of the Resource for good
+   * (RESOURCE_NOT_HOSTED, …): the session is up, the section is not synced.
+   */
+  readonly refusal?: string | null;
 }
 
 const SCALAR = /SCALAR|TITLE_CONFLICT|FIELD_CONFLICT/;
@@ -92,6 +97,7 @@ export function observedFacts(o: ObservedSection): StatusFacts {
     pendingControl: sdk?.pendingControl ?? [],
     accessChecking: sdk?.accessCurrent === false,
     connection: live || syncing ? "connected" : "offline",
+    ...(o.refusal === null || o.refusal === undefined ? {} : { refusal: o.refusal }),
     // The SDK's catch-up fact (028); a skipped revision or a held change keeps receiving.
     catchUp:
       sdk?.needsSnapshot === true || (o.load !== undefined && !o.load.loaded)

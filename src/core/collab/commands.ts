@@ -665,7 +665,8 @@ export class CollabCommands {
       (await collab.list()).find((e) => toHex(e.resourceId) === toHex(R))?.profile ===
         SECTIONS_PROFILE_ID;
     if (
-      status.hosting !== "hosted" &&
+      // Not hosted from here yet, or the server says it no longer hosts it.
+      (status.hosting !== "hosted" || status.refusal?.code === "RESOURCE_NOT_HOSTED") &&
       !status.blocked &&
       (status.state !== "unsupported" || section)
     )

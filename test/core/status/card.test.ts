@@ -42,6 +42,43 @@ describe("the section card", () => {
     expect(c.shared.at(-1)).toBe("Now: 2 tasks, 1 paragraph, 0 list items.");
   });
 
+  it("a section its server does not host: attention, how to host it, never offline", () => {
+    const pending = {
+      id: "b1",
+      nodeIds: ["n"],
+      durable: true,
+      unitIds: ["u1"],
+      acceptedUnitIds: [],
+    };
+    // The session is up but the Resource is CLOSED: the phase alone said offline.
+    const facts = {
+      connection: "offline",
+      refusal: "RESOURCE_NOT_HOSTED",
+      batches: [pending],
+    } as const;
+    expect(statusView({ ...base, ...facts }).state).toBe("ATTENTION");
+    const c = card(facts);
+    expect(c.problems).toEqual([
+      'This section is not on its server, so nobody else gets its changes; they stay on this device. In "Resource status", choose "Host on the server now".',
+    ]);
+    expect(c.facts).toContain("Not synced: the server refuses this section.");
+    expect(c.facts.join(" ")).not.toMatch(/Offline/);
+  });
+
+  it("another refusal names its code; an access refusal is not said twice", () => {
+    expect(card({ connection: "offline", refusal: "RESOURCE_TOMBSTONED" }).problems).toEqual([
+      "The sync server refused this section (RESOURCE_TOMBSTONED). Your local copy stays; new edits are kept on this device only.",
+    ]);
+    const refused = card({
+      connection: "offline",
+      access: "refused",
+      refusal: "AUTHORIZATION_FAILED",
+    });
+    expect(refused.problems).toHaveLength(1);
+    expect(refused.problems[0]).toMatch(/no longer accepts changes from this vault/);
+    expect(refused.facts.join(" ")).not.toMatch(/Offline/);
+  });
+
   it("pending: counted in updates, evidence unavailable said plainly, offline kept", () => {
     const c = card({
       connection: "offline",
