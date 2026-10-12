@@ -41,6 +41,13 @@ export interface JournalEntry {
   readonly receipt?: Receipt;
   /** Why the operation stopped, when abandoned. */
   readonly reason?: string;
+  /**
+   * The note line of each Task whose fields the batch sends, as planned: a
+   * pass that resumes the operation takes it as the Task's base line, so the
+   * batch's own change is not taken for a remote one (0.4.0-beta.8: an older
+   * title rendered over newer typing).
+   */
+  readonly taskLines?: Readonly<Record<string, string>>;
 }
 
 /** Text that cannot be shared yet, kept locally with why (never discarded to meet a quota). */
@@ -87,6 +94,7 @@ export function advance(
     reason?: string;
     allocatedIds?: Record<number, string>;
     intents?: readonly SectionIntent[];
+    taskLines?: Readonly<Record<string, string>>;
   } = {},
 ): JournalEntry {
   if (entry.phase === "done" || entry.phase === "abandoned")
@@ -119,6 +127,7 @@ export function advance(
     allocatedIds: { ...entry.allocatedIds, ...ids },
     ...(extra.receipt === undefined ? {} : { receipt: extra.receipt }),
     ...(extra.intents === undefined ? {} : { intents: extra.intents }),
+    ...(extra.taskLines === undefined ? {} : { taskLines: extra.taskLines }),
     ...(extra.patchedHash === undefined ? {} : { patchedHash: extra.patchedHash }),
     ...(extra.reason === undefined ? {} : { reason: extra.reason }),
   };

@@ -66,6 +66,8 @@ export interface LocalPass {
   readonly newTask?: (candidate: UnboundNode, id: string) => NewSectionTask;
   /** Field and lifecycle edits of bound Tasks (the 0.1 planner's, task-fields.ts). */
   readonly taskIntents?: readonly TaskFieldIntent[];
+  /** The note line of each Task in `taskIntents`, recorded with the batch (JournalEntry.taskLines). */
+  readonly taskLines?: Readonly<Record<string, string>>;
 }
 
 export interface CommitDeps {
@@ -224,7 +226,13 @@ export async function commitPass(
   };
   if (resume === undefined) await deps.journal.put(entry);
   // IDs and the batch are durable before anything that could be retried.
-  entry = advance(entry, "ids-allocated", { allocatedIds: ids, intents });
+  entry = advance(entry, "ids-allocated", {
+    allocatedIds: ids,
+    intents,
+    ...(pass.taskLines === undefined || Object.keys(pass.taskLines).length === 0
+      ? {}
+      : { taskLines: pass.taskLines }),
+  });
   await deps.journal.put(entry);
   return submit(deps, entry, pass);
 }

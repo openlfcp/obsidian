@@ -288,14 +288,15 @@ function relocate(
   intents: readonly SectionIntent[],
   unbound: readonly UnboundNode[],
   used: Set<number>,
-  titleOf: (line: number) => string,
+  /** A Task line's title, read as a new Task with the batch's own Task ID. */
+  titleOf: (line: number, taskId: string) => string | undefined,
 ): NewBinding[] {
   const out: NewBinding[] = [];
   for (const i of intents) {
     const match = (u: UnboundNode) => {
       if (used.has(u.line)) return false;
       if (i.intent === "task.create_in_section")
-        return u.kind === "task" && titleOf(u.line) === i.task.title;
+        return u.kind === "task" && titleOf(u.line, i.task.id) === i.task.title;
       if (
         i.intent === "paragraph.create" ||
         i.intent === "item.create" ||
@@ -596,12 +597,23 @@ export class SectionEngine {
         };
       if (r.kind !== "project") continue;
       for (const id of r.receipt.affectedNodeIds) resumedRevisions.set(id, r.receipt.modelRevision);
-      const found = relocate(r.entry.intents ?? [], unbound0, used, (l) => {
+      // The line read as the batch's own Task (a made-up ID is not a valid
+      // Task ID: it threw, and every later pass with it, 0.4.0-beta.8).
+      const found = relocate(r.entry.intents ?? [], unbound0, used, (l, taskId) => {
         const text = sourceLines[l]?.text ?? "";
-        return this.deps.newTask(text, "relocate").title;
+        try {
+          return this.deps.newTask(text, taskId).title;
+        } catch {
+          return undefined; // not a Task line (any more)
+        }
       });
       resumed.push(...found);
-      const lineOf = new Map(found.map((b) => [b.id, sourceLines[b.line]?.text]));
+      // New Tasks: their lines found again; Tasks whose fields the batch sent:
+      // their lines as the batch was planned (JournalEntry.taskLines).
+      const lineOf = new Map<string, string | undefined>([
+        ...Object.entries(r.entry.taskLines ?? {}),
+        ...found.map((b) => [b.id, sourceLines[b.line]?.text] as const),
+      ]);
       baseState = applyBatch(baseState, r.entry.intents ?? [], ref.sectionId, (id) =>
         lineOf.get(id),
       );
@@ -741,6 +753,9 @@ export class SectionEngine {
       creations,
       newTask: (c, id) => this.deps.newTask(lineText0(c.line), id),
       taskIntents: fields.intents,
+      taskLines: Object.fromEntries(
+        fields.intents.map((i) => [i.id, note.state.nodes[i.id]?.line ?? ""]),
+      ),
     });
     // A Text edit refused as INVALID_INTENT at once: its base drifted (drifted()).
     if (local.kind === "kept" && local.code === "INVALID_INTENT") {

@@ -113,6 +113,8 @@ export function vault(
   };
   return {
     replicas,
+    /** The engine, to run a pass the host does not write (abandoned). */
+    engine,
     /** The engine's stores, to set up a persisted state. */
     journal,
     bases,
