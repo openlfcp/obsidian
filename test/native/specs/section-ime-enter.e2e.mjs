@@ -264,4 +264,107 @@ describe("IME: a composed word, then Enter on a Task line and a composed Task (B
     expect(out.notice).toBe(true);
     expect(bLines.filter((l) => l.startsWith("A paragraph"))).toEqual([twice]);
   });
+
+  // The owner's check of 0.4.0-beta.7 in that healed vault: Backspace twice
+  // and a composed word right after the heal were replaced, a moment later,
+  // by older text ("日本本本"). The typed text stays and syncs; nothing ever
+  // shows older text.
+  it("typing right after the heal stays, syncs, and nothing older comes back", async () => {
+    const twice = `${TYPED}\u3000日本`;
+    await inA(({ app, obsidian }) => {
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      const line = view.editor.getValue().split("\n").findIndex((l) => l.startsWith("A paragraph"));
+      view.editor.focus();
+      view.editor.setCursor({ line, ch: view.editor.getLine(line).length });
+    });
+    await browser.keys(["Backspace"]);
+    await browser.pause(80);
+    await browser.keys(["Backspace"]);
+    await browser.pause(150);
+    await compose(["ｋ", "か", "かｍ", "かみ"], "紙");
+    const expected = `${twice.slice(0, -2)}紙`;
+    const seen = await inA(async ({ app, obsidian }) => {
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      const out = [];
+      for (let i = 0; i < 60; i++) {
+        const l = view.editor.getValue().split("\n").find((x) => x.startsWith("A paragraph"));
+        if (out.at(-1) !== l) out.push(l);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return out;
+    });
+    for (let i = 0; i < 4; i++) await b.pass("B.md");
+    const bPara = content(b.files.get("B.md")).filter((l) => l.startsWith("A paragraph"));
+    evidence("AFTER-HEAL", { seen, b: bPara });
+    expect(seen).toEqual([expected]);
+    expect(bPara).toEqual([expected]);
+  });
+
+  // The same drift, with the user typing in the paragraph while the heal
+  // comes (0.4.0-beta.7: a heal pass the typing abandoned left a base the
+  // model never had; later Text landed at wrong places or older Text came
+  // back). While the user types, the line is never set back and the model
+  // takes nothing at a wrong place; once they stop, the note shows the
+  // model's text, B is unchanged, and what was typed is kept as a local copy.
+  it("typing through a heal: never set back, nothing wrong in the model, the typed text kept", async () => {
+    const model0 = await inA(async ({ app, obsidian }) => {
+      const p = app.plugins.plugins["shared-tasks"];
+      const state = p.runtime.localState;
+      const [projection] = (await state.get("section-projections:IME.md")) ?? [];
+      const base = await state.get(`section-base:${projection}`);
+      const pid = Object.entries(base.state.nodes).find(([, n]) => n.kind === "paragraph")[0];
+      const R = (await p.runtime.registry()).find((x) => x.profile.includes("section")).resourceId;
+      const doc = p.runtime.sectionProfile(R).replica.toJSON();
+      const model = String(doc.nodes[pid].text);
+      await state.put(`section-base:${projection}`, {
+        ...base,
+        state: { ...base.state, nodes: { ...base.state.nodes, [pid]: { ...base.state.nodes[pid], text: `${model}\u3000日本` } } },
+      });
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      const line = view.editor.getValue().split("\n").findIndex((l) => l.startsWith("A paragraph"));
+      view.editor.focus();
+      view.editor.setCursor({ line, ch: view.editor.getLine(line).length });
+      return model;
+    });
+    const samples = [];
+    const sample = () =>
+      inA(async ({ app, obsidian }) => {
+        const p = app.plugins.plugins["shared-tasks"];
+        const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        const R = (await p.runtime.registry()).find((x) => x.profile.includes("section")).resourceId;
+        const doc = p.runtime.sectionProfile(R).replica.toJSON();
+        return {
+          note: view.editor.getValue().split("\n").find((l) => l.startsWith("A paragraph")),
+          model: String(Object.values(doc.nodes ?? {}).find((n) => n.kind === "paragraph")?.text ?? ""),
+        };
+      });
+    const typed = "abcdefghijklmn";
+    for (const ch of typed) {
+      await browser.keys(ch);
+      await browser.pause(300);
+      samples.push({ typed: ch, ...(await sample()) });
+    }
+    let end = await sample();
+    for (let i = 0; i < 80 && end.note !== end.model; i++) {
+      await browser.pause(150);
+      end = await sample();
+    }
+    for (let i = 0; i < 4; i++) await b.pass("B.md");
+    const bPara = content(b.files.get("B.md")).filter((l) => l.startsWith("A paragraph"));
+    const kept = await inA(async ({ app }) => {
+      const s = app.plugins.plugins["shared-tasks"].runtime.localState;
+      const ids = (await s.get("section-candidates")) ?? [];
+      const texts = [];
+      for (const id of ids) texts.push((await s.get(`section-candidate:${id}`))?.sourceText ?? "");
+      return texts;
+    });
+    evidence("TYPING-THROUGH-HEAL", { model0, samples, end, b: bPara, keptHasTyped: kept.some((t) => t.includes("abcdefgh")) });
+    // While typing: each sample's line ends with everything typed so far.
+    samples.forEach((x, i) => expect(x.note.endsWith(typed.slice(0, i + 1))).toBe(true));
+    // The model never took Text at a wrong place: it stays what it was.
+    for (const x of samples) expect(x.model).toBe(model0);
+    expect(end).toEqual({ note: model0, model: model0 });
+    expect(bPara).toEqual([model0]);
+    expect(kept.some((t) => t.includes(`${model0}${typed}`) || t.includes(typed))).toBe(true);
+  });
 });
