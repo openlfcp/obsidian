@@ -10,7 +10,8 @@ import type { LfcpRuntime } from "./lfcp/runtime";
 
 export interface DiagnosticSources {
   readonly runtime: LfcpRuntime | null;
-  readonly collab: Pick<Collaboration, "status"> | null;
+  /** Its list states a shared section as its session sees it (the registry calls it "unsupported"). */
+  readonly collab: Pick<Collaboration, "status" | "list"> | null;
   readonly sections: {
     diagnostics(): Promise<{
       readonly sections: readonly SectionFacts[];
@@ -28,7 +29,9 @@ export interface DiagnosticSources {
 export async function collectDiagnostics(src: DiagnosticSources): Promise<DiagnosticInput> {
   const runtime = src.runtime;
   const resources: ResourceFacts[] = [];
-  for (const e of (await runtime?.registry()) ?? []) {
+  const entries =
+    (await src.collab?.list().catch(() => undefined)) ?? (await runtime?.registry()) ?? [];
+  for (const e of entries) {
     const s = await src.collab?.status(e.resourceId).catch(() => undefined);
     resources.push({
       id: toHex(e.resourceId),

@@ -27,6 +27,25 @@ afterEach(async () => {
 });
 
 describe("diagnostics from a real runtime (LFCP-02-065)", () => {
+  it("a shared section: its profile named, its state as its session sees it, not unsupported", async () => {
+    const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
+    running.push(runtime);
+    await runtime.createSectionResource({ name: NAME, endpoints: [URL], coordinatorUrl: URL });
+    const input = await collectDiagnostics({
+      runtime,
+      collab: new Collaboration(runtime, { connectTimeoutMs: 100, sleep, sections: true }),
+      sections: null,
+      events: [],
+      plugin: "0.4.0",
+      obsidian: "1.13.4",
+      platform: "desktop-macos",
+      needsRestart: false,
+    });
+    expect(diagnosticReport(input, false)).toContain(
+      "1. org.openlfcp.shared-sections.v1 · state offline · phase CLOSED",
+    );
+  });
+
   it("leaves out names, Task text, kept text, error messages, invitations, identifiers and addresses", async () => {
     const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
     running.push(runtime);

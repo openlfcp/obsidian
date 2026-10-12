@@ -71,6 +71,13 @@ const CODE =
 const code = (v: string | null | undefined): string =>
   v === null || v === undefined ? "none" : CODE.test(v) ? v : "(text)";
 
+/** The Data Profiles this plugin knows, named as they are; any other stays "(text)". */
+const KNOWN_PROFILES: ReadonlySet<string> = new Set([
+  "org.openlfcp.shared-objects.v1",
+  "org.openlfcp.shared-sections.v1",
+]);
+const profile = (v: string): string => (KNOWN_PROFILES.has(v) ? v : code(v));
+
 /** An event from an SDK or plugin event: its kind and its code-like fields only. */
 export function safeEvent(
   at: number,
@@ -144,7 +151,7 @@ export function diagnosticReport(input: DiagnosticInput, detailed: boolean): str
   ];
   input.resources.forEach((r, i) => {
     lines.push(
-      `  ${i + 1}. ${code(r.profile)} · state ${code(r.state)} · phase ${code(r.phase)} · hosting ${code(r.hosting)} · refusal ${code(r.refusalCode)}`,
+      `  ${i + 1}. ${profile(r.profile)} · state ${code(r.state)} · phase ${code(r.phase)} · hosting ${code(r.hosting)} · refusal ${code(r.refusalCode)}`,
       `     control seq ${code(r.controlSeq)} · data epoch ${code(r.dataEpoch)} · pending outbound ${r.pendingOutbound} · conflicts ${r.conflicts} · blocked collaborators ${r.blockedCollaborators}`,
     );
     if (detailed) {

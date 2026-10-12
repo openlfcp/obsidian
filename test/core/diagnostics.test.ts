@@ -35,7 +35,7 @@ function input(events: DiagnosticLog): DiagnosticInput {
     resources: [
       {
         id: RESOURCE,
-        profile: "org.openlfcp.shared-sections/1",
+        profile: "org.openlfcp.shared-sections.v1",
         state: "available",
         phase: "LIVE",
         hosting: "hosted",
@@ -100,7 +100,9 @@ describe("diagnostics (LFCP-02-065)", () => {
       expect(text).not.toContain(c);
     expect(text).not.toMatch(/0192e4a0|QUJDQUJD/);
     expect(text).toContain("Plugin: 0.4.0 · Obsidian: 1.13.4");
-    expect(text).toContain("state available · phase LIVE · hosting hosted · refusal (text)");
+    expect(text).toContain(
+      "1. org.openlfcp.shared-sections.v1 · state available · phase LIVE · hosting hosted · refusal (text)",
+    );
     expect(text).toContain("pending outbound 2 · conflicts 1");
     expect(text).toContain("conditions scalar-conflict, rejected:INVALID_INTENT, (text)");
     expect(text).toContain("Text kept on this device, not shared: 3 (rejected 2, base-unknown 1)");
