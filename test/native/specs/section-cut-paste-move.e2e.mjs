@@ -188,8 +188,20 @@ describe("a Task cut and pasted one place up while the other vault moves it (ste
       },
       { timeout: 60_000, timeoutMsg: "A: a placement conflict after reconnecting" },
     );
-    const tree = b.runtime.sectionProfile(Uint8Array.from(Buffer.from(R, "hex"))).replica.tree();
-    const conflictsB = tree.recovery.filter((r) => r.code === "PLACEMENT_CONFLICT").map((r) => r.id);
+    // B receives A's move on its own session: its conflict comes when that arrives.
+    const conflictsOfB = () =>
+      b.runtime
+        .sectionProfile(Uint8Array.from(Buffer.from(R, "hex")))
+        .replica.tree()
+        .recovery.filter((r) => r.code === "PLACEMENT_CONFLICT")
+        .map((r) => r.id);
+    const conflictsB = await browser.waitUntil(
+      async () => {
+        const c = conflictsOfB();
+        return c.length > 0 ? c : false;
+      },
+      { timeout: 30_000, timeoutMsg: "B: a placement conflict after reconnecting" },
+    );
     const badge = await browser.waitUntil(async () => ((await badgeA()) === "ATTENTION" ? "ATTENTION" : false), {
       timeout: 30_000,
       timeoutMsg: "A's badge needs attention",
