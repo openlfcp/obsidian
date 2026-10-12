@@ -265,6 +265,7 @@ export class FakeElement {
 export const modals: Modal[] = [];
 
 export class Modal {
+  readonly modalEl = new FakeElement("div");
   readonly contentEl = new FakeElement("div");
   readonly titleEl = new FakeElement("div");
   isOpen = false;
@@ -278,6 +279,10 @@ export class Modal {
     if (!this.isOpen) return;
     this.isOpen = false;
     this.onClose();
+  }
+  setTitle(title: string): this {
+    this.titleEl.setText(title);
+    return this;
   }
   onOpen(): Promise<void> | void {}
   onClose(): void {}

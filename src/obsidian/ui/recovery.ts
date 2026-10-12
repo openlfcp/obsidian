@@ -2,6 +2,9 @@
 // conflict with every known alternative, and an explicit choice per item.
 // No "fix all", no "server wins". Applying re-reads the model first: if the
 // item changed meanwhile, the new comparison is shown instead. Text only.
+// Nothing is chosen for the user, not even the only option: Apply waits for
+// a choice, and a choice not yet applied survives the list's re-render (after
+// another item's Apply) while its item is unchanged.
 
 import { type App, Modal } from "obsidian";
 import type { RecoveryChoice, RecoveryItem } from "../../core/sections/recovery";
@@ -80,9 +83,15 @@ export function recoveryOptions(item: RecoveryItem): {
   }
 }
 
+let modalCount = 0;
+
 export class RecoveryModal extends Modal {
   #items: readonly RecoveryItem[];
   #note: string | null = null;
+  /** The radio groups' names: this modal's own, never another's (a group spans the document). */
+  readonly #group = `openlfcp-recovery-${++modalCount}`;
+  /** Choices made but not applied, by item key: kept while the item is the same. */
+  readonly #pending = new Map<string, { readonly item: string; readonly index: number }>();
 
   constructor(
     app: App,
@@ -116,30 +125,37 @@ export class RecoveryModal extends Modal {
       text: "Each choice is made on its own and becomes a new change of the section. Your note keeps its text until then.",
       cls: "setting-item-description",
     });
+    // A choice for an item that is gone or changed is not carried over.
+    for (const [key, p] of this.#pending)
+      if (!this.#items.some((i) => i.key === key && JSON.stringify(i) === p.item))
+        this.#pending.delete(key);
     for (const item of this.#items) {
       const { question, choices } = recoveryOptions(item);
       const box = el.createDiv({ cls: "openlfcp-recovery-item" });
       box.createEl("p", { text: question });
+      const kept = this.#pending.get(item.key);
       let picked: RecoveryChoice | null =
-        choices.length === 1 ? (choices[0]?.choice ?? null) : null;
+        kept === undefined ? null : (choices[kept.index]?.choice ?? null);
       const list = box.createDiv();
       const apply = box.createEl("button", { text: "Apply", cls: "mod-cta" });
       apply.disabled = picked === null;
       choices.forEach((c, k) => {
         const row = list.createEl("label", { cls: "openlfcp-recovery-choice" });
         const radio = row.createEl("input", { type: "radio" });
-        radio.name = item.key;
+        radio.name = `${this.#group}:${item.key}`;
         radio.value = String(k);
-        radio.checked = choices.length === 1;
+        radio.checked = picked !== null && kept?.index === k;
         row.createSpan({ text: ` ${c.label}` });
         radio.addEventListener("change", () => {
           picked = c.choice;
+          this.#pending.set(item.key, { item: JSON.stringify(item), index: k });
           apply.disabled = false;
         });
       });
       apply.addEventListener("click", () => {
         if (picked === null) return;
         apply.disabled = true;
+        this.#pending.delete(item.key);
         void this.apply(item, picked).then((r) => {
           this.#items = r.items;
           this.#note = r.note;
