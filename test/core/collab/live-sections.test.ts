@@ -98,6 +98,7 @@ async function vault(
     host: {
       createSectionResource: (o) => runtime.createSectionResource(o),
       openSection: (R) => runtime.openSection(R),
+      discard: (R) => runtime.discardUnhosted(R),
       host: async (R) => {
         if (hostedLocallyOnly) {
           await runtime.localState.put(`collab-hosting:${toHex(R)}`, "hosted");

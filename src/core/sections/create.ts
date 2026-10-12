@@ -12,8 +12,11 @@
 //
 // The note is bound only onto the source the preview was approved for, or
 // the same content moved by an edit elsewhere; anything else waits for a
-// new review (stale). Cancelling before the note is bound keeps its text
-// as it is; the Resource already created stays in the journal.
+// new review (stale). A preview already stale when the creation starts
+// makes no Resource; a creation found stale or cancelled after its
+// Resource was made discards that Resource on this device (never hosted,
+// so the server never had it: no orphan, no "not hosted" refusal). The
+// note's text stays as it is either way.
 
 import { fromBase64url, type PrincipalId, type ResourceId, toBase64url } from "@openlfcp/core";
 import { contentHash } from "../projection/guard";
@@ -101,6 +104,11 @@ export interface CreationHost {
   }): Promise<ResourceId>;
   openSection(resource: ResourceId): Promise<unknown>;
   host(resource: ResourceId): Promise<HostResult>;
+  /**
+   * Gives up a Resource this creation made and never hosted: closed and
+   * forgotten on this device, quietly (no refusal notice for it).
+   */
+  discard(resource: ResourceId): Promise<void>;
 }
 
 export interface CreationDeps {
@@ -333,6 +341,9 @@ export class SectionCreation {
     if (e.phase === "cancelled") return { kind: "cancelled", entry: e };
     if (e.phase === "failed") return { kind: "failed", entry: e, reason: e.reason ?? "" };
     if (e.phase === "prepared") {
+      // A preview stale already (the note changed, or another creation bound
+      // it first): nothing is made. A Resource from a run a crash cut is discarded.
+      if (!(await this.#bindable(e))) return this.#stale(e);
       const server = this.deps.server();
       await this.deps.host.createSectionResource({
         name: e.preview.title,
@@ -360,7 +371,7 @@ export class SectionCreation {
       await this.#save(e);
     }
     if (e.phase === "local") {
-      if (!(await this.#project(e))) return { kind: "stale", entry: e };
+      if (!(await this.#project(e))) return this.#stale(e);
       e = { ...e, phase: "projected" };
       await this.#save(e);
     }
@@ -379,12 +390,45 @@ export class SectionCreation {
     return { kind: "hosted", entry: e };
   }
 
-  /** Before the note is bound: its text stays as it is; the Resource created stays journaled. */
+  /**
+   * Before the note is bound: its text stays as it is, and a Resource
+   * already made for it is discarded (it was never hosted).
+   */
   async cancel(entry: CreationEntry): Promise<CreationEntry> {
     if (entry.phase !== "prepared" && entry.phase !== "local") return entry;
     const e: CreationEntry = { ...entry, phase: "cancelled" };
     await this.#save(e);
+    await this.deps.host.discard(fromBase64url(e.resource) as ResourceId);
     return e;
+  }
+
+  /** A stale creation: cancelled, its Resource (if any) discarded, the note as it is. */
+  async #stale(entry: CreationEntry): Promise<CreationResult> {
+    return { kind: "stale", entry: await this.cancel(entry) };
+  }
+
+  /** Whether the note still holds the approved source (or is bound to this section already). */
+  async #bindable(e: CreationEntry): Promise<boolean> {
+    const ref: SectionRef = { resourceId: fromBase64url(e.resource), sectionId: e.sectionId };
+    let ok = false;
+    await this.deps.edit(e.path, (current) => {
+      ok = this.#changes(current, e, ref) !== null;
+      return null;
+    });
+    return ok;
+  }
+
+  /** The note's binding as changes against `current`: [] when bound already, null when stale. */
+  #changes(current: string, e: CreationEntry, ref: SectionRef): DocChange[] | null {
+    if (parseSections(current).sections.some((s) => s.ref.sectionId === e.sectionId)) return [];
+    // An import: the legacy refs of its range come out with the binding.
+    const strip = e.legacy === undefined ? [] : this.#legacyStrip(current, e);
+    if (strip === null) return null;
+    const base = applyChanges(current, strip);
+    const now = revalidate(base, e.preview);
+    if (now.kind === "changed") return null;
+    const bindings = this.#bindings(base, now.preview, ref, e.nodeIds);
+    return bindings === null ? null : composeChanges(strip, bindings);
   }
 
   /** The creations not finished yet, to resume or to show. */
@@ -432,14 +476,7 @@ export class SectionCreation {
         bound = true;
         return null;
       }
-      // An import: the legacy refs of its range come out with the binding.
-      const strip = e.legacy === undefined ? [] : this.#legacyStrip(current, e);
-      if (strip === null) return null;
-      const base = applyChanges(current, strip);
-      const now = revalidate(base, e.preview);
-      if (now.kind === "changed") return null;
-      const bindings = this.#bindings(base, now.preview, ref, e.nodeIds);
-      const changes = bindings === null ? null : composeChanges(strip, bindings);
+      const changes = this.#changes(current, e, ref);
       bound = changes !== null;
       if (changes !== null && e.legacy !== undefined) {
         const out = applyChanges(current, changes);

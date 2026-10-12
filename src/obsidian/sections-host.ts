@@ -20,9 +20,10 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
-import type { Collaboration } from "../core/collab/service";
+import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
+import { InFlight } from "../core/in-flight";
 import { type LfcpRuntime, SECTIONS_READ_ONLY } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { scanRefs } from "../core/refs";
@@ -107,6 +108,8 @@ export class SectionsHost {
   #runtime: LfcpRuntime | null = null;
   /** Section Resources whose model changes start passes (hex of the ID). */
   readonly #watched = new Set<string>();
+  /** Share, import and insert flows, one per note at a time (F-03, F-C04). */
+  readonly #flows = new InFlight();
   #bases: KeyValueSectionBaseStore | null = null;
   /** Notes that hold a section, by the section's Resource (hex of its ID). */
   readonly #notes = new Map<string, Set<string>>();
@@ -313,8 +316,13 @@ export class SectionsHost {
     });
     this.#creation = new SectionCreation({
       host: {
-        createSectionResource: (o) => runtime.createSectionResource(o),
+        createSectionResource: async (o) => {
+          // Its first RESOURCE_OPEN comes before RESOURCE_HOST: a refusal then is expected.
+          await expectHosting(runtime.localState, o.resourceId);
+          return runtime.createSectionResource(o);
+        },
         openSection: (R) => runtime.openSection(R),
+        discard: (R) => runtime.discardUnhosted(R),
         host: async (R) => {
           const flows = this.collab();
           if (flows === null)
@@ -362,6 +370,33 @@ export class SectionsHost {
    * creation is journaled first, then runs; an interrupted one goes on
    * at the next start.
    */
+  /**
+   * "Share section…" as one flow per note (F-03): the preview, then the
+   * creation of what was approved. A second start on the same note while
+   * one runs (its preview open, or its section being created) opens no
+   * second preview and creates nothing.
+   */
+  share(editor: Editor, path: string): Promise<void> {
+    return this.#oneFlow(path, async () => {
+      const approved = await this.shareSection(editor, path);
+      if (approved !== null) await this.createSection(path, editor.getValue(), approved);
+    });
+  }
+
+  /** One share, import or insert per note at a time (F-03, F-C04). */
+  #oneFlow(path: string, body: () => Promise<void>): Promise<void> {
+    return this.#flows
+      .run(
+        `note:${path}`,
+        () =>
+          new Notice(
+            "Shared Tasks: this note already has a section being shared or inserted. Finish that first.",
+          ),
+        body,
+      )
+      .then(() => undefined);
+  }
+
   async createSection(path: string, markdown: string, preview: SharePreview): Promise<void> {
     const creation = this.#creation;
     if (creation === null) {
@@ -381,7 +416,11 @@ export class SectionsHost {
    * of this vault, previewed, then written after the block at the cursor
    * as one complete projection.
    */
-  async insertSection(editor: Editor, path: string): Promise<void> {
+  insertSection(editor: Editor, path: string): Promise<void> {
+    return this.#oneFlow(path, () => this.#insertSection(editor, path));
+  }
+
+  async #insertSection(editor: Editor, path: string): Promise<void> {
     const runtime = this.#runtime;
     const insertion = this.#insertion;
     if (runtime === null || insertion === null) {

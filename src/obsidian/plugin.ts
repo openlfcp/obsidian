@@ -199,13 +199,7 @@ export default class OpenLfcpPlugin extends Plugin {
         editorCallback: (editor, ctx) => {
           const path = ctx.file?.path;
           if (path === undefined) return;
-          void this.sections
-            ?.shareSection(editor, path)
-            .then((approved) =>
-              approved === null
-                ? undefined
-                : this.sections?.createSection(path, editor.getValue(), approved),
-            );
+          void this.sections?.share(editor, path);
         },
       });
       // LFCP-02-063: no plugin UI in a copy of rendered content; the two copy commands.

@@ -151,6 +151,8 @@ export class CollabCommands {
   readonly #env: CommandEnv;
   /** An invitation being created: a second "Invite collaborator" meanwhile makes no second one. */
   #inviting = false;
+  /** A join running (F-C04): a second "Join collaboration" meanwhile claims no second link. */
+  #joining = false;
 
   constructor(env: CommandEnv) {
     this.#env = env;
@@ -292,6 +294,17 @@ export class CollabCommands {
   }
 
   joinCollaboration(): Promise<void> {
+    if (this.#joining) {
+      this.#env.prompter.notice("Shared Tasks: a join is in progress. Finish it first.");
+      return Promise.resolve();
+    }
+    this.#joining = true;
+    return this.#join().finally(() => {
+      this.#joining = false;
+    });
+  }
+
+  #join(): Promise<void> {
     return this.#run("Joining", async () => {
       const collab = this.#collab();
       if (collab === null) return;

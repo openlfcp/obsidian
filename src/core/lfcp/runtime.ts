@@ -400,6 +400,8 @@ export class LfcpRuntime {
   readonly #refusals = new Map<string, ResourceRefusal>();
   /** Resources whose access the client is recovering (LFCP-02-106). */
   readonly #recovering = new Set<string>();
+  /** Section Resources a creation gave up before hosting them (discardUnhosted). */
+  readonly #discarded = new Set<string>();
   readonly #listeners = new Set<(e: SyncEvent) => void>();
   #stopped = false;
   #writes: Promise<void> = Promise.resolve();
@@ -638,6 +640,7 @@ export class LfcpRuntime {
     for (const row of await storage.resources.list()) {
       const R = row.resourceId;
       const key = toHex(R);
+      if (await this.#isDiscarded(R)) continue;
       const route = await storage.resources.route(R);
       const head = await storage.control.head(R);
       const conflict = await storage.control.conflict(R);
@@ -1184,13 +1187,47 @@ export class LfcpRuntime {
     return this.#engine(async () => (await this.#openSection(resource)).profile);
   }
 
+  /**
+   * A section Resource made by a creation that was then found stale or
+   * cancelled, never hosted (finding F-03): closed on its session and
+   * forgotten on this device, quietly. Its events stop here, so its
+   * RESOURCE_NOT_HOSTED refusal is never announced; it is no longer listed
+   * or opened. The SDK's storage has no deletion, so its rows stay, marked
+   * as discarded in local state. A Resource not stored is a no-op.
+   */
+  discardUnhosted(resource: ResourceId): Promise<void> {
+    return this.#engine(async () => {
+      const key = toHex(resource);
+      if ((await this.#ready().storage.resources.get(resource)) === undefined) return;
+      this.#discarded.add(key);
+      await this.localState.put(discardedKey(resource), true);
+      const opened = this.#sections.get(key);
+      if (opened !== undefined) {
+        this.#session(opened.url).client.close(resource);
+        this.#sections.delete(key);
+      }
+      this.#refusals.delete(key);
+      this.#phases.delete(key);
+      this.#errors.delete(key);
+    });
+  }
+
+  async #isDiscarded(resource: ResourceId): Promise<boolean> {
+    const key = toHex(resource);
+    if (this.#discarded.has(key)) return true;
+    if ((await this.localState.get(discardedKey(resource))) !== true) return false;
+    this.#discarded.add(key);
+    return true;
+  }
+
   async #openSection(resource: ResourceId): Promise<OpenedSection> {
     const key = toHex(resource);
     const existing = this.#sections.get(key);
     if (existing !== undefined) return existing;
     const { storage, principal } = this.#ready();
     const row = await storage.resources.get(resource);
-    if (row === undefined) throw new Error("unknown Resource");
+    if (row === undefined || (await this.#isDiscarded(resource)))
+      throw new Error("unknown Resource");
     if (row.dataProfile !== SECTIONS_PROFILE_ID) throw new UnsupportedProfileError(row.dataProfile);
     const route = await storage.resources.route(resource);
     const url = route?.coordinatorUrl;
@@ -1485,6 +1522,9 @@ export class LfcpRuntime {
   }
 
   #onEvent(e: SyncEvent): void {
+    // A discarded Resource (discardUnhosted): whatever its session still says is not news.
+    if ("resourceId" in e && e.resourceId !== undefined && this.#discarded.has(toHex(e.resourceId)))
+      return;
     if (e.type === "resource-state") {
       const key = toHex(e.resourceId);
       this.#phases.set(key, e.state);
@@ -1589,3 +1629,4 @@ export class LfcpRuntime {
 
 /** The local state key of a Resource's display name (sealed, LFCP-02-098). */
 export const resourceNameKey = (resource: ResourceId): string => `resource-name:${toHex(resource)}`;
+const discardedKey = (resource: ResourceId): string => `resource-discarded:${toHex(resource)}`;

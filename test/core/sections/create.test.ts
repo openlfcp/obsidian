@@ -5,7 +5,7 @@
 // since the preview stops before the note is bound.
 
 import type { ResourceId } from "@openlfcp/core";
-import { toBase64url } from "@openlfcp/core";
+import { fromBase64url, toBase64url } from "@openlfcp/core";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { afterEach, describe, expect, it } from "vitest";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
@@ -74,6 +74,7 @@ async function setup(note = NOTE) {
       return R;
     },
     openSection: (R) => r.openSection(R),
+    discard: (R) => r.discardUnhosted(R),
     host: async (R) => {
       if (fail.host) throw new Error("crash while hosting");
       if (hostResult.kind === "hosted") hosted.push(toBase64url(R));
@@ -236,6 +237,53 @@ describe("creating a shared section", () => {
     expect(out.kind).toBe("stale");
     expect(env.files.get("Launch.md")).toBe(edited);
     expect(env.hosted).toEqual([]);
+  });
+
+  it("one preview created twice (F-03): the second makes no Resource, nothing is left over", async () => {
+    const env = await setup();
+    const creation = new SectionCreation(env.deps);
+    const preview = env.preview();
+    const first = await creation.prepare("Launch.md", NOTE, preview);
+    const second = await creation.prepare("Launch.md", NOTE, preview);
+    expect((await creation.run(first)).kind).toBe("hosted");
+    const out = await creation.run(second);
+    expect(out.kind).toBe("stale");
+    expect(out.entry.phase).toBe("cancelled");
+    expect(await env.r.hasResource(fromBase64url(second.resource) as ResourceId)).toBe(false);
+    expect((await env.sectionResources()).map((e) => toBase64url(e.resourceId))).toEqual([
+      first.resource,
+    ]);
+    expect(env.hosted).toEqual([first.resource]);
+    expect(await creation.unfinished()).toEqual([]);
+  });
+
+  it("two creations of one preview at once (F-03): exactly one Resource stays, the other is discarded quietly", async () => {
+    const env = await setup();
+    const refused: string[] = [];
+    env.r.on((e) => {
+      if (e.type === "resource-refused") refused.push(toBase64url(e.resourceId));
+    });
+    const creation = new SectionCreation(env.deps);
+    const preview = env.preview();
+    const a = await creation.prepare("Launch.md", NOTE, preview);
+    const b = await creation.prepare("Launch.md", NOTE, preview);
+    const outs = await Promise.all([creation.run(a), creation.run(b)]);
+    expect(outs.map((o) => o.kind).sort()).toEqual(["hosted", "stale"]);
+    const kept = outs.find((o) => o.kind === "hosted")?.entry.resource;
+    const gone = outs.find((o) => o.kind === "stale")?.entry.resource as string;
+    expect((await env.sectionResources()).map((e) => toBase64url(e.resourceId))).toEqual([kept]);
+    expect(env.hosted).toEqual([kept]);
+    // Both made their Resource; the stale one's is discarded: not listed, not
+    // opened again, nothing said about it (its stored rows stay: no deletion in the SDK).
+    expect(await env.r.storage?.resources.get(fromBase64url(gone) as ResourceId)).toBeDefined();
+    await expect(env.r.openSection(fromBase64url(gone) as ResourceId)).rejects.toThrow(
+      "unknown Resource",
+    );
+    expect(refused).not.toContain(gone);
+    // The note is bound once, to the kept section.
+    const md = env.files.get("Launch.md") as string;
+    expect(parseSections(md).sections).toHaveLength(1);
+    expect(md.match(/<!-- lfcp-section: /g)).toHaveLength(1);
   });
 
   it("binds the moved range when only text outside it changed", async () => {

@@ -266,6 +266,16 @@ export class CollabError extends Error {
 const SHORT = 8;
 const short = (hex: string): string => hex.slice(0, SHORT);
 const hostingKey = (R: ResourceId): string => `collab-hosting:${toHex(R)}`;
+
+/**
+ * A Resource this device made and will host (a new shared section): until
+ * it is hosted, the server refusing it as not hosted is expected, never a
+ * "stopped syncing" notice (refusalNotice).
+ */
+export const expectHosting = (
+  localState: { put(key: string, value: unknown): Promise<void> },
+  R: ResourceId,
+): Promise<void> => localState.put(hostingKey(R), "pending");
 /**
  * A join until it finishes: the local name it was given and the link's
  * endpoint (a claim resumed after a restart has neither dialog nor link).

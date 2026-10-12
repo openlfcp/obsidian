@@ -440,6 +440,23 @@ describe("LFCP-065 commands", () => {
     expect(await s.runtime.hasResource(R)).toBe(false);
   });
 
+  it("Join collaboration again while a join runs: no second claim (F-C04)", async () => {
+    const owner = await setup();
+    await created(owner);
+    owner.prompter.picks.push("Team", "Read");
+    await owner.commands.inviteCollaborator();
+    const link = owner.prompter.invitations[0]?.link.reveal() as string;
+    const s = await setup();
+    s.prompter.texts.push(link, "Their team", link, "Again");
+    const first = s.commands.joinCollaboration();
+    await s.commands.joinCollaboration();
+    expect(s.prompter.notices.at(-1)).toBe("Shared Tasks: a join is in progress. Finish it first.");
+    await first;
+    // The second start asked nothing: its answers are still there.
+    expect(s.prompter.texts).toEqual([link, "Again"]);
+    expect(s.prompter.progressLines.filter((l) => l === "Joining collaboration")).toHaveLength(1);
+  });
+
   it("Resource status: the view with a host action while hosting is pending", async () => {
     const s = await setup();
     await created(s);

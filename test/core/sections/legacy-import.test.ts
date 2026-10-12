@@ -194,6 +194,7 @@ async function setup() {
     host: {
       createSectionResource: (o) => r.createSectionResource(o),
       openSection: (R) => r.openSection(R),
+      discard: (R) => r.discardUnhosted(R),
       host: async () => ({ kind: "pending", reason: "offline" }),
     },
     port,

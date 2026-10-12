@@ -46,6 +46,7 @@ export async function vault(device: Device, local: FakeLocal) {
     host: {
       createSectionResource: (o) => runtime.createSectionResource(o),
       openSection: (R) => runtime.openSection(R),
+      discard: (R) => runtime.discardUnhosted(R),
       host: async (R) => {
         const h = await collab.host(R).catch(() => ({ kind: "offline" as const }));
         return h.kind === "hosted" ? { kind: "hosted" } : (h as never);
