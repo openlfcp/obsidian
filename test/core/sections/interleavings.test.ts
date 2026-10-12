@@ -9,14 +9,31 @@
 // Task, the network coming back. Each pass is written, or abandoned as the
 // host abandons it (the user typed meanwhile, a composition opened).
 //
+// Moves too (the owner's check of 0.4.0-beta.9, step 6): the user's own
+// Tasks cut with their ref lines and pasted elsewhere, one place or more, in
+// one pass or across passes (the cut and the paste each with the hints the
+// editor collects: removed bindings, the cut, the inserted bindings); and
+// the shared Task "Alpha" moved by both vaults. A move of the same node on
+// both sides since they last synced, to different places, yields a
+// PLACEMENT_CONFLICT on both (then resolved, as "Review conflicts" does).
+//
 // After every written pass, the note shows exactly what the user typed last:
-// never older text. In the end the model and the peer have it too. The PR
-// run uses 40 seeds; LFCP_PROPERTY_SEEDS=500 runs more.
+// never older text, and the user's own Tasks in the order they left them. In
+// the end the model and the peer have it too. The PR run uses 40 seeds;
+// LFCP_PROPERTY_SEEDS=500 runs more.
 
 import { describe, expect, it } from "vitest";
-import { lines, reconnect, twoVaults, type Vault } from "../../support/section-vaults";
+import {
+  lines,
+  placementConflict,
+  reconnect,
+  twoVaults,
+  type Vault,
+} from "../../support/section-vaults";
 
 const SEEDS = Number(process.env.LFCP_PROPERTY_SEEDS ?? 40);
+/** Concurrent moves of the same node checked, over all seeds: the invariant must be exercised. */
+let concurrentMoves = 0;
 const BODY = ["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma", "", "Clean paragraph."];
 const WORDS = ["draft", "テスト", "仕事", "plan", "かみ", "x"];
 const ctx = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
@@ -27,15 +44,42 @@ const random = (seed: number) => () => {
 };
 
 const TASK = /^- \[ \] (.*)$/;
-/** The titles of the Task lines after "Gamma" (the ones this vault's user made). */
-const ownTasks = (md: string) => {
-  const L = lines(md);
-  const at = L.indexOf("- [ ] Gamma");
-  return L.slice(at + 1).flatMap((l) => {
+/** The shared Tasks of BODY ("Alpha" with the peer's suffix): they move only among themselves. */
+const SHARED = /^- \[ \] (Alpha|Beta|Gamma)( |$)/;
+const isOwn = (l: string) => TASK.test(l) && !SHARED.test(l);
+/** The titles of the Task lines this vault's user made (all but BODY's), in note order. */
+const ownTasks = (md: string) =>
+  lines(md).flatMap((l) => {
     const m = TASK.exec(l);
-    return m === null ? [] : [m[1] ?? ""];
+    return m === null || SHARED.test(l) ? [] : [m[1] ?? ""];
   });
+/** The bound Task IDs in `ls` (their ref lines). */
+const idsIn = (ls: readonly string[]) =>
+  ls.flatMap((l) => {
+    const m = /#task:([0-9a-f-]{36})/.exec(l);
+    return m === null ? [] : [m[1] as string];
+  });
+/** The lines [from, to) of the Task at line `at`: its line, its ref line, its nested lines. */
+function blockAt(L: readonly string[], at: number): [number, number] {
+  let to = at + 1;
+  while (to < L.length && /^\s+\S/.test(L[to] ?? "")) to++;
+  return [at, to];
+}
+/** The line of the k-th own Task. */
+const ownLine = (L: readonly string[], k: number) => {
+  let seen = -1;
+  return L.findIndex((l) => isOwn(l) && ++seen === k);
 };
+/** Where a block goes before the k-th own Task, or after the last Task's block (k = count). */
+function insertAt(L: readonly string[], k: number): number {
+  const at = ownLine(L, k);
+  if (at >= 0) return at;
+  let last = -1;
+  L.forEach((l, i) => {
+    if (TASK.test(l)) last = i;
+  });
+  return blockAt(L, last)[1];
+}
 const paragraph = (md: string) => {
   const L = lines(md);
   const at = L.findIndex((l) => l.startsWith("<!-- lfcp-node: paragraph:"));
@@ -46,14 +90,35 @@ const alpha = (md: string) => lines(md).find((l) => /^- \[ \] Alpha/.test(l)) ??
 /** `md` with the k-th own Task's title set. */
 function setTitle(md: string, k: number, title: string): string {
   const L = lines(md);
-  const at = L.indexOf("- [ ] Gamma");
-  let seen = -1;
-  for (let i = at + 1; i < L.length; i++)
-    if (TASK.test(L[i] ?? "") && ++seen === k) {
-      L[i] = `- [ ] ${title}`;
-      return L.join("\n");
-    }
-  throw new Error(`no own Task ${k}`);
+  const at = ownLine(L, k);
+  if (at < 0) throw new Error(`no own Task ${k}`);
+  L[at] = `- [ ] ${title}`;
+  return L.join("\n");
+}
+/** `md` without the k-th own Task's block, and the block. */
+function cutOwn(md: string, k: number): { md: string; block: string[] } {
+  const L = lines(md);
+  const [from, to] = blockAt(L, ownLine(L, k));
+  return { md: [...L.slice(0, from), ...L.slice(to)].join("\n"), block: L.slice(from, to) };
+}
+/** `md` with `block` pasted before the k-th own Task (k = count: after the last Task). */
+function pasteOwn(md: string, k: number, block: readonly string[]): string {
+  const L = lines(md);
+  const at = insertAt(L, k);
+  return [...L.slice(0, at), ...block, ...L.slice(at)].join("\n");
+}
+/** `md` with "Alpha" moved to place `p` among the two other shared Tasks (0: first). */
+function moveAlpha(md: string, p: number): string {
+  const L = lines(md);
+  const [from, to] = blockAt(
+    L,
+    L.findIndex((l) => /^- \[ \] Alpha( |$)/.test(l)),
+  );
+  const block = L.slice(from, to);
+  const rest = [...L.slice(0, from), ...L.slice(to)];
+  const shared = rest.flatMap((l, i) => (SHARED.test(l) ? [i] : []));
+  const at = p === 0 ? (shared[0] as number) : blockAt(rest, shared[p - 1] as number)[1];
+  return [...rest.slice(0, at), ...block, ...rest.slice(at)].join("\n");
 }
 /** Enter after the last Task's block, and `title` typed. */
 function enter(md: string, title: string): string {
@@ -90,21 +155,85 @@ async function run(seed: number) {
   let para = paragraph(md);
   let alphaB = "Alpha";
   let bmd = b.note();
+  // The editor's hints for A's next pass (section-editor.ts): bindings removed and
+  // inserted since the last pass, re-added when a pass is abandoned; the last cut.
+  let deletedIds = new Set<string>();
+  let inserted = new Set<string>();
+  let cutIds = new Set<string>();
+  /** A cut not pasted yet: its block and its title. */
+  let clip: { block: string[]; title: string } | null = null;
+  const hints = () => {
+    const h = { deletedIds, inserted, cut: cutIds };
+    deletedIds = new Set();
+    inserted = new Set();
+    return h;
+  };
+  const unspent = (h: { deletedIds: Set<string>; inserted: Set<string> }) => {
+    for (const id of h.deletedIds) deletedIds.add(id);
+    for (const id of h.inserted) inserted.add(id);
+  };
+  const alphaId = () =>
+    idsIn([
+      lines(a.note())[lines(a.note()).findIndex((l) => /^- \[ \] Alpha/.test(l)) + 1] ?? "",
+    ])[0] as string;
+  const visible = (v: Vault) => v.model()?.order[""] ?? [];
+  const sharedIds = idsIn(lines(a.note()).filter((l) => l.includes("lfcp-ref:")));
+  /** Alpha's place among the shared Tasks, as `v`'s model has it: the one before it (null: first). */
+  const alphaPlace = (v: Vault) => {
+    const o = visible(v).filter((id) => sharedIds.includes(id));
+    const at = o.indexOf(alphaId());
+    return at <= 0 ? null : (o[at - 1] as string);
+  };
+  let synced = alphaPlace(a);
 
   /** The network comes back; each vault's passes run on what its editor shows now. */
   const online = async () => {
-    for (const [res, ra] of a.replicas) {
-      const rb = b.replicas.get(res);
-      if (rb === undefined) continue;
-      const fromA = ra.changes();
-      ra.receiveChanges(rb.changes());
-      rb.receiveChanges(fromA);
-    }
+    // Moved on both sides since they last synced, to different places: concurrent.
+    const [pa, pb] = [alphaPlace(a), alphaPlace(b)];
+    const concurrent = pa !== synced && pb !== synced && pa !== pb;
+    const exchange = () => {
+      for (const [res, ra] of a.replicas) {
+        const rb = b.replicas.get(res);
+        if (rb === undefined) continue;
+        const fromA = ra.changes();
+        ra.receiveChanges(rb.changes());
+        rb.receiveChanges(fromA);
+      }
+    };
+    exchange();
     for (let i = 0; i < 2; i++) {
-      await a.pass(md);
+      await a.pass(md, hints());
       md = a.note();
       await b.pass(b.note());
     }
+    const alpha = alphaId();
+    if (concurrent) {
+      concurrentMoves++;
+      trace(`concurrent Alpha moves ${pa} / ${pb}`);
+      expect(placementConflict(a, alpha)).toBe(true);
+      expect(placementConflict(b, alpha)).toBe(true);
+    }
+    // Resolved as "Review conflicts…" does: a place chosen in A, then synced.
+    const item = a.recovery().find((i) => i.kind === "placement");
+    if (item !== undefined && "choices" in item) {
+      const choice = item.choices[0];
+      if (choice === undefined) throw new Error("no choice");
+      expect((await a.choose(item, choice)).applied).toBe(true);
+      exchange();
+      for (let i = 0; i < 2; i++) {
+        await a.pass(md, hints());
+        md = a.note();
+        await b.pass(b.note());
+      }
+    }
+    // What A's passes just committed reaches B too: both synced.
+    exchange();
+    await b.pass(b.note());
+    expect(placementConflict(a, alpha)).toBe(false);
+    expect(placementConflict(b, alpha)).toBe(false);
+    synced = alphaPlace(a);
+    expect(alphaPlace(b)).toBe(synced);
+    bmd = b.note();
   };
   const tick = async (v: Vault, ms: number) => {
     clock.now += ms;
@@ -122,11 +251,13 @@ async function run(seed: number) {
         if (ticking === null) ticking = a.port.tick(clock.now + 3000);
         return w;
       };
+    const h = hints();
     if (mode === "abandoned") {
-      const p = await a.engine.pass("Plan.md", md, ctx);
+      const p = await a.engine.pass("Plan.md", md, { ...ctx, ...h });
       a.engine.abandoned(p);
+      unspent(h);
     } else {
-      await a.pass(md);
+      await a.pass(md, h);
       md = a.note();
     }
     trace(`pass ${mode}${duringTick ? " +tick" : ""}`);
@@ -182,13 +313,73 @@ async function run(seed: number) {
       const word = pick(WORDS);
       titles = titles.map((t, i) => (i === k ? word : t));
       md = setTitle(md, k, word);
-    } else if (x < 0.88) {
+    } else if (x < 0.84) {
       // The peer edits another Task.
       alphaB = `Alpha ${pick(WORDS)}`;
       bmd = b.note().replace(/^- \[ \] Alpha.*$/m, `- [ ] ${alphaB}`);
       await b.pass(bmd);
       await tick(b, 3000);
       continue;
+    } else if (x < 0.89) {
+      // The shared Task "Alpha" moved by cut and paste, in one vault or the other,
+      // or in both while offline (A's move saved, then the network back).
+      const id = new Set([alphaId()]);
+      if (r() < 0.6) {
+        md = moveAlpha(md, Math.floor(r() * 3));
+        for (const i of id) deletedIds.add(i), inserted.add(i);
+        cutIds = id;
+        await passA("written", r() < 0.2);
+        await b.pass(moveAlpha(b.note(), Math.floor(r() * 3)), {
+          deletedIds: id,
+          cut: id,
+          inserted: id,
+        });
+        await online();
+        expect(ownTasks(md)).toEqual(titles);
+        continue;
+      }
+      const v = r() < 0.5 ? a : b;
+      const moved = moveAlpha(v === a ? md : b.note(), Math.floor(r() * 3));
+      if (v === a) {
+        md = moved;
+        for (const i of id) deletedIds.add(i), inserted.add(i);
+        cutIds = id;
+      } else {
+        await b.pass(moved, { deletedIds: id, cut: id, inserted: id });
+        continue;
+      }
+    } else if (x < 0.94 && clip === null && titles.length > 0) {
+      // An own Task cut and pasted elsewhere: in this pass, or the paste later.
+      const k = Math.floor(r() * titles.length);
+      const { md: without, block } = cutOwn(md, k);
+      const ids = idsIn(block);
+      const title = titles[k] ?? "";
+      titles = titles.filter((_, i) => i !== k);
+      for (const id of ids) deletedIds.add(id);
+      cutIds = new Set(ids);
+      if (r() < 0.5) {
+        // Pasted at once: one place up or down (adjacent), or anywhere.
+        const to =
+          r() < 0.5
+            ? Math.max(0, Math.min(titles.length, k + (r() < 0.5 ? -1 : 1)))
+            : Math.floor(r() * (titles.length + 1));
+        md = pasteOwn(without, to, block);
+        titles = [...titles.slice(0, to), title, ...titles.slice(to)];
+        for (const id of ids) inserted.add(id);
+        trace(`move own ${k} -> ${to}`);
+      } else {
+        md = without;
+        clip = { block, title };
+        trace(`cut own ${k}`);
+      }
+    } else if (x < 0.94 && clip !== null) {
+      // The cut pasted (a later pass).
+      const to = Math.floor(r() * (titles.length + 1));
+      md = pasteOwn(md, to, clip.block);
+      titles = [...titles.slice(0, to), clip.title, ...titles.slice(to)];
+      for (const id of idsIn(clip.block)) inserted.add(id);
+      clip = null;
+      trace(`paste own -> ${to}`);
     } else {
       await online();
       expect(ownTasks(md)).toEqual(titles);
@@ -197,9 +388,15 @@ async function run(seed: number) {
     }
     await passA(mode(), r() < 0.2);
   }
-  // Settle: passes, the timer, the network.
+  // Settle: a cut still on the clipboard is pasted at the end; passes, the timer, the network.
+  if (clip !== null) {
+    md = pasteOwn(md, titles.length, clip.block);
+    titles = [...titles, clip.title];
+    for (const id of idsIn(clip.block)) inserted.add(id);
+    clip = null;
+  }
   for (let i = 0; i < 3; i++) {
-    await a.pass(md);
+    await a.pass(md, hints());
     md = a.note();
     await tick(a, 3000);
     await tick(b, 3000);
@@ -248,4 +445,8 @@ describe(`interleavings never bring older text back (${SEEDS} seeds)`, () => {
   });
 
   for (let seed = 1; seed <= SEEDS; seed++) it(`seed ${seed}`, () => run(seed));
+
+  it("the seeds exercised concurrent moves of one node", () => {
+    expect(concurrentMoves).toBeGreaterThan(0);
+  });
 });
