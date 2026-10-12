@@ -186,7 +186,7 @@ export interface SectionPlan {
 }
 
 /** The bound sibling before `id` under `parent` in `state`. */
-function predecessor(state: SectionState, parent: string | null, id: string): string | null {
+export function predecessor(state: SectionState, parent: string | null, id: string): string | null {
   const siblings = state.order[parent ?? ROOT] ?? [];
   const at = siblings.indexOf(id);
   return at > 0 ? (siblings[at - 1] as string) : null;
@@ -265,6 +265,8 @@ export function withRestored(
   base: SectionState,
   note: SectionState,
   restored: readonly string[],
+  /** The node as the base takes it (default: as the note shows it). */
+  as: (id: string, n: NodeState) => NodeState = (_, n) => n,
 ): SectionState {
   const nodes = { ...base.nodes };
   const order: Record<string, string[]> = Object.fromEntries(
@@ -273,7 +275,7 @@ export function withRestored(
   for (const id of restored) {
     const n = note.nodes[id];
     if (n === undefined || n.parent === UNBOUND_PARENT || nodes[id] !== undefined) continue;
-    nodes[id] = n;
+    nodes[id] = as(id, n);
     const key = n.parent ?? ROOT;
     const list = order[key] ?? [];
     const after = predecessor(note, n.parent, id);

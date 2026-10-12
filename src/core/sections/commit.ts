@@ -23,6 +23,7 @@ import {
   advance,
   type JournalEntry,
   type PendingCandidate,
+  type RestoredNode,
   recovery,
   type SectionJournalStore,
 } from "./journal";
@@ -72,6 +73,8 @@ export interface LocalPass {
   readonly lineOf?: (line: number) => string;
   /** A working-copy line as a line of the source the pass read (JournalEntry.createdLines). */
   readonly sourceLineOf?: (line: number) => number | undefined;
+  /** Each restored node as the note shows it, recorded with the batch (JournalEntry.restoredNodes). */
+  readonly restoredNodes?: Readonly<Record<string, RestoredNode>>;
 }
 
 export interface CommitDeps {
@@ -136,6 +139,17 @@ export function intentsOf(
   const allocated: Record<number, string> = {};
   const { plan } = pass;
   if (plan.title !== undefined) intents.push({ intent: "section.set_title", title: plan.title });
+  // Restored and moved first: a new node may follow one pasted back or moved
+  // just before it, and is placed after it where it is now. A move never
+  // names a node this batch creates (the planner sees bound nodes only).
+  for (const id of pass.restores ?? []) intents.push({ intent: "node.restore", id });
+  for (const m of plan.moves)
+    intents.push({
+      intent: "node.move",
+      id: m.nodeId,
+      parent: m.parent ?? pass.sectionId,
+      after: m.after,
+    });
   // Consecutive new nodes share their bound predecessor: each follows the one before it.
   const lastNew = new Map<string, string>();
   for (const c of pass.creations ?? []) {
@@ -162,20 +176,12 @@ export function intentsOf(
         createdBy: pass.createdBy,
       });
   }
-  for (const id of pass.restores ?? []) intents.push({ intent: "node.restore", id });
   for (const { nodeId, edit } of plan.textEdits)
     intents.push({
       intent: "text.edit",
       id: nodeId,
       edits: [edit],
       base: pass.textBase?.(nodeId) ?? pass.baseRevision,
-    });
-  for (const m of plan.moves)
-    intents.push({
-      intent: "node.move",
-      id: m.nodeId,
-      parent: m.parent ?? pass.sectionId,
-      after: m.after,
     });
   intents.push(...(pass.taskIntents ?? []));
   for (const id of pass.deletes ?? []) intents.push({ intent: "node.delete", id });
@@ -249,6 +255,9 @@ export async function commitPass(
     intents,
     ...(Object.keys(taskLines).length === 0 ? {} : { taskLines }),
     ...(Object.keys(createdLines).length === 0 ? {} : { createdLines }),
+    ...(pass.restoredNodes === undefined || Object.keys(pass.restoredNodes).length === 0
+      ? {}
+      : { restoredNodes: pass.restoredNodes }),
   });
   await deps.journal.put(entry);
   return submit(deps, entry, pass);
@@ -405,6 +414,8 @@ export function applyBatch(
   intents: readonly SectionIntent[],
   sectionId: string,
   taskLine: (id: string) => string | undefined = () => undefined,
+  /** A restored node as the batch's pass saw it (JournalEntry.restoredNodes). */
+  restored: (id: string) => RestoredNode | undefined = () => undefined,
 ): SectionState {
   const nodes: Record<string, NodeState> = { ...state.nodes };
   const order: Record<string, string[]> = Object.fromEntries(
@@ -461,9 +472,16 @@ export function applyBatch(
         unplace(i.id);
         delete nodes[i.id];
         break;
-      case "node.restore":
-        // Its content comes back with the next snapshot; nothing to apply here.
+      case "node.restore": {
+        // As the pass that planned it saw it; without that record, its
+        // content comes back with the next snapshot.
+        const r = restored(i.id);
+        if (r === undefined || nodes[i.id] !== undefined) break;
+        nodes[i.id] = r.node;
+        const after = r.after !== null && nodes[r.after] === undefined ? null : r.after;
+        place(i.id, r.node.parent, after);
         break;
+      }
       case "task.create_in_section": {
         const line = taskLine(i.task.id);
         nodes[i.task.id] = {

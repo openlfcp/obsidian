@@ -83,3 +83,93 @@ describe("abandoned passes never bring older text back", () => {
       }
     });
 });
+
+// Found by the interleavings test with moves (0.4.0-beta.10): a cut Task
+// pasted back, and new Tasks cut before their bindings were written.
+describe("pasting a cut Task, and cutting a new one, with abandoned passes", () => {
+  const BODY3 = ["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"];
+  const L = (md: string) => lines(md);
+  /** `md` with the Task block at `title` moved before the line starting with `before` (or appended). */
+  const blockOf = (md: string, title: string) => {
+    const ls = L(md);
+    const at = ls.findIndex((l) => l === `- [ ] ${title}`);
+    let to = at + 1;
+    while (to < ls.length && /^\s+\S/.test(ls[to] ?? "")) to++;
+    return { at, to, block: ls.slice(at, to), rest: [...ls.slice(0, at), ...ls.slice(to)] };
+  };
+  const tasksOf = (md: string) =>
+    L(md)
+      .filter((l) => /^- \[ \] /.test(l))
+      .map((l) => l.slice(6));
+
+  it("a paste restored by an abandoned pass, then the title typed: the new title is sent", async () => {
+    const { a, b } = await twoVaults(BODY3);
+    const { block, rest } = blockOf(a.note(), "Beta");
+    const id = /#task:([0-9a-f-]{36})/.exec(block.join("\n"))?.[1] as string;
+    const ids = new Set([id]);
+    // Cut (its own pass: deleted), pasted after Gamma (that pass abandoned: restored).
+    await a.pass(rest.join("\n"), { deletedIds: ids, cut: ids });
+    const g = blockOf(a.note(), "Gamma");
+    const pasted = [...L(a.note()).slice(0, g.to), ...block, ...L(a.note()).slice(g.to)].join("\n");
+    await abandoned(a, pasted);
+    // The title typed over, then a written pass.
+    const typed = pasted.replace("- [ ] Beta", "- [ ] Beta typed");
+    await a.pass(typed, { cut: ids });
+    await a.pass(a.note());
+    expect(tasksOf(a.note())).toEqual(["Alpha", "Gamma", "Beta typed"]);
+    await reconnect(a, b);
+    expect(tasksOf(b.note())).toEqual(["Alpha", "Gamma", "Beta typed"]);
+  });
+
+  it("a cut Task pasted and its title edited in one pass: the edit stays and is sent", async () => {
+    const { a, b } = await twoVaults(BODY3);
+    const { block, rest } = blockOf(a.note(), "Beta");
+    const id = /#task:([0-9a-f-]{36})/.exec(block.join("\n"))?.[1] as string;
+    const ids = new Set([id]);
+    await a.pass(rest.join("\n"), { deletedIds: ids, cut: ids });
+    const g = blockOf(a.note(), "Gamma");
+    const pasted = [...L(a.note()).slice(0, g.to), ...block, ...L(a.note()).slice(g.to)]
+      .join("\n")
+      .replace("- [ ] Beta", "- [ ] Beta edited");
+    await a.pass(pasted, { inserted: ids, cut: ids });
+    expect(tasksOf(a.note())).toEqual(["Alpha", "Gamma", "Beta edited"]);
+    await a.pass(a.note());
+    expect(tasksOf(a.note())).toEqual(["Alpha", "Gamma", "Beta edited"]);
+    await reconnect(a, b);
+    expect(tasksOf(b.note())).toEqual(["Alpha", "Gamma", "Beta edited"]);
+  });
+
+  it("a cut Task pasted and a new Task typed right after it in one pass: committed, not refused", async () => {
+    const { a, b } = await twoVaults(BODY3);
+    const { block, rest } = blockOf(a.note(), "Beta");
+    const id = /#task:([0-9a-f-]{36})/.exec(block.join("\n"))?.[1] as string;
+    const ids = new Set([id]);
+    await a.pass(rest.join("\n"), { deletedIds: ids, cut: ids });
+    const g = blockOf(a.note(), "Gamma");
+    const pasted = [
+      ...L(a.note()).slice(0, g.to),
+      ...block,
+      "- [ ] New after it",
+      ...L(a.note()).slice(g.to),
+    ].join("\n");
+    const r = await a.pass(pasted, { inserted: ids, cut: ids });
+    expect(r?.local?.kind).toBe("committed");
+    await a.pass(a.note());
+    await reconnect(a, b);
+    expect(tasksOf(b.note())).toEqual(["Alpha", "Gamma", "Beta", "New after it"]);
+  });
+
+  it("a new Task whose creating pass was abandoned, cut before its ref was written: never back", async () => {
+    const { a, b } = await twoVaults(BODY3);
+    const typed = a.note().replace("- [ ] Gamma", "- [ ] Gamma\n- [ ] fresh");
+    await abandoned(a, typed);
+    // Cut (no binding to see: its ref was never written), then later passes.
+    const cutAway = typed.replace("\n- [ ] fresh", "");
+    await a.pass(cutAway);
+    await a.pass(a.note());
+    expect(tasksOf(a.note())).toEqual(["Alpha", "Beta", "Gamma"]);
+    await reconnect(a, b);
+    expect(tasksOf(a.note())).toEqual(["Alpha", "Beta", "Gamma"]);
+    expect(tasksOf(b.note())).toEqual(["Alpha", "Beta", "Gamma"]);
+  });
+});

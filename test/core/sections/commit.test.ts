@@ -103,6 +103,9 @@ describe("one pass, one durable batch", () => {
     expect(port.changes).toHaveLength(1);
     expect(port.changes[0]?.intents).toEqual([
       { intent: "section.set_title", title: "Launch plan" },
+      // Restores and moves first: a new node is placed after a node where it is now.
+      { intent: "node.restore", id: id(4) },
+      { intent: "node.move", id: id(6), parent: SECTION, after: id(5) },
       {
         intent: "paragraph.create",
         id: id(100),
@@ -126,14 +129,12 @@ describe("one pass, one durable batch", () => {
         parent: SECTION,
         after: id(6),
       },
-      { intent: "node.restore", id: id(4) },
       {
         intent: "text.edit",
         id: id(5),
         edits: [{ index: 0, deleteCount: 0, insert: "New " }],
         base: "heads-0",
       },
-      { intent: "node.move", id: id(6), parent: SECTION, after: id(5) },
       { intent: "node.delete", id: id(8) },
     ]);
     expect(out.receipt.modelRevision).toBe("heads-1");

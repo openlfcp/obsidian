@@ -131,7 +131,8 @@ describe("the engine's batches against the real replica", () => {
       lifecycle: "active",
       listStyle: "bullet",
     });
-    expect(s?.order[""]).toEqual([X, T, id(101)]);
+    // The new Task follows X where X is now (moved first in the batch), as the note shows it.
+    expect(s?.order[""]).toEqual([X, id(101), T]);
     expect(s?.order[T]).toEqual([P, id(100)]);
   });
 

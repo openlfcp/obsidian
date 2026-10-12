@@ -26,12 +26,15 @@ import type { UnboundNode } from "./base";
 import {
   commentBlocks,
   markdownState,
+  type NodeState,
   planSection,
+  predecessor,
   ROOT,
   restoredMoves,
   type SectionBaseStore,
   type SectionState,
   type StoredBase,
+  UNBOUND_PARENT,
   withRestored,
 } from "./base";
 import {
@@ -51,7 +54,7 @@ import { bindingChanges, type NewBinding } from "./markers";
 import { type ParsedSection, parseSections, type SectionNode } from "./parser";
 import type { NewSectionTask, SectionIntent, SectionSnapshot } from "./port";
 import { recurringCopyRepair } from "./recurrence";
-import { planRemote, type RemotePlan } from "./remote";
+import { modelTaskLine, planRemote, type RemotePlan } from "./remote";
 import { type DocChange, lineStarts } from "./source-map";
 import { planStructure, type StructurePlan } from "./structure";
 import { planTaskFields } from "./task-fields";
@@ -293,6 +296,28 @@ function shiftLine(line: number, source: string, changes: readonly DocChange[]):
  * nodes, by kind and content (a paragraph's Text, a Task's title), in note
  * order: their IDs were allocated before the crash and are reused.
  */
+/** The note line of the bound Task `id` in `section`. */
+function taskLineOf(section: ParsedSection, id: string): number | undefined {
+  const walk = (ns: readonly ParsedSection["nodes"][number][]): number | undefined => {
+    for (const n of ns) {
+      if (n.kind === "task" && n.id === id) return n.lines.from;
+      const found = walk(n.children);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  };
+  return walk(section.nodes);
+}
+
+/** The node a create intent makes, if it is one. */
+function createdIdOf(i: SectionIntent): string | undefined {
+  return i.intent === "task.create_in_section"
+    ? i.task.id
+    : i.intent === "paragraph.create" || i.intent === "item.create" || i.intent === "raw.create"
+      ? i.id
+      : undefined;
+}
+
 function relocate(
   intents: readonly SectionIntent[],
   unbound: readonly UnboundNode[],
@@ -603,6 +628,13 @@ export class SectionEngine {
     const resumedRevisions = new Map<string, string>();
     const entries: JournalEntry[] = [];
     const resumed: NewBinding[] = [];
+    /**
+     * Nodes a resumed batch created that the note no longer shows: the user
+     * removed their lines before their bindings were written (a new Task
+     * typed, then cut or deleted while its pass was abandoned). Deleted, as
+     * a line deleted with its binding is; never shown again from the model.
+     */
+    const vanished = new Set<string>();
     const used = new Set<number>();
     const unbound0 = markdownState(source, section).unbound;
     for (const e of await this.deps.journal.unfinished()) {
@@ -632,8 +664,14 @@ export class SectionEngine {
       for (const id of r.receipt.affectedNodeIds) resumedRevisions.set(id, r.receipt.modelRevision);
       // The line read as the batch's own Task (a made-up ID is not a valid
       // Task ID: it threw, and every later pass with it, 0.4.0-beta.8).
+      // A node of the batch the model has deleted since (vanished at an
+      // earlier pass, deleted on a peer) is never bound to a line again.
+      const live = (r.entry.intents ?? []).filter((i) => {
+        const id = createdIdOf(i);
+        return id === undefined || snap.nodes[id]?.lifecycle !== "deleted";
+      });
       const found = relocate(
-        r.entry.intents ?? [],
+        live,
         unbound0,
         used,
         (l, taskId) => {
@@ -647,14 +685,36 @@ export class SectionEngine {
         r.entry.createdLines,
       );
       resumed.push(...found);
+      for (const i of r.entry.intents ?? []) {
+        const id = createdIdOf(i);
+        if (id !== undefined && !found.some((b) => b.id === id)) vanished.add(id);
+      }
       // New Tasks: their lines found again; Tasks whose fields the batch sent:
       // their lines as the batch was planned (JournalEntry.taskLines).
       const lineOf = new Map<string, string | undefined>([
         ...found.map((b) => [b.id, sourceLines[b.line]?.text] as const),
         ...Object.entries(r.entry.taskLines ?? {}),
       ]);
-      baseState = applyBatch(baseState, r.entry.intents ?? [], ref.sectionId, (id) =>
-        lineOf.get(id),
+      baseState = applyBatch(
+        baseState,
+        r.entry.intents ?? [],
+        ref.sectionId,
+        (id) => lineOf.get(id),
+        // The restore is committed now: the node's base is the model's, read here.
+        (id) => {
+          const rn = r.entry.restoredNodes?.[id];
+          if (rn === undefined) return undefined;
+          if (rn.node.kind === "task") {
+            const at = taskLineOf(section, id);
+            const line =
+              at === undefined
+                ? undefined
+                : modelTaskLine(source, at, id, (taskId) => this.deps.tasks(resource, taskId));
+            return line === undefined ? rn : { ...rn, node: { ...rn.node, line } };
+          }
+          const text = snap.nodes[id]?.text;
+          return text === undefined ? rn : { ...rn, node: { ...rn.node, text } };
+        },
       );
       entries.push(r.entry);
     }
@@ -727,10 +787,9 @@ export class SectionEngine {
     const here = new Set([...(ctx.cut ?? []), ...(ctx.restore ?? []), ...(ctx.inserted ?? [])]);
     const comp = compensate(ctx.origin, plan.missing, reappeared, this.#ledger, here);
     const pasted = comp.restores.filter((id) => here.has(id));
-    const deletes = [
-      ...new Set([...comp.deletes, ...comp.lost.filter((id) => ctx.deletedIds.has(id))]),
-    ];
-    const lost = comp.lost.filter((id) => !ctx.deletedIds.has(id));
+    const removedHere = (id: string) => ctx.deletedIds.has(id) || vanished.has(id);
+    const deletes = [...new Set([...comp.deletes, ...comp.lost.filter(removedHere)])];
+    const lost = comp.lost.filter((id) => !removedHere(id));
     if (lost.length > 0)
       // NODE_BINDING_LOST (§7, MS18, MS21): the section's publication is
       // suspended until the binding is repaired; the base stays as it was.
@@ -778,6 +837,23 @@ export class SectionEngine {
       ...note.unbound.filter((u) => !transient.has(u.line)),
       ...sharedComments,
     ].sort((a, b) => a.line - b.line);
+    // A restored node's base is what the restore brings back, the model's
+    // content in the note's place: what the user typed on it since (the
+    // pasted Task's title edited before this pass) stays an edit to send,
+    // never overwritten by the model's older text (a Task: its line rendered
+    // from the model in the note's format).
+    const restoredAs = (id: string, n: NodeState): NodeState => {
+      if (n.kind === "task") {
+        const at = taskLineOf(section0, id);
+        const line =
+          at === undefined
+            ? undefined
+            : modelTaskLine(md0, at, id, (taskId) => this.deps.tasks(resource, taskId));
+        return line === undefined ? n : { ...n, line };
+      }
+      const text = snap.nodes[id]?.text;
+      return text === undefined ? n : { ...n, text };
+    };
     const local = await commitPass(this.deps, {
       projectionId,
       resource,
@@ -801,6 +877,14 @@ export class SectionEngine {
       sourceLineOf: (l) => sourceLineOf.get(l),
       taskLines: Object.fromEntries(
         fields.intents.map((i) => [i.id, note.state.nodes[i.id]?.line ?? ""]),
+      ),
+      restoredNodes: Object.fromEntries(
+        comp.restores.flatMap((id) => {
+          const n = note.state.nodes[id];
+          return n === undefined || n.parent === UNBOUND_PARENT
+            ? []
+            : [[id, { node: n, after: predecessor(note.state, n.parent, id) }]];
+        }),
       ),
     });
     // A Text edit refused as INVALID_INTENT at once: its base drifted (drifted()).
@@ -864,7 +948,9 @@ export class SectionEngine {
       // A Task whose fields were sent: its line as the note shows it is its base now.
       for (const i of fields.intents) lineOf.set(i.id, note.state.nodes[i.id]?.line ?? "");
       localBase = applyBatch(
-        withRestored(baseState, note.state, comp.restores),
+        // A restored node's base is what the restore brings back, the model's
+        // (a Task: no line yet, so what the user typed on it since stays an edit).
+        withRestored(baseState, note.state, comp.restores, restoredAs),
         local.entry.intents ?? [],
         ref.sectionId,
         (id) => lineOf.get(id),

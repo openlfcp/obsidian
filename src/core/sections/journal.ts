@@ -8,6 +8,7 @@
 // paths never enter shared payloads, and diagnosticView() is the only shape
 // default diagnostics may show (LFCP-02-065).
 
+import type { NodeState } from "./base";
 import type { SectionRef } from "./grammar";
 import { parseSections } from "./parser";
 import type { Receipt, SectionIntent } from "./port";
@@ -55,6 +56,20 @@ export interface JournalEntry {
    * pass's working copy, with the bindings it was about to write.
    */
   readonly createdLines?: Readonly<Record<string, number>>;
+  /**
+   * Each node the batch restores, as the note showed it when the batch was
+   * planned, and the sibling it followed: a pass that resumes the operation
+   * puts it back into the base, so what the user typed on it since is an
+   * edit to send, not a remote change (the interleavings test with moves: a
+   * paste of a cut, its pass abandoned, then the title typed over).
+   */
+  readonly restoredNodes?: Readonly<Record<string, RestoredNode>>;
+}
+
+/** A restored node in the base: its state and the sibling it follows (null: first). */
+export interface RestoredNode {
+  readonly node: NodeState;
+  readonly after: string | null;
 }
 
 /** Text that cannot be shared yet, kept locally with why (never discarded to meet a quota). */
@@ -103,6 +118,7 @@ export function advance(
     intents?: readonly SectionIntent[];
     taskLines?: Readonly<Record<string, string>>;
     createdLines?: Readonly<Record<string, number>>;
+    restoredNodes?: Readonly<Record<string, RestoredNode>>;
   } = {},
 ): JournalEntry {
   if (entry.phase === "done" || entry.phase === "abandoned")
@@ -137,6 +153,7 @@ export function advance(
     ...(extra.intents === undefined ? {} : { intents: extra.intents }),
     ...(extra.taskLines === undefined ? {} : { taskLines: extra.taskLines }),
     ...(extra.createdLines === undefined ? {} : { createdLines: extra.createdLines }),
+    ...(extra.restoredNodes === undefined ? {} : { restoredNodes: extra.restoredNodes }),
     ...(extra.patchedHash === undefined ? {} : { patchedHash: extra.patchedHash }),
     ...(extra.reason === undefined ? {} : { reason: extra.reason }),
   };

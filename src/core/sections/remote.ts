@@ -106,6 +106,25 @@ function* subtree(n: SectionNode): Generator<SectionNode> {
  * The patch that projects `model` onto the note's section, against the
  * projection's `base`. `tasks` gives the render target of a Task ID.
  */
+/**
+ * The bound Task `id` at note line `line` as the model has it, in the note's
+ * own format (its line rendered from the model's object), or undefined when
+ * it cannot be rendered there.
+ */
+export function modelTaskLine(
+  markdown: string,
+  line: number,
+  id: string,
+  tasks: (taskId: string) => RenderTarget | undefined,
+): string | undefined {
+  const scan = scanSectionRefs(markdown);
+  const p = scan.projections.find((x) => x.taskLine === line);
+  const target = tasks(id);
+  if (p === undefined || p.objectId !== id || target === undefined) return undefined;
+  const text = splitLines(markdown)[line]?.text ?? "";
+  return renderProjectedLine(text, p, scan.tasks, target)?.line;
+}
+
 export function planRemote(
   markdown: string,
   section: ParsedSection,
