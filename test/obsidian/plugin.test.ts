@@ -36,12 +36,15 @@ describe("plugin", () => {
   it("connects at once when the network comes back, or the app is shown again", async () => {
     const { plugin, host } = await loaded();
     let calls = 0;
-    plugin.runtime = { networkBack: () => calls++ } as never;
+    let lost = 0;
+    plugin.runtime = { networkBack: () => calls++, networkLost: () => lost++ } as never;
     const fire = (type: string) => {
       for (const d of host.domEvents) if (d.type === type) d.callback({});
     };
     fire("online");
     expect(calls).toBe(1);
+    fire("offline");
+    expect(lost).toBe(1);
     const g = globalThis as Record<string, unknown>;
     const had = g.document;
     try {

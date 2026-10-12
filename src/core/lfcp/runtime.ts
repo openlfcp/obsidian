@@ -1384,6 +1384,21 @@ export class LfcpRuntime {
     }
   }
 
+  /**
+   * The network is gone (the window's "offline"): each session closes its
+   * connection now and reconnects as after any loss. Without this a dead
+   * connection is noticed only after three heartbeat intervals without a
+   * message (LFCP-WIRE-01 §38), minutes in which the sections show as synced.
+   */
+  networkLost(): void {
+    for (const p of this.#pool.values())
+      if (p.client.connectionState !== "DISCONNECTED")
+        void p.client
+          .stop()
+          .then(() => p.client.start())
+          .catch(() => undefined);
+  }
+
   #session(url: string): Pooled {
     const pooled = this.#pool.get(url);
     if (pooled !== undefined) return pooled;

@@ -103,6 +103,8 @@ export default class OpenLfcpPlugin extends Plugin {
     // Back online, or shown again after a while in the background: connect
     // now, not at the end of the reconnect backoff (up to 60 s).
     this.registerDomEvent(window, "online", () => this.runtime?.networkBack());
+    // Gone: the sessions close now, not minutes later on a missed heartbeat.
+    this.registerDomEvent(window, "offline", () => this.runtime?.networkLost());
     this.registerDomEvent(window.document, "visibilitychange", () => {
       if (window.document.visibilityState === "visible") this.runtime?.networkBack();
     });

@@ -260,6 +260,22 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
     expect(later).toEqual([]);
   }, 60_000);
 
+  it("the network gone (window offline): the session closes at once, then reconnects", async () => {
+    const d = await device();
+    const created = await d.collab.create({ name: "Team", server: server.url });
+    expect(created.hosting.kind).toBe("hosted");
+    const R = created.resourceId;
+    await until("LIVE", async () => (d.runtime.phase(R) === "LIVE" ? true : undefined));
+    const phases: string[] = [];
+    d.runtime.on((e) => {
+      if (e.type === "resource-state" && toHex(e.resourceId) === toHex(R)) phases.push(e.state);
+    });
+    d.runtime.networkLost();
+    await until("CLOSED", async () => (phases.includes("CLOSED") ? true : undefined), 2000);
+    // The server is still there: the session comes back on its own.
+    await until("LIVE again", async () => (d.runtime.phase(R) === "LIVE" ? true : undefined));
+  });
+
   it("a collaboration the server does not host: refused once, shown in status, not retried (POST-017)", async () => {
     const d = await device();
     const url = server.url;
