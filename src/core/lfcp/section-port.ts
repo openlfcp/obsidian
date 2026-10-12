@@ -89,6 +89,8 @@ export interface Coalescing {
 
 export class SdkSectionPort implements SectionPort {
   readonly #coalescers = new Map<string, TypingCoalescer>();
+  /** The tail of each Resource's queue of exclusive runs. */
+  readonly #queues = new Map<string, Promise<void>>();
   /**
    * LFCP-02-068: the replica's snapshot by its revision. Reading it walks and
    * validates the whole document (hundreds of ms at W200), and the status,
@@ -205,14 +207,29 @@ export class SdkSectionPort implements SectionPort {
     await this.#coalescers.get(resource)?.flush(key);
   }
 
-  /** The coalescers' timer: commits what waited long enough. */
+  /** The coalescers' timer: commits what waited long enough, never during a pass. */
   async tick(now: number): Promise<void> {
-    for (const t of this.#coalescers.values()) await t.tick(now);
+    for (const [resource, t] of this.#coalescers) await this.exclusive(resource, () => t.tick(now));
   }
 
   /** Commits everything that waits (closing, unloading). */
   async flushAll(): Promise<void> {
-    for (const t of this.#coalescers.values()) await t.flush();
+    for (const [resource, t] of this.#coalescers) await this.exclusive(resource, () => t.flush());
+  }
+
+  /** One run at a time per Resource: a pass, a tick, a flushAll (SectionPort.exclusive). */
+  exclusive<T>(resource: string, fn: () => Promise<T>): Promise<T> {
+    const before = this.#queues.get(resource) ?? Promise.resolve();
+    const run = before.then(fn);
+    const after = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#queues.set(resource, after);
+    void after.then(() => {
+      if (this.#queues.get(resource) === after) this.#queues.delete(resource);
+    });
+    return run;
   }
 
   async receiptOf(resource: string, operationId: string): Promise<Receipt | undefined> {

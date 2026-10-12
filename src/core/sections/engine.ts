@@ -357,6 +357,25 @@ export class SectionEngine {
 
   async #pass(path: string, source: string, ctx: PassContext): Promise<NotePass> {
     const scan = parseSections(source);
+    // The whole pass alone for each Resource of the note (port.exclusive): a
+    // coalesced pass the timer commits meanwhile would be sent again by this
+    // one, which replans what waits. In one order, so two passes never wait
+    // for each other.
+    const resources = [...new Set(scan.sections.map((s) => toBase64url(s.ref.resourceId)))].sort();
+    const port = this.deps.port;
+    const alone = resources.reduceRight<() => Promise<NotePass>>(
+      (inner, r) => () => (port.exclusive === undefined ? inner() : port.exclusive(r, inner)),
+      () => this.#passAlone(path, source, scan, ctx),
+    );
+    return alone();
+  }
+
+  async #passAlone(
+    path: string,
+    source: string,
+    scan: ReturnType<typeof parseSections>,
+    ctx: PassContext,
+  ): Promise<NotePass> {
     // The snapshot rule: every snapshot now, before the first await.
     const snapshots = scan.sections.map((s) =>
       this.deps.port.snapshot(toBase64url(s.ref.resourceId), s.ref.sectionId),

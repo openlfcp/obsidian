@@ -225,4 +225,11 @@ export interface SectionPort {
   waiting?(resource: string, key: string): string | undefined;
   /** Commits what waits for `key` now (before the projection's base moves another way). */
   flush?(resource: string, key: string): Promise<void>;
+  /**
+   * Runs `fn` alone for `resource`: no timer commits a waiting pass meanwhile
+   * (the coalescer's tick and flushAll wait for it). A pass decides what it
+   * replans from what waits; a commit of that between the decision and its
+   * own commit sent the same Text edit twice (owner's IME check, 0.4.0-beta.6).
+   */
+  exclusive?<T>(resource: string, fn: () => Promise<T>): Promise<T>;
 }

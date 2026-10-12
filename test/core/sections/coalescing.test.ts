@@ -156,4 +156,41 @@ describe("typing coalescing (025)", () => {
     await again.port.tick(again.clock.now);
     expect(again.text()).toBe("Typed before the crash");
   });
+
+  // The owner's IME check of 0.4.0-beta.6: a composed word waited in the
+  // coalescer; Enter on a Task line made a structural pass, and the timer
+  // committed the waiting word while that pass ran. The pass had decided to
+  // replan the waiting word and sent it again: the peer showed it twice, the
+  // note and the base drifted apart, and later edits were refused.
+  it("the timer committing a waiting pass while the next pass runs sends nothing twice", async () => {
+    const env = await setup();
+    const P = "A paragraph for typing.";
+    await env.pass(env.note(""));
+    env.clock.now += 50;
+    await env.pass(env.note(P));
+    env.clock.now += 3000;
+    await env.port.tick(env.clock.now);
+    await env.pass(env.note(P));
+    env.clock.now += 50;
+    await env.pass(env.note(`${P}\u3000日本`));
+    expect(env.text()).toBe(P);
+    // The host's timer fires just after the next pass looked at what waits.
+    let ticking: Promise<void> | null = null;
+    const waiting = env.port.waiting.bind(env.port);
+    env.port.waiting = (resource: string, key: string) => {
+      const w = waiting(resource, key);
+      if (w !== undefined && ticking === null) ticking = env.port.tick(env.clock.now + 3000);
+      return w;
+    };
+    let md = await env.pass(env.note(`${P}\u3000日本\n\n仕事`));
+    await ticking;
+    for (let k = 0; k < 3; k++) {
+      env.clock.now += 3000;
+      await env.port.tick(env.clock.now);
+      md = await env.pass(md);
+    }
+    expect(env.text()).toBe(`${P}\u3000日本`);
+    expect(md.split("\n").filter((l) => l.includes("日本"))).toEqual([`${P}\u3000日本`]);
+    expect(md).toContain("仕事");
+  });
 });
