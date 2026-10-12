@@ -85,6 +85,8 @@ export interface CollabRuntime {
   openSection(resource: ResourceId): Promise<unknown>;
   /** Asks the server again for a section it refused, once it is hosted. */
   reopenSection?(resource: ResourceId): void;
+  /** The server's refusal of a Resource for good, or null. */
+  refusal?(resource: ResourceId): { readonly code: string } | null;
   /** An open section Resource: ready (§12.1), and no change held for a missing dependency. */
   sectionLoad?(
     resource: ResourceId,
@@ -483,10 +485,23 @@ export class Collaboration {
     // Send the queued grant and Key Package; the link works once both are ACKed.
     const wanted = new Set([toHex(created.grantId), toHex(created.keyPackageId)]);
     let resolve: () => void = () => undefined;
-    const acked = new Promise<boolean>((r) => {
+    let refuse: (code: string) => void = () => undefined;
+    const acked = new Promise<boolean>((r, reject) => {
       resolve = () => r(true);
+      // The server refuses the collaboration itself (RESOURCE_NOT_HOSTED, …):
+      // the grant can never be ACKed there, so the link would not work.
+      refuse = (code) =>
+        reject(
+          new CollabError(
+            code,
+            `The server refused this collaboration (${code}), so the invitation would not work. It is kept on this device and sent if the server accepts the collaboration again.`,
+          ),
+        );
     });
+    // Offline, nobody waits for it: a refusal then must not go unhandled.
+    acked.catch(() => undefined);
     const off = this.#runtime.on((e) => {
+      if (e.type === "resource-refused" && toHex(e.resourceId) === toHex(R)) refuse(e.refusal.code);
       if (e.type !== "ack") return;
       for (const id of e.outcome.acked) wanted.delete(toHex(id));
       if (wanted.size === 0) resolve();
@@ -497,6 +512,12 @@ export class Collaboration {
         await this.#runtime.openSection(R);
         url = chain.state.route.coordinatorUrl;
       } else url = (await this.#runtime.openResource(R)).url;
+      // Refused already (before this invitation): no new refusal will come to wait for.
+      const refused = this.#runtime.refusal?.(R) ?? null;
+      if (refused !== null) {
+        refuse(refused.code);
+        await acked; // throws the refusal
+      }
       const client = url === null ? null : c.session(url);
       // Offline: queued, and sent when the session is back; no point waiting for ACKs.
       const online = client !== null && (await this.#ready(client));

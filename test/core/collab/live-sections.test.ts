@@ -61,7 +61,13 @@ const NOTE = [
 ].join("\n");
 
 /** A vault online, with its notes in memory and the section flows over its runtime. */
-async function vault(sections = true, serverUrl?: string, snapshotEvery?: number) {
+async function vault(
+  sections = true,
+  serverUrl?: string,
+  snapshotEvery?: number,
+  /** Records the section as hosted without asking the server (a Resource the server lost). */
+  hostedLocallyOnly = false,
+) {
   const d = new Device();
   const { webSocket: _offline, ...online } = d.env(new FakeLocal(), { tickMs: 20 });
   const runtime = await LfcpRuntime.start({
@@ -93,6 +99,10 @@ async function vault(sections = true, serverUrl?: string, snapshotEvery?: number
       createSectionResource: (o) => runtime.createSectionResource(o),
       openSection: (R) => runtime.openSection(R),
       host: async (R) => {
+        if (hostedLocallyOnly) {
+          await runtime.localState.put(`collab-hosting:${toHex(R)}`, "hosted");
+          return { kind: "hosted" };
+        }
         const h = await collab.host(R);
         return h.kind === "hosted" ? { kind: "hosted" } : h;
       },
@@ -538,6 +548,23 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
     const member = await vault();
     const joined = await member.collab.join(invitation.link.reveal(), { name: "Second" });
     expect(joined).toMatchObject({ kind: "joined", section: { loaded: true } });
+  });
+
+  it("refuses an invitation at once when the server does not host the section", async () => {
+    const owner = await vault(true, undefined, undefined, true);
+    owner.files.set("Lost.md", NOTE);
+    const range = proposeRange(NOTE, 2);
+    if (range === null) throw new Error("no range");
+    const created = await owner.creation.run(
+      await owner.creation.prepare("Lost.md", NOTE, preflight(NOTE, range)),
+    );
+    const R = fromB64(created.entry.resource);
+    const started = Date.now();
+    const refused = await owner.collab.invite(R, "read-write").catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(CollabError);
+    expect((refused as CollabError).code).toBe("RESOURCE_NOT_HOSTED");
+    expect((refused as CollabError).message).toContain("the invitation would not work");
+    expect(Date.now() - started).toBeLessThan(5000);
   });
 
   it("offers no invitation before the section is hosted", async () => {

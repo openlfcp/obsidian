@@ -1483,6 +1483,11 @@ export class LfcpRuntime {
     return this.#phases.get(toHex(resource)) ?? "CLOSED";
   }
 
+  /** The server's refusal of a Resource for good (POST-017), until it opens again; null when none. */
+  refusal(resource: ResourceId): ResourceRefusal | null {
+    return this.#refusals.get(toHex(resource)) ?? null;
+  }
+
   /**
    * Stops every session and timer, flushes checkpoints, closes the database
    * and releases the lock. Pending outbound objects stay stored.
