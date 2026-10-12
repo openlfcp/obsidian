@@ -513,6 +513,33 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
     );
   }, 120_000);
 
+  it("a second section shared on a session already up is hosted and open: its invitation works", async () => {
+    // The first section brings the owner's session up; the second one's
+    // RESOURCE_OPEN then reaches the server before its RESOURCE_HOST and is
+    // refused (RESOURCE_NOT_HOSTED). Hosting it opens it again.
+    const owner = await vault();
+    const share = async (path: string, note: string) => {
+      owner.files.set(path, note);
+      const range = proposeRange(note, note.split("\n").indexOf("## Launch"));
+      if (range === null) throw new Error("no range");
+      const created = await owner.creation.run(
+        await owner.creation.prepare(path, note, preflight(note, range)),
+      );
+      expect(created.kind).toBe("hosted");
+      return fromB64(created.entry.resource);
+    };
+    await share("First.md", NOTE);
+    const R = await share("Second.md", NOTE);
+    await until("the second section live", async () =>
+      owner.runtime.phase(R) === "LIVE" ? true : undefined,
+    );
+    const invitation = await owner.collab.invite(R, "read-write");
+    expect(invitation.confirmed).toBe(true);
+    const member = await vault();
+    const joined = await member.collab.join(invitation.link.reveal(), { name: "Second" });
+    expect(joined).toMatchObject({ kind: "joined", section: { loaded: true } });
+  });
+
   it("offers no invitation before the section is hosted", async () => {
     const owner = await vault(true, "ws://127.0.0.1:9/v1/ws");
     owner.files.set("Launch.md", NOTE);

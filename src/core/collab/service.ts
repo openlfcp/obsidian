@@ -83,6 +83,8 @@ export interface CollabRuntime {
   openResource(resource: ResourceId): Promise<OpenResource>;
   /** A shared-sections Resource's session (MVP 0.2). */
   openSection(resource: ResourceId): Promise<unknown>;
+  /** Asks the server again for a section it refused, once it is hosted. */
+  reopenSection?(resource: ResourceId): void;
   /** An open section Resource: ready (§12.1), and no change held for a missing dependency. */
   sectionLoad?(
     resource: ResourceId,
@@ -405,10 +407,13 @@ export class Collaboration {
     try {
       const durability = await client.host(genesis);
       await this.#runtime.localState.put(hostingKey(R), "hosted");
-      // A shared-sections Resource opens with its own profile (MVP 0.2).
-      if ((await c.storage.resources.get(R))?.dataProfile === SECTIONS_PROFILE_ID)
+      // A shared-sections Resource opens with its own profile (MVP 0.2). Its
+      // first RESOURCE_OPEN may have reached the server before RESOURCE_HOST
+      // and been refused (a session already up): hosted now, it asks again.
+      if ((await c.storage.resources.get(R))?.dataProfile === SECTIONS_PROFILE_ID) {
         await this.#runtime.openSection(R);
-      else await this.#runtime.openResource(R);
+        this.#runtime.reopenSection?.(R);
+      } else await this.#runtime.openResource(R);
       return { kind: "hosted", durability };
     } catch (e) {
       const code = /NACK (\w+)/.exec(e instanceof Error ? e.message : "")?.[1];

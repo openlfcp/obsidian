@@ -367,6 +367,7 @@ interface OpenedSection {
   readonly profile: SharedSectionsDataProfile;
   readonly url: string;
   readonly checkpointer: ProfileCheckpointer;
+  readonly binding: Parameters<SyncClient["open"]>[0];
 }
 
 export class LfcpRuntime {
@@ -1229,9 +1230,23 @@ export class LfcpRuntime {
       snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
     };
     this.#session(url).client.open(binding);
-    const opened: OpenedSection = { resourceId: resource, profile, url, checkpointer };
+    const opened: OpenedSection = { resourceId: resource, profile, url, checkpointer, binding };
     this.#sections.set(key, opened);
     return opened;
+  }
+
+  /**
+   * Asks the server once more for an open section it refused for good
+   * (POST-017): right after hosting it, when its first RESOURCE_OPEN reached
+   * the server before RESOURCE_HOST. Never on its own: a refusal stands
+   * until something changed on the server.
+   */
+  reopenSection(resource: ResourceId): void {
+    const key = toHex(resource);
+    const opened = this.#sections.get(key);
+    if (opened === undefined || !this.#refusals.has(key)) return;
+    this.#refusals.delete(key);
+    this.#session(opened.url).client.open(opened.binding);
   }
 
   /** An open shared-sections Resource's profile, synchronously (the section snapshot rule). */
