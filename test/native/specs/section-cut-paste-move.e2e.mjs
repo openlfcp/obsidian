@@ -198,4 +198,75 @@ describe("a Task cut and pasted one place up while the other vault moves it (ste
     expect(merged.conflicts).toEqual([send]);
     expect(conflictsB).toEqual([send]);
   });
+
+  // The owner's check of 0.4.0-beta.6: Review conflicts asked a second,
+  // spurious question ("restored in two places"), offered "The section's top
+  // level" twice, and one question's choice turned into "Delete it" when
+  // another was applied. One question now, each place named by its position,
+  // nothing chosen beforehand, and the place chosen is where the Task goes.
+  it("Review conflicts: one question, each place named, the chosen place applied in both", async () => {
+    const send = taskId(await noteA(), "Send to the client");
+    await inA(async ({ app, obsidian }) => {
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      view.containerEl.querySelector(".openlfcp-status").click();
+      let button;
+      for (let i = 0; i < 100 && button === undefined; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        button = [...document.querySelectorAll(".modal-container button")].find((x) => x.textContent === "Review conflicts…");
+      }
+      button.click();
+    });
+    const asked = await inA(async () => {
+      let modal = null;
+      for (let i = 0; i < 100 && modal === null; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        modal = document.querySelector(".openlfcp-recovery");
+      }
+      return [...modal.querySelectorAll(".openlfcp-recovery-item")].map((box) => ({
+        question: box.querySelector("p").textContent,
+        choices: [...box.querySelectorAll(".openlfcp-recovery-choice")].map((c) => c.textContent.trim()),
+        checked: [...box.querySelectorAll("input")].some((r) => r.checked),
+        applyDisabled: box.querySelector("button").disabled,
+      }));
+    });
+    evidence("REVIEW", { asked });
+    expect(asked).toHaveLength(1);
+    expect(asked[0].question).toContain("was moved to two places");
+    expect([...asked[0].choices].sort()).toEqual(['After Task "Added by Bob"', 'After Task "Write the brief"']);
+    expect(asked[0].checked).toBe(false);
+    expect(asked[0].applyDisabled).toBe(true);
+    const note = await inA(async () => {
+      const modal = document.querySelector(".openlfcp-recovery");
+      const row = [...modal.querySelectorAll(".openlfcp-recovery-choice")].find((c) =>
+        c.textContent.includes("Write the brief"),
+      );
+      const radio = row.querySelector("input");
+      radio.click();
+      modal.querySelector(".openlfcp-recovery-item button").click();
+      for (let i = 0; i < 100; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        const p = modal.querySelector(".openlfcp-recovery-note");
+        if (p !== null) return p.textContent;
+      }
+      return null;
+    });
+    expect(note).toBe("Applied.");
+    await browser.waitUntil(async () => (await modelA(R)).conflicts.length === 0, {
+      timeout: 30_000,
+      timeoutMsg: "A: the conflict resolved",
+    });
+    await browser.waitUntil(async () => titles(await noteA()).slice(0, 2).join() === "Write the brief,Send to the client", {
+      timeout: 30_000,
+      timeoutMsg: "A shows the Task where it was chosen",
+    });
+    let order = [];
+    for (let i = 0; i < 40; i++) {
+      await b.pass("B.md");
+      order = titles(b.files.get("B.md"));
+      if (order.slice(0, 2).join() === "Write the brief,Send to the client") break;
+      await browser.pause(250);
+    }
+    evidence("REVIEW-APPLIED", { a: titles(await noteA()), b: order, send });
+    expect(order.slice(0, 2)).toEqual(["Write the brief", "Send to the client"]);
+  });
 });
