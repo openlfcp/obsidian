@@ -28,6 +28,9 @@ const list = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 const added = (id: string) => (v: unknown) => [...new Set([...list(v), id])].sort();
 const removed = (id: string) => (v: unknown) => list(v).filter((x) => x !== id);
+/** `id` appended once, keeping the order of addition (oldest first). */
+const appended = (id: string) => (v: unknown) =>
+  list(v).includes(id) ? list(v) : [...list(v), id];
 
 interface StoredForm extends Omit<StoredBase, "locator"> {
   readonly locator: {
@@ -105,7 +108,9 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
     checkForward(await this.get(entry.operationId), entry);
     await this.kv.put(opKey(entry.operationId), entry);
     const open = entry.phase !== "done" && entry.phase !== "abandoned";
-    await this.kv.update(OPEN, open ? added(entry.operationId) : removed(entry.operationId));
+    // Oldest first, as unfinished() promises: a restart replays them in that
+    // order (sorted IDs were random UUIDs, 0.4.0-beta.8).
+    await this.kv.update(OPEN, open ? appended(entry.operationId) : removed(entry.operationId));
   }
 
   async get(operationId: string): Promise<JournalEntry | undefined> {

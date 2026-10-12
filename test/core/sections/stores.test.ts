@@ -101,6 +101,27 @@ describe("KeyValueSectionJournalStore", () => {
     expect((await after.get("op-1"))?.phase).toBe("abandoned");
   });
 
+  // 0.4.0-beta.8 kept the list sorted by operation ID (random UUIDs): a pass
+  // resumed several committed operations in a random order, an older Text or
+  // title last in the base.
+  it("lists the unfinished operations oldest first, whatever their IDs", async () => {
+    const state = kv();
+    const journal = new KeyValueSectionJournalStore(state);
+    for (const operationId of ["f-third", "0-second", "z-first"].reverse())
+      await journal.put({ ...entry, operationId });
+    expect((await journal.unfinished()).map((e) => e.operationId)).toEqual([
+      "z-first",
+      "0-second",
+      "f-third",
+    ]);
+    const after = new KeyValueSectionJournalStore(state);
+    expect((await after.unfinished()).map((e) => e.operationId)).toEqual([
+      "z-first",
+      "0-second",
+      "f-third",
+    ]);
+  });
+
   it("keeps candidates until they are resolved", async () => {
     const journal = new KeyValueSectionJournalStore(kv());
     const c = {
