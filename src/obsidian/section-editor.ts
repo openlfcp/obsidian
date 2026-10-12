@@ -180,6 +180,12 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     const open = viewOf(req.path);
     if (open === undefined) return;
     const [view, st] = open;
+    // Never during an IME composition (IME-1): the half-composed word is not
+    // interpreted, and nothing is written into the composing editor.
+    if (view.composing || view.compositionStarted || st.scheduler.composing) {
+      st.scheduler.defer();
+      return;
+    }
     status(req.path, "reconciling");
     const deletedIds = st.deletedIds;
     st.deletedIds = new Set();
@@ -198,6 +204,13 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     st.external = false;
     const pass = await engine.pass(req.path, req.source, ctx);
     const current = view.state.doc.toString();
+    if (view.composing || view.compositionStarted || st.scheduler.composing) {
+      // A composition opened during the pass: its result waits (the pass runs again after it).
+      engine.abandoned(pass);
+      for (const id of deletedIds) st.deletedIds.add(id);
+      st.scheduler.defer();
+      return;
+    }
     if (contentHash(current) !== pass.sourceRevision) {
       // The user typed meanwhile: nothing is written; the pass runs again on the new document.
       engine.abandoned(pass);

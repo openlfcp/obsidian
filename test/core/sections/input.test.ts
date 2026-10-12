@@ -55,6 +55,35 @@ describe("ReconcileScheduler", () => {
     expect(runs).toEqual([MAX_WAIT_MS]);
   });
 
+  it("composed keystrokes the editor does not flag yet still wait for the composition's end", () => {
+    // CodeMirror sets view.composing only once it saw a change of the composition.
+    const { s, runs } = scheduler();
+    s.compositionStart();
+    s.edit(false); // "n"
+    vi.advanceTimersByTime(100);
+    s.edit(false); // "に"
+    vi.advanceTimersByTime(MAX_WAIT_MS * 3); // a long pause: idle and cap pass
+    expect(runs).toEqual([]);
+    expect(s.composing).toBe(true);
+    s.compositionEnd();
+    expect(runs).toHaveLength(1);
+    expect(s.composing).toBe(false);
+  });
+
+  it("a pass put off by a composition runs once it is over", () => {
+    const { s, runs } = scheduler();
+    s.compositionStart();
+    s.defer();
+    vi.advanceTimersByTime(MAX_WAIT_MS * 2);
+    expect(runs).toEqual([]);
+    s.compositionEnd();
+    expect(runs).toHaveLength(1);
+    // Put off again right after (the editor still said composing): soon, without another keystroke.
+    s.defer();
+    vi.advanceTimersByTime(IDLE_MS);
+    expect(runs).toHaveLength(2);
+  });
+
   it("never reconciles during a composition; its end does, at once", () => {
     const { s, runs } = scheduler();
     s.compositionStart();

@@ -22,7 +22,10 @@ export const MAX_WAIT_MS = 2000;
 
 export class ReconcileScheduler {
   #dirty = false;
-  #composing = false;
+  /** Between compositionstart and compositionend (or blur): the DOM's word. */
+  #composingDom = false;
+  /** The editor's own composing flag at the last edit (CodeMirror sets it late). */
+  #composingView = false;
   #idle: unknown = null;
   #cap: unknown = null;
 
@@ -39,32 +42,57 @@ export class ReconcileScheduler {
     return this.#dirty;
   }
 
+  /**
+   * A composition is open: by the DOM's compositionstart, or by the editor.
+   * The editor's flag alone is not enough: CodeMirror sets it only once it
+   * has seen a change of the composition, so a composed keystroke may come
+   * with it still false.
+   */
+  get composing(): boolean {
+    return this.#composingDom || this.#composingView;
+  }
+
   /** A user transaction changed the note; `composing` is the editor's IME state. */
   edit(composing: boolean): void {
-    this.#composing = composing;
-    if (!this.#dirty) {
-      this.#dirty = true;
-      this.onDirty();
-      this.#cap = this.timer.set(() => this.#capReached(), this.maxWaitMs);
-    }
+    this.#composingView = composing;
+    this.#markDirty();
     this.#clearIdle();
-    if (!composing) this.#idle = this.timer.set(() => this.#fire(), this.idleMs);
+    if (!this.composing) this.#idle = this.timer.set(() => this.#fire(), this.idleMs);
+  }
+
+  /** A pass that could not run now (a composition opened meanwhile): it runs again later. */
+  defer(): void {
+    this.#markDirty();
+    // The DOM says the composition ended (the editor may say so a moment later): soon again.
+    if (!this.#composingDom) {
+      this.#clearIdle();
+      this.#idle = this.timer.set(() => this.#fire(), this.idleMs);
+    }
   }
 
   compositionStart(): void {
-    this.#composing = true;
+    this.#composingDom = true;
     this.#clearIdle();
   }
 
   compositionEnd(): void {
-    this.#composing = false;
+    this.#composingDom = false;
+    this.#composingView = false;
     if (this.#dirty) this.#fire();
   }
 
   /** Focus left the editor: whatever was typed is reconciled now. */
   blur(): void {
-    this.#composing = false;
+    this.#composingDom = false;
+    this.#composingView = false;
     if (this.#dirty) this.#fire();
+  }
+
+  #markDirty(): void {
+    if (this.#dirty) return;
+    this.#dirty = true;
+    this.onDirty();
+    this.#cap = this.timer.set(() => this.#capReached(), this.maxWaitMs);
   }
 
   /** Stop (the view closed): pending timers go; the buffer still holds the edit. */
@@ -77,7 +105,7 @@ export class ReconcileScheduler {
   #capReached(): void {
     this.#cap = null;
     // Mid-composition the cap waits for its end.
-    if (this.#dirty && !this.#composing) this.#fire();
+    if (this.#dirty && !this.composing) this.#fire();
   }
 
   #clearIdle(): void {
