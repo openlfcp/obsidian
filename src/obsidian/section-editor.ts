@@ -351,6 +351,26 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   };
 
   /** A closed note: the pass is written by read-modify-write, only onto the source it read. */
+  /**
+   * A pass that changed nothing and committed nothing, whose note changed
+   * before it was written (a keystroke, an IME composition opening, a closed
+   * note's file rewritten): its bases still describe the source it was
+   * planned from, so they are stored, with nothing written into the note and
+   * the coordinator left as it is. A section's first base (seeded only while
+   * the note equals the model, MS11) was otherwise lost to typing that began
+   * right after sharing: every later pass found no base and a note unlike
+   * the model, nothing was sent, and the badge said ATTENTION (native
+   * section-ime, about one run in seven). The user's newer text is an edit
+   * against that base on the next pass.
+   */
+  const keepBases = async (engine: SectionEngine, pass: NotePass, planned: string) => {
+    const quiet =
+      pass.changes.length === 0 &&
+      pass.sections.every((r) => r.entries.length === 0 && r.local?.kind !== "committed");
+    if (quiet && pass.sections.some((r) => r.base !== undefined))
+      await engine.written(pass, planned);
+    else engine.abandoned(pass);
+  };
   const reconcileFile = async (req: PassRequest, engine: SectionEngine): Promise<void> => {
     if (o.files === undefined) return;
     status(req.path, "reconciling");
@@ -375,7 +395,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     const pass = await engine.pass(req.path, req.source, ctx);
     if (pass.stale === true) {
       // The file changed since it was read: nothing was committed; pass again on it.
-      engine.abandoned(pass);
+      await keepBases(engine, pass, req.source);
       pending.add(req.path, hints);
       const now = await files.read?.(req.path);
       if (now !== null && now !== undefined) coordinator.fileChanged(req.path, now);
@@ -387,7 +407,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       return contentHash(text) === pass.sourceRevision ? applyChanges(text, pass.changes) : text;
     });
     if (written === null || contentHash(current) !== pass.sourceRevision) {
-      engine.abandoned(pass);
+      await keepBases(engine, pass, req.source);
       pending.add(req.path, hints);
       if (written !== null) coordinator.fileChanged(req.path, current);
       return;
@@ -458,7 +478,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     const current = view.state.doc.toString();
     if (view.composing || view.compositionStarted || st.scheduler.composing) {
       // A composition opened during the pass: its result waits (the pass runs again after it).
-      engine.abandoned(pass);
+      await keepBases(engine, pass, source);
       for (const id of deletedIds) st.deletedIds.add(id);
       for (const id of inserted) st.inserted.add(id);
       st.scheduler.defer();
@@ -466,7 +486,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     }
     if (pass.stale === true || contentHash(current) !== pass.sourceRevision) {
       // The user typed meanwhile: nothing is written; the pass runs again on the new document.
-      engine.abandoned(pass);
+      await keepBases(engine, pass, source);
       for (const id of deletedIds) st.deletedIds.add(id);
       for (const id of inserted) st.inserted.add(id);
       coordinator.editorChanged(req.path, current);
