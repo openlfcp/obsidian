@@ -22,6 +22,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { WebSocketFactory } from "@openlfcp/client";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { Collaboration } from "../../../src/core/collab/service";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
@@ -136,12 +137,22 @@ export type Peer = Awaited<ReturnType<typeof peer>>;
 export async function peer(
   server: string,
   from?: { readonly device: Device; readonly local: FakeLocal; readonly files: Map<string, string> },
+  options: {
+    /**
+     * Every WebSocket this peer opens, to any server URL (a test's offline
+     * switch). A proxy in front of one URL is not enough: the section's
+     * Genesis names the server's own URL, and the client may open that.
+     */
+    readonly webSocket?: WebSocketFactory;
+  } = {},
 ) {
   const device = from?.device ?? new Device();
   const local = from?.local ?? new FakeLocal();
   // The platform WebSocket (Node's): the device's offline factory is left out.
   const { webSocket: _offline, ...online } = device.env(local, { tickMs: 20 });
-  const runtime = await LfcpRuntime.start(online);
+  const runtime = await LfcpRuntime.start(
+    options.webSocket === undefined ? online : { ...online, webSocket: options.webSocket },
+  );
   const status = runtime.status;
   if (status.kind !== "ready") throw new Error(status.kind);
   const collab = new Collaboration(runtime, { connectTimeoutMs: 5000, sleep, sections: true });

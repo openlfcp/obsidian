@@ -10,7 +10,7 @@
 // model. Nobody else ever gets any of it, and nothing says so. Reference
 // server at LFCP_SERVER_BIN; skipped without one.
 
-import { connect, createServer, type Server, type Socket } from "node:net";
+import type { WebSocketFactory } from "@openlfcp/client";
 import type { ResourceId } from "@openlfcp/core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type Peer, peer, waitFor } from "../../native/peer/main";
@@ -25,42 +25,32 @@ afterAll(async () => {
   await server?.stop();
 });
 
-/** A TCP proxy to the server for one member only: off() drops its connections and refuses new ones. */
-async function proxyTo(url: string) {
-  const target = new URL(url.replace("ws://", "http://"));
-  const sockets = new Set<Socket>();
-  let listening: Server | null = null;
-  let port = 0;
-  const on = () =>
-    new Promise<void>((ok) => {
-      const s = createServer((c) => {
-        const u = connect(Number(target.port), target.hostname);
-        sockets.add(c).add(u);
-        c.pipe(u).pipe(c);
-        const end = () => {
-          c.destroy();
-          u.destroy();
-          sockets.delete(c);
-          sockets.delete(u);
-        };
-        c.on("error", end).on("close", end);
-        u.on("error", end).on("close", end);
-      });
-      listening = s;
-      s.listen(port, "127.0.0.1", () => {
-        const a = s.address();
-        port = typeof a === "object" && a !== null ? a.port : 0;
-        ok();
-      });
-    });
-  const off = () =>
-    new Promise<void>((ok) => {
-      for (const x of sockets) x.destroy();
-      if (listening === null) ok();
-      else listening.close(() => ok());
-    });
-  await on();
-  return { url: `ws://127.0.0.1:${port}${target.pathname}`, on, off };
+/**
+ * One member's network, switchable: every WebSocket its runtime opens, to
+ * any URL (the invitation's, or the Genesis's own server URL), goes through
+ * it. off() closes them and points new ones at a closed port; on() lets
+ * them through. (A proxy in front of one URL left B online through the
+ * other on a slower runner.)
+ */
+function networkSwitch() {
+  const open = new Set<WebSocket>();
+  let offline = false;
+  const factory: WebSocketFactory = (url, protocols) => {
+    const ws = new WebSocket(offline ? "ws://127.0.0.1:9/v1/ws" : url, [...protocols]);
+    open.add(ws);
+    ws.addEventListener("close", () => open.delete(ws));
+    return ws as unknown as ReturnType<WebSocketFactory>;
+  };
+  return {
+    factory,
+    off: async () => {
+      offline = true;
+      for (const ws of open) ws.close();
+    },
+    on: async () => {
+      offline = false;
+    },
+  };
 }
 
 const tasks = (md: string) =>
@@ -74,22 +64,18 @@ afterEach(async () => {
   for (const p of stopping.splice(0)) await p.stop();
 });
 
-/** A owns [Alpha, Beta, Gamma]; B (behind its proxy) and C are members; B has one accepted edit. */
+/** A owns [Alpha, Beta, Gamma]; B (with its own network switch) and C are members; B has one accepted edit. */
 async function setup() {
   const a = await peer(server.url);
-  const proxy = await proxyTo(server.url);
-  const b = await peer(proxy.url);
+  const net = networkSwitch();
+  const b = await peer(server.url, undefined, { webSocket: net.factory });
   const c = await peer(server.url);
   stopping.push(a, b, c);
   a.files.set("A.md", ["## Plan", "", "- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma", ""].join("\n"));
   const { resource: R } = await a.share("A.md", "## Plan");
   const link = async () => (await a.collab.invite(R, "read-write")).link.reveal();
   b.files.set("B.md", ["# B", "", "Insert below.", ""].join("\n"));
-  await b.joinAndInsert(
-    (await link()).replace(encodeURIComponent(server.url), encodeURIComponent(proxy.url)),
-    "B.md",
-    3,
-  );
+  await b.joinAndInsert(await link(), "B.md", 3);
   c.files.set("C.md", ["# C", "", "Insert below.", ""].join("\n"));
   await c.joinAndInsert(await link(), "C.md", 3);
   b.files.set("B.md", (b.files.get("B.md") as string).replace("- [ ] Alpha", "- [ ] Alpha by B"));
@@ -99,7 +85,7 @@ async function setup() {
       ? true
       : undefined,
   );
-  return { a, b, c, R, proxy };
+  return { a, b, c, R, net };
 }
 
 /** B edits offline (`edit`, one pass); A removes C meanwhile; B comes back. */
@@ -108,9 +94,13 @@ async function offlineThenRotation(
   edit: (md: string) => string,
   meanwhile: () => Promise<void> = async () => undefined,
 ) {
-  const { a, b, c, R, proxy } = s;
-  await proxy.off();
-  await new Promise((r) => setTimeout(r, 1500));
+  const { a, b, c, R, net } = s;
+  await net.off();
+  // B is offline for real: its Resource leaves LIVE before it edits.
+  await waitFor(
+    async () => (b.runtime.phase(R as ResourceId) !== "LIVE" ? true : undefined),
+    20_000,
+  );
   b.files.set("B.md", edit(b.files.get("B.md") as string));
   await b.pass("B.md");
   await meanwhile();
@@ -128,10 +118,9 @@ async function offlineThenRotation(
     45_000,
   );
   await new Promise((r) => setTimeout(r, 1000));
-  await proxy.on();
-  // B is back: its offline unit is either cut off by the Key Epoch (quarantined, then
-  // re-applied or in review) or, when it reached the server first, accepted as it is.
-  // Either way: nothing waits any more, nothing is left to send.
+  await net.on();
+  // B is back: its offline unit is cut off by the Key Epoch (quarantined), then
+  // re-applied or put to review; nothing waits any more, nothing is left to send.
   const storage = b.runtime.storage;
   if (storage === null) throw new Error("B's runtime has no storage");
   const r64 = b.b64(R);
@@ -139,10 +128,11 @@ async function offlineThenRotation(
     const queued = (await storage.outbound.list(R as ResourceId)).filter(
       (i) => i.kind === "data-unit",
     ).length;
-    const handled = !b.stale.waiting(r64) || b.stale.counts(r64).review > 0;
-    return handled && queued === 0 && b.runtime.phase(R as ResourceId) === "LIVE"
-      ? true
-      : undefined;
+    // Re-applied: nothing waits and nothing is queued. In review: its stale unit stays
+    // queued (blocked) until the user chooses.
+    const done = !b.stale.waiting(r64) && queued === 0;
+    const review = b.stale.counts(r64).review > 0;
+    return (done || review) && b.runtime.phase(R as ResourceId) === "LIVE" ? true : undefined;
   }, 60_000);
   for (let i = 0; i < 3; i++) await b.pass("B.md");
   return { quarantined: await storage.dataUnits.withStatus(R as ResourceId, "quarantined") };
@@ -168,7 +158,11 @@ async function aShows(a: Peer, R: ResourceId, want: (titles: string[]) => boolea
 describe.skipIf(skip !== null)("offline work across an unrelated removal (§19.1)", () => {
   it("a title edit stays in B's note and reaches A", async () => {
     const s = await setup();
-    await offlineThenRotation(s, (md) => md.replace("- [ ] Beta", "- [ ] Beta retitled offline"));
+    const { quarantined } = await offlineThenRotation(s, (md) =>
+      md.replace("- [ ] Beta", "- [ ] Beta retitled offline"),
+    );
+    // B was offline for real: its unit was cut off by the Key Epoch.
+    expect(quarantined.length).toBeGreaterThan(0);
     expect(tasks(s.b.files.get("B.md") as string)).toContain("Beta retitled offline");
     expect(await aShows(s.a, s.R, (t) => t.includes("Beta retitled offline"))).toContain(
       "Beta retitled offline",
@@ -228,27 +222,7 @@ describe.skipIf(skip !== null)("offline work across an unrelated removal (§19.1
         );
       },
     );
-    // Cut off: B's edit waits for review (then Keep sends it). Accepted first: both
-    // values are a visible conflict at A. Never a silent win either way.
-    const conflictAtA = () => {
-      const v = s.a.runtime.sectionProfile(s.R)?.replica.task(beta as string) as
-        | { fields?: { title?: { conflicted?: boolean; values?: string[] } } }
-        | undefined;
-      return v?.fields?.title?.conflicted === true ? (v.fields.title.values ?? []) : null;
-    };
-    const path = await waitFor(
-      async () =>
-        s.b.stale.counts(r64).review > 0
-          ? "review"
-          : conflictAtA() !== null
-            ? "conflict"
-            : undefined,
-      45_000,
-    );
-    if (path === "conflict") {
-      expect([...(conflictAtA() ?? [])].sort()).toEqual(["Beta by A", "Beta by B offline"]);
-      return;
-    }
+    await waitFor(async () => (s.b.stale.counts(r64).review > 0 ? true : undefined), 45_000);
     expect(s.b.stale.counts(r64)).toEqual({ pending: 0, review: 1 });
     // B's note keeps its text; A's title stays A's until B chooses.
     expect(tasks(s.b.files.get("B.md") as string)).toContain("Beta by B offline");
