@@ -85,6 +85,15 @@ export const stateA = (hex) =>
       md: view.editor.getValue(),
       json: JSON.stringify(replica.toJSON()),
       tasks: tree.tree.filter((e) => e.kind === "task").map((e) => e.id),
+      // Each Task's parent in the model: a Task's ID, or null under the section.
+      parents: Object.fromEntries(
+        tree.tree
+          .filter((e) => e.kind === "task")
+          .map((e) => {
+            const p = tree.tree.find((x) => x.id === e.parent);
+            return [e.id, p === undefined ? null : p.kind === "task" ? p.id : `(${p.kind})`];
+          }),
+      ),
       classification: tree.classification,
       recovery: tree.recovery.map((r) => `${r.code}:${r.id}`),
       badge: view.containerEl.querySelector(".openlfcp-status")?.dataset.state ?? null,
@@ -117,6 +126,40 @@ function jsonDiff(x, y, path = "", out = []) {
   return out;
 }
 
+/** Leading whitespace as columns (a tab to the next multiple of 4, as CommonMark). */
+const columns = (ws) => [...ws].reduce((c, ch) => (ch === "\t" ? c + 4 - (c % 4) : c + 1), 0);
+
+/**
+ * Each bound Task's parent as the note's indentation nests it: the nearest
+ * Task above whose content column the line reaches, or null at the top of
+ * the section. A flat list of IDs in order does not see a Task nested under
+ * the wrong one (the owner's check of 0.4.0-beta.14 step 4).
+ */
+export function noteParents(md) {
+  const L = md.split("\n");
+  const out = {};
+  const stack = [];
+  let inSection = false;
+  for (let i = 0; i < L.length; i++) {
+    const line = L[i];
+    if (/<!--[ \t]+lfcp-section:/.test(line)) inSection = true;
+    if (/<!--[ \t]+\/lfcp-section:/.test(line)) inSection = false;
+    if (!inSection) continue;
+    const m = /^([ \t]*)([-*+] \[.\] )/.exec(line);
+    if (m === null) {
+      // A line of its own at the left margin ends every list item above it.
+      if (line.trim() !== "" && !/^[ \t]/.test(line) && !WHOLE.test(line)) stack.length = 0;
+      continue;
+    }
+    const col = columns(m[1]);
+    const id = REF_ID.exec(line)?.[1] ?? (WHOLE.test(L[i + 1] ?? "") ? REF_ID.exec(L[i + 1])?.[1] : undefined);
+    while (stack.length > 0 && (stack.at(-1)?.content ?? 0) > col) stack.pop();
+    if (id !== undefined) out[id] = stack.at(-1)?.id ?? null;
+    stack.push({ id, content: col + m[2].length - 4 });
+  }
+  return out;
+}
+
 /** Waits until A's editor text stays the same for 1.5 s and A is CURRENT. */
 export async function settle(hex, timeout = 30_000) {
   const deadline = Date.now() + timeout;
@@ -139,6 +182,15 @@ export async function settle(hex, timeout = 30_000) {
  * to A's, and B's note shows the same Tasks (withB false: A only). Returns
  * A's state.
  */
+/** Tasks A's note nests otherwise than A's model (a Task under a non-Task node is left out). */
+const nesting = (a) => {
+  const inNote = noteParents(a.md);
+  return Object.entries(a.parents ?? {})
+    .filter(([id, p]) => id in inNote && !(typeof p === "string" && p.startsWith("(")))
+    .filter(([id, p]) => inNote[id] !== p)
+    .map(([id, p]) => `${id.slice(-4)}: note ${inNote[id]?.slice(-4) ?? "top"}, model ${p?.slice(-4) ?? "top"}`);
+};
+
 export async function checkStep(label, ctx, { withB = true } = {}) {
   const a = await settle(ctx.R);
   const { problems, taskIds } = markerProblems(a.md);
@@ -148,6 +200,7 @@ export async function checkStep(label, ctx, { withB = true } = {}) {
     expect(a.badge).toBe("CURRENT");
     expect(a.recovery).toEqual([]);
     expect(a.tasks).toEqual(taskIds);
+    expect(nesting(a)).toEqual([]);
     return { ...a, titles: titles(sectionOf(a.md)) };
   }
   let b = null;
@@ -172,6 +225,7 @@ export async function checkStep(label, ctx, { withB = true } = {}) {
     recovery: a.recovery,
     converged: b !== null,
     modelOrderMatchesNote: JSON.stringify(a.tasks) === JSON.stringify(taskIds),
+    nestingMismatches: nesting(a),
   });
   if (problems.length > 0 || b === null) evidence(`${label} note`, { md: a.md.split("\n") });
   if (b === null) {
@@ -182,6 +236,7 @@ export async function checkStep(label, ctx, { withB = true } = {}) {
   expect(a.badge).toBe("CURRENT");
   expect(a.recovery).toEqual([]);
   expect(a.tasks).toEqual(taskIds);
+  expect(nesting(a)).toEqual([]);
   expect(b).not.toBe(null);
   expect(titlesB).toEqual(titlesA);
   return { ...a, titles: titlesA };
