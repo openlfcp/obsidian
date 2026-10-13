@@ -451,27 +451,51 @@ export class LfcpRuntime {
   static async start(env: RuntimeEnv): Promise<LfcpRuntime> {
     // Before any replica exists (the slim Automerge build needs it; a no-op otherwise).
     await (env.initializeAutomerge ?? initializeAutomerge)();
-    // The sync data of a plugin before 0.4, about to be upgraded (said once, LFCP-02-055).
     const id = env.local.load(INSTALL_KEY);
-    const before =
-      isInstallId(id) && typeof indexedDB !== "undefined"
-        ? await idbBeforeSealing(databaseName(id)).catch(() => null)
-        : null;
-    const install = await openInstall(env);
-    const lock = await LfcpRuntime.#takeLock(env, install.installId);
+    const held = (installId: string, principal: PrincipalId | null) =>
+      new LfcpRuntime(
+        env,
+        { kind: "locked", installId, reason: "lock-held", principalId: principal, storage: null },
+        null,
+        null,
+      );
+    // An existing install: its writer lock first, before its database is
+    // opened. The instance that holds it (the plugin updated in this window:
+    // 0.3.4 and later release it only after closing their database) is gone
+    // once we have it, so the database's upgrade is never blocked by its
+    // connection ("blocked by another connection", the update from 0.3.4).
+    // A new install has no ID yet, and nobody else can hold its lock: it is
+    // made, then locked, as before.
+    let lock: HeldLock | null | undefined;
+    if (isInstallId(id)) {
+      lock = await LfcpRuntime.#takeLock(env, id);
+      if (lock === undefined) return held(id, null);
+    }
+    // The sync data of a plugin before 0.4, about to be upgraded (said once, LFCP-02-055).
+    let before: boolean | null;
+    let install: Install;
+    try {
+      before =
+        isInstallId(id) && typeof indexedDB !== "undefined"
+          ? await idbBeforeSealing(databaseName(id)).catch(() => null)
+          : null;
+      install = await openInstall(env);
+    } catch (e) {
+      // Not opened (its database still closing, say): the lock goes, so a
+      // start tried again is not kept waiting for our own lock.
+      lock?.release();
+      throw e;
+    }
+    // The install opened is not the one locked (none yet, or replaced): its own lock.
+    if (!isInstallId(id) || install.installId !== id) {
+      lock?.release();
+      lock = await LfcpRuntime.#takeLock(env, install.installId);
+    }
     if (lock === undefined) {
       install.storage?.close();
-      return new LfcpRuntime(
-        env,
-        {
-          kind: "locked",
-          installId: install.installId,
-          reason: "lock-held",
-          principalId: install.kind === "ready" ? install.principal.id : install.principalId,
-          storage: null,
-        },
-        null,
-        null,
+      return held(
+        install.installId,
+        install.kind === "ready" ? install.principal.id : install.principalId,
       );
     }
     const sealed = await LfcpRuntime.#seal(env, install);

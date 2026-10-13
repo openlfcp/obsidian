@@ -336,6 +336,66 @@ describe("LfcpRuntime (LFCP-059)", () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(1000);
   });
 
+  it("an existing install's database is opened only once its writer lock is held (the update from 0.3.4)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const first = await start(device, local);
+    // Opening the database while the old instance still has it open would
+    // be blocked: the new start may open it only after the lock is free.
+    const events: string[] = [];
+    const env = device.env(local, { lockWaitMs: 5000 });
+    const openStorage = env.openStorage;
+    const next = LfcpRuntime.start({
+      ...env,
+      openStorage: (...a: Parameters<typeof openStorage>) => {
+        events.push("open");
+        return openStorage(...a);
+      },
+    });
+    await sleep(300);
+    events.push("released");
+    await first.stop();
+    const r = await next;
+    running.push(r);
+    expect(r.status.kind).toBe("ready");
+    expect(events).toEqual(["released", "open"]);
+    // Held for good: locked, and its database never opened.
+    const held = await LfcpRuntime.start({
+      ...device.env(local, { lockWaitMs: 100 }),
+      openStorage: () => {
+        throw new Error("opened while locked");
+      },
+    });
+    running.push(held);
+    expect(held.status).toMatchObject({ kind: "locked", reason: "lock-held" });
+  });
+
+  it("a start whose database cannot open lets go of the lock it took", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const first = await start(device, local);
+    await first.stop();
+    const env = device.env(local);
+    await expect(
+      LfcpRuntime.start({
+        ...env,
+        openStorage: async () => {
+          throw new Error("IndexedDB openlfcp-v1-x is blocked by another connection");
+        },
+      }),
+    ).rejects.toThrow("blocked by another connection");
+    expect(device.locks.size).toBe(0);
+    const again = await start(device, local);
+    expect(again.status.kind).toBe("ready");
+  });
+
+  it("a new install (no ID yet) is made, then locked, as before", async () => {
+    const device = new Device();
+    const r = await start(device, new FakeLocal());
+    expect(r.status.kind).toBe("ready");
+    expect(device.locks.size).toBe(1);
+  });
+
   it("a lock another instance keeps: locked (lock-held) after the wait, and a later start runs", async () => {
     const device = new Device();
     const local = new FakeLocal();

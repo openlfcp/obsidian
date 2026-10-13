@@ -22,6 +22,8 @@ import * as mock from "../mocks/obsidian";
 import { collaborator, storeBlocked } from "../support/blocked-units";
 import { Device } from "../support/lfcp-env";
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 const manifest = { id: "shared-tasks", name: "Shared Tasks", version: "0.0.0" };
 
 class TestPlugin extends OpenLfcpPlugin {
@@ -30,13 +32,29 @@ class TestPlugin extends OpenLfcpPlugin {
   lockWaitMs: number | undefined = 100;
   /** A stop that takes this long first (typing flushed, checkpoints written). */
   stopDelayMs = 0;
+  /** The background retries of a held lock and of a blocked database, shortened. */
+  protected override lockRetryMs = 200;
+  protected override blockedRetryMs = 20;
+  /** How many starts were tried (runtimeEnv is asked once per start). */
+  starts = 0;
+  /** Makes the next starts fail as the runtime's would, with this message. */
+  failWith: string | null = null;
   override async stopRuntime(): Promise<void> {
     if (this.stopDelayMs > 0) await new Promise((r) => setTimeout(r, this.stopDelayMs));
     await super.stopRuntime();
   }
   protected override runtimeEnv(): RuntimeEnv {
+    this.starts++;
+    const fail = this.failWith;
     // The real Obsidian mapping, with counted timers and an offline socket.
     return {
+      ...(fail === null
+        ? {}
+        : {
+            initializeAutomerge: async () => {
+              throw new Error(fail);
+            },
+          }),
       ...obsidianRuntimeEnv(this.app),
       timers: this.device.timers,
       webSocket: this.device.sockets.factory,
@@ -450,5 +468,95 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(mock.notices).toEqual([
       "Shared Tasks: another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
     ]);
+  });
+
+  it("a held lock is tried again in the background: it runs once free, said once, without a reload", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    mock.notices.length = 0;
+    const second = new TestPlugin(app as never, manifest as never);
+    second.device = first.plugin.device;
+    await second.onload();
+    expect((await second.whenRuntimeStarted())?.status.kind).toBe("locked");
+    // A few retries while the other instance runs: still locked, said once.
+    await sleep(700);
+    expect(second.starts).toBeGreaterThan(1);
+    // Locked, or between two tries: never running while the other holds the lock.
+    expect(second.runtime?.status.kind ?? "between tries").not.toBe("ready");
+    // The other instance goes: the next retry starts this one.
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    for (let i = 0; i < 40 && second.runtime?.status.kind !== "ready"; i++) await sleep(50);
+    expect(second.runtime?.status.kind).toBe("ready");
+    expect(mock.notices.filter((n) => n.includes("holds this vault's data"))).toHaveLength(1);
+    (second as unknown as mock.Plugin).unload();
+    await second.stopRuntime();
+  });
+
+  it("the background retry stops when the plugin is unloaded: no start after it", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const second = new TestPlugin(app as never, manifest as never);
+    second.device = first.plugin.device;
+    await second.onload();
+    await second.whenRuntimeStarted();
+    (second as unknown as mock.Plugin).unload();
+    await second.stopRuntime();
+    const starts = second.starts;
+    await sleep(600);
+    expect(second.starts).toBe(starts);
+    expect(second.runtime).toBeNull();
+    first.host.unload();
+    await first.plugin.stopRuntime();
+  });
+
+  it("a start that fails is said once, not silently", async () => {
+    const app = new mock.App();
+    const plugin = new TestPlugin(app as never, manifest as never);
+    plugin.failWith = "the disk is full";
+    mock.notices.length = 0;
+    await plugin.onload();
+    expect(await plugin.whenRuntimeStarted()).toBeNull();
+    await sleep(200);
+    expect(mock.notices.filter((n) => n.startsWith("Shared Tasks could not start:"))).toEqual([
+      "Shared Tasks could not start: the disk is full. Restart Obsidian to try again; your notes are not affected.",
+    ]);
+    expect(plugin.starts).toBe(1);
+    (plugin as unknown as mock.Plugin).unload();
+    await plugin.stopRuntime();
+  });
+
+  it("a database still closing (the update from 0.3.4): tried again, it runs, nothing said", async () => {
+    const app = new mock.App();
+    const plugin = new TestPlugin(app as never, manifest as never);
+    plugin.failWith = "IndexedDB openlfcp-v1-x is blocked by another connection";
+    mock.notices.length = 0;
+    await plugin.onload();
+    expect(await plugin.whenRuntimeStarted()).toBeNull();
+    await sleep(100);
+    plugin.failWith = null; // the old connection closed
+    for (let i = 0; i < 40 && plugin.runtime?.status.kind !== "ready"; i++) await sleep(25);
+    expect(plugin.runtime?.status.kind).toBe("ready");
+    expect(plugin.starts).toBeGreaterThan(2);
+    expect(mock.notices.filter((n) => n.includes("could not start"))).toEqual([]);
+    (plugin as unknown as mock.Plugin).unload();
+    await plugin.stopRuntime();
+  });
+
+  it("a database blocked for good: tried a while, then said once", async () => {
+    const app = new mock.App();
+    const plugin = new TestPlugin(app as never, manifest as never);
+    plugin.failWith = "IndexedDB openlfcp-v1-x is blocked by another connection";
+    mock.notices.length = 0;
+    await plugin.onload();
+    for (let i = 0; i < 60 && !mock.notices.some((n) => n.includes("could not start")); i++)
+      await sleep(25);
+    await sleep(200);
+    expect(plugin.starts).toBe(21);
+    expect(mock.notices.filter((n) => n.includes("could not start"))).toHaveLength(1);
+    (plugin as unknown as mock.Plugin).unload();
+    await plugin.stopRuntime();
   });
 });

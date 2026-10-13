@@ -84,6 +84,10 @@ const stopping = {
 };
 
 /** What to do when another instance holds this vault's data (the writer lock). */
+/** A start whose database open was blocked by a connection still closing: tried again. */
+const BLOCKED = /is blocked by another connection/;
+const BLOCKED_RETRIES = 20;
+
 export const LOCK_HELD_ADVICE =
   "another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.";
 
@@ -310,6 +314,8 @@ export default class OpenLfcpPlugin extends Plugin {
 
   override onunload(): void {
     this.#unloaded = true;
+    if (this.#lockRetry !== null) window.clearTimeout(this.#lockRetry);
+    this.#lockRetry = null;
     this.changes.close();
     // The next instance of the plugin in this window (a reload: disabled and
     // enabled, a BRAT update) waits for this one to stop and let go of the
@@ -385,12 +391,22 @@ export default class OpenLfcpPlugin extends Plugin {
         return null;
       }
       this.runtime = runtime;
+      this.#blockedRetries = 0;
       runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
-      // Another instance (another window on this vault) holds the writer lock.
+      // Another instance holds the writer lock (another window on this
+      // vault, or a previous version still stopping): said once, and tried
+      // again in the background until it is free.
       if (runtime.status.kind === "locked" && runtime.status.reason === "lock-held") {
-        new Notice(`Shared Tasks: ${LOCK_HELD_ADVICE}`, 0);
+        if (!this.#lockHeldSaid) new Notice(`Shared Tasks: ${LOCK_HELD_ADVICE}`, 0);
+        this.#lockHeldSaid = true;
         this.#bar?.setText("Shared Tasks: paused (another window)");
         this.sections?.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
+        this.#lockRetry = window.setTimeout(() => void this.#retryStart(), this.lockRetryMs);
+      } else if (this.#lockHeldSaid) {
+        // Running after a wait for the lock: back to normal, no reload needed.
+        this.#lockHeldSaid = false;
+        this.sections?.unavailable(null);
+        this.#bar?.setText(this.conflicts.summary());
       }
       // LFCP-02-055: local data of a plugin before 0.4 was upgraded now; said once.
       if (runtime.upgradedLocalData)
@@ -459,10 +475,53 @@ export default class OpenLfcpPlugin extends Plugin {
     } catch (e) {
       const failure = startFailure(e);
       this.runtimeError = failure.message;
+      // The previous version's database connection still closing (its last
+      // transactions finishing after it let go of the lock): tried again
+      // shortly, for a while, before anything is said.
+      if (
+        BLOCKED.test(failure.message) &&
+        this.#blockedRetries < BLOCKED_RETRIES &&
+        !this.#unloaded
+      ) {
+        this.#blockedRetries++;
+        this.#lockRetry = window.setTimeout(() => void this.#retryStart(), this.blockedRetryMs);
+        return null;
+      }
       // Newer sync data (a downgrade): said once, plainly; nothing is written or deleted.
       if (failure.newerData) new Notice(`Shared Tasks: ${failure.message}`, 0);
+      // Any other failure is said too (it was silent: nothing synced, every
+      // section loading), once per load.
+      else if (!this.#startFailureSaid)
+        new Notice(
+          `Shared Tasks could not start: ${failure.message}. Restart Obsidian to try again; your notes are not affected.`,
+          0,
+        );
+      this.#startFailureSaid = true;
       return null;
     }
+  }
+
+  /** The lock-held notice was shown (once per load); the start failure notice was. */
+  #lockHeldSaid = false;
+  #startFailureSaid = false;
+  /** The background retry of a start that found the writer lock held (or its database blocked). */
+  #lockRetry: number | null = null;
+  /** Starts tried again after "blocked by another connection", and how far apart (tests shorten it). */
+  #blockedRetries = 0;
+  protected blockedRetryMs = 500;
+  /** How long after finding the writer lock held a start is tried again (tests shorten it). */
+  protected lockRetryMs = 5000;
+
+  /** The lock was held: the locked runtime stopped, a new start tried. */
+  async #retryStart(): Promise<void> {
+    this.#lockRetry = null;
+    if (this.#unloaded) return;
+    const held = this.runtime;
+    this.runtime = null;
+    await held?.stop();
+    if (this.#unloaded) return;
+    this.#starting = this.#startRuntime();
+    await this.#starting;
   }
 
   #projectionHost(): ProjectionHost | null {

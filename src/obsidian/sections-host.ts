@@ -707,7 +707,7 @@ export class SectionsHost {
    * The plugin cannot run here (another instance holds this vault's data):
    * the cards say so, and what to do, instead of "still loading".
    */
-  unavailable(message: string): void {
+  unavailable(message: string | null): void {
     this.#unavailable = message;
   }
   #unavailable: string | null = null;
