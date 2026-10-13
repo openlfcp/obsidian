@@ -123,6 +123,18 @@ write paragraphs, and move lines within it. The other side sees your
 changes within seconds, and new lines appear in the right place by
 themselves.
 
+Each task keeps its hidden ref line with it when you move it:
+
+- **Move line up / down** moves the whole task, with its ref line and its
+  subtasks, past the task before or after it. At the first or last task of
+  a list it does nothing.
+- **Tab / Shift+Tab** on a task line indents or outdents its ref line and
+  subtasks too, so the task becomes a subtask of the one above (or stops
+  being one).
+- **Cut and paste**: a task pasted without its line break at the start of
+  another task's line is put on lines of its own. A selection made with
+  the keyboard or the mouse never ends halfway through a ref line.
+
 ### What the marks mean
 
 The **double tick ✓✓** after the heading means **this section is
@@ -185,6 +197,9 @@ is put right, and Shared Tasks says so:
   last checked" while an edit is held. **"Go to line …"** takes you
   there, and **"Repair shared sections in this note"** is offered when a
   repair can help.
+
+A task you moved in a copy that is held is counted too, and named:
+`… (Plan.md, line 12). Moved, not sent: “Gamma”.`
 
 Undo the edit, or move the heading below the section's end, and the
 section syncs again.
