@@ -1060,11 +1060,20 @@ export class SectionEngine {
     ]);
     const anchor = (parent: string | null, after: string | null): string | null => {
       if (after === null) return null;
+      // A node the model shows in that parent's list: one whose placement is
+      // in conflict is in no list, and following it refuses the whole batch
+      // (INVALID_PREDECESSOR), the user's deletion with it (the
+      // peer-structure property test, seed 3365).
+      const listed = new Set(snap.order[parent ?? ROOT] ?? []);
       const shown = (x: string) => {
         const m = snap.nodes[x];
         return (
           placedHere.has(x) ||
-          (m !== undefined && m.lifecycle === "active" && m.hidden !== true && m.parent === parent)
+          (m !== undefined &&
+            m.lifecycle === "active" &&
+            m.hidden !== true &&
+            m.parent === parent &&
+            listed.has(x))
         );
       };
       if (shown(after)) return after;

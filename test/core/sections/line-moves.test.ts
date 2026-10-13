@@ -141,6 +141,33 @@ describe("Move line up/down in a section", () => {
     expect(placementConflict(a, gamma)).toBe(true);
     expect(placementConflict(b, gamma)).toBe(true);
   });
+
+  it("a new Task after a Task in a placement conflict, and a deletion, in one pass: sent (sweep seed 3365)", async () => {
+    const { a, b } = await twoVaults(BODY);
+    const md = a.note();
+    const gamma = taskId(md, "Gamma");
+    const beta = taskId(md, "Beta");
+    const g = lineOf(md, "Gamma");
+    const move = moveNodeLines(md, g, g, "up");
+    if (move === null) throw new Error("no move");
+    await a.pass(applyChanges(md, move.changes), { inserted: new Set(move.moved) });
+    await moveFirstInB(b, "Gamma");
+    await reconnect(a, b);
+    expect(placementConflict(b, gamma)).toBe(true);
+    // B: a new Task typed right after Gamma's block, and Beta deleted with its ref.
+    const L = lines(b.note());
+    const [, end] = block(b.note(), "Gamma");
+    L.splice(end, 0, "- [ ] Typed after Gamma");
+    const [bf, bt] = block(L.join("\n"), "Beta");
+    L.splice(bf, bt - bf);
+    const res = await b.pass(L.join("\n"), { deletedIds: new Set([beta]) });
+    // Not refused (INVALID_PREDECESSOR: Gamma is in no list while in conflict).
+    expect(res?.local?.kind).toBe("committed");
+    expect(b.model()?.nodes[beta]?.lifecycle).toBe("deleted");
+    expect(titles(b.note())).toContain("Typed after Gamma");
+    const again = await b.pass(b.note());
+    expect(again?.lost).toEqual([]);
+  });
 });
 
 describe("Tab and Shift+Tab on a Task line", () => {
