@@ -136,11 +136,20 @@ export async function settle(hex, timeout = 30_000) {
 /**
  * After a step: A settles; the note's markers are sound; A's model has the
  * note's Tasks in the note's order, nothing to recover; B's model converges
- * to A's, and B's note shows the same Tasks. Returns A's state.
+ * to A's, and B's note shows the same Tasks (withB false: A only). Returns
+ * A's state.
  */
-export async function checkStep(label, ctx) {
+export async function checkStep(label, ctx, { withB = true } = {}) {
   const a = await settle(ctx.R);
   const { problems, taskIds } = markerProblems(a.md);
+  if (!withB) {
+    evidence(label, { titlesA: titles(sectionOf(a.md)), problems, badge: a.badge, recovery: a.recovery });
+    expect(problems).toEqual([]);
+    expect(a.badge).toBe("CURRENT");
+    expect(a.recovery).toEqual([]);
+    expect(a.tasks).toEqual(taskIds);
+    return { ...a, titles: titles(sectionOf(a.md)) };
+  }
   let b = null;
   try {
     b = await browser.waitUntil(
@@ -249,6 +258,15 @@ export async function shareAndJoin(b, file, heading, text, source = false) {
       ),
     { timeout: 60_000, timeoutMsg: "the section shared and hosted" },
   );
+  const link = await inviteFromA(title);
+  const bFile = `B-${file}`;
+  b.files.set(bFile, ["# B", "", "Insert below.", ""].join("\n"));
+  await b.joinAndInsert(link, bFile, 3);
+  return { R, bFile };
+}
+
+/** A invites to the section titled `title` (Read + write or Read only) with its own UI; the link. */
+export async function inviteFromA(title, access = "Read + write") {
   await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
   const pick = (label) =>
     inA(async ({}, label) => {
@@ -260,8 +278,8 @@ export async function shareAndJoin(b, file, heading, text, source = false) {
       items.find((x) => x.textContent.includes(label)).click();
     }, label);
   await pick(title);
-  await pick("Read + write");
-  const link = await inA(async () => {
+  await pick(access);
+  return inA(async () => {
     let modal;
     for (let i = 0; i < 200 && modal === undefined; i++) {
       await new Promise((r) => setTimeout(r, 50));
@@ -272,10 +290,32 @@ export async function shareAndJoin(b, file, heading, text, source = false) {
     [...modal.querySelectorAll("button")].find((x) => x.textContent === "Done").click();
     return value;
   });
-  const bFile = `B-${file}`;
-  b.files.set(bFile, ["# B", "", "Insert below.", ""].join("\n"));
-  await b.joinAndInsert(link, bFile, 3);
-  return { R, bFile };
+}
+
+/** A removes a member's access from the section card of the active note ("Remove access…", then confirmed). */
+export async function removeAccessFromA() {
+  await inA(({ app }) => app.commands.executeCommandById("shared-tasks:open-section-details"));
+  const removing = await inA(async () => {
+    let row;
+    for (let i = 0; i < 200 && row === undefined; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      row = [...document.querySelectorAll(".modal button")].find((x) => x.textContent === "Remove access…");
+    }
+    if (row === undefined) return { error: [...document.querySelectorAll(".modal")].map((m) => m.textContent).join(" | ").slice(0, 600) };
+    row.click();
+    let confirm;
+    for (let i = 0; i < 100 && confirm === undefined; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      confirm = [...document.querySelectorAll(".modal button")].find((x) => x.textContent === "Remove access");
+    }
+    confirm.click();
+    await new Promise((r) => setTimeout(r, 1500));
+    const notices = [...document.querySelectorAll(".notice")].map((n) => n.textContent);
+    for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
+    return { notices };
+  });
+  if (removing.error !== undefined) throw new Error(`no Remove access…: ${removing.error}`);
+  return removing;
 }
 
 /** Runs `fn(editor, ...args)` on A's active editor. */
@@ -306,4 +346,59 @@ export async function caret(line, ch) {
     ch,
   );
   await browser.pause(150);
+}
+
+/** A's journaled intents from now on (the batches its passes commit): read them with opsA(). */
+export const recordOps = () =>
+  inA(({ app }) => {
+    const ls = app.plugins.plugins["shared-tasks"].runtime.localState;
+    window.__lfcpOps = [];
+    if (ls.__recorded) return;
+    ls.__recorded = true;
+    const put = ls.put.bind(ls);
+    ls.put = (key, value) => {
+      if (key.startsWith("section-op:") && Array.isArray(value?.intents) && window.__lfcpOps !== undefined)
+        window.__lfcpOps.push({
+          phase: value.phase,
+          intents: value.intents.map((i) => ({ intent: i.intent, id: i.id ?? i.task?.id ?? null })),
+        });
+      return put(key, value);
+    };
+  });
+/** The intents recorded since recordOps(), once each (a batch is journaled in several phases). */
+export const opsA = async () => {
+  const all = (await inA(() => window.__lfcpOps ?? [])).flatMap((o) => o.intents.map((i) => `${i.intent}:${i.id}`));
+  return [...new Set(all)];
+};
+
+/**
+ * B's network, switchable (this process's WebSocket, which B's runtime takes
+ * at each connection; A, in Obsidian, keeps its own): off() closes B's
+ * sockets and points new ones at a closed port; on() lets them through.
+ * Install before B starts.
+ */
+export function installNetSwitch() {
+  const Real = globalThis.WebSocket;
+  const open = new Set();
+  let offline = false;
+  class Switched extends Real {
+    constructor(url, protocols) {
+      super(offline ? "ws://127.0.0.1:9/v1/ws" : url, protocols);
+      open.add(this);
+      this.addEventListener("close", () => open.delete(this));
+    }
+  }
+  globalThis.WebSocket = Switched;
+  return {
+    off() {
+      offline = true;
+      for (const s of open) s.close();
+    },
+    on() {
+      offline = false;
+    },
+    restore() {
+      globalThis.WebSocket = Real;
+    },
+  };
 }
