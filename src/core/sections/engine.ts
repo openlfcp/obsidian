@@ -308,6 +308,41 @@ export function composeChanges(
     .map((x) => x.c);
 }
 
+/**
+ * `base` with every restored node it still lacks where the model restored
+ * it. A restored node under a parent without a binding yet (a Task pasted
+ * under a new one) gets no placement in this batch: the restore brings it
+ * back where the model has it, and the note's place is a move the next pass
+ * sends, once the parent is bound (the peer-structure property test, seed 38).
+ */
+function withModelPlaced(
+  base: SectionState,
+  restored: readonly string[],
+  inNote: (id: string) => NodeState | undefined,
+  model: SectionState,
+  as: (id: string, n: NodeState) => NodeState,
+): SectionState {
+  let out = base;
+  for (const id of restored) {
+    const n = inNote(id);
+    const m = model.nodes[id];
+    if (out.nodes[id] !== undefined || n === undefined || m === undefined) continue;
+    const key = m.parent ?? ROOT;
+    const list = [...(out.order[key] ?? [])];
+    const siblings = model.order[key] ?? [];
+    let after: string | undefined;
+    for (let i = siblings.indexOf(id) - 1; i >= 0 && after === undefined; i--)
+      if (list.includes(siblings[i] as string)) after = siblings[i];
+    list.splice(after === undefined ? 0 : list.indexOf(after) + 1, 0, id);
+    out = {
+      ...out,
+      nodes: { ...out.nodes, [id]: { ...as(id, n), parent: m.parent } },
+      order: { ...out.order, [key]: list },
+    };
+  }
+  return out;
+}
+
 /** The section `ref` in `markdown`, at or after the line `near` had (the same projection). */
 function sectionLike(
   markdown: string,
@@ -1026,7 +1061,14 @@ export class SectionEngine {
       localBase = applyBatch(
         // A restored node's base is what the restore brings back, the model's
         // (a Task: no line yet, so what the user typed on it since stays an edit).
-        withRestored(baseState, note.state, comp.restores, restoredAs),
+        withModelPlaced(
+          withRestored(baseState, note.state, comp.restores, restoredAs),
+          comp.restores,
+          (id) => note.state.nodes[id],
+          // The model after this batch: the nodes it restored are in it.
+          sharedState(this.deps.port.snapshot(resource, ref.sectionId) ?? snap),
+          restoredAs,
+        ),
         local.entry.intents ?? [],
         ref.sectionId,
         (id) => lineOf.get(id),
