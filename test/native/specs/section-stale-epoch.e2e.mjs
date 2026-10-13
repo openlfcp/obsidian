@@ -294,19 +294,20 @@ describe("offline edits in vault A across an unrelated removal (§19.1)", () => 
     expect(current).toBe(true);
   });
 
-  // TODO(sdk-ts §26.2): a member whose first unit of a section went stale
-  // cannot send any new unit yet: sdk-ts createQueuedDataUnit requires the
-  // unit at sequence N-1 as `previous` for every N > 1, where §26.2 names
-  // N-1's predecessor (null here) after a stale unit. Until it is fixed the
-  // work stays in A's note, guarded, and A needs attention: never lost.
-  it("a member's first edit, made offline, across the removal: kept in A's note, A needs attention", async () => {
+  it("a member's first edit, made offline, across the removal: sent again like the others; A ends current", async () => {
+    // SDK 0.2.0-beta.8 (§26.2): after a first unit gone stale, the next unit
+    // names no previous unit. With 0.2.0-beta.7 it was refused, and the edit
+    // stayed in A's note with the section at attention.
     const s = await shared("## Stale three", "Stale three.md", { online: false });
     await offlineThenRotation(s, " first offline");
-    const attention = await browser.waitUntil(async () => (await badge()) === "ATTENTION", { timeout: 30_000 }).catch(() => false);
-    await browser.pause(5000);
+    const got = await browser
+      .waitUntil(async () => titlesB(s).includes("Beta first offline"), { timeout: 30_000 })
+      .catch(() => false);
+    const current = await browser.waitUntil(async () => (await badge()) === "CURRENT", { timeout: 40_000 }).catch(() => false);
     const md = await noteA();
-    evidence("STALE3", { attention, titlesA: titles(sectionOf(md)), titlesB: titlesB(s), badge: await badge() });
-    expect(attention).toBe(true);
+    evidence("STALE3", { got, current, titlesA: titles(sectionOf(md)), titlesB: titlesB(s), badge: await badge() });
+    expect(got).toBe(true);
+    expect(current).toBe(true);
     expect(titles(sectionOf(md))).toEqual(["Alpha", "Beta first offline", "Gamma"]);
     expect(markerProblems(md).problems).toEqual([]);
   });
