@@ -110,6 +110,8 @@ export class Device {
       timers: this.timers,
       webSocket: this.sockets.factory,
       acquireLock: (name) => this.acquireLock(name),
+      // A held lock is waited for briefly here (a test that needs longer says so).
+      lockWaitMs: 100,
       tickMs: 20,
       ...extra,
     };

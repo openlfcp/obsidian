@@ -703,7 +703,20 @@ export class SectionsHost {
    * Its actions run on the section's Resource after checking it is still
    * here (stable ref, revalidated).
    */
+  /**
+   * The plugin cannot run here (another instance holds this vault's data):
+   * the cards say so, and what to do, instead of "still loading".
+   */
+  unavailable(message: string): void {
+    this.#unavailable = message;
+  }
+  #unavailable: string | null = null;
+
   async openCard(key: string, title: string): Promise<void> {
+    if (this.#unavailable !== null) {
+      new Notice(this.#unavailable);
+      return;
+    }
     const content = await this.#cardContent(key, title);
     if (content === null) {
       new Notice("Shared Tasks: this section is still loading. Try again in a moment.");

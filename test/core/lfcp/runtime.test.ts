@@ -320,6 +320,38 @@ describe("LfcpRuntime (LFCP-059)", () => {
     expect(await again.localState.get("stale-to-discard")).toEqual([]);
   });
 
+  it("a start while the previous instance is still stopping waits for its lock, and runs", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const first = await start(device, local);
+    expect(first.status.kind).toBe("ready");
+    // The plugin reloaded: the new instance starts; the old one stops a second later.
+    const t0 = Date.now();
+    const next = LfcpRuntime.start(device.env(local, { lockWaitMs: 5000 }));
+    await sleep(1000);
+    await first.stop();
+    const r = await next;
+    running.push(r);
+    expect(r.status.kind).toBe("ready");
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("a lock another instance keeps: locked (lock-held) after the wait, and a later start runs", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const first = await start(device, local);
+    const t0 = Date.now();
+    const blocked = await LfcpRuntime.start(device.env(local, { lockWaitMs: 300 }));
+    running.push(blocked);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(300);
+    expect(blocked.status).toMatchObject({ kind: "locked", reason: "lock-held" });
+    // The other window closed: the plugin enabled again starts.
+    await first.stop();
+    await blocked.stop();
+    const again = await start(device, local);
+    expect(again.status.kind).toBe("ready");
+  });
+
   it("an engine trap blocks the runtime once until restart (needs-restart)", async () => {
     const device = new Device();
     const local = new FakeLocal();

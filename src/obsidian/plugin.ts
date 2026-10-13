@@ -69,6 +69,24 @@ const BLOCKING_OUTCOMES: ReadonlySet<string> = new Set([
   "engine-crash",
 ]);
 
+/**
+ * The stopping of the plugin's previous instance, by app: an instance of the
+ * window's App outlives a reload of the plugin (this module is evaluated
+ * again; the App is not), so it is kept on it, under a private key.
+ */
+const STOPPING = Symbol.for("openlfcp.shared-tasks.stopping");
+const stopping = {
+  get: (app: object): Promise<void> | undefined =>
+    (app as { [STOPPING]?: Promise<void> })[STOPPING],
+  set: (app: object, p: Promise<void>): void => {
+    (app as { [STOPPING]?: Promise<void> })[STOPPING] = p;
+  },
+};
+
+/** What to do when another instance holds this vault's data (the writer lock). */
+export const LOCK_HELD_ADVICE =
+  "another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.";
+
 export default class OpenLfcpPlugin extends Plugin {
   override settings: Settings = normalizeSettings(undefined);
   /** Vault-level file changes, whatever made them (§45). */
@@ -293,7 +311,13 @@ export default class OpenLfcpPlugin extends Plugin {
   override onunload(): void {
     this.#unloaded = true;
     this.changes.close();
-    void this.stopRuntime();
+    // The next instance of the plugin in this window (a reload: disabled and
+    // enabled, a BRAT update) waits for this one to stop and let go of the
+    // vault's writer lock before it starts.
+    stopping.set(
+      this.app,
+      this.stopRuntime().catch(() => undefined),
+    );
   }
 
   /** The dialogs of the LFCP-065 commands (tests replace them). */
@@ -353,6 +377,8 @@ export default class OpenLfcpPlugin extends Plugin {
 
   async #startRuntime(): Promise<LfcpRuntime | null> {
     try {
+      // A previous instance of the plugin in this window still stopping.
+      await stopping.get(this.app);
       const runtime = await LfcpRuntime.start(this.runtimeEnv());
       if (this.#unloaded) {
         await runtime.stop();
@@ -360,6 +386,12 @@ export default class OpenLfcpPlugin extends Plugin {
       }
       this.runtime = runtime;
       runtime.onNeedsRestart((message) => this.#onNeedsRestart(message));
+      // Another instance (another window on this vault) holds the writer lock.
+      if (runtime.status.kind === "locked" && runtime.status.reason === "lock-held") {
+        new Notice(`Shared Tasks: ${LOCK_HELD_ADVICE}`, 0);
+        this.#bar?.setText("Shared Tasks: paused (another window)");
+        this.sections?.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
+      }
       // LFCP-02-055: local data of a plugin before 0.4 was upgraded now; said once.
       if (runtime.upgradedLocalData)
         new Notice(

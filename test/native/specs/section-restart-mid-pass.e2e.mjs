@@ -41,7 +41,9 @@ const restartA = () =>
     await app.plugins.disablePlugin("shared-tasks");
     await app.plugins.enablePlugin("shared-tasks");
     const q = app.plugins.plugins["shared-tasks"];
+    const t0 = Date.now();
     for (let i = 0; i < 200 && q.runtime?.status.kind !== "ready"; i++) await new Promise((r) => setTimeout(r, 50));
+    return { ms: Date.now() - t0, status: q.runtime === null || q.runtime === undefined ? null : JSON.stringify(q.runtime.status).slice(0, 300) };
   });
 
 describe("a restart of the plugin in the middle of a pass", () => {
@@ -78,9 +80,28 @@ describe("a restart of the plugin in the middle of a pass", () => {
       await browser.pause(300);
       await editorA((e) => e.cm.contentDOM.blur());
       const stopped = await browser.waitUntil(() => inA(() => window.__lfcpStopped === true), { timeout: 20_000 }).catch(() => false);
-      await restartA();
+      const restarted = await restartA();
+      evidence(`RESTART ${stop} restarted`, restarted);
       const reached = await browser.waitUntil(async () => titlesB(R).includes("Beta v2"), { timeout: 45_000 }).catch(() => false);
       const current = await browser.waitUntil(async () => (await badge()) === "CURRENT", { timeout: 45_000 }).catch(() => false);
+      if (!current)
+        evidence(`RESTART ${stop} stuck`, await inA(async ({ app }, hex) => {
+          const p = app.plugins.plugins["shared-tasks"];
+          const R = Uint8Array.from(hex.match(/../g).map((h) => Number.parseInt(h, 16)));
+          const status = p.runtime?.status ?? null;
+          const load = p.runtime?.sectionLoad?.(R) ?? null;
+          const phase = p.runtime?.phase?.(R) ?? null;
+          const queued = p.runtime?.storage == null ? null : (await p.runtime.storage.outbound.list(R)).map((i) => ({ kind: i.kind, attempts: i.attempts, blocked: i.blocked }));
+          app.commands.executeCommandById("shared-tasks:open-section-details");
+          let m;
+          for (let i = 0; i < 100 && m === undefined; i++) {
+            await new Promise((r) => setTimeout(r, 50));
+            m = document.querySelector(".modal-container .modal");
+          }
+          const card = m?.textContent?.slice(0, 900) ?? null;
+          for (const x of document.querySelectorAll(".modal-container .modal-close-button")) x.click();
+          return { status: status === null ? null : JSON.stringify(status).slice(0, 400), load, phase, queued, card };
+        }, hex));
       await b.pass(bFile);
       // Nothing moves afterwards: no correction sent at every pass, no title doubled.
       const md = await noteA();
@@ -107,4 +128,26 @@ describe("a restart of the plugin in the middle of a pass", () => {
       expect(out.bNote).toEqual(out.a);
       expect(out.problems).toEqual([]);
     });
+
+  it("the plugin reloaded 20 times in a row: it runs each time, the section ends current", async () => {
+    for (let i = 0; i < 4 && (await inA(() => document.querySelectorAll(".modal-container").length)) > 0; i++) {
+      await browser.keys(["Escape"]);
+      await browser.pause(200);
+    }
+    const heading = "## Reloaded";
+    await shareAndJoin(b, "Reloaded.md", heading, [heading, "", "- [ ] Alpha", "- [ ] Beta", ""].join("\n"));
+    await browser.waitUntil(async () => (await badge()) === "CURRENT", { timeout: 30_000, timeoutMsg: "A current" });
+    const runs = [];
+    for (let i = 0; i < 20; i++) {
+      // Typing waits to be committed when the reload comes (the stop flushes it).
+      await caret(await lineOf("Beta"), "end");
+      await browser.keys(`${i % 10}`);
+      runs.push(await restartA());
+    }
+    const current = await browser.waitUntil(async () => (await badge()) === "CURRENT", { timeout: 45_000 }).catch(() => false);
+    const out = { notReady: runs.filter((r) => !r.status?.includes('"ready"')).map((r) => r.status), slowest: Math.max(...runs.map((r) => r.ms)), current, badge: await badge() };
+    evidence("RELOADED 20", out);
+    expect(out.notReady).toEqual([]);
+    expect(out.current).toBe(true);
+  });
 });

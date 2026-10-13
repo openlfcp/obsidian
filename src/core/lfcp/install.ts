@@ -107,7 +107,7 @@ export const LOCK_MESSAGES: Readonly<Record<LockReason, string>> = {
   "keys-missing": "This vault's Shared Tasks private keys are missing.",
   "database-behind":
     "This vault's local Shared Tasks database is older than the writes it already made (restored from a backup?).",
-  "lock-held": "Another Shared Tasks instance is using this vault's local state.",
+  "lock-held": "Another Shared Tasks instance holds this vault's data.",
 };
 
 /** The local Principal: public identity plus its keys (never shown or exported). */

@@ -16,7 +16,8 @@ import { describe, expect, it } from "vitest";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
-import OpenLfcpPlugin from "../../src/obsidian/plugin";
+import OpenLfcpPlugin, { LOCK_HELD_ADVICE } from "../../src/obsidian/plugin";
+import { SectionsHost } from "../../src/obsidian/sections-host";
 import * as mock from "../mocks/obsidian";
 import { collaborator, storeBlocked } from "../support/blocked-units";
 import { Device } from "../support/lfcp-env";
@@ -25,6 +26,14 @@ const manifest = { id: "shared-tasks", name: "Shared Tasks", version: "0.0.0" };
 
 class TestPlugin extends OpenLfcpPlugin {
   device = new Device();
+  /** How long a start waits for a held lock (undefined: the runtime's default). */
+  lockWaitMs: number | undefined = 100;
+  /** A stop that takes this long first (typing flushed, checkpoints written). */
+  stopDelayMs = 0;
+  override async stopRuntime(): Promise<void> {
+    if (this.stopDelayMs > 0) await new Promise((r) => setTimeout(r, this.stopDelayMs));
+    await super.stopRuntime();
+  }
   protected override runtimeEnv(): RuntimeEnv {
     // The real Obsidian mapping, with counted timers and an offline socket.
     return {
@@ -32,6 +41,7 @@ class TestPlugin extends OpenLfcpPlugin {
       timers: this.device.timers,
       webSocket: this.device.sockets.factory,
       acquireLock: (name) => this.device.acquireLock(name),
+      ...(this.lockWaitMs === undefined ? {} : { lockWaitMs: this.lockWaitMs }),
     };
   }
 }
@@ -383,5 +393,62 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(blockedNotices()).toHaveLength(1);
     third.host.unload();
     await third.plugin.stopRuntime();
+  });
+
+  it("reloaded in the same window: the new instance waits for the old one to stop, and runs", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    // Disabled and enabled at once (a BRAT update), the old instance slow to
+    // stop; no wait for a held lock at all, so only the old instance's
+    // stopping, kept on the App, lets the new one run.
+    first.plugin.stopDelayMs = 300;
+    first.host.unload();
+    const second = new TestPlugin(app as never, manifest as never);
+    second.device = first.plugin.device;
+    second.lockWaitMs = 0;
+    await second.onload();
+    expect((await ready(second)).kind).toBe("ready");
+    (second as unknown as mock.Plugin).unload();
+    await second.stopRuntime();
+  });
+
+  it("another instance holding the vault's data: paused, and said what to do", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    mock.notices.length = 0;
+    // A second instance while the first runs (another window on this vault).
+    const second = new TestPlugin(app as never, manifest as never);
+    second.device = first.plugin.device;
+    await second.onload();
+    const r = await second.whenRuntimeStarted();
+    expect(r?.status).toMatchObject({ kind: "locked", reason: "lock-held" });
+    expect(
+      mock.notices.filter((n) =>
+        n.includes("Close other windows on this vault, or restart Obsidian"),
+      ),
+    ).toHaveLength(1);
+    (second as unknown as mock.Plugin).unload();
+    await second.stopRuntime();
+    first.host.unload();
+    await first.plugin.stopRuntime();
+  });
+
+  it("a section's card, while another instance holds the vault's data, says so, not 'still loading'", async () => {
+    const host = new SectionsHost(
+      new mock.App() as never,
+      () => undefined,
+      () => "child-line",
+      () => "local",
+      () => null,
+      () => "wss://sync.example/v1/ws",
+    );
+    host.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
+    mock.notices.length = 0;
+    await host.openCard("x#y", "Plan");
+    expect(mock.notices).toEqual([
+      "Shared Tasks: another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
+    ]);
   });
 });

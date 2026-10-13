@@ -146,7 +146,9 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
     }
     if (status.kind === "locked") {
       identity.setDesc(
-        `Writing is paused. ${status.message} To keep collaborating from this vault, create a new identity; collaborators then need to invite it again.`,
+        status.reason === "lock-held"
+          ? `Writing is paused. ${status.message} Close other windows on this vault, or restart Obsidian.`
+          : `Writing is paused. ${status.message} To keep collaborating from this vault, create a new identity; collaborators then need to invite it again.`,
       );
       if (status.reason !== "lock-held")
         identity.addButton((button) =>

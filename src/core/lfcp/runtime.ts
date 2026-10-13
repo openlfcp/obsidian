@@ -109,6 +109,12 @@ export interface RuntimeEnv extends InstallEnv {
   readonly webSocket?: WebSocketFactory;
   /** Takes the install's writer lock, or null when another instance holds it. */
   acquireLock?(name: string): Promise<HeldLock | null>;
+  /**
+   * How long start waits for a held writer lock to be released (default
+   * 5 s, tried every 100 ms): the plugin reloaded (disabled and enabled, a
+   * BRAT update) starts while its previous instance is still stopping.
+   */
+  readonly lockWaitMs?: number;
   /** Initializes Automerge's wasm before any replica exists (default: the SDK's). */
   initializeAutomerge?(): Promise<void>;
   /**
@@ -482,10 +488,26 @@ export class LfcpRuntime {
    */
   upgradedLocalData = false;
 
-  /** The lock, null when the runtime has no lock support, undefined when another instance holds it. */
+  /**
+   * The lock, null when the runtime has no lock support, undefined when
+   * another instance still holds it after `lockWaitMs`: a previous instance
+   * of the plugin that is still stopping releases it within that time; one
+   * in another window does not (locked: "lock-held").
+   */
   static async #takeLock(env: RuntimeEnv, installId: string): Promise<HeldLock | null | undefined> {
     if (env.acquireLock === undefined) return null;
-    return (await env.acquireLock(`openlfcp-${installId}`)) ?? undefined;
+    const deadline = env.timers.now() + (env.lockWaitMs ?? LOCK_WAIT_MS);
+    for (;;) {
+      const lock = await env.acquireLock(`openlfcp-${installId}`);
+      if (lock !== null) return lock;
+      if (env.timers.now() >= deadline) return undefined;
+      await new Promise<void>((resolve) => {
+        const h = env.timers.setInterval(() => {
+          env.timers.clearInterval(h);
+          resolve();
+        }, LOCK_RETRY_MS);
+      });
+    }
   }
 
   get status(): RuntimeStatus {
@@ -1718,6 +1740,10 @@ export class LfcpRuntime {
 /** The local state key of a Resource's display name (sealed, LFCP-02-098). */
 export const resourceNameKey = (resource: ResourceId): string => `resource-name:${toHex(resource)}`;
 const discardedKey = (resource: ResourceId): string => `resource-discarded:${toHex(resource)}`;
+
+/** How long start waits for a held writer lock, and how often it tries (#takeLock). */
+const LOCK_WAIT_MS = 5000;
+const LOCK_RETRY_MS = 100;
 
 /** Local state: own stale units (hex) whose outbound items wait to be discarded (#toDiscard). */
 const STALE_TO_DISCARD = "stale-to-discard";
