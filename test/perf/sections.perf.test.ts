@@ -138,7 +138,7 @@ async function measure(
           intents.push({ intent: "node.restore", id });
         } else intents.push({ intent: "section.set_title", title: `Workload ${done}` });
       }
-      await v.port.commit(b64, intents as never, { operationId: crypto.randomUUID() });
+      await v.other(b64, intents as never, { operationId: crypto.randomUUID() });
       done += intents.length;
       if (done % 1000 === 0) console.log(`HISTORY ${spec.name} ${done}/${history}`);
     }
@@ -195,7 +195,7 @@ async function measure(
     )?.[0];
     const node = id === undefined ? undefined : { id };
     if (snap === undefined || node === undefined) throw new Error("no paragraph");
-    await v.port.commit(
+    await v.other(
       b64,
       [
         {

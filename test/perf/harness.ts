@@ -3,13 +3,22 @@
 // port, the creation flow and the engine as the plugin runs them, with the
 // notes in memory. Test support only.
 
-import { generateObjectId, generateResourceId } from "@openlfcp/core";
+import {
+  dataUnitId,
+  fromBase64url,
+  fromHex,
+  generateObjectId,
+  generateResourceId,
+  hash32,
+  type ResourceId,
+} from "@openlfcp/core";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { Collaboration } from "../../src/core/collab/service";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
 import { SdkSectionPort } from "../../src/core/lfcp/section-port";
 import { SectionCreation } from "../../src/core/sections/create";
 import { applyChanges, SectionEngine } from "../../src/core/sections/engine";
+import { KeyValueStaleWorkStore, StaleWorkController } from "../../src/core/sections/stale-work";
 import {
   KeyValueSectionBaseStore,
   KeyValueSectionJournalStore,
@@ -25,11 +34,28 @@ export async function vault(device: Device, local: FakeLocal) {
   const runtime = await LfcpRuntime.start(device.env(local));
   const status = runtime.status;
   if (status.kind !== "ready") throw new Error(status.kind);
-  const port = new SdkSectionPort({
+  const storage = runtime.storage as LfcpStorage;
+  // §19.1, as the plugin runs it: own operations recorded, each pass asks the
+  // guard (LFCP_PERF_STALE=0 leaves it out, to measure what it costs).
+  const withStale = process.env.LFCP_PERF_STALE !== "0";
+  const port: SdkSectionPort = new SdkSectionPort({
     profile: (r) => runtime.sectionProfile(r),
     commit: (r, intents, o) => runtime.commitSection(r, intents, o),
-    storage: runtime.storage as LfcpStorage,
+    storage,
     canWrite: (r) => runtime.canWriteSection(r),
+    ...(withStale
+      ? { ownWork: { recordOwn: (op): Promise<void> => stale.ownWork.recordOwn(op) } }
+      : {}),
+  });
+  const stale: StaleWorkController = new StaleWorkController({
+    store: new KeyValueStaleWorkStore(runtime.localState),
+    port,
+    unit: async (u) => ({
+      quarantined: (await storage.dataUnits.get(dataUnitId(fromHex(u))))?.status === "quarantined",
+      queued: (await storage.outbound.get(hash32(fromHex(u)))) !== undefined,
+    }),
+    changed: () => undefined,
+    setTimer: (fn, ms) => setTimeout(fn, ms),
   });
   const files = new Map<string, string>();
   const edit = async (
@@ -72,6 +98,7 @@ export async function vault(device: Device, local: FakeLocal) {
     newProjectionId: () => crypto.randomUUID(),
     tasks: (r, taskId) => ({ view: port.taskView(r, taskId) }),
     newTask: (line, id) => newSectionTask(line, status.principalId, id),
+    ...(withStale ? { staleWork: (r: string) => stale.check(r) } : {}),
   });
   const pass = async (path: string, caretLine: number | null = null) => {
     const md = files.get(path) as string;
@@ -85,5 +112,12 @@ export async function vault(device: Device, local: FakeLocal) {
     await engine.written(p, out);
     return p;
   };
-  return { runtime, port, files, creation, pass, principal: status.principalId };
+  /**
+   * Another writer's change, committed to the model as the measured passes
+   * then find it: not through the port, so not recorded as this device's own
+   * work (which the stale-work guard would then watch).
+   */
+  const other = (resource: string, intents: readonly unknown[], o: { operationId: string }) =>
+    runtime.commitSection(fromBase64url(resource) as ResourceId, intents as never, o);
+  return { runtime, port, files, creation, pass, other, principal: status.principalId };
 }
