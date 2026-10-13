@@ -14,7 +14,13 @@
 //   the pass is abandoned and runs again on the new document (§3).
 // - Our writes stay out of the user's undo history (addToHistory false).
 
-import { Annotation, EditorState, type Extension, Transaction } from "@codemirror/state";
+import {
+  Annotation,
+  EditorSelection,
+  EditorState,
+  type Extension,
+  Transaction,
+} from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
 import { contentHash } from "../core/projection/guard";
@@ -27,6 +33,7 @@ import {
 } from "../core/sections/engine";
 import type { SectionRef } from "../core/sections/grammar";
 import { ReconcileScheduler, type Timer } from "../core/sections/input";
+import { indentWithNode, moveNodeLines, pasteOnOwnLines } from "../core/sections/line-moves";
 import { parseSections, type SectionNode } from "../core/sections/parser";
 import {
   classifyRemoval,
@@ -78,7 +85,13 @@ function removedWithEveryLine(tr: Transaction): string[] {
   return out;
 }
 
-/** The bound nodes whose binding comments a transaction inserted (a paste, a drop, Move line). */
+/**
+ * The nodes a Move line moved (line-moves.ts): the nodes under the selection,
+ * not the neighbour the editor's change happens to re-insert.
+ */
+export const movedNodes = Annotation.define<readonly string[]>();
+
+/** The bound nodes whose binding comments a transaction inserted (a paste, a drop). */
 function insertedBindings(tr: Transaction): string[] {
   const out: string[] = [];
   tr.changes.iterChanges((_fromA, _toA, _fromB, _toB, inserted) => {
@@ -88,6 +101,9 @@ function insertedBindings(tr: Transaction): string[] {
   });
   return out;
 }
+
+/** A line that only carries a binding: a section marker, a node marker, a child-line ref. */
+const BINDING_LINE = /^[ \t]*<!--[ \t]+\/?lfcp-(?:section|node|ref):[^>]*-->[ \t]*$/;
 
 /** IDs in the binding comments of a removed text: node markers and Task refs. */
 const BINDING_ID =
@@ -303,7 +319,12 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         if (origin !== "other") this.st.origin = origin;
         const removed = removedWithEveryLine(tr);
         for (const id of removed) this.st.deletedIds.add(id);
-        for (const id of insertedBindings(tr)) this.st.inserted.add(id);
+        // Move line: the nodes under the selection moved, whatever the change
+        // re-inserted (CodeMirror moves the neighbour the other way).
+        const moved = tr.annotation(movedNodes);
+        if (moved !== undefined) for (const id of moved) this.st.inserted.add(id);
+        else if (!tr.isUserEvent("move.line"))
+          for (const id of insertedBindings(tr)) this.st.inserted.add(id);
         if (tr.isUserEvent("delete.cut")) cut = new Set(removed);
       }
       if (edited) this.st.scheduler.edit(this.view.composing);
@@ -368,10 +389,11 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   // §10: a paste or a drop keeps only the bindings of its own nodes where it
   // lands; the others are removed, so the text is a copy with new
   // identities in another section, or plain text outside sections.
+  // A paste that runs into the text around it goes on lines of its own
+  // (line-moves.ts pasteOnOwnLines: a ref glued to the next Task's line).
   const keep = o.keepPasted;
   const pasted = EditorState.transactionFilter.of((tr) => {
     if (
-      keep === undefined ||
       !tr.docChanged ||
       tr.annotation(sectionWrite) !== undefined ||
       !(tr.isUserEvent("input.paste") || tr.isUserEvent("input.drop"))
@@ -383,7 +405,9 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     });
     const only = changes.length === 1 ? changes[0] : undefined;
     if (only === undefined) return tr;
-    const rewritten = pasteBindings(tr.startState.doc.toString(), only, keep);
+    const before = tr.startState.doc.toString();
+    const kept = keep === undefined ? null : pasteBindings(before, only, keep);
+    const rewritten = pasteOnOwnLines(before, kept ?? only) ?? kept;
     if (rewritten === null) return tr;
     return {
       changes: rewritten,
@@ -391,6 +415,70 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       userEvent: tr.annotation(Transaction.userEvent) ?? "input.paste",
       scrollIntoView: true,
     };
+  });
+  // Move line up/down in a section moves whole nodes, each Task with its ref
+  // line and subtree, past the sibling before or after them; Tab and
+  // Shift+Tab take a node's other lines along (line-moves.ts).
+  const lineMoves = EditorState.transactionFilter.of((tr) => {
+    if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined) return tr;
+    const start = tr.startState;
+    if (tr.isUserEvent("move.line")) {
+      if (start.selection.ranges.length !== 1) return tr;
+      const range = start.selection.main;
+      const a = start.doc.lineAt(range.from);
+      let b = start.doc.lineAt(range.to);
+      if (!range.empty && range.to === b.from && b.number > a.number)
+        b = start.doc.line(b.number - 1);
+      const dir = tr.newSelection.main.from < range.from ? "up" : "down";
+      const move = moveNodeLines(start.doc.toString(), a.number - 1, b.number - 1, dir);
+      if (move === null) return tr;
+      const size = start.doc.length;
+      const at = (pos: number) => Math.max(0, Math.min(size, pos + move.shift));
+      return {
+        changes: move.changes,
+        selection: { anchor: at(range.anchor), head: at(range.head) },
+        annotations: movedNodes.of(move.moved),
+        userEvent: "move.line",
+        scrollIntoView: true,
+      };
+    }
+    if (tr.isUserEvent("input.indent") || tr.isUserEvent("delete.dedent")) {
+      const changes: { from: number; to: number; insert: string }[] = [];
+      tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+        changes.push({ from: fromA, to: toA, insert: inserted.toString() });
+      });
+      const all = indentWithNode(start.doc.toString(), changes);
+      if (all === null) return tr;
+      const spec = start.changes(all);
+      return {
+        changes: spec,
+        selection: tr.startState.selection.map(spec, 1),
+        userEvent: tr.annotation(Transaction.userEvent) ?? "input.indent",
+        scrollIntoView: true,
+      };
+    }
+    return tr;
+  });
+  // A selection that ends inside a binding line (Shift+Down by visual rows
+  // over a wrapped ref line, a drag of the mouse) ends at its end instead,
+  // or its start going back: a cut or a copy takes whole binding lines, never
+  // half a ref (the owner's keys for 0.4.0-beta.10 step 6, a narrow window).
+  const wholeBindings = EditorState.transactionFilter.of((tr) => {
+    if (tr.docChanged || tr.selection === undefined || !tr.isUserEvent("select")) return tr;
+    const doc = tr.newDoc;
+    let changed = false;
+    const ranges = tr.selection.ranges.map((r) => {
+      if (r.empty) return r;
+      const line = doc.lineAt(r.head);
+      if (r.head === line.from || r.head === line.to || !BINDING_LINE.test(line.text)) return r;
+      changed = true;
+      return EditorSelection.range(r.anchor, r.head > r.anchor ? line.to : line.from);
+    });
+    if (!changed) return tr;
+    return [
+      tr,
+      { selection: EditorSelection.create(ranges, tr.selection.mainIndex), sequential: true },
+    ];
   });
   const events = EditorView.domEventHandlers({
     compositionstart: (_e, view) => {
@@ -405,7 +493,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   });
 
   return {
-    extension: [plugin, events, enter, pasted],
+    extension: [plugin, events, enter, pasted, lineMoves, wholeBindings],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
     renamed: (oldPath, newPath) => coordinator.renamed(oldPath, newPath),
