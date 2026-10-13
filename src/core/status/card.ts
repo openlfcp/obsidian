@@ -87,6 +87,15 @@ function problemText(c: Condition): string | null {
   }
 }
 
+/** The moves a held copy keeps, named: " Moved, not sent: “Gamma”." (empty when none). */
+function movedNotSent(h: HeldEdits): string {
+  const moved = h.moved ?? [];
+  if (moved.length === 0) return "";
+  const names = moved.slice(0, 3).map((m) => `“${m === "" ? "untitled" : m}”`);
+  const more = moved.length > 3 ? ` and ${moved.length - 3} more` : "";
+  return ` Moved, not sent: ${names.join(", ")}${more}.`;
+}
+
 /** The card's content. */
 export function sectionCard(input: CardInput): SectionCard {
   const v = input.view;
@@ -96,7 +105,7 @@ export function sectionCard(input: CardInput): SectionCard {
   // F-04: edits held back come first, counted, with their cause.
   for (const h of held)
     facts.push(
-      `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).`,
+      `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).${movedNotSent(h)}`,
     );
   if (kinds.has("save-failed")) facts.push("Not all local changes are saved for sync.");
   else if (kinds.has("local-edit")) facts.push("Local changes are being processed.");

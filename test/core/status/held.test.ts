@@ -60,6 +60,21 @@ function expectNeverCurrent(c: ReturnType<typeof cardOf>) {
 }
 
 describe("held edits (F-04)", () => {
+  it("a move in a held copy is counted and named: never lost silently (0.4.0-beta.10, step 6)", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma", "", "A paragraph."]);
+    const L = lines(a.note());
+    // Gamma (with its ref line) one place up, and a heading inside the section: held.
+    const g = L.findIndex((l) => l === "- [ ] Gamma");
+    const b = L.findIndex((l) => l === "- [ ] Beta");
+    const gamma = L.splice(g, 2);
+    L.splice(b, 0, ...gamma);
+    L.splice(L.indexOf("A paragraph.") + 1, 0, "", "### Inside");
+    const h = await held(a, L.join("\n"));
+    expect(h).toMatchObject({ cause: "unsupported", count: 2, moved: ["Gamma"] });
+    const c = cardOf(h as HeldEdits, "unsupported");
+    expect(c.card.facts[0]).toMatch(/^2 edits not sent: .*\. Moved, not sent: “Gamma”\.$/);
+  });
+
   it("a heading inside the section: nothing sent; 2 edits held, cause and line named", async () => {
     const { a } = await twoVaults(BODY);
     const L = lines(a.note());

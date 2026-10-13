@@ -44,6 +44,12 @@ export interface HeldEdits {
   readonly code?: string;
   /** Bound nodes whose edits are held (for the editor's row cues). */
   readonly nodeIds: readonly string[];
+  /**
+   * The nodes the user moved (another place among their siblings, or
+   * another parent), as the note shows them (a Task's title): a held copy
+   * never loses a move silently (the owner's check of 0.4.0-beta.10).
+   */
+  readonly moved?: readonly string[];
 }
 
 /** The short reason, after "N edits not sent: ". */
@@ -110,13 +116,67 @@ export function blockingDiagnostics(
   );
 }
 
+/**
+ * The nodes of `note` not in a longest common subsequence with `base`
+ * (both restricted to the IDs they share): the ones that moved among their
+ * siblings.
+ */
+function reordered(note: readonly string[], base: readonly string[]): string[] {
+  const inBase = new Set(base);
+  const inNote = new Set(note);
+  const a = note.filter((id) => inBase.has(id));
+  const b = base.filter((id) => inNote.has(id));
+  const len: number[][] = Array.from({ length: a.length + 1 }, () =>
+    new Array<number>(b.length + 1).fill(0),
+  );
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      (len[i] as number[])[j] =
+        a[i] === b[j]
+          ? ((len[i + 1] as number[])[j + 1] as number) + 1
+          : Math.max((len[i + 1] as number[])[j] as number, (len[i] as number[])[j + 1] as number);
+  const kept = new Set<string>();
+  for (let i = 0, j = 0; i < a.length && j < b.length; ) {
+    if (a[i] === b[j]) {
+      kept.add(a[i] as string);
+      i++;
+      j++;
+    } else if (((len[i + 1] as number[])[j] as number) >= ((len[i] as number[])[j + 1] as number))
+      i++;
+    else j++;
+  }
+  return a.filter((id) => !kept.has(id));
+}
+
+/** A node's name for the card: a Task's title, else the start of its text. */
+function nameOf(n: { readonly line?: string; readonly text?: string }): string {
+  const raw = n.line ?? n.text ?? "";
+  const text = raw
+    .replace(/<!--.*?-->/g, "")
+    .replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[.\]\s+)?/, "")
+    .trim();
+  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+}
+
 /** The note's edits against `base`: nodes changed, moved, new or gone. */
 export function editsAgainst(
   markdown: string,
   section: ParsedSection,
   base: SectionState,
-): { readonly count: number; readonly nodeIds: string[]; readonly lines: number[] } {
+): {
+  readonly count: number;
+  readonly nodeIds: string[];
+  readonly lines: number[];
+  readonly moved: string[];
+} {
   const note = markdownState(markdown, section);
+  const movedIds = new Set<string>();
+  for (const [parent, order] of Object.entries(note.state.order))
+    for (const id of reordered(order, base.order[parent] ?? [])) movedIds.add(id);
+  for (const [id, n] of Object.entries(note.state.nodes)) {
+    const b = base.nodes[id];
+    if (b !== undefined && n.parent !== UNBOUND_PARENT && b.parent !== n.parent) movedIds.add(id);
+  }
   const nodeIds: string[] = [];
   const lineOf = new Map<string, number>();
   const walk = (ns: ParsedSection["nodes"]) => {
@@ -132,7 +192,8 @@ export function editsAgainst(
       b === undefined ||
       b.text !== n.text ||
       (n.line !== undefined && b.line !== n.line) ||
-      (n.parent !== UNBOUND_PARENT && b.parent !== n.parent)
+      (n.parent !== UNBOUND_PARENT && b.parent !== n.parent) ||
+      movedIds.has(id)
     )
       nodeIds.push(id);
   }
@@ -152,7 +213,11 @@ export function editsAgainst(
     ...nodeIds.map((id) => lineOf.get(id) ?? section.heading.line),
     ...unbound.map((u) => u.line),
   ].sort((a, b) => a - b);
-  return { count: nodeIds.length + unbound.length + gone.length, nodeIds, lines };
+  const moved = nodeIds.flatMap((id) => {
+    const n = note.state.nodes[id];
+    return movedIds.has(id) && n !== undefined ? [nameOf(n)] : [];
+  });
+  return { count: nodeIds.length + unbound.length + gone.length, nodeIds, lines, moved };
 }
 
 const KEPT: Readonly<Record<string, HeldCause>> = {
@@ -201,6 +266,7 @@ export function heldEdits(input: {
     line: line ?? edits?.lines[0] ?? section.heading.line,
     ...(code === undefined ? {} : { code }),
     nodeIds: edits?.nodeIds ?? [],
+    ...(edits === null || edits.moved.length === 0 ? {} : { moved: edits.moved }),
   };
 }
 
