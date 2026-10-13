@@ -406,7 +406,6 @@ export class LfcpRuntime {
   readonly #listeners = new Set<(e: SyncEvent) => void>();
   #stopped = false;
   #writes: Promise<void> = Promise.resolve();
-  readonly #staleToDiscard = new Set<string>();
   readonly #objectListeners = new Set<(resource: ResourceId, change: ObjectChange) => void>();
 
   #sealed: SealedLocalState | null;
@@ -902,8 +901,8 @@ export class LfcpRuntime {
       if ((await storage.dataUnits.get(unitId))?.status !== "quarantined") continue;
       for (const id of ids) objects.add(id);
       cut.push(unitHex);
-      this.#staleToDiscard.add(unitHex);
     }
+    await this.#toDiscard(cut);
     // Removes only the cut units: units remembered meanwhile stay.
     if (cut.length > 0)
       await this.localState.update(key, (value) => {
@@ -921,8 +920,20 @@ export class LfcpRuntime {
    * cutOwnObjects does for 0.1 objects, so the section is not left pending.
    */
   async discardStaleUnits(unitIds: readonly string[]): Promise<void> {
-    for (const u of unitIds) this.#staleToDiscard.add(u);
+    await this.#toDiscard(unitIds);
     await this.#discardStale();
+  }
+
+  /**
+   * Units whose stale outbound items are to be discarded once blocked: kept
+   * in local state, so one not blocked yet, or a restart before the discard,
+   * does not leave its item queued for good (an update shown waiting).
+   */
+  async #toDiscard(unitIds: readonly string[]): Promise<void> {
+    if (unitIds.length === 0) return;
+    await this.localState.update(STALE_TO_DISCARD, (value) => [
+      ...new Set([...hexList(value), ...unitIds]),
+    ]);
   }
 
   /** Discards re-applied units' outbound items once the queue has blocked them (stale-epoch). */
@@ -931,14 +942,19 @@ export class LfcpRuntime {
     if (storage === null) return;
     // Discarding touches only storage: any queue instance will do.
     this.#outbound ??= new OutboundQueue({ storage, requestTimeout: OUTBOUND_REQUEST_TIMEOUT });
-    for (const unitHex of [...this.#staleToDiscard]) {
+    const gone = new Set<string>();
+    for (const unitHex of hexList(await this.localState.get(STALE_TO_DISCARD))) {
       const item = await storage.outbound.get(hash32(fromHex(unitHex)));
-      if (item === undefined) this.#staleToDiscard.delete(unitHex);
+      if (item === undefined) gone.add(unitHex);
       else if (item.blocked !== null) {
         await this.#outbound.discard(item.itemId);
-        this.#staleToDiscard.delete(unitHex);
+        gone.add(unitHex);
       }
     }
+    if (gone.size > 0)
+      await this.localState.update(STALE_TO_DISCARD, (value) =>
+        hexList(value).filter((u) => !gone.has(u)),
+      );
   }
 
   /** Whether this vault stores the Resource (and can therefore project it). */
@@ -1669,3 +1685,9 @@ export class LfcpRuntime {
 /** The local state key of a Resource's display name (sealed, LFCP-02-098). */
 export const resourceNameKey = (resource: ResourceId): string => `resource-name:${toHex(resource)}`;
 const discardedKey = (resource: ResourceId): string => `resource-discarded:${toHex(resource)}`;
+
+/** Local state: own stale units (hex) whose outbound items wait to be discarded (#toDiscard). */
+const STALE_TO_DISCARD = "stale-to-discard";
+
+const hexList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];

@@ -289,6 +289,37 @@ describe("LfcpRuntime (LFCP-059)", () => {
     expect(await r.cutOwnObjects(R)).toEqual([]);
   });
 
+  it("a stale unit to discard, not blocked yet, is discarded once blocked, after a restart too", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    const status = r.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    const unit = (await r.writeIntent(
+      R,
+      createTask({ id: TASK, title: "Draft", createdBy: status.principalId }).intent,
+    )) as DataUnitId;
+    const item = hash32(unit as Uint8Array);
+    // Re-applied (stale-work.ts): its item is to go, but the queue has not blocked it yet.
+    await r.discardStaleUnits([toHex(unit)]);
+    expect(await r.storage?.outbound.get(item)).toBeDefined();
+    await r.stop();
+    const again = await start(device, local);
+    const storage = again.storage as LfcpStorage;
+    await storage.commit([
+      {
+        op: "update-outbound",
+        itemId: item,
+        blocked: { reason: "stale-epoch", detail: null },
+      },
+    ]);
+    // The next discard run, whatever its units, finds it.
+    await again.discardStaleUnits([]);
+    expect(await storage.outbound.get(item)).toBeUndefined();
+    expect(await again.localState.get("stale-to-discard")).toEqual([]);
+  });
+
   it("an engine trap blocks the runtime once until restart (needs-restart)", async () => {
     const device = new Device();
     const local = new FakeLocal();

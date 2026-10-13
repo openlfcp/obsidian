@@ -428,6 +428,15 @@ export class StaleWorkController {
     if (set.size > 0) this.#unsettled.set(resource, set);
     if (cut.length > 0) await this.o.store.cut(resource, cut);
     await this.#refresh(resource);
+    // Re-applied or discarded before the restart, their stale units not
+    // discarded yet: settled now (else an update waits for good).
+    const settled = this.settled(resource);
+    const left: string[] = [];
+    for (const op of await this.o.store.own(resource))
+      if (settled.has(op.operationId))
+        for (const u of op.unitIds) if ((await this.o.unit(u)).queued) left.push(u);
+    if (left.length > 0 && this.o.settle !== undefined)
+      await this.o.settle(left).catch((e) => this.o.failed?.(e));
     if ((this.#open.get(resource)?.length ?? 0) > 0) await this.reapply(resource);
   }
 

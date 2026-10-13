@@ -17,6 +17,8 @@ import {
   type StaleState,
   StaleWorkController,
 } from "../../../src/core/sections/stale-work";
+import { observedFacts } from "../../../src/core/status/facts";
+import { statusView } from "../../../src/core/status/reducer";
 import { FakeSectionPort } from "./fake-port";
 
 const R = "res";
@@ -144,8 +146,7 @@ describe("a restart in the middle of a stale-work re-apply", () => {
     expect(c.waiting(R)).toBe(false);
   });
 
-  // BUG(gap5-settle): nothing durable says the units still need discarding.
-  it.fails("recorded done, stopped before its stale units were discarded: the restart discards them", async () => {
+  it("recorded done, stopped before its stale units were discarded: the restart discards them", async () => {
     const ops = [op(1, "a")];
     const d = device(ops);
     await cutOff(d, ops);
@@ -206,8 +207,7 @@ describe("a restart in the middle of a stale-work re-apply", () => {
     expect(d.settled).toEqual(["u1"]);
   });
 
-  // BUG(gap5-settle): nothing durable says the units still need discarding.
-  it.fails("Discard recorded, stopped before its stale units were discarded: the restart discards them", async () => {
+  it("Discard recorded, stopped before its stale units were discarded: the restart discards them", async () => {
     const ops = [op(1, "a")];
     const d = device(ops);
     await cutOff(d, ops);
@@ -224,5 +224,48 @@ describe("a restart in the middle of a stale-work re-apply", () => {
     expect(c.waiting(R)).toBe(false);
     expect(d.port.changes).toHaveLength(0);
     expect(d.settled).toEqual(["u1"]);
+  });
+
+  it("the card after such a restart: current, no update waiting for good", async () => {
+    const ops = [op(1, "a")];
+    const d = device(ops);
+    await cutOff(d, ops);
+    await d.store.cut(R, ["u1"]);
+    d.store.at = "done";
+    const first = d.start();
+    await first.scan(R).catch((e) => {
+      if (!(e instanceof Crash)) throw e;
+    });
+    /** The section's status as the host computes it, after a restart (the SDK knows no batch). */
+    const status = (c: StaleWorkController) =>
+      statusView(
+        observedFacts({
+          session: "s",
+          load: { ready: true, loaded: true },
+          phase: "LIVE",
+          wasLive: true,
+          problems: [],
+          projections: [{ id: "p", source: "clean", application: "current" }],
+          sdk: {
+            revision: 3,
+            batches: [],
+            unconfirmed: new Set(),
+            access: { allowed: true },
+            accessCurrent: true,
+            pendingControl: [],
+            section: "ready",
+            catchUp: "current-at-checkpoint",
+            needsSnapshot: false,
+          },
+          queuedUnits: d.queued.size,
+          settledOperations: c.settled(R),
+          staleWork: c.counts(R),
+        }),
+      );
+    // The re-applied work's stale item still queued: an update shown waiting.
+    expect(status(first).state).not.toBe("CURRENT");
+    const c = d.start();
+    await c.scan(R);
+    expect(status(c)).toMatchObject({ state: "CURRENT", pendingBatches: 0 });
   });
 });
