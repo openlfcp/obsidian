@@ -174,6 +174,17 @@ export interface SectionResult {
    * is kept as a local copy, the model's is shown (and nothing was sent).
    */
   readonly restored?: readonly string[];
+  /**
+   * The pass's hints for this section's nodes when its batch was not taken
+   * (refused and kept, STALE_BASE, importing): the user's deletion or paste
+   * they describe was not sent, and the next pass needs them again (else a
+   * deletion reads as a lost binding: the peer-structure property test,
+   * seed 3365). A committed, coalesced or resumable batch has none.
+   */
+  readonly unsent?: {
+    readonly deletedIds: readonly string[];
+    readonly inserted: readonly string[];
+  };
   /** The base to store once the changes are written. */
   readonly base?: StoredBase;
   /** Committed operations whose bindings these changes write (resumed ones first). */
@@ -1169,13 +1180,25 @@ export class SectionEngine {
       ...(stored.revision === undefined ? {} : { revision: stored.revision }),
       ...(stored.nodeRevisions === undefined ? {} : { nodeRevisions: stored.nodeRevisions }),
     };
-    if (local.kind !== "nothing" && local.kind !== "committed")
+    if (local.kind !== "nothing" && local.kind !== "committed") {
       // Not committed: the edit stays in the note, and nothing is projected over it.
+      const ours = (id: string) =>
+        stored.state.nodes[id] !== undefined ||
+        note.state.nodes[id] !== undefined ||
+        snap.nodes[id] !== undefined;
+      const unsentDeleted = [...ctx.deletedIds].filter(ours);
+      const unsentInserted = [...(ctx.inserted ?? [])].filter(ours);
+      const unsent =
+        (local.kind === "kept" || local.kind === "stale" || local.kind === "importing") &&
+        unsentDeleted.length + unsentInserted.length > 0
+          ? { unsent: { deletedIds: unsentDeleted, inserted: unsentInserted } }
+          : {};
       return {
         result: {
           projectionId,
           section: ref,
           local,
+          ...unsent,
           lost,
           ...(comp.unexplained.length > 0 ? { reappeared: comp.unexplained } : {}),
           held,
@@ -1184,6 +1207,7 @@ export class SectionEngine {
         },
         changes: resumedChanges,
       };
+    }
 
     // 3. The bindings of new nodes, and the base this batch leads to.
     let markerChanges: DocChange[] = [];

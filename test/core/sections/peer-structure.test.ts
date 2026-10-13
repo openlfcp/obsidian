@@ -222,6 +222,9 @@ async function run(seed: number) {
       return;
     }
     const res = await s.v.pass(s.md, h);
+    // As the editor: a batch not taken (refused and kept) leaves its hints for the next pass.
+    for (const id of res?.unsent?.deletedIds ?? []) s.deletedIds.add(id);
+    for (const id of res?.unsent?.inserted ?? []) s.inserted.add(id);
     s.md = s.v.note();
     s.reappeared = res?.reappeared ?? [];
     trace(s, `pass written${s.closed ? " (closed)" : ""}`);

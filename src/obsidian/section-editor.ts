@@ -333,7 +333,22 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     st.deletedIds = new Set();
     st.inserted = new Set();
   };
+  /**
+   * Hints of written passes whose batch was not taken (SectionResult.unsent):
+   * they describe edits in the source last reconciled that were never sent,
+   * so a change back to that source does not drop them, unlike the views'
+   * hints; the next pass of the note takes them.
+   */
+  const unsent = new PendingHints();
   const takeHints = (path: string): { deletedIds: Set<string>; inserted: Set<string> } => {
+    const viewHints = takeViewHints(path);
+    const kept = unsent.take(path);
+    for (const id of kept.deletedIds) viewHints.deletedIds.add(id);
+    for (const id of kept.inserted) viewHints.inserted.add(id);
+    return viewHints;
+  };
+  /** What the views of `path` noted since the last pass, taken. */
+  const takeViewHints = (path: string): { deletedIds: Set<string>; inserted: Set<string> } => {
     const { deletedIds, inserted } = pending.take(path);
     for (const st of views.values()) {
       if (st.path !== path) continue;
@@ -350,6 +365,21 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     for (const [view, st] of views)
       if (st.path === path && (found === undefined || view.hasFocus)) found = [view, st];
     return found;
+  };
+
+  /**
+   * The hints of a written pass whose section's batch was not taken (refused
+   * and kept, stale, importing; SectionResult.unsent): the next pass of the
+   * note gets them again, as an abandoned pass's. A pass that sends them
+   * takes them for good: none outlive the pass that sends them.
+   */
+  const keepUnsent = (path: string, pass: NotePass) => {
+    for (const s of pass.sections)
+      if (s.unsent !== undefined)
+        unsent.add(path, {
+          deletedIds: new Set(s.unsent.deletedIds),
+          inserted: new Set(s.unsent.inserted),
+        });
   };
 
   /** A closed note: the pass is written by read-modify-write, only onto the source it read. */
@@ -415,6 +445,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       return;
     }
     await engine.written(pass, written);
+    keepUnsent(req.path, pass);
     sessionCut.restored(restoredBy(pass));
     coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
@@ -517,6 +548,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       });
     const written = view.state.doc.toString();
     await engine.written(pass, written);
+    keepUnsent(req.path, pass);
     sessionCut.restored(restoredBy(pass));
     coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
@@ -530,8 +562,9 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       status(path, "error");
       o.onError?.(path, error);
     },
-    // Back to the source last reconciled: nothing the views noted applies.
-    (path) => takeHints(path),
+    // Back to the source last reconciled: nothing the views noted applies
+    // (a refused pass's unsent hints still do).
+    (path) => takeViewHints(path),
   );
 
   const pathOf = (view: EditorView) => view.state.field(editorInfoField, false)?.file?.path ?? null;
@@ -798,6 +831,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
     renamed: (oldPath, newPath) => {
       pending.rename(oldPath, newPath);
+      unsent.rename(oldPath, newPath);
       sessionCut.renamed(oldPath, newPath);
       const bound = seeds.get(oldPath);
       seeds.delete(oldPath);
@@ -806,6 +840,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     },
     deleted: (path) => {
       pending.take(path);
+      unsent.take(path);
       sessionCut.deleted(path);
       seeds.delete(path);
       coordinator.deleted(path);

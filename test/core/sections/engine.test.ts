@@ -511,3 +511,22 @@ describe("own work cut off by a Key Epoch waits (§19.1, stale-work.ts)", () => 
     expect(pass.changes).toEqual([]);
   });
 });
+
+describe("the hints of a batch that was not taken (SectionResult.unsent)", () => {
+  it("are reported when the batch is refused, never when it is committed", async () => {
+    const h = await seeded();
+    const without = note([formatNodeMarker("paragraph", Q), "Notes"]);
+    h.port.fail({ kind: "refuse", code: "INVALID_PREDECESSOR" });
+    const refused = await h.engine.pass(PATH, without, { ...CTX, deletedIds: new Set([P]) });
+    expect(refused.sections[0]?.local?.kind).toBe("kept");
+    expect(refused.sections[0]?.unsent).toEqual({ deletedIds: [P], inserted: [] });
+    // Hints of another note's nodes are not this section's.
+    const other = await h.engine.pass(PATH, without, {
+      ...CTX,
+      deletedIds: new Set([P, "019a2f85-7b31-7c42-b85a-fc843e2f4fff"]),
+    });
+    expect(other.sections[0]?.local?.kind).toBe("committed");
+    expect(other.sections[0]?.unsent).toBeUndefined();
+    expect(h.model()?.nodes[P]).toBeUndefined();
+  });
+});
