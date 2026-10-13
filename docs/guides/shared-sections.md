@@ -1,4 +1,4 @@
-# Shared sections (preview)
+# Shared sections
 
 A **shared section** is a whole part of a note: a heading and everything
 under it, down to the next heading of the same or a higher level. That
@@ -66,6 +66,10 @@ Leave the markers in place: they tell Shared Tasks which line is which item.
 If the server can't be reached, the notice says the section was created on
 this device and the invitation is not ready yet. Use "Resource status" →
 "Host on the server now" later.
+
+If you give up on a share that never reached the server — you cancel it, or
+it is interrupted and you never host it — nothing is left behind on this
+device, and you can share that section again.
 
 Sharing old shared tasks (from step-by-step sharing) as a section opens an
 import dialog instead: `Import "…" as a new shared section`. "Restore note
@@ -169,6 +173,17 @@ Lines inside a section stay quiet while all is well. A line with waiting
 work shows "Local update waiting"; a line with a problem shows "Needs
 attention". A folded heading shows the marks of what is folded inside it.
 
+### When a copy differs
+
+After each sync, your note is compared with the shared version. If a task
+ends up somewhere other than where the section puts it — a different parent,
+or a different place among its siblings — the ✓✓ stops turning green and the
+card says **"One copy of this section differs from the shared version."**
+Shared Tasks tries once more to put the task in place, which usually settles
+it. A copy that must be compared before it can sync again says **"This copy
+… differs from the shared version and has to be compared with it before it
+syncs."**
+
 ### Section details
 
 Run **"Open shared section details"**, or click the icon. The card shows:
@@ -257,7 +272,28 @@ never receives.
 
 On the removed person's side, the section needs attention: "Your access to
 this section was removed. Your local copy stays; new edits are kept on this
-device only."
+device only." Its card no longer says it is current or that it can be
+edited: it says **"Not synced: the server does not accept changes from this
+vault for this section,"** and lists any waiting updates as "saved on this
+device, not sent: the server does not accept them." Opening a **new**
+invitation to a section you were removed from does not let you back in:
+**"You were removed from this section. Rejoining a section you were removed
+from isn't supported yet; your local copy stays on this device."**
+
+### Offline edits from before an access change
+
+If you had edited a section offline, and an access change (someone being
+removed, which rotates the key) happened meanwhile, your earlier edits are
+sent again by themselves once the change is recorded. The card says **"N
+offline edits from before an access change are being sent again. Your note
+keeps them until then."**
+
+If one of those edits can't be sent again — a task changed meanwhile, or the
+server refuses it — the section needs your attention: **"N offline edits
+could not be sent after an access change. Review them in 'Review conflicts…':
+keep (send again) or discard. Your note keeps them until then."** In "Review
+conflicts…", **Keep** sends the edit again and **Discard** drops it so your
+note shows the shared version. Until you choose, your note keeps your edits.
 
 ## 10. Stop sharing a section in one note
 
@@ -288,10 +324,11 @@ The details name the copy, for example "One copy of this section has a
 damaged boundary or binding line." Run "Repair shared sections in this
 note" in that note to fix it. Other copies keep syncing meanwhile.
 
-## Limits of the preview
+## Limits
 
-- Shared sections are a **preview**: they are off by default, and they may
-  change before 0.4.
+- Shared sections are **on** in Shared Tasks 0.4; there is nothing to turn
+  on. To turn them off, close Obsidian, add `"sectionsDisabled": true` to
+  `.obsidian/plugins/shared-tasks/data.json`, and start it again.
 - A section has no fixed size limit. A large one is shared in several
   parts.
 - A section starts at a heading. Sharing a selected range, a section
@@ -301,4 +338,7 @@ note" in that note to fix it. Other copies keep syncing meanwhile.
   this device by default. Settings → "Comments in shared sections" can
   share them instead.
 - Removing access cannot erase copies a person already received.
-- Mobile is not tested yet.
+- Rejoining a section you were removed from is not available yet.
+- On mobile, shared sections are **read-only**: they arrive and are shown,
+  and edits made there stay on the device. Sharing, inviting and removing
+  access are desktop-only.
