@@ -273,9 +273,9 @@ describe("creating a shared section", () => {
     const gone = outs.find((o) => o.kind === "stale")?.entry.resource as string;
     expect((await env.sectionResources()).map((e) => toBase64url(e.resourceId))).toEqual([kept]);
     expect(env.hosted).toEqual([kept]);
-    // Both made their Resource; the stale one's is discarded: not listed, not
-    // opened again, nothing said about it (its stored rows stay: no deletion in the SDK).
-    expect(await env.r.storage?.resources.get(fromBase64url(gone) as ResourceId)).toBeDefined();
+    // Both made their Resource; the stale one's is discarded: never sent, its
+    // rows are deleted; not listed, not opened again, nothing said about it.
+    expect(await env.r.storage?.resources.get(fromBase64url(gone) as ResourceId)).toBeUndefined();
     await expect(env.r.openSection(fromBase64url(gone) as ResourceId)).rejects.toThrow(
       "unknown Resource",
     );

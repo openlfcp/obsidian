@@ -67,6 +67,7 @@ import {
 } from "@openlfcp/shared-objects/sections";
 import {
   dekSecretRef,
+  deleteUnsentResource,
   type LfcpStorage,
   type LocalStateDiagnostics,
   principalKeySecretRef,
@@ -471,6 +472,7 @@ export class LfcpRuntime {
     const runtime = new LfcpRuntime(env, install, lock, sealed);
     runtime.upgradedLocalData = before === true && install.storage !== null;
     await runtime.#moveNamesOutOfLabels();
+    await runtime.#forgetDiscarded().catch(() => undefined);
     return runtime;
   }
 
@@ -1230,8 +1232,11 @@ export class LfcpRuntime {
    * cancelled, never hosted (finding F-03): closed on its session and
    * forgotten on this device, quietly. Its events stop here, so its
    * RESOURCE_NOT_HOSTED refusal is never announced; it is no longer listed
-   * or opened. The SDK's storage has no deletion, so its rows stay, marked
-   * as discarded in local state. A Resource not stored is a no-op.
+   * or opened. Marked as discarded in local state first, then, when it was
+   * never sent, its rows and Data Epoch keys are deleted (#forget) and the
+   * mark goes. One that may have been sent (RESOURCE_SENT), or whose
+   * deletion fails, keeps its rows, marked: as before. A Resource not
+   * stored is a no-op.
    */
   discardUnhosted(resource: ResourceId): Promise<void> {
     return this.#engine(async () => {
@@ -1247,7 +1252,35 @@ export class LfcpRuntime {
       this.#refusals.delete(key);
       this.#phases.delete(key);
       this.#errors.delete(key);
+      await this.#forget(resource);
     });
+  }
+
+  /**
+   * A discarded Resource's rows and Data Epoch keys deleted, if it was
+   * never sent (deleteUnsentResource); its discarded mark is removed only
+   * once the deletion has committed, so a crash in between leaves it
+   * marked (and #forgetDiscarded tries again at the next start). Refused
+   * (RESOURCE_SENT) or failed: it stays, marked. Whether it was deleted.
+   */
+  async #forget(resource: ResourceId): Promise<boolean> {
+    const { storage, secrets } = this.#ready();
+    try {
+      const result = await deleteUnsentResource(storage, secrets, resource);
+      if (!result.ok) return false;
+    } catch {
+      return false;
+    }
+    await this.localState.put(discardedKey(resource), undefined);
+    return true;
+  }
+
+  /** At start: discarded Resources a restart left stored are deleted now, if never sent. */
+  async #forgetDiscarded(): Promise<void> {
+    const storage = this.#install.storage;
+    if (storage === null) return;
+    for (const row of await storage.resources.list())
+      if (await this.#isDiscarded(row.resourceId)) await this.#forget(row.resourceId);
   }
 
   async #isDiscarded(resource: ResourceId): Promise<boolean> {
