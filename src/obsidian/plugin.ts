@@ -209,6 +209,10 @@ export default class OpenLfcpPlugin extends Plugin {
         (text) => live.announce(text),
       );
       this.registerEditorExtension(this.sections.editor.extension);
+      // A note switched to Reading view (or back) goes by its file (or its editor).
+      this.registerEvent(
+        this.app.workspace.on("layout-change", () => this.sections?.editor.refresh()),
+      );
       // LFCP-02-058: the shared mark and sync status after each section heading.
       this.registerEditorExtension(this.sections.status.extension);
       const reading = this.sections.reading;

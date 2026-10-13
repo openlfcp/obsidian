@@ -94,6 +94,11 @@ export class MarkdownView {
   cursorLine = 0;
   /** How many times save() ran. */
   saves = 0;
+  /** "source" (Source or Live Preview) unless a test puts it in Reading view ("preview"). */
+  mode: "source" | "preview" = "source";
+  getMode(): "source" | "preview" {
+    return this.mode;
+  }
   constructor(
     public file: TFile | null,
     public buffer: string,

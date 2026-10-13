@@ -1433,8 +1433,14 @@ export class SectionsHost {
   }
 
   #openEditor(path: string): Editor | null {
+    // A note shown only in Reading view is not open for editing: Obsidian keeps
+    // its editor, but never saves what is written there (LFCP-02-069).
     for (const leaf of this.app.workspace.getLeavesOfType("markdown"))
-      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === path)
+      if (
+        leaf.view instanceof MarkdownView &&
+        leaf.view.file?.path === path &&
+        leaf.view.getMode() !== "preview"
+      )
         return leaf.view.editor;
     return null;
   }

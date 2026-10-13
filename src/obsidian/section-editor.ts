@@ -285,6 +285,12 @@ interface ViewState {
   origin: ChangeOrigin;
   /** A transaction without a userEvent (another plugin's edit) since the last pass. */
   external: boolean;
+  /**
+   * The note this view stopped following when it went into Reading view: on
+   * its way back to editing, it is opened only once its editor holds the
+   * file as written (reopen()).
+   */
+  hidden: string | null;
 }
 
 const defaultTimer: Timer = {
@@ -296,6 +302,8 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   readonly extension: Extension;
   /** The shared state of a note's sections changed (`content`: a closed note's file as just read). */
   remoteChanged(path: string, content?: string): void;
+  /** A view's mode or note may have changed (Obsidian's layout-change): each view follows again. */
+  refresh(): void;
   /** A share bound `path` as `text`: its next pass seeds the section's first base from that text. */
   seed(path: string, text: string): void;
   /** A note's file changed on disk (reconciled when the note is closed). */
@@ -528,6 +536,15 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     st.origin = "other";
     st.external = false;
     const pass = await engine.pass(req.path, source, ctx);
+    if (!editing(view) || st.path !== req.path) {
+      // The view went into Reading view (or to another note) during the
+      // pass: nothing is written into an editor nobody sees; the note goes
+      // by its file now (follow), and passes again there.
+      engine.abandoned(pass);
+      for (const id of deletedIds) st.deletedIds.add(id);
+      for (const id of inserted) st.inserted.add(id);
+      return;
+    }
     const current = view.state.doc.toString();
     if (view.composing || view.compositionStarted || st.scheduler.composing) {
       // A composition opened during the pass: its result waits (the pass runs again after it).
@@ -572,6 +589,27 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   );
 
   const pathOf = (view: EditorView) => view.state.field(editorInfoField, false)?.file?.path ?? null;
+  /**
+   * Whether the view edits its note (Source or Live Preview). Obsidian keeps
+   * a note's editor behind its Reading view: a pass written there was never
+   * saved, and gone at the next switch to editing, the badge CURRENT
+   * meanwhile (LFCP-02-069: a collaborator's edit lost). A note shown only
+   * in Reading view is a closed note: its file is the source.
+   */
+  const editing = (view: EditorView): boolean => {
+    const info = view.state.field(editorInfoField, false) as { getMode?: () => string } | undefined;
+    return info?.getMode?.() !== "preview";
+  };
+  const syncs = new Set<SectionSync>();
+  /** A note no view edits any more: its file is passed (what arrived meanwhile is projected there). */
+  const toFile = (path: string) => {
+    if ([...views.values()].some((st) => st.path === path)) return;
+    void o.files?.read?.(path).then((text) => {
+      if (text === null || text === undefined) return;
+      if ([...views.values()].some((st) => st.path === path)) return;
+      coordinator.remoteChanged(path, text);
+    });
+  };
 
   class SectionSync {
     readonly st: ViewState;
@@ -595,23 +633,72 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         inserted: new Set(),
         origin: "other",
         external: false,
+        hidden: null,
       };
       views.set(view, this.st);
-      this.#follow();
+      syncs.add(this);
+      this.follow();
     }
 
-    /** The view shows a note (or another one now): the coordinator knows it as open. */
-    #follow(): void {
-      const path = pathOf(this.view);
-      if (path === this.st.path) return;
+    /**
+     * The view shows a note (or another one now), and edits it: the
+     * coordinator knows it as open. Into Reading view it stops following:
+     * the note goes by its file. Back to editing, it follows again once its
+     * editor holds the file (reopen).
+     */
+    follow(): void {
+      const shown = pathOf(this.view);
+      const path = editing(this.view) ? shown : null;
+      if (path === this.st.path) {
+        if (path === null && this.st.hidden !== null && shown !== this.st.hidden)
+          this.st.hidden = null;
+        if (path === null && this.st.hidden !== null && editing(this.view)) void this.#reopen();
+        return;
+      }
+      const was = this.st.path;
       leave(this.st);
-      if (this.st.path !== null) coordinator.closed(this.st.path, this.st.id);
+      this.st.path = null;
+      if (was !== null) {
+        coordinator.closed(was, this.st.id);
+        if (shown === was && !editing(this.view)) this.st.hidden = was;
+        toFile(was);
+      }
+      if (path === null) return;
+      if (this.st.hidden === path) void this.#reopen();
+      else {
+        this.st.hidden = null;
+        this.st.path = path;
+        coordinator.opened(path, this.st.id, this.view.state.doc.toString());
+      }
+    }
+
+    /**
+     * Back from Reading view: the editor behind it may hold text the file
+     * does not (a pass written there before 0.4.0-beta.17, or Obsidian's own
+     * reload pending). It takes the file as written, without a hint or an
+     * undo step, and only then is the note opened with that text: no pass
+     * ever runs on the hidden editor's stale text.
+     */
+    async #reopen(): Promise<void> {
+      const path = this.st.hidden;
+      if (path === null) return;
+      this.st.hidden = null;
+      const text = o.files?.read === undefined ? undefined : await o.files.read(path);
+      if (pathOf(this.view) !== path || !editing(this.view) || this.st.path !== null) {
+        if (pathOf(this.view) === path && !editing(this.view)) this.st.hidden = path;
+        return;
+      }
+      if (text !== null && text !== undefined && text !== this.view.state.doc.toString())
+        this.view.dispatch({
+          changes: { from: 0, to: this.view.state.doc.length, insert: text },
+          annotations: [sectionWrite.of(contentHash(text)), Transaction.addToHistory.of(false)],
+        });
       this.st.path = path;
-      if (path !== null) coordinator.opened(path, this.st.id, this.view.state.doc.toString());
+      coordinator.opened(path, this.st.id, this.view.state.doc.toString());
     }
 
     update(u: ViewUpdate): void {
-      this.#follow();
+      this.follow();
       if (!u.docChanged) return;
       let edited = false;
       for (const tr of u.transactions) {
@@ -636,6 +723,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       leave(this.st);
       if (this.st.path !== null) coordinator.closed(this.st.path, this.st.id);
       views.delete(this.view);
+      syncs.delete(this);
     }
   }
 
@@ -829,6 +917,9 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   return {
     extension: [plugin, events, enter, pasted, lineMoves, wholeBindings, bindingJoins],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
+    refresh: () => {
+      for (const s of syncs) s.follow();
+    },
     seed: (path, text) => {
       seeds.set(path, text);
     },
