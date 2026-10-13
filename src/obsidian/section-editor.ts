@@ -105,6 +105,25 @@ function insertedBindings(tr: Transaction): string[] {
 /** A line that only carries a binding: a section marker, a node marker, a child-line ref. */
 const BINDING_LINE = /^[ \t]*<!--[ \t]+\/?lfcp-(?:section|node|ref):[^>]*-->[ \t]*$/;
 
+/**
+ * What a user transaction tells the next pass (PassContext): the bound
+ * nodes it removed with their bindings, and those it put where they are
+ * now. A Move line moves the nodes under the selection, whatever its change
+ * re-inserted (CodeMirror moves the neighbour the other way), and deletes
+ * nothing, though its change rewrites both nodes' lines.
+ */
+export function editHints(tr: Transaction): {
+  readonly removed: string[];
+  readonly inserted: readonly string[];
+} {
+  const moveLine = tr.isUserEvent("move.line");
+  const moved = tr.annotation(movedNodes);
+  return {
+    removed: moveLine ? [] : removedWithEveryLine(tr),
+    inserted: moved ?? (moveLine ? [] : insertedBindings(tr)),
+  };
+}
+
 /** IDs in the binding comments of a removed text: node markers and Task refs. */
 const BINDING_ID =
   /<!--[ \t]+(?:lfcp-node:[ \t]*(?:paragraph|item|raw):|lfcp-ref:[^>]*#task:)[ \t]*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/g;
@@ -317,14 +336,9 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         if (userEvent === undefined) this.st.external = true;
         const origin = originOf(userEvent);
         if (origin !== "other") this.st.origin = origin;
-        const removed = removedWithEveryLine(tr);
+        const { removed, inserted } = editHints(tr);
         for (const id of removed) this.st.deletedIds.add(id);
-        // Move line: the nodes under the selection moved, whatever the change
-        // re-inserted (CodeMirror moves the neighbour the other way).
-        const moved = tr.annotation(movedNodes);
-        if (moved !== undefined) for (const id of moved) this.st.inserted.add(id);
-        else if (!tr.isUserEvent("move.line"))
-          for (const id of insertedBindings(tr)) this.st.inserted.add(id);
+        for (const id of inserted) this.st.inserted.add(id);
         if (tr.isUserEvent("delete.cut")) cut = new Set(removed);
       }
       if (edited) this.st.scheduler.edit(this.view.composing);

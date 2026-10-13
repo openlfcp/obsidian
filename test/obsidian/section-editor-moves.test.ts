@@ -5,7 +5,7 @@
 
 import { EditorSelection, EditorState, Transaction } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { movedNodes, sectionEditorExtension } from "../../src/obsidian/section-editor";
+import { editHints, movedNodes, sectionEditorExtension } from "../../src/obsidian/section-editor";
 import { block, lines, taskId, twoVaults } from "../support/section-vaults";
 
 const BODY = ["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma", "- [ ] Delta"];
@@ -59,6 +59,8 @@ describe("Move line up as CodeMirror dispatches it", () => {
     expect(tr.state.doc.lineAt(tr.state.selection.main.head).number - 1).toBe(ng);
     expect(tr.state.selection.main.head - tr.state.doc.line(ng + 1).from).toBe(3);
     expect(tr.isUserEvent("move.line")).toBe(true);
+    // The pass is told Gamma moved, and nothing deleted (both Tasks' lines are rewritten).
+    expect(editHints(tr)).toEqual({ removed: [], inserted: [taskId(md, "Gamma")] });
   });
 
   it("the first Task of the section: nothing moves (it would leave the section)", async () => {
@@ -117,6 +119,7 @@ describe("Tab and a paste as Obsidian dispatches them", () => {
     expect(titles(after)).toEqual(["Alpha", "Gamma", "Beta", "Delta"]);
     expect(after).toContain(`${text}\n- [ ] Beta`);
     expect(tr.state.selection.main.head).toBe(at + text.length + 1);
+    expect(editHints(tr).inserted).toEqual([taskId(md, "Gamma")]);
   });
 });
 
