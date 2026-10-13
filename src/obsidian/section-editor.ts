@@ -43,6 +43,7 @@ import {
   type PastedBinding,
   pasteBindings,
 } from "../core/sections/rules";
+import { SessionCut } from "../core/sections/session-cut";
 import { type ChangeOrigin, originOf } from "../core/sections/undo";
 
 /**
@@ -299,8 +300,21 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
 } {
   const views = new Map<EditorView, ViewState>();
   let nextId = 0;
-  /** The bound nodes of the last cut in any view: their paste is a move (rules.ts CutRecord). */
-  let cut: ReadonlySet<string> = new Set();
+  /**
+   * The session's last cut (session-cut.ts): only to recognise its paste in
+   * the note it was cut from, never a move hint on its own, and gone once
+   * its paste is restored or another cut supersedes it.
+   */
+  const sessionCut = new SessionCut();
+  /** A written pass restored these nodes (node.restore): their paste is done. */
+  const restoredBy = (pass: NotePass): string[] =>
+    pass.sections.flatMap((r) =>
+      r.local?.kind === "committed"
+        ? (r.local.entry.intents ?? []).flatMap((i) =>
+            i.intent === "node.restore" ? [(i as { readonly id: string }).id] : [],
+          )
+        : [],
+    );
   const status = (path: string, s: EditorSyncStatus) => o.onStatus?.(path, s);
 
   /** The hints every view of `path` collected for the next pass; they are taken (the views start afresh). */
@@ -347,7 +361,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       deletedIds: hints.deletedIds,
       inserted: hints.inserted,
       origin: "other",
-      cut,
+      cut: sessionCut.pasted(req.path, hints.inserted),
       ...(o.restore === undefined ? {} : { restore: o.restore() }),
       ...(files.read === undefined
         ? {}
@@ -379,6 +393,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       return;
     }
     await engine.written(pass, written);
+    sessionCut.restored(restoredBy(pass));
     coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
     status(req.path, "idle");
@@ -413,7 +428,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       deletedIds,
       origin: st.origin,
       external: st.external,
-      cut,
+      cut: sessionCut.pasted(req.path, inserted),
       inserted,
       ...(o.restore === undefined ? {} : { restore: o.restore() }),
       isCurrent: (revision: string) => contentHash(view.state.doc.toString()) === revision,
@@ -445,6 +460,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       });
     const written = view.state.doc.toString();
     await engine.written(pass, written);
+    sessionCut.restored(restoredBy(pass));
     coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
     status(req.path, st.scheduler.dirty ? "edited" : "idle");
@@ -515,7 +531,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         const { removed, inserted } = editHints(tr);
         for (const id of removed) this.st.deletedIds.add(id);
         for (const id of inserted) this.st.inserted.add(id);
-        if (tr.isUserEvent("delete.cut")) cut = new Set(removed);
+        if (tr.isUserEvent("delete.cut")) sessionCut.cut(this.st.path, removed);
       }
       if (edited) this.st.scheduler.edit(this.view.composing);
     }
@@ -721,10 +737,12 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
     renamed: (oldPath, newPath) => {
       pending.rename(oldPath, newPath);
+      sessionCut.renamed(oldPath, newPath);
       coordinator.renamed(oldPath, newPath);
     },
     deleted: (path) => {
       pending.take(path);
+      sessionCut.deleted(path);
       coordinator.deleted(path);
     },
     views,

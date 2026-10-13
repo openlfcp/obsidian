@@ -175,12 +175,7 @@ describe("one shared section in two panes", () => {
     expect(idsByTitle(s.md, s.tasks)).toEqual(ids);
   });
 
-  // TODO(stale-cut, beta.14): skipped until the fix. section-editor.ts keeps
-  // the last cut for every later pass of any note (ctx.cut), so a Move line
-  // next to a Task cut and pasted earlier journals node.move of that Task,
-  // not of the one moved (the beta.10/11 class). See the single-pane
-  // case in "the last cut, after its paste" below.
-  it.skip("Move line in one pane while the other has focus: the Task moved is the one named", async () => {
+  it("Move line in one pane while the other has focus: the Task moved is the one named", async () => {
     const before = await stateA(ctx.R);
     const ids = idsByTitle(before.md, before.tasks);
     await recordOps();
@@ -332,16 +327,23 @@ describe("two copies of one shared section, in two notes side by side", () => {
     expect(await copies("COPIES typing")).toEqual(["Alpha in one", "Beta in two", "Gamma", "Delta"]);
   });
 
-  // TODO(stale-cut, beta.14): skipped until the fix. A cut in one copy is
-  // undone by the other copy within a second (node.delete, then node.restore
-  // and node.move): the copy that still binds the Task is taken for the cut's
-  // paste (ctx.cut). Pasted there, the Task is then bound twice (ATTENTION).
-  it.skip("a Task cut in one copy and pasted in the other: both copies show it moved, with its ID", async () => {
+  it("a Task cut in one copy and pasted in the other: both copies show it moved, with its ID", async () => {
     const before = await stateA(ctx.R);
     await focusPane(0);
     await selectTask(0, "Gamma");
     await browser.keys([mod, "x"]);
-    await browser.pause(1500);
+    // The other copy follows the deletion (it is not taken for the cut's paste): Gamma
+    // leaves it, and nothing is held or restored.
+    const followed = await browser
+      .waitUntil(async () => {
+        const [one, two] = await paneTexts();
+        return !titles(sectionOf(two)).includes("Gamma") && !titles(sectionOf(one)).includes("Gamma");
+      }, { timeout: 15_000 })
+      .catch(() => false);
+    const afterCut = await stateA(ctx.R);
+    evidence("COPIES after the cut", { followed, texts: (await paneTexts()).map((t) => titles(sectionOf(t))), recovery: afterCut.recovery, badge: afterCut.badge });
+    expect(followed).toBe(true);
+    expect(afterCut.recovery).toEqual([]);
     await focusPane(1);
     await caretInPane(1, "Alpha in one", 0);
     await browser.keys([mod, "v"]);
@@ -364,9 +366,7 @@ describe("the last cut, after its paste", () => {
     await server?.stop();
   });
 
-  // TODO(stale-cut, beta.14): skipped until the fix (section-editor.ts `cut`
-  // outlives its paste and is a move hint of every later pass).
-  it.skip("a Move line next to a Task cut and pasted earlier names the Task moved", async () => {
+  it("a Move line next to a Task cut and pasted earlier names the Task moved", async () => {
     Object.assign(ctx, await shareAndJoin(ctx.b, "Cut once.md", "## Cut once", NOTE.replace("## Panes", "## Cut once")));
     await checkStep("STALE shared", ctx);
     const g = await lineOf("Gamma");
