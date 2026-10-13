@@ -135,8 +135,14 @@ export class Workspace {
   }
 }
 
-/** Stands in for Obsidian's editor state field (the conflict decoration reads it). */
-export const editorInfoField = {};
+/**
+ * Stands in for Obsidian's editor state field: the note a view shows. Absent
+ * unless a test inits it (`editorInfoField.init(() => ({ file: { path } }))`).
+ */
+export const editorInfoField = StateField.define<{ file: { path: string } | null }>({
+  create: () => ({ file: null }),
+  update: (value) => value,
+});
 
 /** Stands in for Obsidian's Live Preview field: Source mode unless a test inits it true. */
 export const editorLivePreviewField = StateField.define<boolean>({
