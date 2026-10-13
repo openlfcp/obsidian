@@ -347,8 +347,9 @@ describe("vault A loses its access while its own edit is pending", () => {
     const a = await stateA(ctx.R);
     const card = await inA(async ({ app }) => {
       app.commands.executeCommandById("shared-tasks:open-section-details");
+      // The card renders its content after it opens: wait for it.
       let modal;
-      for (let i = 0; i < 100 && modal === undefined; i++) {
+      for (let i = 0; i < 200 && !(modal?.textContent ?? "").includes("Shared section"); i++) {
         await new Promise((r) => setTimeout(r, 50));
         modal = document.querySelector(".modal-container .modal");
       }

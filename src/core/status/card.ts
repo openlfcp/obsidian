@@ -68,6 +68,10 @@ function problemText(c: Condition): string | null {
         : `The sync server refused this section (${c.code}). Your local copy stays; new edits are kept on this device only.`;
     case "invalid-profile":
       return "This section's data is not valid for this version of Shared Tasks.";
+    case "stale-work":
+      return c.review > 0
+        ? `${plural(c.review, "offline edit", "offline edits")} could not be sent after an access change. Review them in "Review conflicts…": keep (send again) or discard. Your note keeps them until then.`
+        : `${plural(c.pending, "offline edit", "offline edits")} from before an access change ${c.pending === 1 ? "is" : "are"} being sent again. Your note keeps ${c.pending === 1 ? "it" : "them"} until then.`;
     case "rejected":
       return `The server refused ${plural(c.batchIds.length, "update", "updates")} (${c.code}). The text stays in your note.`;
     case "source":
@@ -130,7 +134,9 @@ export function sectionCard(input: CardInput): SectionCard {
     const refused = v.conditions.find((c) => c.kind === "rejected");
     const n = refused?.kind === "rejected" ? refused.batchIds.length : 0;
     facts.push(`${plural(n, "refused update", "refused updates")} kept in your note, not sent.`);
-  } else if (!kinds.has("save-failed") && !kinds.has("local-edit") && held.length === 0)
+  } else if (kinds.has("stale-work"))
+    facts.push("Offline edits from before an access change are kept in your note, not sent yet.");
+  else if (!kinds.has("save-failed") && !kinds.has("local-edit") && held.length === 0)
     facts.push("No local changes waiting.");
   if (kinds.has("evidence-unavailable"))
     facts.push(
@@ -143,6 +149,10 @@ export function sectionCard(input: CardInput): SectionCard {
   if (kinds.has("server-refused")) facts.push("Not synced: the server refuses this section.");
   else if (denied)
     facts.push("Not synced: the server does not accept changes from this vault for this section.");
+  else if (kinds.has("stale-work"))
+    facts.push(
+      "Not current: offline edits from before an access change are not in the shared version yet.",
+    );
   else if (kinds.has("offline")) facts.push("Offline: local updates wait on this device.");
   else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");

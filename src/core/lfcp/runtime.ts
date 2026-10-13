@@ -915,6 +915,16 @@ export class LfcpRuntime {
     return [...objects].sort();
   }
 
+  /**
+   * A section's own units a Key Epoch cut off, whose work was re-applied or
+   * discarded (stale-work.ts): their stale outbound items are discarded, as
+   * cutOwnObjects does for 0.1 objects, so the section is not left pending.
+   */
+  async discardStaleUnits(unitIds: readonly string[]): Promise<void> {
+    for (const u of unitIds) this.#staleToDiscard.add(u);
+    await this.#discardStale();
+  }
+
   /** Discards re-applied units' outbound items once the queue has blocked them (stale-epoch). */
   async #discardStale(): Promise<void> {
     const storage = this.storage;

@@ -30,6 +30,7 @@ import {
 } from "../sections/port";
 import type { RecoveryModel } from "../sections/recovery";
 import { fromSdkSnapshot } from "../sections/sdk-snapshot";
+import { type StaleWorkStore, touchedNodes } from "../sections/stale-work";
 
 /** What the port needs from the runtime: open section Resources and their session. */
 export interface SectionResources {
@@ -44,6 +45,9 @@ export interface SectionResources {
   readonly storage: Pick<LfcpStorage, "localMarks" | "commit">;
   /** Write access from the validated Control state (contract §6): SyncClient.canWrite. */
   canWrite(resource: ResourceId): Promise<SdkWriteAccess>;
+  /** Where each committed own operation is recorded, for re-applying stale work (§19.1). */
+  readonly ownWork?: Pick<StaleWorkStore, "recordOwn">;
+  readonly now?: () => number;
 }
 
 const asResource = (b64: string): ResourceId => resourceId(fromBase64url(b64));
@@ -152,10 +156,75 @@ export class SdkSectionPort implements SectionPort {
     options: { readonly operationId: string },
   ): Promise<Receipt> {
     try {
-      return portReceipt(await this.resources.commit(asResource(resource), intents, options));
+      return portReceipt(await this.#commit(resource, intents, options));
     } catch (e) {
       throw portRefusal(e);
     }
+  }
+
+  /**
+   * Every commit, direct or coalesced: recorded as an own operation, with
+   * its nodes' fingerprints from before it (stale-work.ts), so that a Key
+   * Epoch that cuts it off can have it re-applied.
+   */
+  async #commit(
+    resource: string,
+    intents: readonly SectionIntent[],
+    options: { readonly operationId: string },
+  ): Promise<SdkReceipt> {
+    const own = this.resources.ownWork;
+    const before = own === undefined ? {} : this.fingerprints(resource, touchedNodes(intents));
+    const receipt = await this.resources.commit(asResource(resource), intents, options);
+    if (own !== undefined && receipt.unitIds.length > 0)
+      await own
+        .recordOwn({
+          operationId: receipt.operationId,
+          resource,
+          unitIds: receipt.unitIds.map((u) => toHex(u)),
+          intents,
+          before,
+          at: (this.resources.now ?? Date.now)(),
+        })
+        .catch(() => undefined);
+    return receipt;
+  }
+
+  /**
+   * Each node's state in the model now, as one string: the node, its place
+   * (parent and previous sibling) and its Task's fields; "" when absent.
+   * "section" is the section's title.
+   */
+  fingerprints(resource: string, ids: readonly string[]): Record<string, string> {
+    const replica = this.resources.profile(asResource(resource))?.replica;
+    const out: Record<string, string> = {};
+    if (replica === undefined) {
+      for (const id of ids) out[id] = "";
+      return out;
+    }
+    const snap = this.#replicaSnapshot(replica);
+    for (const id of ids) {
+      if (id === "section") {
+        out[id] = JSON.stringify(snap.title);
+        continue;
+      }
+      const node = snap.nodes[id];
+      if (node === undefined) {
+        out[id] = "";
+        continue;
+      }
+      const at = snap.order.findIndex((e) => e.id === id);
+      let after: string | null = null;
+      for (let i = at - 1; i >= 0; i--) {
+        const e = snap.order[i];
+        if (e !== undefined && e.parent === node.parent) {
+          after = e.id;
+          break;
+        }
+      }
+      const task = node.taskId === undefined ? null : (replica.task(node.taskId)?.task ?? null);
+      out[id] = JSON.stringify({ node, after: at < 0 ? null : after, task });
+    }
+    return out;
   }
 
   #coalescer(resource: string): TypingCoalescer | undefined {
@@ -164,7 +233,7 @@ export class SdkSectionPort implements SectionPort {
     let t = this.#coalescers.get(resource);
     if (t === undefined) {
       t = new TypingCoalescer({
-        commit: (intents, o) => this.resources.commit(asResource(resource), intents, o),
+        commit: (intents, o) => this.#commit(resource, intents as readonly SectionIntent[], o),
         onFlushed: (f) => c.onFlushed(resource, f),
         now: c.now,
         ...(c.idleMs === undefined ? {} : { idleMs: c.idleMs }),

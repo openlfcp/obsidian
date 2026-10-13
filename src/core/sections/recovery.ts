@@ -13,6 +13,17 @@ import type { SectionIntent } from "./port";
 import { disagrees } from "./sdk-snapshot";
 
 export type RecoveryItem =
+  /**
+   * Own offline work a Key Epoch cut off and that could not be re-applied
+   * as it was (its node changed meanwhile, or it was refused): send it again,
+   * or discard it (stale-work.ts). The host applies it.
+   */
+  | {
+      readonly kind: "stale-work";
+      readonly key: string;
+      readonly operationId: string;
+      readonly label: string;
+    }
   /** The section's title has concurrent values. */
   | { readonly kind: "title"; readonly key: string; readonly values: readonly string[] }
   /** A Task field with concurrent values (SOP §44–§47). */
@@ -377,6 +388,9 @@ export function resolution(
       break;
     case "reappeared":
       // Restored by the next pass of the note that shows it, where it shows it.
+      break;
+    case "stale-work":
+      // Re-applied or discarded by the host (stale-work.ts).
       break;
   }
   throw new Error(`the choice does not fit this ${item.kind} item`);

@@ -23,6 +23,14 @@ export function recoveryOptions(item: RecoveryItem): {
   readonly choices: readonly { readonly label: string; readonly choice: RecoveryChoice }[];
 } {
   switch (item.kind) {
+    case "stale-work":
+      return {
+        question: `An offline edit from before an access change could not be sent: ${item.label}. Send it again, or discard it?`,
+        choices: [
+          { label: "Keep (send again)", choice: { keep: true } },
+          { label: "Discard", choice: { keep: false } },
+        ],
+      };
     case "title":
       return {
         question: "The section's title was changed in two ways. Which title should it have?",

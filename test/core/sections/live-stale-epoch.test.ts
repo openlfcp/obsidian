@@ -106,24 +106,45 @@ async function setup() {
 async function offlineThenRotation(
   s: Awaited<ReturnType<typeof setup>>,
   edit: (md: string) => string,
+  meanwhile: () => Promise<void> = async () => undefined,
 ) {
   const { a, b, c, R, proxy } = s;
   await proxy.off();
   await new Promise((r) => setTimeout(r, 1500));
   b.files.set("B.md", edit(b.files.get("B.md") as string));
   await b.pass("B.md");
+  await meanwhile();
   let removed = await a.runtime.revokeSectionAccess(R, c.principal as never);
   for (let i = 0; i < 40 && removed.kind !== "queued"; i++) {
     await new Promise((r) => setTimeout(r, 500));
     removed = await a.runtime.revokeSectionAccess(R, c.principal as never);
   }
   expect(removed.kind).toBe("queued");
-  await new Promise((r) => setTimeout(r, 2000));
+  // The removal (and the new epoch's Key Packages) at the server before B comes back.
+  const aStorage = a.runtime.storage;
+  if (aStorage === null) throw new Error("A's runtime has no storage");
+  await waitFor(
+    async () => ((await aStorage.outbound.list(R as ResourceId)).length === 0 ? true : undefined),
+    45_000,
+  );
+  await new Promise((r) => setTimeout(r, 1000));
   await proxy.on();
-  await new Promise((r) => setTimeout(r, 8000));
-  for (let i = 0; i < 3; i++) await b.pass("B.md");
+  // B is back: its offline unit is either cut off by the Key Epoch (quarantined, then
+  // re-applied or in review) or, when it reached the server first, accepted as it is.
+  // Either way: nothing waits any more, nothing is left to send.
   const storage = b.runtime.storage;
   if (storage === null) throw new Error("B's runtime has no storage");
+  const r64 = b.b64(R);
+  await waitFor(async () => {
+    const queued = (await storage.outbound.list(R as ResourceId)).filter(
+      (i) => i.kind === "data-unit",
+    ).length;
+    const handled = !b.stale.waiting(r64) || b.stale.counts(r64).review > 0;
+    return handled && queued === 0 && b.runtime.phase(R as ResourceId) === "LIVE"
+      ? true
+      : undefined;
+  }, 60_000);
+  for (let i = 0; i < 3; i++) await b.pass("B.md");
   return { quarantined: await storage.dataUnits.withStatus(R as ResourceId, "quarantined") };
 }
 
@@ -144,22 +165,17 @@ async function aShows(a: Peer, R: ResourceId, want: (titles: string[]) => boolea
   return waitFor(async () => (want(titles()) ? titles() : undefined), 20_000).catch(() => titles());
 }
 
-// TODO(stale-epoch, beta.15): skipped until sections re-apply stale own
-// work (§19.1). Today each case fails as described in the header.
 describe.skipIf(skip !== null)("offline work across an unrelated removal (§19.1)", () => {
-  it.skip("a title edit stays in B's note and reaches A", async () => {
+  it("a title edit stays in B's note and reaches A", async () => {
     const s = await setup();
-    const { quarantined } = await offlineThenRotation(s, (md) =>
-      md.replace("- [ ] Beta", "- [ ] Beta retitled offline"),
-    );
-    expect(quarantined.length).toBeGreaterThan(0);
+    await offlineThenRotation(s, (md) => md.replace("- [ ] Beta", "- [ ] Beta retitled offline"));
     expect(tasks(s.b.files.get("B.md") as string)).toContain("Beta retitled offline");
     expect(await aShows(s.a, s.R, (t) => t.includes("Beta retitled offline"))).toContain(
       "Beta retitled offline",
     );
-  }, 90_000);
+  }, 150_000);
 
-  it.skip("a move stays in B's note and reaches A", async () => {
+  it("a move stays in B's note and reaches A", async () => {
     const s = await setup();
     await offlineThenRotation(s, (md) => {
       const L = md.split("\n");
@@ -180,9 +196,9 @@ describe.skipIf(skip !== null)("offline work across an unrelated removal (§19.1
       "Alpha by B",
       "Beta",
     ]);
-  }, 90_000);
+  }, 150_000);
 
-  it.skip("a new Task stays in B's note and reaches A", async () => {
+  it("a new Task stays in B's note and reaches A", async () => {
     const s = await setup();
     await offlineThenRotation(s, (md) =>
       md.replace(/(- \[ \] Gamma\n(?:\s+<!--[^\n]*\n)?)/, "$1- [ ] Delta new offline\n"),
@@ -191,5 +207,56 @@ describe.skipIf(skip !== null)("offline work across an unrelated removal (§19.1
     expect(await aShows(s.a, s.R, (t) => t.includes("Delta new offline"))).toContain(
       "Delta new offline",
     );
-  }, 90_000);
+  }, 150_000);
+
+  it("the same title changed by A meanwhile: B's goes to review, never a silent win; Keep sends it", async () => {
+    const s = await setup();
+    const r64 = s.a.b64(s.R);
+    const L = (s.b.files.get("B.md") as string).split("\n");
+    const beta = /#task:([0-9a-f-]{36})/.exec(
+      L[L.findIndex((l) => l.includes("] Beta")) + 1] ?? "",
+    )?.[1];
+    expect(beta).toBeDefined();
+    await offlineThenRotation(
+      s,
+      (text) => text.replace("- [ ] Beta", "- [ ] Beta by B offline"),
+      async () => {
+        await s.a.port.commit(
+          r64,
+          [{ intent: "task.set_title", id: beta, title: "Beta by A" } as never],
+          { operationId: crypto.randomUUID() },
+        );
+      },
+    );
+    // Cut off: B's edit waits for review (then Keep sends it). Accepted first: both
+    // values are a visible conflict at A. Never a silent win either way.
+    const conflictAtA = () => {
+      const v = s.a.runtime.sectionProfile(s.R)?.replica.task(beta as string) as
+        | { fields?: { title?: { conflicted?: boolean; values?: string[] } } }
+        | undefined;
+      return v?.fields?.title?.conflicted === true ? (v.fields.title.values ?? []) : null;
+    };
+    const path = await waitFor(
+      async () =>
+        s.b.stale.counts(r64).review > 0
+          ? "review"
+          : conflictAtA() !== null
+            ? "conflict"
+            : undefined,
+      45_000,
+    );
+    if (path === "conflict") {
+      expect([...(conflictAtA() ?? [])].sort()).toEqual(["Beta by A", "Beta by B offline"]);
+      return;
+    }
+    expect(s.b.stale.counts(r64)).toEqual({ pending: 0, review: 1 });
+    // B's note keeps its text; A's title stays A's until B chooses.
+    expect(tasks(s.b.files.get("B.md") as string)).toContain("Beta by B offline");
+    expect(await aShows(s.a, s.R, (t) => t.includes("Beta by A"))).toContain("Beta by A");
+    const [item] = s.b.stale.review(r64);
+    expect(await s.b.stale.resolve(r64, item?.operationId as string, true)).toBe("Sent again.");
+    expect(await aShows(s.a, s.R, (t) => t.includes("Beta by B offline"))).toContain(
+      "Beta by B offline",
+    );
+  }, 150_000);
 });

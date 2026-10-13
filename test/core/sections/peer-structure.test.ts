@@ -368,6 +368,7 @@ async function run(seed: number) {
       case "field":
         return item.values[0] === undefined ? null : { value: item.values[0] };
       case "reappeared":
+      case "stale-work":
         return null;
     }
   };

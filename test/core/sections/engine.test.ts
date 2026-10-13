@@ -489,3 +489,25 @@ describe("an idle note gets remote changes in a row (0.4.0-beta.13: a collaborat
     expect(h.port.changes).toEqual([]);
   });
 });
+
+describe("own work cut off by a Key Epoch waits (§19.1, stale-work.ts)", () => {
+  it("while it waits, the section's passes are skipped: the rebuilt model never overwrites the note", async () => {
+    let waiting = false;
+    const h = setup(note(BODY), () => undefined, { staleWork: () => waiting });
+    await h.run(note(BODY));
+    // The user's edit is in the note; the rebuilt model has an older text.
+    const typed = note(BODY).replace("Notes", "Notes typed offline");
+    await h.run(typed);
+    h.port.remote(R, (s) => {
+      s.state = {
+        ...s.state,
+        nodes: { ...s.state.nodes, [Q]: { kind: "paragraph", parent: null, text: "Notes" } },
+      };
+    });
+    waiting = true;
+    const { pass, out } = await h.run(typed);
+    expect(pass.sections[0]?.skipped).toBe("stale-work");
+    expect(out).toBe(typed);
+    expect(pass.changes).toEqual([]);
+  });
+});

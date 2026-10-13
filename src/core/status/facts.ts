@@ -38,13 +38,18 @@ export interface ObservedSection {
    * (RESOURCE_NOT_HOSTED, …): the session is up, the section is not synced.
    */
   readonly refusal?: string | null;
+  /** Own operations a Key Epoch cut off and that were re-applied or discarded: their batches are settled. */
+  readonly settledOperations?: ReadonlySet<string>;
+  /** Own offline work a Key Epoch cut off (stale-work.ts). */
+  readonly staleWork?: { readonly pending: number; readonly review: number };
 }
 
 const SCALAR = /SCALAR|TITLE_CONFLICT|FIELD_CONFLICT/;
 
 export function observedFacts(o: ObservedSection): StatusFacts {
   const sdk = o.sdk;
-  const batches = [...(sdk?.batches ?? [])];
+  const settled = o.settledOperations ?? new Set<string>();
+  const batches = (sdk?.batches ?? []).filter((b) => !settled.has(b.id));
   // Queued units the SDK's batches do not account for: pending, without a stable identity (not counted, §4).
   const unaccounted =
     (o.queuedUnits ?? 0) -
@@ -111,6 +116,7 @@ export function observedFacts(o: ObservedSection): StatusFacts {
     batches,
     acceptanceEvidence: unconfirmed ? "unavailable" : "available",
     projections: o.projections,
+    ...(o.staleWork === undefined ? {} : { staleWork: o.staleWork }),
   };
 }
 

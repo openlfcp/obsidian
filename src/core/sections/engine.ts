@@ -74,6 +74,12 @@ export interface EngineDeps extends CommitDeps {
   readonly refPlacement?: () => RefPlacement;
   /** The section comments setting (§4.5): new comments local (default) or shared as raw nodes. */
   readonly sectionComments?: () => SectionComments;
+  /**
+   * Whether a Resource (base64url) has own work a Key Epoch cut off that is
+   * not re-applied or reviewed yet (stale-work.ts): its passes are skipped,
+   * so the rebuilt model never overwrites the note's text.
+   */
+  readonly staleWork?: (resource: string) => boolean | Promise<boolean>;
 }
 
 /** What the host knows about the edits since the last pass. */
@@ -130,7 +136,9 @@ export type SectionSkip =
   | "importing"
   | "blocked"
   /** MS11: no base, and the note differs from the model: compare before publishing. */
-  | "base-unknown";
+  | "base-unknown"
+  /** Own work a Key Epoch cut off waits to be re-applied or reviewed (§19.1). */
+  | "stale-work";
 
 export interface SectionResult {
   readonly projectionId: string;
@@ -670,6 +678,7 @@ export class SectionEngine {
       changes: [],
     });
     if (snap === undefined) return skip("no-snapshot");
+    if ((await this.deps.staleWork?.(resource)) === true) return skip("stale-work");
     if (section.blocked) return skip("blocked");
     if (!snap.ready) return skip("importing");
 

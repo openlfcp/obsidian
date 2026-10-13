@@ -20,6 +20,7 @@ export function blockingSignature(view: StatusView): string | null {
         c.kind === "access" ||
         c.kind === "invalid-profile" ||
         c.kind === "rejected" ||
+        c.kind === "stale-work" ||
         c.kind === "source" ||
         c.kind === "structural-conflict" ||
         c.kind === "scalar-conflict",

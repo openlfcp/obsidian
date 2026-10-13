@@ -112,6 +112,11 @@ export interface StatusFacts {
   /** Whether a server acceptance mapping exists for this server and SDK (§4, SI19). */
   readonly acceptanceEvidence: "available" | "unavailable";
   readonly projections: readonly ProjectionFacts[];
+  /**
+   * Own offline work a Key Epoch cut off (§19.1, stale-work.ts): operations
+   * being re-applied, and those waiting for the user's review.
+   */
+  readonly staleWork?: { readonly pending: number; readonly review: number };
 }
 
 /** One reason the state is what it is; all of them stay in the details card. */
@@ -121,6 +126,7 @@ export type Condition =
   | { readonly kind: "server-refused"; readonly code: string }
   | { readonly kind: "invalid-profile" }
   | { readonly kind: "rejected"; readonly batchIds: readonly string[]; readonly code: string }
+  | { readonly kind: "stale-work"; readonly pending: number; readonly review: number }
   | { readonly kind: "source"; readonly projectionId: string; readonly source: SourceFacts }
   | { readonly kind: "structural-conflict"; readonly nodeIds: readonly string[] }
   | { readonly kind: "scalar-conflict"; readonly nodeIds: readonly string[] }
@@ -211,6 +217,9 @@ export function statusView(facts: StatusFacts): StatusView {
       batchIds: rejected.map((b) => b.id),
       code: rejected[0]?.rejection?.code ?? "",
     });
+  // Own work cut off by a Key Epoch: never current until re-applied or reviewed.
+  if (facts.staleWork !== undefined && facts.staleWork.pending + facts.staleWork.review > 0)
+    c.push({ kind: "stale-work", ...facts.staleWork });
   // 3. Broken or unknown source binding, unsupported syntax, divergence.
   for (const p of facts.projections)
     if (BROKEN_SOURCE.has(p.source))
@@ -318,6 +327,7 @@ function primary(
     case "server-refused":
     case "invalid-profile":
     case "rejected":
+    case "stale-work":
     case "source":
     case "structural-conflict":
     case "scalar-conflict":

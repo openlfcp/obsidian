@@ -27,6 +27,8 @@ export function projectionFact(r: SectionResult): {
         : null;
   if (r.skipped === "base-unknown") return { facts: fact("base-unknown", "blocked"), failed };
   if (r.skipped === "blocked") return { facts: fact("unsupported", "blocked"), failed };
+  // Own work cut off by a Key Epoch waits: the stale-work condition speaks.
+  if (r.skipped === "stale-work") return { facts: fact("clean", "blocked"), failed };
   if (r.skipped === "importing" || r.skipped === "no-snapshot")
     return { facts: fact("clean", "unavailable"), failed };
   // NODE_BINDING_LOST: publication of this projection is suspended until repaired.

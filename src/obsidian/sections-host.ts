@@ -9,10 +9,12 @@
 import type { EditorView } from "@codemirror/view";
 import type { Flushed } from "@openlfcp/client";
 import {
+  dataUnitId,
   fromBase64url,
   fromHex,
   generateObjectId,
   generateResourceId,
+  hash32,
   type PrincipalId,
   type ResourceId,
   toBase64url,
@@ -71,6 +73,11 @@ import {
   type SharePreview,
   type ShareRange,
 } from "../core/sections/share";
+import {
+  KeyValueStaleWorkStore,
+  StaleWorkController,
+  staleLabel,
+} from "../core/sections/stale-work";
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
@@ -160,6 +167,8 @@ export class SectionsHost {
   #statusDue: number | null = null;
   #port: SdkSectionPort | null = null;
   #journal: KeyValueSectionJournalStore | null = null;
+  /** Own offline work a Key Epoch cut off (stale-work.ts): guarded, re-applied, reviewed. */
+  #stale: StaleWorkController | null = null;
   /** The SDK's status of each section Resource (hex): batches, acceptance, access (026). */
   readonly #sdk = new Map<string, SdkStatus>();
   /** Section Resources whose session was LIVE in this run (hex). */
@@ -330,6 +339,11 @@ export class SectionsHost {
     else this.#reappeared.delete(key);
   }
 
+  /** The stale-work controller's view of a Resource (base64url): diagnostics and the native harness. */
+  staleDiagnostics(resource: string): Record<string, unknown> | null {
+    return this.#stale?.diagnostics(resource) ?? null;
+  }
+
   /** The review items of section `key`: the model's conflicts, then nodes notes show again. */
   #recoveryItems(key: string): RecoveryItem[] {
     const b64 = key.slice(0, key.indexOf("#"));
@@ -337,7 +351,13 @@ export class SectionsHost {
     const m = this.#port?.recoveryModel(b64, sectionId);
     if (m === undefined) return [];
     const shown = [...(this.#reappeared.get(key)?.values() ?? [])].flatMap((n) => n.ids);
-    return [...recoveryItems(m), ...reappearedItems(m, shown)];
+    const stale: RecoveryItem[] = (this.#stale?.review(b64) ?? []).map((op) => ({
+      kind: "stale-work",
+      key: `stale:${op.operationId}`,
+      operationId: op.operationId,
+      label: staleLabel(op),
+    }));
+    return [...stale, ...recoveryItems(m), ...reappearedItems(m, shown)];
   }
 
   /**
@@ -369,6 +389,7 @@ export class SectionsHost {
     const storage = runtime.storage as LfcpStorage;
     const journal = new KeyValueSectionJournalStore(runtime.localState);
     this.#journal = journal;
+    const staleStore = new KeyValueStaleWorkStore(runtime.localState);
     const port = new SdkSectionPort(
       {
         profile: (r) => runtime.sectionProfile(r),
@@ -376,6 +397,11 @@ export class SectionsHost {
         storage,
         // Contract §6: from the validated Control state; a denied edit stays a candidate.
         canWrite: (r) => runtime.canWriteSection(r),
+        // §19.1: each own operation is recorded, to be re-applied if a Key Epoch cuts it off.
+        ownWork: {
+          recordOwn: (op) => this.#stale?.ownWork.recordOwn(op) ?? staleStore.recordOwn(op),
+        },
+        now: () => Date.now(),
       },
       // Typing coalescing (025): a burst of typing is one unit, not one per key.
       {
@@ -402,11 +428,47 @@ export class SectionsHost {
       newTask: (line, id) => newSectionTask(line, principal, id),
       refPlacement: this.refPlacement,
       sectionComments: this.sectionComments,
+      // §19.1: never project a rebuilt model over a note whose own work waits to be re-applied.
+      staleWork: (r) => this.#stale?.check(r) ?? false,
     });
     this.#runtime = runtime;
     this.#port = port;
+    this.#stale = new StaleWorkController({
+      store: staleStore,
+      port,
+      unit: async (u) => ({
+        quarantined:
+          (await storage.dataUnits.get(dataUnitId(fromHex(u))))?.status === "quarantined",
+        queued: (await storage.outbound.get(hash32(fromHex(u)))) !== undefined,
+      }),
+      changed: (r) => {
+        this.scheduleStatus();
+        void this.#remote(fromBase64url(r) as ResourceId).catch((e) => this.#bookkeepingFailed(e));
+      },
+      failed: (e) => this.#bookkeepingFailed(e),
+      settle: (units) => runtime.discardStaleUnits(units),
+      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      ready: async (r) => {
+        const R = fromBase64url(r) as ResourceId;
+        if (runtime.phase(R) !== "LIVE") return false;
+        const snap = await runtime.sectionStatusSnapshot(R).catch(() => undefined);
+        return snap?.catchUp?.state === "current-at-checkpoint";
+      },
+    });
     runtime.on((e) => {
       if (e.type === "status") this.#statusEvent(e.resourceId, e.event);
+      if (e.type === "epoch-reconciled") {
+        const units = [
+          ...e.applied.excluded.map((x) => toHex(x.unitId)),
+          ...e.outbound.map((x) => toHex(x.itemId)),
+        ];
+        // At once, before any pass of the rebuilt model (the controller's guard).
+        if (runtime.sectionProfile(e.resourceId) !== undefined)
+          this.#stale?.epochReconciled(toBase64url(e.resourceId), units);
+      }
+      // Re-applying waits for write access: anything on the Resource lets it try again.
+      const rid = (e as { readonly resourceId?: ResourceId }).resourceId;
+      if (rid !== undefined && e.type !== "epoch-reconciled") this.#stale?.live(toBase64url(rid));
       this.scheduleStatus();
     });
     this.#creation = new SectionCreation({
@@ -449,6 +511,13 @@ export class SectionsHost {
     });
     for (const entry of await runtime.registry())
       if (entry.profile === SECTIONS_PROFILE_ID) await this.#watch(entry.resourceId);
+    // §19.1 after a restart: own units found quarantined (a cut not handled
+    // before the restart) are cut now; open stale work goes on or waits.
+    for (const entry of await runtime.registry())
+      if (entry.profile === SECTIONS_PROFILE_ID)
+        await this.#stale
+          ?.scan(toBase64url(entry.resourceId))
+          .catch((error) => this.#bookkeepingFailed(error));
     for (const file of this.app.vault.getMarkdownFiles()) {
       const text = await this.app.vault.cachedRead(file);
       if (!text.includes(SECTION_MARK)) continue;
@@ -925,6 +994,15 @@ export class SectionsHost {
     const b64 = key.slice(0, key.indexOf("#"));
     const sectionId = key.slice(key.indexOf("#") + 1);
     new RecoveryModal(this.app, title, this.#recoveryItems(key), async (item, choice) => {
+      if (item.kind === "stale-work") {
+        const note =
+          (await this.#stale?.resolve(
+            key.slice(0, key.indexOf("#")),
+            item.operationId,
+            "keep" in choice && choice.keep,
+          )) ?? "";
+        return { items: this.#recoveryItems(key), note };
+      }
       if (item.kind === "reappeared") {
         const note = await this.#resolveReappeared(key, item.nodeId, "restore" in choice);
         this.scheduleStatus();
@@ -1143,6 +1221,9 @@ export class SectionsHost {
             (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit")
               .length ?? 0,
           refusal: runtime.refusal(R)?.code ?? null,
+          ...(this.#stale === null
+            ? {}
+            : { staleWork: this.#stale.counts(r), settledOperations: this.#stale.settled(r) }),
         });
         return { key: `${r}#${sectionId}`, view: statusView(facts) };
       },

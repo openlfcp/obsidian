@@ -7,11 +7,15 @@
 // scripts/build-native-harness.mjs.
 
 import {
+  dataUnitId,
   fromBase64url,
+  fromHex,
   generateObjectId,
+  hash32,
   generateResourceId,
   type ResourceId,
   toBase64url,
+  toHex,
 } from "@openlfcp/core";
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -30,6 +34,10 @@ import {
   KeyValueSectionBaseStore,
   KeyValueSectionJournalStore,
 } from "../../../src/core/sections/stores";
+import {
+  KeyValueStaleWorkStore,
+  StaleWorkController,
+} from "../../../src/core/sections/stale-work";
 import { newSectionTask } from "../../../src/core/sections/task-fields";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 import { type LiveServer, startLiveServer } from "../../support/live-server";
@@ -137,11 +145,43 @@ export async function peer(
   const status = runtime.status;
   if (status.kind !== "ready") throw new Error(status.kind);
   const collab = new Collaboration(runtime, { connectTimeoutMs: 5000, sleep, sections: true });
-  const port = new SdkSectionPort({
+  const staleStore = new KeyValueStaleWorkStore(runtime.localState);
+  const port: SdkSectionPort = new SdkSectionPort({
     profile: (r) => runtime.sectionProfile(r),
     commit: (r, intents, o) => runtime.commitSection(r, intents, o),
     storage: runtime.storage as LfcpStorage,
     canWrite: (r) => runtime.canWriteSection(r),
+    // §19.1, as the plugin: own operations recorded, stale ones re-applied.
+    ownWork: { recordOwn: (op): Promise<void> => stale.ownWork.recordOwn(op) },
+  });
+  const stale: StaleWorkController = new StaleWorkController({
+    store: staleStore,
+    port,
+    unit: async (u) => ({
+      quarantined:
+        (await (runtime.storage as LfcpStorage).dataUnits.get(dataUnitId(fromHex(u))))?.status ===
+        "quarantined",
+      queued: (await (runtime.storage as LfcpStorage).outbound.get(hash32(fromHex(u)))) !== undefined,
+    }),
+    // Passes are explicit here (pass()).
+    changed: () => undefined,
+    settle: (units) => runtime.discardStaleUnits(units),
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    ready: async (r) => {
+      const R = fromBase64url(r) as ResourceId;
+      if (runtime.phase(R) !== "LIVE") return false;
+      const snap = await runtime.sectionStatusSnapshot(R).catch(() => undefined);
+      return snap?.catchUp?.state === "current-at-checkpoint";
+    },
+  });
+  runtime.on((e) => {
+    if (e.type === "epoch-reconciled" && runtime.sectionProfile(e.resourceId) !== undefined)
+      stale.epochReconciled(toBase64url(e.resourceId), [
+        ...e.applied.excluded.map((x) => toHex(x.unitId)),
+        ...e.outbound.map((x) => toHex(x.itemId)),
+      ]);
+    const rid = (e as { readonly resourceId?: ResourceId }).resourceId;
+    if (rid !== undefined && e.type !== "epoch-reconciled") stale.live(toBase64url(rid));
   });
   const files = from?.files ?? new Map<string, string>();
   const edit = async (
@@ -192,7 +232,11 @@ export async function peer(
     newProjectionId: () => crypto.randomUUID(),
     tasks: (r, taskId) => ({ view: port.taskView(r, taskId) }),
     newTask: (line, id) => newSectionTask(line, status.principalId, id),
+    staleWork: (r) => stale.check(r),
   });
+  // After a restart (from): own units already quarantined are re-applied.
+  for (const entry of await runtime.registry())
+    await stale.scan(toBase64url(entry.resourceId)).catch(() => undefined);
   /** One engine pass over a note, written as the plugin writes it. */
   const pass = async (path: string, caretLine: number | null = null) => {
     const md = files.get(path) as string;
@@ -247,6 +291,7 @@ export async function peer(
     device,
     local,
     b64: (R: ResourceId) => toBase64url(R),
+    stale,
     stop: () => runtime.stop(),
   };
 }

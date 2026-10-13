@@ -213,3 +213,28 @@ describe("LFCP-02-117: the history's size", () => {
     expect(withHistory(undefined).shared.join(" ")).not.toMatch(/History/);
   });
 });
+
+describe("own offline work cut off by an access change (§19.1)", () => {
+  it("being sent again: needs attention, said plainly", () => {
+    const c = card({ staleWork: { pending: 2, review: 0 } });
+    expect(c.technical[0]).toBe("State: ATTENTION");
+    expect(c.problems).toContain(
+      "2 offline edits from before an access change are being sent again. Your note keeps them until then.",
+    );
+  });
+
+  it("waiting for review: Review conflicts, keep or discard", () => {
+    const c = card({ staleWork: { pending: 0, review: 1 } });
+    expect(c.technical[0]).toBe("State: ATTENTION");
+    expect(c.problems).toContain(
+      '1 offline edit could not be sent after an access change. Review them in "Review conflicts…": keep (send again) or discard. Your note keeps them until then.',
+    );
+    expect(c.facts.join(" ")).not.toMatch(/Current as last checked/);
+  });
+
+  it("none: nothing said", () => {
+    expect(card({ staleWork: { pending: 0, review: 0 } }).technical[0]).not.toBe(
+      "State: ATTENTION",
+    );
+  });
+});
