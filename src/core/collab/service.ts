@@ -87,6 +87,10 @@ export interface CollabRuntime {
   reopenSection?(resource: ResourceId): void;
   /** The server's refusal of a Resource for good, or null. */
   refusal?(resource: ResourceId): { readonly code: string } | null;
+  /** This vault's write access to a shared-sections Resource, with the reason when denied. */
+  canWriteSection?(
+    resource: ResourceId,
+  ): Promise<{ readonly allowed: boolean; readonly reason: string | null }>;
   /** An open section Resource: ready (§12.1), and no change held for a missing dependency. */
   sectionLoad?(
     resource: ResourceId,
@@ -181,6 +185,13 @@ export type JoinOutcome =
       readonly section?: { readonly loaded: boolean };
     }
   | { readonly kind: "already-member"; readonly resourceId: ResourceId }
+  /**
+   * This vault was removed from the collaboration (its access revoked, or
+   * the server refuses it the Resource). Rejoining with a new invitation is
+   * not supported yet (MVP 0.3): the invitation is not used and nothing
+   * changes; the local copy stays.
+   */
+  | { readonly kind: "removed"; readonly resourceId: ResourceId }
   /**
    * The collaboration has another Data Profile (a newer plugin's shared
    * sections, say). Checked before the claim: the invitation is not used
@@ -588,9 +599,11 @@ export class Collaboration {
     const profiles = this.#o.sections ? [PROFILE_ID, SECTIONS_PROFILE_ID] : [PROFILE_ID];
     if (await this.#runtime.hasResource(R)) {
       const profile = (await c.storage.resources.get(R))?.dataProfile;
-      return profile !== undefined && profiles.includes(profile)
-        ? { kind: "already-member", resourceId: R }
-        : { kind: "needs-newer-version", resourceId: R };
+      if (profile === undefined || !profiles.includes(profile))
+        return { kind: "needs-newer-version", resourceId: R };
+      return (await this.#removed(R, profile))
+        ? { kind: "removed", resourceId: R }
+        : { kind: "already-member", resourceId: R };
     }
     await this.#runtime.localState.put(joinNameKey(R), {
       name: options.name,
@@ -618,6 +631,19 @@ export class Collaboration {
         message: joinUnavailableMessage(accepted.reason, last === "claiming capability"),
       };
     return this.#finishJoin(R, accepted.abilities, options.name, stage);
+  }
+
+  /**
+   * Whether this vault was removed from a Resource it holds: the server
+   * refuses it the Resource (AUTHORIZATION_FAILED), or a section's access
+   * is revoked or refused. Only reads what the runtime knows.
+   */
+  async #removed(R: ResourceId, profile: string): Promise<boolean> {
+    if (this.#runtime.refusal?.(R)?.code === "AUTHORIZATION_FAILED") return true;
+    if (profile !== SECTIONS_PROFILE_ID || this.#runtime.canWriteSection === undefined)
+      return false;
+    const access = await this.#runtime.canWriteSection(R).catch(() => null);
+    return access?.reason === "revoked" || access?.reason === "server-refused";
   }
 
   /** The claimed Resource stored and opened (a section: until it is loaded). */

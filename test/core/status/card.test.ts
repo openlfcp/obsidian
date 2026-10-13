@@ -133,6 +133,29 @@ describe("the section card", () => {
     expect(c.technical.join(" ")).toContain("Conditions: access, scalar-conflict");
   });
 
+  it("an update blocked by refused access (gap 8): not current, not waiting to be sent", () => {
+    const c = card({
+      access: "refused",
+      acceptanceEvidence: "available",
+      batches: [{ id: "b1", nodeIds: ["n"], durable: true, unitIds: ["u1"], acceptedUnitIds: [] }],
+    });
+    expect(c.facts).toEqual([
+      "1 local update saved on this device, not sent: the server does not accept them.",
+      "Not synced: the server does not accept changes from this vault for this section.",
+      "The sync server does not accept your edits to this section now.",
+    ]);
+    expect(c.facts.join(" ")).not.toMatch(/Current as last checked|waiting to be sent/);
+  });
+
+  it("removed (revoked): not current, and never 'You can edit this section'", () => {
+    const c = card({ access: "revoked" });
+    expect(c.facts).toContain(
+      "Not synced: the server does not accept changes from this vault for this section.",
+    );
+    expect(c.facts).toContain("The sync server does not accept your edits to this section now.");
+    expect(c.facts.join(" ")).not.toMatch(/Current as last checked|You can edit this section/);
+  });
+
   it("115: refused by the server: says so without a cause, keeps the copy, names the owner", () => {
     const c = card({ access: "refused" });
     expect(c.problems).toEqual([

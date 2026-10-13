@@ -102,6 +102,13 @@ export function sectionCard(input: CardInput): SectionCard {
   const kinds = new Set(v.conditions.map((c) => c.kind));
   const held = [...v.held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1));
   const facts: string[] = [];
+  // This vault's changes are not accepted (removed, never a member, refused
+  // by the server): nothing it has waiting goes out, and it is not current.
+  const denied = v.conditions.some(
+    (c) =>
+      c.kind === "access" &&
+      (c.access === "refused" || c.access === "revoked" || c.access === "not-member"),
+  );
   // F-04: edits held back come first, counted, with their cause.
   for (const h of held)
     facts.push(
@@ -111,9 +118,13 @@ export function sectionCard(input: CardInput): SectionCard {
   else if (kinds.has("local-edit")) facts.push("Local changes are being processed.");
   if (v.pendingBatches > 0)
     facts.push(
-      v.pendingCounted
-        ? `${plural(v.pendingBatches, "local update", "local updates")} saved on this device, waiting to be sent.`
-        : "Pending local changes are saved on this device, waiting to be sent.",
+      denied
+        ? v.pendingCounted
+          ? `${plural(v.pendingBatches, "local update", "local updates")} saved on this device, not sent: the server does not accept them.`
+          : "Pending local changes are saved on this device, not sent: the server does not accept them."
+        : v.pendingCounted
+          ? `${plural(v.pendingBatches, "local update", "local updates")} saved on this device, waiting to be sent.`
+          : "Pending local changes are saved on this device, waiting to be sent.",
     );
   else if (kinds.has("rejected")) {
     const refused = v.conditions.find((c) => c.kind === "rejected");
@@ -130,6 +141,8 @@ export function sectionCard(input: CardInput): SectionCard {
       `${plural(v.acceptedBatches, "update was", "updates were")} accepted by the server.`,
     );
   if (kinds.has("server-refused")) facts.push("Not synced: the server refuses this section.");
+  else if (denied)
+    facts.push("Not synced: the server does not accept changes from this vault for this section.");
   else if (kinds.has("offline")) facts.push("Offline: local updates wait on this device.");
   else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");
@@ -139,8 +152,7 @@ export function sectionCard(input: CardInput): SectionCard {
     );
   else
     facts.push("Current as last checked with the server. This does not mean others have seen it.");
-  if (v.conditions.some((c) => c.kind === "access" && c.access === "refused"))
-    facts.push("The sync server does not accept your edits to this section now.");
+  if (denied) facts.push("The sync server does not accept your edits to this section now.");
   else
     facts.push(
       v.readOnly ? "You can read this section, not edit it." : "You can edit this section.",

@@ -28,7 +28,7 @@ import {
   tasksToInsert,
 } from "./batch";
 import { attachToTask, detachExact, taskAt, unitPlacement } from "./markdown";
-import { plainError } from "./messages";
+import { plainError, REMOVED_REJOIN } from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
 import { type Hint, serverHint } from "./server-notice";
 import type { Collaboration, JoinStage, ResourceStatus } from "./service";
@@ -336,9 +336,11 @@ export class CollabCommands {
               : `Shared Tasks: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
             : outcome.kind === "already-member"
               ? "Shared Tasks: this device is already in that collaboration."
-              : outcome.kind === "needs-newer-version"
-                ? `Shared Tasks: could not join. ${NEEDS_NEWER_VERSION}, then join again with the same link: it has not been used.`
-                : `Shared Tasks: could not join. ${outcome.message}`,
+              : outcome.kind === "removed"
+                ? `Shared Tasks: ${REMOVED_REJOIN}`
+                : outcome.kind === "needs-newer-version"
+                  ? `Shared Tasks: could not join. ${NEEDS_NEWER_VERSION}, then join again with the same link: it has not been used.`
+                  : `Shared Tasks: could not join. ${outcome.message}`,
         );
       } finally {
         progress.close();

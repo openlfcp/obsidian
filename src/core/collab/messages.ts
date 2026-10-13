@@ -5,6 +5,10 @@
 
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
 
+/** A removed member opened a new invitation to the section it was removed from (MVP 0.3 rejoin). */
+export const REMOVED_REJOIN =
+  "You were removed from this section. Rejoining a section you were removed from isn't supported yet; your local copy stays on this device.";
+
 const WIRE: Readonly<Record<string, string>> = {
   PROTOCOL_UNSUPPORTED: "The server does not speak a compatible version of LFCP.",
   MALFORMED_MESSAGE: "The server rejected a malformed request. Update the plugin and try again.",
