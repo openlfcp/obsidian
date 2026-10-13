@@ -182,6 +182,54 @@ describe("creating a shared section", () => {
     expect(pass.sections.flatMap((x) => x.entries)).toEqual([]);
   });
 
+  it("hands over the note as bound; a seed-only pass on it never touches a section with a base", async () => {
+    const env = await setup();
+    const bound: { path: string; text: string }[] = [];
+    const creation = new SectionCreation({
+      ...env.deps,
+      bound: (path, text) => bound.push({ path, text }),
+    });
+    const entry = await creation.prepare("Launch.md", NOTE, env.preview());
+    expect((await creation.run(entry)).kind).toBe("hosted");
+    const md = env.files.get("Launch.md") as string;
+    expect(bound).toEqual([{ path: "Launch.md", text: md }]);
+    const bases = new KeyValueSectionBaseStore(env.r.localState);
+    const engine = new SectionEngine({
+      port: env.port,
+      journal: new KeyValueSectionJournalStore(env.r.localState),
+      bases,
+      newNodeId: env.deps.newNodeId,
+      newOperationId: env.deps.newOperationId,
+      createdBy: env.deps.createdBy,
+      newProjectionId: () => "projection",
+      tasks: () => undefined,
+      newTask: env.deps.newTask,
+    });
+    const ctx = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
+    // Seed-only on the bound text: the first base.
+    const seed = await engine.pass("Launch.md", md, { ...ctx, seedOnly: true });
+    expect(seed.changes).toEqual([]);
+    await engine.written(seed, md);
+    const [projection] = await bases.projectionsOf("Launch.md");
+    expect(projection).toBeDefined();
+    // The user's edit, sent.
+    const edited = md.replace("Draft the plan.", "Draft the plan, v2.");
+    const sent = await engine.pass("Launch.md", edited, ctx);
+    expect(sent.sections[0]?.local?.kind).toBe("committed");
+    await engine.written(sent, edited);
+    const stored = await bases.load(projection as string);
+    // A seed-only pass on the older bound text now does nothing: no base, no
+    // commit, the stored base and the model as they were (never a revert).
+    const late = await engine.pass("Launch.md", md, { ...ctx, seedOnly: true });
+    expect(late.changes).toEqual([]);
+    expect(late.sections.map((x) => [x.base, x.entries.length, x.local?.kind])).toEqual([
+      [undefined, 0, undefined],
+    ]);
+    expect(await bases.load(projection as string)).toEqual(stored);
+    const snap = env.port.snapshot(entry.resource, entry.sectionId);
+    expect(Object.values(snap?.nodes ?? {}).map((x) => x.text)).toContain("Draft the plan, v2.");
+  });
+
   it("resumes after a crash at every phase with the same Resource and operation", async () => {
     const env = await setup();
     const first = new SectionCreation(env.deps);

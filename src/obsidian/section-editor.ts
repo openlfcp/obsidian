@@ -292,6 +292,8 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   readonly extension: Extension;
   /** The shared state of a note's sections changed (`content`: a closed note's file as just read). */
   remoteChanged(path: string, content?: string): void;
+  /** A share bound `path` as `text`: its next pass seeds the section's first base from that text. */
+  seed(path: string, text: string): void;
   /** A note's file changed on disk (reconciled when the note is closed). */
   fileChanged(path: string, content: string): void;
   renamed(oldPath: string, newPath: string): void;
@@ -438,9 +440,25 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       coordinator.remoteChanged(path);
     }
   };
+  /** The text a share bound, per note: the next pass seeds the first base from it (seed()). */
+  const seeds = new Map<string, string>();
   const reconcile = async (req: PassRequest): Promise<void> => {
     const engine = o.engine();
     if (engine === null) return;
+    // A share just bound this note: its first base comes from the text as
+    // bound, whatever the user typed or composed since (a pass on that is
+    // deferred while composing, and planned on a note unlike the model).
+    const bound = seeds.get(req.path);
+    if (bound !== undefined) {
+      seeds.delete(req.path);
+      const seeding = await engine.pass(req.path, bound, {
+        caretLine: null,
+        deletedIds: new Set(),
+        origin: "other",
+        seedOnly: true,
+      });
+      await keepBases(engine, seeding, bound);
+    }
     if (req.route === "file") return reconcileFile(req, engine);
     const open = viewOf(req.path);
     if (open === undefined) return;
@@ -774,15 +792,22 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   return {
     extension: [plugin, events, enter, pasted, lineMoves, wholeBindings, bindingJoins],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
+    seed: (path, text) => {
+      seeds.set(path, text);
+    },
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
     renamed: (oldPath, newPath) => {
       pending.rename(oldPath, newPath);
       sessionCut.renamed(oldPath, newPath);
+      const bound = seeds.get(oldPath);
+      seeds.delete(oldPath);
+      if (bound !== undefined) seeds.set(newPath, bound);
       coordinator.renamed(oldPath, newPath);
     },
     deleted: (path) => {
       pending.take(path);
       sessionCut.deleted(path);
+      seeds.delete(path);
       coordinator.deleted(path);
     },
     views,

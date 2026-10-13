@@ -124,6 +124,13 @@ export interface PassContext {
    */
   readonly isCurrent?: (revision: string) => boolean | Promise<boolean>;
   /**
+   * Only seed a first base from this source, the text a share just bound
+   * (section-editor seed): a section with a base is left alone (a pass
+   * planned on that older text would take the user's newer edits back), and
+   * one whose note is not the model's keeps nothing.
+   */
+  readonly seedOnly?: boolean;
+  /**
    * An external plugin edit since the last pass (a transaction without an
    * editor userEvent): a recurring Task's next occurrence may carry a copied
    * ref (MS43, recurrence.ts).
@@ -692,6 +699,8 @@ export class SectionEngine {
     const locator = { path, section: ref };
     const stored = await this.deps.bases.load(projectionId);
     const shared = sharedState(snap);
+    if (ctx.seedOnly === true && stored !== undefined)
+      return { result: { projectionId, section: ref, ...none }, changes: [] };
     if (stored === undefined) {
       // MS11, CM11: only a note that already shows the model seeds a base.
       // Otherwise its bindings are recovered but no causal base is guessed:
@@ -700,6 +709,8 @@ export class SectionEngine {
       const note = markdownState(source, section);
       const candidateId = `base-unknown:${projectionId}`;
       if (note.unbound.length > 0 || !sameState(note.state, shared)) {
+        if (ctx.seedOnly === true)
+          return { result: { projectionId, section: ref, ...none }, changes: [] };
         const lines = splitLines(source);
         await this.deps.journal.putCandidate({
           candidateId,

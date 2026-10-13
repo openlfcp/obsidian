@@ -130,6 +130,12 @@ export interface CreationDeps {
   readonly newOperationId: () => string;
   readonly newTask: (lineText: string, id: string) => NewSectionTask;
   readonly refPlacement?: () => RefPlacement;
+  /**
+   * The note as the creation bound it (its markers and refs written): the
+   * text the section's first base is seeded from. Typing that began before
+   * the first pass otherwise left the section without a base.
+   */
+  readonly bound?: (path: string, text: string) => void;
 }
 
 export type CreationResult =
@@ -470,6 +476,7 @@ export class SectionCreation {
     const ref: SectionRef = { resourceId: fromBase64url(e.resource), sectionId: e.sectionId };
     let bound = false;
     let written: string | undefined;
+    let boundText: string | undefined;
     await this.deps.edit(e.path, (current) => {
       // Already bound: the note was written, the journal not (a crash in between).
       if (parseSections(current).sections.some((s) => s.ref.sectionId === e.sectionId)) {
@@ -478,6 +485,7 @@ export class SectionCreation {
       }
       const changes = this.#changes(current, e, ref);
       bound = changes !== null;
+      if (changes !== null) boundText = applyChanges(current, changes);
       if (changes !== null && e.legacy !== undefined) {
         const out = applyChanges(current, changes);
         const s = parseSections(out).sections.find((x) => x.ref.sectionId === e.sectionId);
@@ -491,6 +499,7 @@ export class SectionCreation {
       }
       return changes;
     });
+    if (bound && boundText !== undefined) this.deps.bound?.(e.path, boundText);
     if (bound && written !== undefined && e.legacy !== undefined) {
       const withWritten: CreationEntry = { ...e, legacy: { ...e.legacy, written } };
       await this.#save(withWritten);

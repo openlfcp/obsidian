@@ -130,6 +130,46 @@ describe("a seeding pass while the user's edit lands", () => {
       view.destroy();
     });
 
+  it("typing that began before any pass: the text the share bound seeds the base", async () => {
+    const { a, b } = await twoVaults(BODY);
+    await forgetBases(b);
+    const passes: NotePass[] = [];
+    const timer = {
+      set: (fn: () => void) => setTimeout(fn, 0),
+      clear: (h: unknown) => clearTimeout(h as number),
+    };
+    const editor = sectionEditorExtension({
+      engine: () => b.engine,
+      timer,
+      onPass: (_p, p) => passes.push(p),
+    });
+    const view = new EditorView({
+      doc: b.note(),
+      extensions: [
+        editor.extension,
+        editorInfoField.init(() => ({ file: { path: PATH } }) as never),
+      ],
+    });
+    // The share bound the note; a composition opens and its text lands
+    // before the first pass runs.
+    editor.seed(PATH, b.note());
+    view.contentDOM.dispatchEvent(new Event("compositionstart"));
+    const at = view.state.doc.toString().indexOf("Alpha") + "Alpha".length;
+    view.dispatch({ changes: { from: at, insert: " 日本" }, userEvent: "input.type.compose" });
+    const typed = view.state.doc.toString();
+    editor.remoteChanged(PATH);
+    await settle();
+    // Seeded from the bound text while the composition is open; the note as typed.
+    expect(await hasBase(b)).toBe(true);
+    expect(view.state.doc.toString()).toBe(typed);
+    view.contentDOM.dispatchEvent(new Event("compositionend"));
+    await settle();
+    expect(passes.at(-1)?.sections[0]?.local?.kind).toBe("committed");
+    await reconnect(a, b);
+    expect(a.note()).toContain("- [ ] Alpha 日本");
+    view.destroy();
+  });
+
   it("a closed note's file rewritten between the pass's read and its write: the same", async () => {
     const { a, b } = await twoVaults(BODY);
     await forgetBases(b);

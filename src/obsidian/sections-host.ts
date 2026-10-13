@@ -498,6 +498,7 @@ export class SectionsHost {
       },
       port,
       edit: (path, fn) => this.#edit(path, fn),
+      bound: (path, text) => this.editor.seed(path, text),
       journal: runtime.localState,
       createdBy: principal,
       server: this.server,
