@@ -20,9 +20,14 @@ About. Update Obsidian first if it is older.
 2. Click "Browse" and search for **Shared Tasks**.
 3. Click **Install**, then **Enable**.
 
-Obsidian updates the plugin like any other community plugin. To try
-pre-release builds with BRAT, or to install by hand, see the
-[README](../../README.md#install).
+Obsidian updates the plugin like any other community plugin.
+
+To test a **pre-release** build with BRAT: install BRAT from Community
+plugins, run "BRAT: Add a beta plugin for testing" with `openlfcp/obsidian`,
+and choose **Latest version**. A specific version stays pinned and BRAT never
+updates it, so later betas would not reach you; "Latest version" keeps the
+build current. Settings → Community plugins then lists the beta version. To
+install by hand instead, see the [README](../../README.md#install).
 
 ### 3. Check that it is ready
 
@@ -144,7 +149,7 @@ One notice says how many tasks were shared. Each task is shared on its
 own. Tasks that are already shared are skipped.
 
 To share a section as a whole, with its order, nesting and text, see
-[Shared sections (preview)](shared-sections.md).
+[Shared sections](shared-sections.md).
 
 ### Insert everything on the other side
 
@@ -228,10 +233,12 @@ Security problems go to **security@openlfcp.org**, never a public issue.
 - This is beta software. **Don't use it yet for data you need to protect.**
 - Keep your vault. It holds the full data of every collaboration, and the
   public server can lose recent changes.
-- Members can't be removed from inside Obsidian yet. A collaboration
-  can't move to another server.
+- Removing someone's access is available for shared sections (see
+  [Shared sections](shared-sections.md)); a task-only collaboration can't
+  remove a member yet. A collaboration can't move to another server.
 - Recurring tasks (`🔁`) are shared without their recurrence.
-- Mobile is not tested yet.
+- On mobile, shared sections are read-only: they arrive and are shown, and
+  edits made there stay on the device.
 
 Everything else, including what the server can see, is in the
 [README](../../README.md).
