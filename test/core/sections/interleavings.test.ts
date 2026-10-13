@@ -27,6 +27,7 @@
 // the end the model and the peer have it too. The PR run uses 40 seeds;
 // LFCP_PROPERTY_SEEDS=500 runs more.
 
+import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { applyChanges } from "../../../src/core/sections/engine";
 import {
@@ -34,6 +35,7 @@ import {
   moveNodeLines,
   pasteOnOwnLines,
 } from "../../../src/core/sections/line-moves";
+import { editHints, pluginEdit } from "../../../src/obsidian/section-editor";
 import {
   lines,
   placementConflict,
@@ -46,7 +48,7 @@ const SEEDS = Number(process.env.LFCP_PROPERTY_SEEDS ?? 40);
 /** Concurrent moves of the same node checked, over all seeds: the invariant must be exercised. */
 let concurrentMoves = 0;
 /** The editor's other moves run, over all seeds: each must be exercised. */
-const gestures = { "move line": 0, drop: 0, "glued paste": 0, indent: 0 };
+const gestures = { "move line": 0, drop: 0, "glued paste": 0, indent: 0, "non-user": 0 };
 const BODY = ["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma", "", "Clean paragraph."];
 const WORDS = ["draft", "テスト", "仕事", "plan", "かみ", "x"];
 const ctx = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
@@ -187,6 +189,32 @@ async function run(seed: number) {
     inserted = new Set();
     return h;
   };
+  /** Alpha moved in A (to place `pa`) and in B (to `pb`) while offline, then the network back. */
+  const bothMoveAlpha = async (pa: number, pb: number) => {
+    const id = new Set([alphaId()]);
+    md = moveAlpha(md, pa);
+    for (const i of id) {
+      deletedIds.add(i);
+      inserted.add(i);
+    }
+    cutIds = id;
+    await passA("written", r() < 0.2);
+    await b.pass(moveAlpha(b.note(), pb), { deletedIds: id, cut: id, inserted: id });
+    await online();
+    expect(ownTasks(md)).toEqual(titles);
+  };
+  /** An edit that is not the user's, as `kind` marks it: its hints go through the editor's own rule. */
+  const nonUser = (next: string, kind: "set" | "plugin" | "none") => {
+    const tr = EditorState.create({ doc: md }).update({
+      changes: { from: 0, to: md.length, insert: next },
+      ...(kind === "set" ? { userEvent: "set" } : {}),
+      ...(kind === "plugin" ? { annotations: pluginEdit.of(true) } : {}),
+    });
+    const h = editHints(tr);
+    for (const id of h.removed) deletedIds.add(id);
+    for (const id of h.inserted) inserted.add(id);
+    md = next;
+  };
   const unspent = (h: { deletedIds: Set<string>; inserted: Set<string> }) => {
     for (const id of h.deletedIds) deletedIds.add(id);
     for (const id of h.inserted) inserted.add(id);
@@ -325,9 +353,31 @@ async function run(seed: number) {
             ? para.slice(0, Math.max(0, para.length - 1 - Math.floor(r() * 3)))
             : `Clean paragraph. ${pick(WORDS)}`;
       md = setParagraph(md, para);
-    } else if (x < 0.74) {
+    } else if (x < 0.7) {
       await tick(a, Math.floor(r() * 2500));
       continue;
+    } else if (x < 0.74) {
+      // Not the user's (the owner's trace of 0.4.0-beta.10): the note
+      // reloaded from disk, the plugin's own edit, another plugin's rewrite of
+      // the whole note, or Obsidian (or the Tasks plugin) checking "Beta"
+      // with its ✅ date and unchecking it. Hints as the editor collects them.
+      const y = r();
+      if (y < 0.6) {
+        nonUser(md, y < 0.2 ? "set" : y < 0.4 ? "plugin" : "none");
+        trace("non-user rewrite");
+        gestures["non-user"]++;
+        // The note is what was last reconciled: no pass runs (the coordinator
+        // skips it); whatever was noted waits for the next one, here often
+        // the user's move of Alpha one place (the owner's step 6) against B's.
+        if (r() < 0.5) await bothMoveAlpha(r() < 0.7 ? 1 : Math.floor(r() * 3), r() < 0.5 ? 2 : 0);
+        continue;
+      } else {
+        nonUser(md.replace(/^- \[ \] Beta$/m, "- [x] Beta ✅ 2026-10-13"), "none");
+        await passA(mode(), r() < 0.2);
+        nonUser(md.replace(/^- \[x\] Beta ✅ 2026-10-13$/m, "- [ ] Beta"), "none");
+        trace("non-user checkbox");
+      }
+      gestures["non-user"]++;
     } else if (x < 0.8) {
       // A composition: edits without a pass until its end.
       const k = titles.length - 1;
@@ -347,17 +397,7 @@ async function run(seed: number) {
       // or in both while offline (A's move saved, then the network back).
       const id = new Set([alphaId()]);
       if (r() < 0.6) {
-        md = moveAlpha(md, Math.floor(r() * 3));
-        for (const i of id) deletedIds.add(i), inserted.add(i);
-        cutIds = id;
-        await passA("written", r() < 0.2);
-        await b.pass(moveAlpha(b.note(), Math.floor(r() * 3)), {
-          deletedIds: id,
-          cut: id,
-          inserted: id,
-        });
-        await online();
-        expect(ownTasks(md)).toEqual(titles);
+        await bothMoveAlpha(Math.floor(r() * 3), Math.floor(r() * 3));
         continue;
       }
       const v = r() < 0.5 ? a : b;
