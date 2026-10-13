@@ -30,6 +30,12 @@ import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
 import { SectionCreation } from "../../../src/core/sections/create";
 import { applyChanges, SectionEngine } from "../../../src/core/sections/engine";
 import { type InsertPreview, SectionInsertion } from "../../../src/core/sections/insert";
+import {
+  applyRecovery,
+  type RecoveryChoice,
+  type RecoveryItem,
+  recoveryItems,
+} from "../../../src/core/sections/recovery";
 import { preflight, proposeRange } from "../../../src/core/sections/share";
 import {
   KeyValueSectionBaseStore,
@@ -248,12 +254,19 @@ export async function peer(
   // After a restart (from): own units already quarantined are re-applied.
   for (const entry of await runtime.registry())
     await stale.scan(toBase64url(entry.resourceId)).catch(() => undefined);
-  /** One engine pass over a note, written as the plugin writes it. */
-  const pass = async (path: string, caretLine: number | null = null) => {
+  /**
+   * One engine pass over a note, written as the plugin writes it. `deleted`:
+   * bound nodes the edit removed with their bindings (the editor's deletion).
+   */
+  const pass = async (
+    path: string,
+    caretLine: number | null = null,
+    deleted: readonly string[] = [],
+  ) => {
     const md = files.get(path) as string;
     const p = await engine.pass(path, md, {
       caretLine,
-      deletedIds: new Set<string>(),
+      deletedIds: new Set<string>(deleted),
       origin: "other",
     });
     const out = applyChanges(md, p.changes);
@@ -287,9 +300,26 @@ export async function peer(
     await pass(path);
     return { resource: R, sectionId: sectionId as string };
   };
+  /** Review conflicts of a section, as the host lists the model's (recovery.ts). */
+  const review = (R: ResourceId, sectionId: string): RecoveryItem[] => {
+    const m = port.recoveryModel(toBase64url(R), sectionId);
+    return m === undefined ? [] : recoveryItems(m);
+  };
+  /** A choice in Review conflicts, applied as the host applies it (alone, as a pass). */
+  const resolve = (R: ResourceId, sectionId: string, key: string, choice: RecoveryChoice) => {
+    const item = review(R, sectionId).find((i) => i.key === key);
+    if (item === undefined)
+      return Promise.resolve({ applied: false, note: "gone", items: [] as RecoveryItem[] });
+    const r = toBase64url(R);
+    return port.exclusive(r, () =>
+      applyRecovery(port, r, sectionId, item, choice, crypto.randomUUID()),
+    );
+  };
   return {
     runtime,
     collab,
+    review,
+    resolve,
     port,
     engine,
     files,
