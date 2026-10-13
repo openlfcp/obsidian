@@ -443,9 +443,10 @@ async function run(seed: number) {
       await online();
     }
   }
-  // Settle: clipboards pasted at the end, the note open again, the network back.
+  // Settle: clipboards pasted at the end (unless their Task came back
+  // meanwhile, as in a gesture), the note open again, the network back.
   for (const s of [A, B])
-    if (s.clip !== null) {
+    if (s.clip !== null && !idsIn(s.clip).some((id) => s.md.includes(id))) {
       const L = lines(s.md);
       const tasks = L.flatMap((l, i) => (TASK.test(l) && !/^\s/.test(l) ? [i] : []));
       L.splice(blockAt(L, tasks.at(-1) ?? 0)[1], 0, ...s.clip);
