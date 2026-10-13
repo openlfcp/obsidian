@@ -141,6 +141,42 @@ export function editHints(tr: Transaction): {
   };
 }
 
+/** Hints kept per note for its next pass, when the view that noted them is gone. */
+export class PendingHints {
+  readonly #byPath = new Map<string, { deletedIds: Set<string>; inserted: Set<string> }>();
+
+  add(
+    path: string,
+    hints: { readonly deletedIds: ReadonlySet<string>; readonly inserted: ReadonlySet<string> },
+  ): void {
+    if (hints.deletedIds.size === 0 && hints.inserted.size === 0) return;
+    const h = this.#byPath.get(path) ?? {
+      deletedIds: new Set<string>(),
+      inserted: new Set<string>(),
+    };
+    for (const id of hints.deletedIds) h.deletedIds.add(id);
+    for (const id of hints.inserted) h.inserted.add(id);
+    this.#byPath.set(path, h);
+  }
+
+  /** The hints kept for `path`, taken (none afterwards). */
+  take(path: string): { deletedIds: Set<string>; inserted: Set<string> } {
+    const h = this.#byPath.get(path) ?? {
+      deletedIds: new Set<string>(),
+      inserted: new Set<string>(),
+    };
+    this.#byPath.delete(path);
+    return h;
+  }
+
+  rename(oldPath: string, newPath: string): void {
+    const h = this.#byPath.get(oldPath);
+    if (h === undefined) return;
+    this.#byPath.delete(oldPath);
+    this.add(newPath, h);
+  }
+}
+
 /**
  * The hints a pass of `source` gets: a node noted as removed that the note
  * still binds, and that was not pasted, was put back (undone, typed back):
@@ -230,9 +266,21 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   const status = (path: string, s: EditorSyncStatus) => o.onStatus?.(path, s);
 
   /** The hints every view of `path` collected for the next pass; they are taken (the views start afresh). */
+  /**
+   * Hints of views that closed, or turned to another note, before their pass
+   * ran: the note's next pass takes them, a closed note's (the file route)
+   * too. Else a Task line deleted just before the tab closed was a lost
+   * binding, held, not a deletion (the peer-structure property test, seed 78).
+   */
+  const pending = new PendingHints();
+  const leave = (st: ViewState) => {
+    if (st.path === null) return;
+    pending.add(st.path, st);
+    st.deletedIds = new Set();
+    st.inserted = new Set();
+  };
   const takeHints = (path: string): { deletedIds: Set<string>; inserted: Set<string> } => {
-    const deletedIds = new Set<string>();
-    const inserted = new Set<string>();
+    const { deletedIds, inserted } = pending.take(path);
     for (const st of views.values()) {
       if (st.path !== path) continue;
       for (const id of st.deletedIds) deletedIds.add(id);
@@ -254,10 +302,13 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   const reconcileFile = async (req: PassRequest, engine: SectionEngine): Promise<void> => {
     if (o.files === undefined) return;
     status(req.path, "reconciling");
+    const hints = freshHints(takeHints(req.path), req.source);
     const ctx: PassContext = {
       caretLine: null,
-      deletedIds: new Set(),
+      deletedIds: hints.deletedIds,
+      inserted: hints.inserted,
       origin: "other",
+      cut,
       ...(o.restore === undefined ? {} : { restore: o.restore() }),
     };
     const pass = await engine.pass(req.path, req.source, ctx);
@@ -268,6 +319,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     });
     if (written === null || contentHash(current) !== pass.sourceRevision) {
       engine.abandoned(pass);
+      pending.add(req.path, hints);
       if (written !== null) coordinator.fileChanged(req.path, current);
       return;
     }
@@ -379,6 +431,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     #follow(): void {
       const path = pathOf(this.view);
       if (path === this.st.path) return;
+      leave(this.st);
       if (this.st.path !== null) coordinator.closed(this.st.path, this.st.id);
       this.st.path = path;
       if (path !== null) coordinator.opened(path, this.st.id, this.view.state.doc.toString());
@@ -407,6 +460,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
 
     destroy(): void {
       this.st.scheduler.dispose();
+      leave(this.st);
       if (this.st.path !== null) coordinator.closed(this.st.path, this.st.id);
       views.delete(this.view);
     }
@@ -605,8 +659,14 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     extension: [plugin, events, enter, pasted, lineMoves, wholeBindings, bindingJoins],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
-    renamed: (oldPath, newPath) => coordinator.renamed(oldPath, newPath),
-    deleted: (path) => coordinator.deleted(path),
+    renamed: (oldPath, newPath) => {
+      pending.rename(oldPath, newPath);
+      coordinator.renamed(oldPath, newPath);
+    },
+    deleted: (path) => {
+      pending.take(path);
+      coordinator.deleted(path);
+    },
     views,
   };
 }

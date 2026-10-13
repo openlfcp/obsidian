@@ -8,7 +8,7 @@
 
 import { EditorSelection, EditorState, type Transaction } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import { editHints, freshHints, pluginEdit } from "../../src/obsidian/section-editor";
+import { editHints, freshHints, PendingHints, pluginEdit } from "../../src/obsidian/section-editor";
 import {
   block,
   lines,
@@ -166,5 +166,44 @@ describe("edits without a userEvent still sync as edits", () => {
     const r = await a.pass(tr.state.doc.toString(), {});
     expect(r?.lost).toContain(beta);
     expect(a.model()?.nodes[beta]?.lifecycle).toBe("active");
+  });
+});
+
+describe("hints of a view that closed before its pass (the peer-structure property test, seed 78)", () => {
+  it("go to the note's next pass, a closed note's too, once; a rename takes them along", () => {
+    const p = new PendingHints();
+    p.add("Plan.md", { deletedIds: new Set(["t1"]), inserted: new Set<string>() });
+    p.add("Plan.md", { deletedIds: new Set<string>(), inserted: new Set(["t2"]) });
+    p.add("Other.md", { deletedIds: new Set<string>(), inserted: new Set<string>() });
+    p.rename("Plan.md", "Renamed.md");
+    expect(p.take("Plan.md")).toEqual({ deletedIds: new Set(), inserted: new Set() });
+    expect(p.take("Renamed.md")).toEqual({
+      deletedIds: new Set(["t1"]),
+      inserted: new Set(["t2"]),
+    });
+    expect(p.take("Renamed.md")).toEqual({ deletedIds: new Set(), inserted: new Set() });
+  });
+
+  it("a Task line deleted just before the note closed is a deletion in its closed pass, not a lost binding", async () => {
+    const { a } = await twoVaults(BODY);
+    const md = a.note();
+    const beta = taskId(md, "Beta");
+    const [from, to] = block(md, "Beta");
+    const L = lines(md);
+    L.splice(from, to - from);
+    // The view noted the removal, then closed: its hints wait for the note's pass.
+    const p = new PendingHints();
+    p.add("Plan.md", { deletedIds: new Set([beta]), inserted: new Set<string>() });
+    const without = L.join("\n");
+    const r = await a.pass(without, freshHints(p.take("Plan.md"), without));
+    expect(r?.lost ?? []).toEqual([]);
+    expect(a.model()?.nodes[beta]?.lifecycle).toBe("deleted");
+    // Without them, as before: a lost binding, the copy held.
+    const { a: other } = await twoVaults(BODY);
+    const r2 = await other.pass(
+      without.replace(/[\s\S]*/, (x) => x),
+      {},
+    );
+    expect(r2?.lost.length ?? 0).toBeGreaterThan(0);
   });
 });
