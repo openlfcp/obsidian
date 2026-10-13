@@ -17,12 +17,14 @@
 // with LFCP_PROPERTY_FROM.
 
 import { describe, expect, it } from "vitest";
+import { markdownState } from "../../../src/core/sections/base";
 import { applyChanges } from "../../../src/core/sections/engine";
 import {
   indentWithNode,
   moveNodeLines,
   pasteOnOwnLines,
 } from "../../../src/core/sections/line-moves";
+import { parseSections } from "../../../src/core/sections/parser";
 import type { RecoveryChoice, RecoveryItem } from "../../../src/core/sections/recovery";
 import { freshHints } from "../../../src/obsidian/section-editor";
 import { lines, twoVaults, type Vault } from "../../support/section-vaults";
@@ -107,6 +109,18 @@ function modelTitles(m: Model, shown: readonly { title: string; id: string }[]):
   };
   walk("");
   return out;
+}
+
+/**
+ * Each node's parent as the note shows it (the section parser's): the
+ * nesting a flat list of titles does not see (a Task nested under the wrong
+ * one reads the same in order; the owner's check of 0.4.0-beta.14 step 4).
+ */
+function noteParents(md: string): Map<string, string | null> {
+  const section = parseSections(md).sections[0];
+  if (section === undefined) return new Map();
+  const { state } = markdownState(md, section);
+  return new Map(Object.entries(state.nodes).map(([id, n]) => [id, n.parent]));
 }
 
 /** What is wrong with a note's section, or null (the damage checks). */
@@ -402,6 +416,19 @@ async function run(seed: number) {
         shown.filter((t) => visible.has(t.id)).map((t) => t.title),
         fail(`${s.name}'s note against the model`),
       ).toEqual(shown.filter((t) => visible.has(t.id)).length === 0 ? [] : modelTitles(am, shown));
+      // And nested as the model nests them: every Task both show has the
+      // model's parent in the note.
+      const parents = noteParents(s.md);
+      const nesting = shown
+        .filter((t) => visible.has(t.id))
+        .flatMap((t) => {
+          const want = am?.nodes[t.id]?.parent ?? null;
+          const got = parents.get(t.id);
+          return got === want
+            ? []
+            : [`${t.title}: note ${got?.slice(-3)}, model ${want?.slice(-3)}`];
+        });
+      expect(nesting, fail(`${s.name}'s nesting against the model`)).toEqual([]);
       const kept = shown.filter((t) => !visible.has(t.id));
       if (kept.length > 0)
         // As the host lists them (sections-host.ts): the model's items and
