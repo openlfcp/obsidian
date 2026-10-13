@@ -228,12 +228,13 @@ export async function shareAndJoin(b, file, heading, text, source = false) {
       for (let i = 0; i < 40 && view.editor.getValue() !== text; i++) await new Promise((r) => setTimeout(r, 50));
       view.editor.setCursor({ line: 0, ch: 0 });
       app.commands.executeCommandById("shared-tasks:share-section");
-      let modal = null;
-      for (let i = 0; i < 80 && modal === null; i++) {
+      // The Share section modal (another modal may still be open).
+      let share;
+      for (let i = 0; i < 80 && share === undefined; i++) {
         await new Promise((r) => setTimeout(r, 50));
-        modal = document.querySelector(".modal-container .modal");
+        share = [...document.querySelectorAll(".modal-container .modal button")].find((x) => x.textContent === "Share");
       }
-      [...modal.querySelectorAll("button")].find((x) => x.textContent === "Share").click();
+      share.click();
     },
     file,
     text,
