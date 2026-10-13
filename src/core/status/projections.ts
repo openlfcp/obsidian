@@ -37,6 +37,8 @@ export function projectionFact(r: SectionResult): {
   if (r.local?.kind === "kept") return { facts: fact("diverged", "blocked"), failed };
   // A node deleted in the model shows in the note: restore it or remove it (Review conflicts).
   if ((r.reappeared?.length ?? 0) > 0) return { facts: fact("diverged", "current"), failed };
+  // The note's tree is not the model's: never current (a silent divergence).
+  if ((r.diverged?.length ?? 0) > 0) return { facts: fact("diverged", "current"), failed };
   if (r.held.length > 0) return { facts: fact("clean", "patch-pending"), failed };
   return { facts: fact("clean", "current"), failed };
 }

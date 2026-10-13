@@ -396,9 +396,28 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     sessionCut.restored(restoredBy(pass));
     coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
+    again(req.path, pass);
     status(req.path, "idle");
   };
 
+  /**
+   * A written pass whose note is not the model's tree (a placement it
+   * deferred, SectionResult.diverged) runs once more: the next pass usually
+   * places it. The same divergence after that is left for the badge to show
+   * ("differs from the shared version"), never a loop.
+   */
+  const retried = new Map<string, string>();
+  const again = (path: string, pass: NotePass) => {
+    const ids = pass.sections
+      .flatMap((s) => s.diverged ?? [])
+      .sort()
+      .join(",");
+    if (ids === "") retried.delete(path);
+    else if (retried.get(path) !== ids) {
+      retried.set(path, ids);
+      coordinator.remoteChanged(path);
+    }
+  };
   const reconcile = async (req: PassRequest): Promise<void> => {
     const engine = o.engine();
     if (engine === null) return;
@@ -463,6 +482,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     sessionCut.restored(restoredBy(pass));
     coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
+    again(req.path, pass);
     status(req.path, st.scheduler.dirty ? "edited" : "idle");
   };
 

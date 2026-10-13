@@ -316,6 +316,44 @@ export function unprojected(
 }
 
 /**
+ * Nodes the note shows elsewhere than the model, after a pass: under another
+ * parent, or out of the model's order among the siblings both show. A pass
+ * that leaves the note so says it (SectionResult.diverged): the badge is
+ * never CURRENT over a note whose tree is not the model's (the owner's check
+ * of 0.4.0-beta.14 step 4: both badges CURRENT, the trees different).
+ * Nodes in `skip` (their placement waits for the user's edit, or a frozen
+ * section) are left out; so are nodes the model hides.
+ */
+export function misplaced(
+  note: SectionState,
+  model: SectionSnapshot,
+  skip: ReadonlySet<string>,
+): string[] {
+  const out = new Set<string>();
+  const shown = (id: string) => {
+    const m = model.nodes[id];
+    const n = note.nodes[id];
+    return (
+      !skip.has(id) &&
+      n !== undefined &&
+      m !== undefined &&
+      m.lifecycle === "active" &&
+      m.hidden !== true
+    );
+  };
+  for (const id of Object.keys(note.nodes))
+    if (shown(id) && note.nodes[id]?.parent !== model.nodes[id]?.parent) out.add(id);
+  for (const [key, kids] of Object.entries(model.order)) {
+    const both = (id: string) => shown(id) && !out.has(id);
+    const want = kids.filter(both);
+    const got = (note.order[key] ?? []).filter((id) => want.includes(id));
+    const keep = new Set(longestCommonSubsequence(got, want));
+    for (const id of want) if (!keep.has(id)) out.add(id);
+  }
+  return [...out].sort();
+}
+
+/**
  * The note with the patch applied, or null (stale) when the note is no longer
  * the revision the patch was computed for: the caller plans again from the
  * current note (§7.6), never shifts the old offsets.

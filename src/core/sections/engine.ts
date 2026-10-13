@@ -55,7 +55,7 @@ import { bindingChanges, type NewBinding } from "./markers";
 import { type ParsedSection, parseSections, type SectionNode } from "./parser";
 import type { NewSectionTask, SectionIntent, SectionSnapshot } from "./port";
 import { recurringCopyRepair } from "./recurrence";
-import { modelTaskLine, planRemote, type RemotePlan } from "./remote";
+import { misplaced, modelTaskLine, planRemote, type RemotePlan } from "./remote";
 import { type DocChange, lineStarts } from "./source-map";
 import { planStructure, type StructurePlan } from "./structure";
 import { planTaskFields } from "./task-fields";
@@ -154,6 +154,11 @@ export interface SectionResult {
    * node or removes it from the note. Nothing is sent for it.
    */
   readonly reappeared?: readonly string[];
+  /**
+   * Nodes the written note shows elsewhere than the model (remote.ts
+   * misplaced): the projection is not current until a pass places them.
+   */
+  readonly diverged?: readonly string[];
   /** Text edits held because the node's base revision is unknown. */
   readonly held: readonly string[];
   /**
@@ -1231,6 +1236,21 @@ export class SectionEngine {
         base = { ...base, nodes };
       }
     }
+    // The note as written, against the model it was projected from: a node
+    // the model has elsewhere is a divergence the badge must show, unless its
+    // placement waits for the user's edit or a frozen section.
+    let diverged: string[] = [];
+    if (projected) {
+      const written = applyChanges(source, changes);
+      const sectionW = sectionLike(written, ref, section0);
+      const waiting = new Set(
+        (structure?.deferred ?? [])
+          .filter((d) => d.reason === "local-edit" || d.reason === "frozen")
+          .map((d) => d.nodeId),
+      );
+      if (sectionW !== undefined)
+        diverged = misplaced(markdownState(written, sectionW).state, after, waiting);
+    }
     const affected = new Set(local.kind === "committed" ? local.receipt.affectedNodeIds : []);
     const nodeRevisions: Record<string, string | null> = {};
     for (const [id, n] of Object.entries(base.nodes)) {
@@ -1259,6 +1279,7 @@ export class SectionEngine {
         ...(remote === undefined ? {} : { remote }),
         lost,
         ...(comp.unexplained.length > 0 ? { reappeared: comp.unexplained } : {}),
+        ...(diverged.length > 0 ? { diverged } : {}),
         held,
         entries,
         ...(structure === undefined ? {} : { structure }),
