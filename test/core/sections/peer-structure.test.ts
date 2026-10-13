@@ -245,7 +245,15 @@ async function run(seed: number) {
       const tasks = L.flatMap((l, i) => (TASK.test(l) && !/^\s/.test(l) ? [i] : []));
       const at = r() < 0.3 || tasks.length === 0 ? null : pick(tasks);
       const end = at ?? blockAt(L, tasks.at(-1) ?? 0)[1];
-      L.splice(end, 0, ...s.clip);
+      // At the top level, as the user means it: a Task cut from under
+      // another keeps its indentation in the clip, and pasted after a blank
+      // line that would be an indented code block, the Task gone (seed 655).
+      const lead = /^[ \t]*/.exec(s.clip[0] ?? "")?.[0] ?? "";
+      L.splice(
+        end,
+        0,
+        ...s.clip.map((l) => (l.startsWith(lead) ? l.slice(lead.length) : l.trimStart())),
+      );
       for (const id of idsIn(s.clip)) s.inserted.add(id);
       s.clip = null;
       s.md = L.join("\n");
