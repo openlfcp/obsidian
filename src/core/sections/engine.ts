@@ -890,6 +890,34 @@ export class SectionEngine {
       const text = snap.nodes[id]?.text;
       return text === undefined ? n : { ...n, text };
     };
+    // §6: a placement follows a visible child of its parent. A sibling the
+    // note still shows may be deleted in the model by now (a collaborator's
+    // deletion, the note's copy kept): the batch would be refused
+    // (INVALID_PREDECESSOR) on every pass. Each placement follows the
+    // nearest sibling before it that the model shows there, or that this
+    // batch places there itself (the peer-structure property test, seed 10).
+    const placedHere = new Set([...plan.moves.map((m) => m.nodeId), ...pasted, ...comp.restores]);
+    const anchor = (parent: string | null, after: string | null): string | null => {
+      if (after === null) return null;
+      const shown = (x: string) => {
+        const m = snap.nodes[x];
+        return (
+          placedHere.has(x) ||
+          (m !== undefined && m.lifecycle === "active" && m.hidden !== true && m.parent === parent)
+        );
+      };
+      if (shown(after)) return after;
+      const siblings = note.state.order[parent ?? ROOT] ?? [];
+      for (let i = siblings.indexOf(after) - 1; i >= 0; i--) {
+        const x = siblings[i] as string;
+        if (shown(x)) return x;
+      }
+      return null;
+    };
+    const anchored = <T extends { parent: string | null; after: string | null }>(m: T): T => ({
+      ...m,
+      after: anchor(m.parent, m.after),
+    });
     const local = await commitPass(this.deps, {
       projectionId,
       resource,
@@ -902,11 +930,11 @@ export class SectionEngine {
       plan: {
         ...plan,
         textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)),
-        moves: [...plan.moves, ...restoredMoves(note.state, pasted)],
+        moves: [...plan.moves, ...restoredMoves(note.state, pasted)].map(anchored),
       },
       deletes,
       restores: comp.restores,
-      creations,
+      creations: creations.map(anchored),
       newTask: (c, id) => this.deps.newTask(lineText0(c.line), id),
       taskIntents: fields.intents,
       lineOf: lineText0,
@@ -919,7 +947,7 @@ export class SectionEngine {
           const n = note.state.nodes[id];
           return n === undefined || n.parent === UNBOUND_PARENT
             ? []
-            : [[id, { node: n, after: predecessor(note.state, n.parent, id) }]];
+            : [[id, { node: n, after: anchor(n.parent, predecessor(note.state, n.parent, id)) }]];
         }),
       ),
     });
