@@ -22,7 +22,7 @@ import { contentHash } from "../projection/guard";
 import type { RenderTarget } from "../projection/render";
 import { splitLines } from "../refs/lines";
 import type { RefPlacement, SectionComments } from "../settings";
-import type { UnboundNode } from "./base";
+import type { SectionPlan, UnboundNode } from "./base";
 import {
   commentBlocks,
   markdownState,
@@ -972,7 +972,25 @@ export class SectionEngine {
     // (INVALID_PREDECESSOR) on every pass. Each placement follows the
     // nearest sibling before it that the model shows there, or that this
     // batch places there itself (the peer-structure property test, seed 10).
-    const placedHere = new Set([...plan.moves.map((m) => m.nodeId), ...pasted, ...comp.restores]);
+    // A node the model has under one deleted here, that the note shows
+    // elsewhere (a collaborator nested it there after this note's cut): the
+    // deletion does not take it along, hidden with nothing to review. It is
+    // placed where the note shows it (the peer-structure property test,
+    // seeds 406 and 598).
+    const freed: SectionPlan["moves"] = Object.entries(note.state.nodes).flatMap(([id, n]) => {
+      const m = snap.nodes[id];
+      if (m === undefined || m.lifecycle !== "active" || m.parent === null) return [];
+      if (!deletes.includes(m.parent) || deletes.includes(id)) return [];
+      if (n.parent === UNBOUND_PARENT || n.parent === m.parent) return [];
+      if (plan.moves.some((x) => x.nodeId === id)) return [];
+      return [{ nodeId: id, parent: n.parent, after: predecessor(note.state, n.parent, id) }];
+    });
+    const placedHere = new Set([
+      ...plan.moves.map((m) => m.nodeId),
+      ...freed.map((m) => m.nodeId),
+      ...pasted,
+      ...comp.restores,
+    ]);
     const anchor = (parent: string | null, after: string | null): string | null => {
       if (after === null) return null;
       const shown = (x: string) => {
@@ -1023,7 +1041,7 @@ export class SectionEngine {
       plan: {
         ...plan,
         textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)),
-        moves: [...plan.moves, ...restoredMoves(note.state, pasted)]
+        moves: [...plan.moves, ...freed, ...restoredMoves(note.state, pasted)]
           .filter(parentShown)
           .map(anchored),
       },
