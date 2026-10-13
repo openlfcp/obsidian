@@ -191,6 +191,10 @@ export class SectionsHost {
           const file = this.app.vault.getFileByPath(path);
           return file === null ? null : this.app.vault.process(file, fn);
         },
+        read: async (path) => {
+          const file = this.app.vault.getFileByPath(path);
+          return file === null ? null : this.app.vault.read(file);
+        },
       },
       // D1: a failing note says so once, until it passes again.
       onError: (path, error) => {

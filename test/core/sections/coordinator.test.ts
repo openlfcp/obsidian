@@ -173,3 +173,47 @@ describe("rename and deletion", () => {
     await h.c.whenIdle("a.md");
   });
 });
+
+describe("the text a pass wrote (the idle editor that reverted a collaborator's edit, 0.4.0-beta.13)", () => {
+  it("is the source of the next pass: a remote change is projected onto it, not onto the text before the write", async () => {
+    const h = harness();
+    h.c.opened("a.md", "view", "v1");
+    h.c.remoteChanged("a.md");
+    await h.c.whenIdle("a.md");
+    // The pass wrote the first remote change into the editor (no user transaction).
+    h.c.written("a.md", "v1 + remote 1");
+    h.c.remoteChanged("a.md");
+    await h.c.whenIdle("a.md");
+    expect(h.passes.map(brief)).toEqual([
+      ["a.md", "editor", "v1", "remote"],
+      ["a.md", "editor", "v1 + remote 1", "remote"],
+    ]);
+  });
+
+  it("is reconciled, also when written during the pass: the same text again runs no pass", async () => {
+    const h = harness();
+    h.c.opened("a.md", "view", "v1");
+    h.holdNext();
+    h.c.remoteChanged("a.md");
+    await Promise.resolve();
+    h.c.written("a.md", "v2");
+    h.release();
+    await h.c.whenIdle("a.md");
+    h.c.editorChanged("a.md", "v2");
+    await h.c.whenIdle("a.md");
+    expect(h.passes.map(brief)).toEqual([["a.md", "editor", "v1", "remote"]]);
+  });
+
+  it("of a closed note is its file source", async () => {
+    const h = harness();
+    h.c.fileChanged("a.md", "v1");
+    await h.c.whenIdle("a.md");
+    h.c.written("a.md", "v1 rewritten");
+    h.c.remoteChanged("a.md");
+    await h.c.whenIdle("a.md");
+    expect(h.passes.map(brief)).toEqual([
+      ["a.md", "file", "v1", "local"],
+      ["a.md", "file", "v1 rewritten", "remote"],
+    ]);
+  });
+});

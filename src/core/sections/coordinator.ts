@@ -44,6 +44,8 @@ interface NoteState {
   fileSource?: string;
   /** The hash of the source last reconciled (a pass completed on it). */
   reconciled?: string;
+  /** How many times a pass wrote the note (written()). */
+  writes?: number;
   running: boolean;
   dirty: Set<Trigger>;
 }
@@ -95,6 +97,23 @@ export class SourceCoordinator {
     const n = this.#note(path);
     n.editorSource = doc;
     this.#request(path, "local");
+  }
+
+  /**
+   * A pass wrote `doc` into the note (the editor's document after its
+   * write, or the file as rewritten): it is the note's source now, and
+   * reconciled. No pass is requested. Without this, the next pass would
+   * read the text from before the write and take the difference for the
+   * user's edit (the idle editor that reverted a collaborator's edit,
+   * 0.4.0-beta.13).
+   */
+  written(path: string, doc: string): void {
+    const n = this.#notes.get(path);
+    if (n === undefined) return;
+    if (n.views.size > 0) n.editorSource = doc;
+    else n.fileSource = doc;
+    n.reconciled = contentHash(doc);
+    n.writes = (n.writes ?? 0) + 1;
   }
 
   /**
@@ -171,8 +190,10 @@ export class SourceCoordinator {
         // The note may have been renamed while queued: use its current path.
         const at = this.#pathOf(n) ?? path;
         try {
+          const writes = n.writes;
           await this.reconcile({ path: at, ...current, triggers });
-          n.reconciled = hash;
+          // A pass that wrote said what it reconciled (written()).
+          if (n.writes === writes) n.reconciled = hash;
         } catch (error) {
           this.onError(at, error);
         }

@@ -7,6 +7,7 @@
 import { fromBase64url, principalId, resourceId } from "@openlfcp/core";
 import { complete, createTask, SharedObjectsReplica, type Task } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
+import { contentHash } from "../../../src/core/projection/guard";
 import { MemorySectionBaseStore, markdownState } from "../../../src/core/sections/base";
 import {
   applyChanges,
@@ -424,6 +425,67 @@ describe("a lost binding suspends the section (§7, MS18, MS21)", () => {
     const edited = note([BODY[0] as string, "Draft v2", "", "Notes"]);
     const { pass } = await h.run(edited);
     expect(pass.sections[0]?.lost).toEqual([Q]);
+    expect(h.port.changes).toEqual([]);
+  });
+});
+
+describe("an idle note gets remote changes in a row (0.4.0-beta.13: a collaborator's edit reverted)", () => {
+  const bob = (text: string) => (s: { state: ReturnType<typeof stateOf> }) => {
+    s.state = {
+      ...s.state,
+      nodes: { ...s.state.nodes, [Q]: { kind: "paragraph", parent: null, text } },
+    };
+  };
+
+  it("each pass on the note as written projects the change and commits nothing", async () => {
+    const h = await seeded();
+    let md = note(BODY);
+    for (const text of ["Notes from Bob", "Notes from Bob, again", "Notes, third"]) {
+      h.port.remote(R, bob(text));
+      const { out } = await h.run(md);
+      expect(out).toContain(text);
+      md = out;
+    }
+    expect(h.port.changes).toEqual([]);
+  });
+
+  it("a pass on the text from before the last write commits nothing: the source is stale", async () => {
+    const h = await seeded();
+    const before = note(BODY);
+    h.port.remote(R, bob("Notes from Bob"));
+    const { out } = await h.run(before);
+    h.port.remote(R, bob("Notes from Bob, again"));
+    const asked: string[] = [];
+    const pass = await h.engine.pass(PATH, before, {
+      ...CTX,
+      isCurrent: (revision) => {
+        asked.push(revision);
+        return revision === contentHash(out);
+      },
+    });
+    expect(pass.stale).toBe(true);
+    expect(pass.changes).toEqual([]);
+    expect(h.port.changes).toEqual([]);
+    expect(asked[0]).toBe(contentHash(before));
+    expect(h.model()?.nodes[Q]).toMatchObject({ text: "Notes from Bob, again" });
+    // Without the check, that stale text is taken for the user's edit back to "Notes".
+    const unchecked = await h.engine.pass(PATH, before, CTX);
+    expect(unchecked.stale).toBeUndefined();
+    expect(h.port.changes.length).toBe(1);
+  });
+
+  it("a note that changes while the pass plans commits nothing (checked right before the commit)", async () => {
+    const h = await seeded();
+    let calls = 0;
+    const pass = await h.engine.pass(PATH, note(BODY).replace("Draft", "Draft typed"), {
+      ...CTX,
+      // Current when the pass starts; the user types before it would commit.
+      isCurrent: () => ++calls === 1,
+    });
+    expect(calls).toBe(2);
+    expect(pass.stale).toBe(true);
+    expect(pass.sections[0]?.stale).toBe(true);
+    expect(pass.changes).toEqual([]);
     expect(h.port.changes).toEqual([]);
   });
 });

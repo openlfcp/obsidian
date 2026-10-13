@@ -209,6 +209,8 @@ export type EditorSyncStatus = "edited" | "reconciling" | "idle" | "error";
 /** Closed notes: read and atomic read-modify-write (Obsidian's vault.process). */
 export interface SectionFiles {
   rewrite(path: string, fn: (current: string) => string): Promise<string | null>;
+  /** The note's file as it is now (null: gone); asked before a closed note's pass commits. */
+  read?(path: string): Promise<string | null>;
 }
 
 export interface SectionEditorOptions {
@@ -303,6 +305,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     if (o.files === undefined) return;
     status(req.path, "reconciling");
     const hints = freshHints(takeHints(req.path), req.source);
+    const files = o.files;
     const ctx: PassContext = {
       caretLine: null,
       deletedIds: hints.deletedIds,
@@ -310,8 +313,24 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       origin: "other",
       cut,
       ...(o.restore === undefined ? {} : { restore: o.restore() }),
+      ...(files.read === undefined
+        ? {}
+        : {
+            isCurrent: async (revision: string) => {
+              const now = await files.read?.(req.path);
+              return now !== null && now !== undefined && contentHash(now) === revision;
+            },
+          }),
     };
     const pass = await engine.pass(req.path, req.source, ctx);
+    if (pass.stale === true) {
+      // The file changed since it was read: nothing was committed; pass again on it.
+      engine.abandoned(pass);
+      pending.add(req.path, hints);
+      const now = await files.read?.(req.path);
+      if (now !== null && now !== undefined) coordinator.fileChanged(req.path, now);
+      return;
+    }
     let current = req.source;
     const written = await o.files.rewrite(req.path, (text) => {
       current = text;
@@ -324,6 +343,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       return;
     }
     await engine.written(pass, written);
+    coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
     status(req.path, "idle");
   };
@@ -342,10 +362,13 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       return;
     }
     status(req.path, "reconciling");
+    // The editor's document is the source, as it is now: the coordinator's
+    // copy is for scheduling, and may predate the plugin's own last write.
+    const source = view.state.doc.toString();
     // What every view of the note noted since the last pass (the pass goes
     // through one of them), and only what still describes the source: a node
     // noted as removed that the note still binds, not pasted, was put back.
-    const { deletedIds, inserted } = freshHints(takeHints(req.path), req.source);
+    const { deletedIds, inserted } = freshHints(takeHints(req.path), source);
     const caret = view.hasFocus
       ? view.state.doc.lineAt(view.state.selection.main.head).number - 1
       : null;
@@ -357,10 +380,11 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       cut,
       inserted,
       ...(o.restore === undefined ? {} : { restore: o.restore() }),
+      isCurrent: (revision: string) => contentHash(view.state.doc.toString()) === revision,
     };
     st.origin = "other";
     st.external = false;
-    const pass = await engine.pass(req.path, req.source, ctx);
+    const pass = await engine.pass(req.path, source, ctx);
     const current = view.state.doc.toString();
     if (view.composing || view.compositionStarted || st.scheduler.composing) {
       // A composition opened during the pass: its result waits (the pass runs again after it).
@@ -370,7 +394,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       st.scheduler.defer();
       return;
     }
-    if (contentHash(current) !== pass.sourceRevision) {
+    if (pass.stale === true || contentHash(current) !== pass.sourceRevision) {
       // The user typed meanwhile: nothing is written; the pass runs again on the new document.
       engine.abandoned(pass);
       for (const id of deletedIds) st.deletedIds.add(id);
@@ -383,7 +407,9 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
         changes: pass.changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
         annotations: [sectionWrite.of(pass.sourceRevision), Transaction.addToHistory.of(false)],
       });
-    await engine.written(pass, view.state.doc.toString());
+    const written = view.state.doc.toString();
+    await engine.written(pass, written);
+    coordinator.written(req.path, written);
     o.onPass?.(req.path, pass);
     status(req.path, st.scheduler.dirty ? "edited" : "idle");
   };

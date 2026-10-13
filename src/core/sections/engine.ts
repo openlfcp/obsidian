@@ -109,6 +109,14 @@ export interface PassContext {
    */
   readonly restore?: ReadonlySet<string>;
   /**
+   * Whether the note's source is still the revision (SHA-256) this pass
+   * read. Asked before anything is committed: an edit planned from an older
+   * source would send that source's text back over newer changes (the idle
+   * editor that reverted a collaborator's edit, 0.4.0-beta.13). Without it,
+   * the source is taken as current.
+   */
+  readonly isCurrent?: (revision: string) => boolean | Promise<boolean>;
+  /**
    * An external plugin edit since the last pass (a transaction without an
    * editor userEvent): a recurring Task's next occurrence may carry a copied
    * ref (MS43, recurrence.ts).
@@ -157,6 +165,12 @@ export interface SectionResult {
    * not in the note yet (C14).
    */
   readonly modelRevision?: string;
+  /**
+   * The source was no longer the note's when the section would commit:
+   * nothing was committed or planned for it; the host passes again on the
+   * current source.
+   */
+  readonly stale?: true;
 }
 
 export interface NotePass {
@@ -167,6 +181,8 @@ export interface NotePass {
   /** Note changes against `source`, ascending, not overlapping. */
   readonly changes: readonly DocChange[];
   readonly sections: readonly SectionResult[];
+  /** A section found the source stale (SectionResult.stale): write nothing, pass again. */
+  readonly stale?: true;
 }
 
 /** The model's visible state in the planner's terms: active nodes only. */
@@ -471,13 +487,19 @@ export class SectionEngine {
       // its copied ref first; the pass then sees it as a new Task.
       const repair = await this.#recurringRepairs(path, source);
       if (repair.length > 0) {
-        const inner = await this.#pass(path, applyChanges(source, repair), ctx);
+        // The repaired text is not the note's: freshness is the source's.
+        const inner = await this.#pass(
+          path,
+          applyChanges(source, repair),
+          ctx,
+          contentHash(source),
+        );
         const changes = composeChanges(repair, inner.changes);
         if (changes !== null)
           return { ...inner, source, sourceRevision: contentHash(source), changes };
       }
     }
-    return this.#pass(path, source, ctx);
+    return this.#pass(path, source, ctx, contentHash(source));
   }
 
   async #recurringRepairs(path: string, source: string): Promise<DocChange[]> {
@@ -494,7 +516,7 @@ export class SectionEngine {
     return out.sort((a, b) => a.from - b.from);
   }
 
-  async #pass(path: string, source: string, ctx: PassContext): Promise<NotePass> {
+  async #pass(path: string, source: string, ctx: PassContext, revision: string): Promise<NotePass> {
     const scan = parseSections(source);
     // The whole pass alone for each Resource of the note (port.exclusive): a
     // coalesced pass the timer commits meanwhile would be sent again by this
@@ -504,7 +526,7 @@ export class SectionEngine {
     const port = this.deps.port;
     const alone = resources.reduceRight<() => Promise<NotePass>>(
       (inner, r) => () => (port.exclusive === undefined ? inner() : port.exclusive(r, inner)),
-      () => this.#passAlone(path, source, scan, ctx),
+      () => this.#passAlone(path, source, scan, ctx, revision),
     );
     return alone();
   }
@@ -514,7 +536,19 @@ export class SectionEngine {
     source: string,
     scan: ReturnType<typeof parseSections>,
     ctx: PassContext,
+    revision: string,
   ): Promise<NotePass> {
+    const fresh = async () => ctx.isCurrent === undefined || (await ctx.isCurrent(revision));
+    // A source already stale: nothing is planned, stored or committed from it.
+    if (!(await fresh()))
+      return {
+        path,
+        source,
+        sourceRevision: contentHash(source),
+        changes: [],
+        sections: [],
+        stale: true,
+      };
     // The snapshot rule: every snapshot now, before the first await.
     const snapshots = scan.sections.map((s) =>
       this.deps.port.snapshot(toBase64url(s.ref.resourceId), s.ref.sectionId),
@@ -530,6 +564,7 @@ export class SectionEngine {
         snapshots[k],
         projectionIds[k] as string,
         ctx,
+        fresh,
       );
       const revision =
         r.result.local?.kind === "committed"
@@ -538,12 +573,14 @@ export class SectionEngine {
       results.push(revision === undefined ? r.result : { ...r.result, modelRevision: revision });
       changes = changes.concat(r.changes);
     }
+    const stale = results.some((r) => r.stale === true);
     return {
       path,
       source,
       sourceRevision: contentHash(source),
-      changes: changes.sort((a, b) => a.from - b.from),
+      changes: stale ? [] : changes.sort((a, b) => a.from - b.from),
       sections: results,
+      ...(stale ? { stale: true as const } : {}),
     };
   }
 
@@ -622,6 +659,7 @@ export class SectionEngine {
     snap: SectionSnapshot | undefined,
     projectionId: string,
     ctx: PassContext,
+    fresh: () => Promise<boolean>,
   ): Promise<{ result: SectionResult; changes: DocChange[] }> {
     const ref = section.ref;
     const resource = toBase64url(ref.resourceId);
@@ -966,6 +1004,13 @@ export class SectionEngine {
       const p = snap.nodes[m.parent];
       return p !== undefined && p.lifecycle === "active" && p.hidden !== true;
     };
+    // Checked last, right before the commit: the awaits above may have let
+    // the note change. A stale source commits nothing; the pass runs again.
+    if (!(await fresh()))
+      return {
+        result: { projectionId, section: ref, lost: [], held: [], entries, stale: true },
+        changes: [],
+      };
     const local = await commitPass(this.deps, {
       projectionId,
       resource,
