@@ -317,6 +317,7 @@ unchanged.`
 | A marker line was deleted or the section looks broken | Run **"Repair shared sections in this note"**. It offers places to put a lost boundary back (**Apply**), points to lines it cannot match (**Go to line**), and for a note that differs from the shared section, lets you **Share my version** or **Use the shared version**. Your own text is kept as a recovery copy on this device. "Nothing in this note needs repair." means all is well. |
 | *The server refused N updates (…). The text stays in your note.* | Your text is kept. Open the details for the reason. |
 | *Restart Obsidian to continue; your notes are not affected.* | Restart Obsidian. |
+| *Shared Tasks: another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.* | This vault is open in another Obsidian window: close the other windows on it. If the message stays, restart Obsidian. Your notes are not affected; section icons show "Loading shared section" until then. |
 
 A problem in one copy of a section, such as a damaged boundary or a line
 that cannot be matched, sets that section's icon to "Needs your attention".
