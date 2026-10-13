@@ -254,6 +254,39 @@ describe("a paste that runs into the next line", () => {
     expect(titles(a.note()).slice(-2)).toEqual(["Gamma", "Child"]);
   });
 
+  it("list lines without bindings glued before a Task's line get a line break; nothing held (sweep seed 1593)", async () => {
+    const { a } = await twoVaults(BODY);
+    const md = a.note();
+    // Tasks typed and not bound yet (or copied from another note), the last one nested.
+    const text = "- [ ] b1 仕事\n\t- [ ] b2 かみ";
+    const at = offset(md, lineOf(md, "Beta"));
+    const fixed = pasteOnOwnLines(md, { from: at, to: at, insert: text });
+    expect(fixed?.insert).toBe(`${text}\n`);
+    const pasted = applyChanges(md, [fixed ?? { from: at, to: at, insert: text }]);
+    const res = await a.pass(pasted);
+    expect(res?.skipped).toBeUndefined();
+    expect(res?.lost).toEqual([]);
+    expect(titles(a.note())).toContain("Beta");
+    expect(titles(a.note())).toContain("b2 かみ");
+  });
+
+  it("list lines without bindings pasted at the end of a Task's line start a line of their own", async () => {
+    const { a } = await twoVaults(BODY);
+    const md = a.note();
+    const text = "- [ ] b1\n- [ ] b2";
+    const L = lines(md);
+    const at = offset(md, lineOf(md, "Beta")) + (L[lineOf(md, "Beta")]?.length ?? 0);
+    expect(pasteOnOwnLines(md, { from: at, to: at, insert: text })?.insert).toBe(`\n${text}`);
+  });
+
+  it("one line, or lines that are not a list, stand as pasted", async () => {
+    const { a } = await twoVaults(BODY);
+    const md = a.note();
+    const at = offset(md, lineOf(md, "Beta"));
+    expect(pasteOnOwnLines(md, { from: at, to: at, insert: "- [ ] b1" })).toBeNull();
+    expect(pasteOnOwnLines(md, { from: at, to: at, insert: "plain\ntext " })).toBeNull();
+  });
+
   it("a paste on lines of its own, or outside the section, stands as it is", async () => {
     const { a } = await twoVaults(BODY);
     const md = a.note();

@@ -188,10 +188,16 @@ const LIST_LINE = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]/;
  * -->- [ ] Beta"); pasted at the end of a line, the Task's line runs on from
  * it. The pasted lines go on lines of their own: a line break after a paste
  * that ends with a binding line, before one that starts with a list line.
+ * The same for list lines without bindings (Tasks typed and not bound yet,
+ * or copied from another note): several pasted list lines glued before a
+ * list line would make the last pasted one and that line one Task line,
+ * the next line's ref under it at another indentation (the peer-structure
+ * property test, seeds 1593, 1602, 3776, 4658); after a list line, its
+ * Task's title would run on into the first pasted one.
  * Null when the paste stands as it is.
  */
 export function pasteOnOwnLines(before: string, change: TextChange): TextChange | null {
-  if (!change.insert.includes("<!--") || !change.insert.includes("\n")) return null;
+  if (!change.insert.includes("\n")) return null;
   const lines = splitLines(before);
   const starts = lineStarts(lines);
   const lineOf = (pos: number) => {
@@ -214,11 +220,13 @@ export function pasteOnOwnLines(before: string, change: TextChange): TextChange 
   const lastLine = pasted.at(-1)?.text ?? "";
   const eol = pasted.find((l) => l.eol !== "")?.eol ?? "\n";
   const lastIsBinding = pasted.at(-1)?.eol === "" && BINDING_LINE.test(lastLine);
-  const after = lastIsBinding && post.trim() !== "";
+  const lastIsList = pasted.at(-1)?.eol === "" && LIST_LINE.test(lastLine);
+  const after = (lastIsBinding && post.trim() !== "") || (lastIsList && LIST_LINE.test(post));
   const before_ =
     pre.trim() !== "" &&
     LIST_LINE.test(firstLine) &&
-    pasted.some((l) => parseNodeMarker(l.text) !== null || BINDING_LINE.test(l.text));
+    (pasted.some((l) => parseNodeMarker(l.text) !== null || BINDING_LINE.test(l.text)) ||
+      LIST_LINE.test(pre));
   if (!after && !before_) return null;
   return {
     from: change.from,

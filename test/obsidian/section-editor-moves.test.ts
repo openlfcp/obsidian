@@ -123,6 +123,22 @@ describe("Tab and a paste as Obsidian dispatches them", () => {
   });
 });
 
+describe("plain list lines pasted at the start of a Task's line", () => {
+  it("go on lines of their own, bindings or not (sweep seed 1593)", async () => {
+    const { md, state } = await editor();
+    const text = "- [ ] b1\n\t- [ ] b2";
+    const at = offset(md, block(md, "Beta")[0]);
+    const tr = state.update({
+      changes: { from: at, insert: text },
+      selection: EditorSelection.cursor(at + text.length),
+      userEvent: "input.paste",
+    });
+    const after = tr.state.doc.toString();
+    expect(after).toContain(`${text}\n- [ ] Beta`);
+    expect(tr.state.selection.main.head).toBe(at + text.length + 1);
+  });
+});
+
 describe("a selection never ends inside a binding line", () => {
   it("Shift+Down over a wrapped ref line: the selection ends at the ref's end, or its start going back", async () => {
     const { md, state } = await editor();
