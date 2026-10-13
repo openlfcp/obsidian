@@ -149,6 +149,8 @@ interface Side {
   closed: boolean;
   /** Changes of the other vault received since this side's last written pass. */
   remote: boolean;
+  /** What the last written pass found back in the note while deleted (the host lists it in Review conflicts). */
+  reappeared: readonly string[];
 }
 
 async function run(seed: number) {
@@ -167,6 +169,7 @@ async function run(seed: number) {
     clip: null,
     closed: false,
     remote: false,
+    reappeared: [],
   });
   const A = side("a", a);
   const B = side("b", b);
@@ -206,6 +209,7 @@ async function run(seed: number) {
     }
     const res = await s.v.pass(s.md, h);
     s.md = s.v.note();
+    s.reappeared = res?.reappeared ?? [];
     trace(s, `pass written${s.closed ? " (closed)" : ""}`);
     const d = damage(s.md);
     expect(d, fail(`${s.name}'s note damaged`)).toBeNull();
@@ -391,8 +395,10 @@ async function run(seed: number) {
       ).toEqual(shown.filter((t) => visible.has(t.id)).length === 0 ? [] : modelTitles(am, shown));
       const kept = shown.filter((t) => !visible.has(t.id));
       if (kept.length > 0)
+        // As the host lists them (sections-host.ts): the model's items and
+        // what the note shows back while deleted.
         expect(
-          s.v.recovery().length,
+          s.v.recovery().length + s.reappeared.length,
           fail(`${s.name} keeps ${kept.map((t) => t.title)} unlisted`),
         ).toBeGreaterThan(0);
     }
