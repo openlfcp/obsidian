@@ -254,15 +254,18 @@ describe("a restart in the middle of a structural pass", () => {
     expectNoteIsModel(v.port, v.disk());
   });
 
-  // BUG(gap5-captured): stopped between "captured" and "ids-allocated", the
-  // pass is re-evaluated without the editor's hints: Old's deletion is a
-  // lost binding and the section's publication is suspended until a repair.
-  it.fails('stopped once the journal recorded "captured": completes, once', async () => {
-    const v = await stopped({ journal: "captured" });
-    expect(v.disk()).toBe(EDITED);
-    await settle(v);
-    expectEditKept(v.port, v.disk());
-    expectNoteIsModel(v.port, v.disk());
+  it("a new operation is first stored with its batch: never left at captured", async () => {
+    const v = vault();
+    const first = v.start();
+    await v.run(first, BEFORE);
+    const phases: string[] = [];
+    const put = v.journal.put.bind(v.journal);
+    v.journal.put = async (e) => {
+      phases.push(e.phase);
+      await put(e);
+    };
+    await v.run(first, EDITED, EDIT_CTX);
+    expect(phases).toEqual(["ids-allocated", "committed", "projected", "done"]);
   });
 
   // Inside pass(): the note on disk is the user's edit, no binding written.

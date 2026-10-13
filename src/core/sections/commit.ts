@@ -234,7 +234,9 @@ export async function commitPass(
     sourceHash: pass.sourceHash,
     allocatedIds: {},
   };
-  if (resume === undefined) await deps.journal.put(entry);
+  // A new operation is first stored at ids-allocated, with its batch: one
+  // left at "captured" by a restart was re-planned without the editor's
+  // hints (a deletion became a lost binding, the section suspended).
   // IDs and the batch are durable before anything that could be retried.
   // The lines the batch was planned from, new Tasks' included: a pass that
   // resumes the operation takes them as their base lines.
