@@ -137,6 +137,18 @@ function moveAlpha(md: string, p: number): string {
   const at = p === 0 ? (shared[0] as number) : blockAt(rest, shared[p - 1] as number)[1];
   return [...rest.slice(0, at), ...block, ...rest.slice(at)].join("\n");
 }
+/** The titles of the own Tasks right after Alpha's block, in order (none when a shared Task follows it). */
+function followersOf(md: string): string[] {
+  const L = lines(md);
+  const at = L.findIndex((l) => /^- \[ \] Alpha( |$)/.test(l));
+  if (at < 0) return [];
+  const out: string[] = [];
+  let i = blockAt(L, at)[1];
+  for (; i < L.length && isOwn(L[i] ?? ""); i = blockAt(L, i)[1])
+    out.push(TASK.exec(L[i] ?? "")?.[1] ?? "");
+  return out;
+}
+
 /** Enter after the last Task's block, and `title` typed. */
 function enter(md: string, title: string): string {
   const L = lines(md);
@@ -237,6 +249,11 @@ async function run(seed: number) {
 
   /** The network comes back; each vault's passes run on what its editor shows now. */
   const online = async () => {
+    // The user's own Tasks right after Alpha's block: anchored to it, they
+    // follow it where a concurrent move takes it (SSP placement: a node
+    // placed after another follows it; the orchestrator's decision on seed
+    // 4466 of the 5000-seed sweep).
+    const followers = followersOf(md);
     // Moved on both sides since they last synced, to different places: concurrent.
     const [pa, pb] = [alphaPlace(a), alphaPlace(b)];
     const concurrent = pa !== synced && pb !== synced && pa !== pb;
@@ -283,6 +300,21 @@ async function run(seed: number) {
     synced = alphaPlace(a);
     expect(alphaPlace(b)).toBe(synced);
     bmd = b.note();
+    const now = ownTasks(md);
+    if (JSON.stringify(now) !== JSON.stringify(titles) && followers.length > 0) {
+      // Alpha moved: its followers are still right after it, in their order,
+      // and every other own Task kept its order.
+      const after = followersOf(md);
+      const rest = (ts: readonly string[], f: readonly string[]) => {
+        const out = [...ts];
+        for (const t of f) out.splice(out.indexOf(t), 1);
+        return out;
+      };
+      expect(after).toEqual(followers);
+      expect(rest(now, followers)).toEqual(rest(titles, followers));
+      trace(`followed Alpha: ${JSON.stringify(followers)}`);
+      titles = now;
+    }
   };
   const tick = async (v: Vault, ms: number) => {
     clock.now += ms;
