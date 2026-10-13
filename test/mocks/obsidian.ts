@@ -2,6 +2,8 @@
 // layer's unit tests (vitest.config.ts aliases `obsidian` here). It records
 // what the plugin registers instead of drawing any UI.
 
+import { StateField } from "@codemirror/state";
+
 export interface Command {
   id: string;
   name: string;
@@ -135,6 +137,12 @@ export class Workspace {
 
 /** Stands in for Obsidian's editor state field (the conflict decoration reads it). */
 export const editorInfoField = {};
+
+/** Stands in for Obsidian's Live Preview field: Source mode unless a test inits it true. */
+export const editorLivePreviewField = StateField.define<boolean>({
+  create: () => false,
+  update: (value) => value,
+});
 
 /** Obsidian's Platform: a desktop by default; a test may set isMobile (LFCP-02-095). */
 export const Platform = {

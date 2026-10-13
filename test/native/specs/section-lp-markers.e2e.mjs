@@ -9,9 +9,10 @@
 // Task: ATTENTION, nothing deleted at B, Undo makes it whole). After each:
 // no stray marker text, every ID bound once, the section's start and end
 // balanced, A's model has the note's Tasks in order and B's model is A's.
-// Then Backspace at column 0 of a Task line, the line above it a hidden
-// binding line (the start marker, the previous Task's ref): the Task must not
-// be glued to that line.
+// Then one-character deletes next to a hidden binding line change nothing:
+// Backspace at column 0 under the start marker or a ref (the caret goes to
+// the end of the nearest visible line above), Delete at the end of the
+// heading above the start marker or of the last ref above the end marker.
 import {
   caret,
   checkStep,
@@ -24,7 +25,6 @@ import {
   shareAndJoin,
   startPeers,
   sectionOf,
-  settle,
   stateA,
   titles,
 } from "./support/section-checks.mjs";
@@ -170,12 +170,15 @@ describe("Live Preview around hidden markers in a shared section", () => {
   });
 });
 
-describe("Backspace at the very start of a Task's line, a binding line hidden above it", () => {
+describe("a one-character delete next to a hidden binding line changes nothing", () => {
   const ctx = {};
   let server;
+  const HEADING = "## LP joins";
 
   before(async () => {
     ({ server, b: ctx.b } = await startPeers());
+    Object.assign(ctx, await shareAndJoin(ctx.b, "LP-joins.md", HEADING, NOTE.replace("## LP markers", HEADING)));
+    await checkStep("LP joins shared", ctx);
   });
 
   after(async () => {
@@ -183,33 +186,50 @@ describe("Backspace at the very start of a Task's line, a binding line hidden ab
     await server?.stop();
   });
 
+  const line = (test) => editorA((e, src) => e.getValue().split("\n").findIndex((0, eval)(`(${src})`)), test.toString());
   const CASES = [
-    ["the first Task, the section's start marker above it", "Alpha", ["Alpha", "Beta", "Gamma"]],
-    ["a middle Task, the previous Task's ref line above it", "Beta", ["Alpha", "Beta", "Gamma"]],
+    {
+      name: "Backspace at column 0 of the first Task, the start marker hidden above: the caret goes to the heading's end",
+      at: async () => ({ line: await lineOf("Alpha"), ch: 0 }),
+      key: "Backspace",
+      caret: async () => ({ line: await line((l) => l.startsWith("## ")), ch: HEADING.length }),
+    },
+    {
+      name: "Backspace at column 0 of a middle Task, Alpha's ref hidden above: the caret goes to Alpha's end",
+      at: async () => ({ line: await lineOf("Beta"), ch: 0 }),
+      key: "Backspace",
+      caret: async () => ({ line: await lineOf("Alpha"), ch: "- [ ] Alpha".length }),
+    },
+    {
+      name: "Delete at the end of the heading above the start marker: the caret stays",
+      at: async () => ({ line: await line((l) => l.startsWith("## ")), ch: "end" }),
+      key: "Delete",
+      caret: async () => ({ line: await line((l) => l.startsWith("## ")), ch: HEADING.length }),
+    },
+    {
+      name: "Delete at the end of the last Task's ref above the end marker: the caret stays",
+      at: async () => ({ line: (await line((l) => l.startsWith("<!-- /lfcp-section:"))) - 1, ch: "end" }),
+      key: "Delete",
+      caret: async () => {
+        const n = (await line((l) => l.startsWith("<!-- /lfcp-section:"))) - 1;
+        return { line: n, ch: await editorA((e, n) => e.getLine(n).length, n) };
+      },
+    },
   ];
-  CASES.forEach(([name, title], k) =>
-    it(`${name}: never glues the Task to the binding line; the section stays sound and synced`, async () => {
-      const heading = `## LP column zero ${k}`;
-      Object.assign(ctx, await shareAndJoin(ctx.b, `LP0-${k}.md`, heading, NOTE.replace("## LP markers", heading)));
-      await checkStep(`LP0-${k} shared`, ctx);
-      await caret(await lineOf(title), 0);
-      await browser.keys(["Backspace"]);
-      const a = await settle(ctx.R);
-      await ctx.b.pass(ctx.bFile);
-      const { problems } = markerProblems(a.md);
-      evidence(`LP0-${k} backspace line start`, {
-        problems,
-        badge: a.badge,
-        titlesA: titles(sectionOf(a.md)),
-        titlesB: titles(sectionOf(ctx.b.files.get(ctx.bFile))),
-        lines: a.md.split("\n").slice(0, 5).map((l) => l.slice(0, 120)),
-      });
-      // Whatever happened, one Undo makes the section whole again (evidence; asserted below).
-      await browser.keys([mod, "z"]);
-      const undone = await checkStep(`LP0-${k} undone`, ctx).catch((e) => e);
-      expect(problems).toEqual([]);
-      expect(a.badge).toBe("CURRENT");
-      expect(undone).not.toBeInstanceOf(Error);
+  CASES.forEach((c, k) =>
+    it(c.name, async () => {
+      const at = await c.at();
+      await caret(at.line, at.ch);
+      const before = await editorA((e) => e.getValue());
+      await browser.keys([c.key]);
+      await browser.pause(300);
+      const after = await editorA((e) => ({ md: e.getValue(), cursor: e.getCursor() }));
+      const want = await c.caret();
+      evidence(`LP join ${k}`, { key: c.key, at, cursor: after.cursor, want, unchanged: after.md === before });
+      expect(after.md).toBe(before);
+      expect({ line: after.cursor.line, ch: after.cursor.ch }).toEqual(want);
+      const s = await checkStep(`LP join ${k} after`, ctx);
+      expect(s.titles).toEqual(["Alpha", "Beta", "Gamma"]);
     }),
   );
 });

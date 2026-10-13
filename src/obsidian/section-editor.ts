@@ -22,7 +22,7 @@ import {
   Transaction,
 } from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { editorInfoField } from "obsidian";
+import { editorInfoField, editorLivePreviewField } from "obsidian";
 import { contentHash } from "../core/projection/guard";
 import { type PassRequest, SourceCoordinator } from "../core/sections/coordinator";
 import {
@@ -555,6 +555,40 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       { selection: EditorSelection.create(ranges, tr.selection.mainIndex), sequential: true },
     ];
   });
+  // A one-character delete never joins a line to a binding line: Backspace at
+  // column 0 under one, or Delete at the end of the line above one, would
+  // glue text onto a marker the user cannot see in Live Preview (a Task onto
+  // the start marker, Beta onto Alpha's ref). The document stays; Backspace
+  // takes the caret to the end of the nearest visible line above, hidden
+  // binding lines being atomic. A blank line next to a marker still goes:
+  // the joined line is the binding line alone.
+  const bindingJoins = EditorState.transactionFilter.of((tr) => {
+    if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined || !tr.isUserEvent("delete"))
+      return tr;
+    let only: { from: number; to: number; inserted: number } | null = null;
+    let count = 0;
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      count++;
+      only = { from: fromA, to: toA, inserted: inserted.length };
+    });
+    const change = only as { from: number; to: number; inserted: number } | null;
+    if (count !== 1 || change === null || change.inserted !== 0) return tr;
+    const doc = tr.startState.doc;
+    const above = doc.lineAt(change.from);
+    if (change.from !== above.to || above.number === doc.lines) return tr;
+    const below = doc.line(above.number + 1);
+    if (change.to !== below.from) return tr;
+    if (!BINDING_LINE.test(above.text) && !BINDING_LINE.test(below.text)) return tr;
+    if (BINDING_LINE.test(above.text + below.text)) return tr;
+    if (!tr.isUserEvent("delete.backward")) return [];
+    const hidden = (text: string) =>
+      tr.startState.field(editorLivePreviewField, false) === true && BINDING_LINE.test(text);
+    for (let n = below.number - 1; n >= 1; n--) {
+      const line = doc.line(n);
+      if (!hidden(line.text)) return { selection: { anchor: line.to }, scrollIntoView: true };
+    }
+    return [];
+  });
   const events = EditorView.domEventHandlers({
     compositionstart: (_e, view) => {
       view.plugin(plugin)?.st.scheduler.compositionStart();
@@ -568,7 +602,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   });
 
   return {
-    extension: [plugin, events, enter, pasted, lineMoves, wholeBindings],
+    extension: [plugin, events, enter, pasted, lineMoves, wholeBindings, bindingJoins],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
     fileChanged: (path, content) => coordinator.fileChanged(path, content),
     renamed: (oldPath, newPath) => coordinator.renamed(oldPath, newPath),
