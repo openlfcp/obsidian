@@ -435,8 +435,9 @@ async function run(seed: number) {
       trace(A, "close");
       await pass(A, r() < 0.7 ? "written" : "abandoned");
     } else if (x < 0.9 && A.closed) {
+      // Opened again: the file as saved when it closed, and as its closed
+      // passes wrote it (A.md follows both).
       A.closed = false;
-      A.md = a.note();
       trace(A, "open");
     } else {
       await online();
