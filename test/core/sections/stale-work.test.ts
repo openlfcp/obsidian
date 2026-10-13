@@ -173,6 +173,7 @@ describe("the controller", () => {
   ) => {
     const s = await setup(ops);
     const changed: string[] = [];
+    const lookups = { unit: 0, quarantined: 0, queued: 0 };
     const c = new StaleWorkController({
       store: s.store,
       port: {
@@ -182,11 +183,22 @@ describe("the controller", () => {
         exclusive: (_r, fn) => fn(),
         fingerprints: (r, ids) => s.deps.fingerprints(r, ids),
       },
-      unit: async (u) => ({ quarantined: quarantined.includes(u), queued: queued.includes(u) }),
+      unit: async (u) => {
+        lookups.unit++;
+        return { quarantined: quarantined.includes(u), queued: queued.includes(u) };
+      },
+      quarantined: async () => {
+        lookups.quarantined++;
+        return [...quarantined];
+      },
+      queued: async () => {
+        lookups.queued++;
+        return [...queued];
+      },
       changed: (r) => void changed.push(r),
       setTimer: (fn, ms) => setTimeout(fn, ms),
     });
-    return { ...s, c, changed };
+    return { ...s, c, changed, lookups };
   };
 
   it("guards the Resource at once on a cut, then re-applies and lets its notes pass", async () => {
@@ -234,6 +246,30 @@ describe("the controller", () => {
     expect(await s.c.check(R)).toBe(true);
     for (let i = 0; i < 20 && s.c.waiting(R); i++) await new Promise((r) => setTimeout(r, 5));
     expect(s.port.changes.map((c) => c.operationId)).toEqual([reapplyId("op-1")]);
+  });
+
+  it("many units watched, none quarantined: one query a check, never one per unit", async () => {
+    const ops = Array.from({ length: 100 }, (_, i) => op(i + 1, [title(`n${i}`, "x")], {}));
+    const s = await controller(
+      [],
+      [],
+      ops.flatMap((o) => o.unitIds),
+    );
+    for (const o of ops) await s.c.ownWork.recordOwn(o);
+    for (let i = 0; i < 10; i++) expect(await s.c.check(R)).toBe(false);
+    expect(s.lookups).toEqual({ unit: 0, quarantined: 10, queued: 0 });
+    expect(s.c.diagnostics(R).unsettled).toBe(100);
+  });
+
+  it("units no longer queued (accepted) leave the watch, with one query now and then", async () => {
+    const queued = ["u1", "u2", "u3"];
+    const s = await controller([], [], queued);
+    for (const n of [1, 2, 3]) await s.c.ownWork.recordOwn(op(n, [title(`n${n}`, "x")], {}));
+    queued.splice(0, 2); // u1 and u2 accepted
+    for (let i = 0; i < 40; i++) await s.c.check(R);
+    expect(s.lookups.queued).toBe(1);
+    expect(s.lookups.unit).toBe(0);
+    expect(s.c.diagnostics(R).unsettled).toBe(1);
   });
 
   it("at start, own units found quarantined are cut and re-applied", async () => {

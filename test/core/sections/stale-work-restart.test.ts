@@ -69,6 +69,8 @@ function device(ops: OwnOperation[]) {
         fingerprints: (_r, ids) => Object.fromEntries(ids.map((id) => [id, prints[id] ?? ""])),
       },
       unit: async (u) => ({ quarantined: quarantined.has(u), queued: queued.has(u) }),
+      quarantined: async () => [...quarantined],
+      queued: async () => [...queued],
       changed: () => {},
       failed: (e) => void failures.push(e),
       settle: async (units) => {

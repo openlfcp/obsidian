@@ -180,6 +180,17 @@ export async function peer(
         "quarantined",
       queued: (await (runtime.storage as LfcpStorage).outbound.get(hash32(fromHex(u)))) !== undefined,
     }),
+    quarantined: async (r) =>
+      (
+        await (runtime.storage as LfcpStorage).dataUnits.withStatus(
+          fromBase64url(r) as ResourceId,
+          "quarantined",
+        )
+      ).map((x) => toHex(x.unitId)),
+    queued: async (r) =>
+      (await (runtime.storage as LfcpStorage).outbound.list(fromBase64url(r) as ResourceId))
+        .filter((i) => i.kind === "data-unit")
+        .map((i) => toHex(i.itemId)),
     // Passes are explicit here (pass()).
     changed: () => undefined,
     settle: (units) => runtime.discardStaleUnits(units),

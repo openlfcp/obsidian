@@ -441,6 +441,14 @@ export class SectionsHost {
           (await storage.dataUnits.get(dataUnitId(fromHex(u))))?.status === "quarantined",
         queued: (await storage.outbound.get(hash32(fromHex(u)))) !== undefined,
       }),
+      quarantined: async (r) =>
+        (await storage.dataUnits.withStatus(fromBase64url(r) as ResourceId, "quarantined")).map(
+          (x) => toHex(x.unitId),
+        ),
+      queued: async (r) =>
+        (await storage.outbound.list(fromBase64url(r) as ResourceId))
+          .filter((i) => i.kind === "data-unit")
+          .map((i) => toHex(i.itemId)),
       changed: (r) => {
         this.scheduleStatus();
         void this.#remote(fromBase64url(r) as ResourceId).catch((e) => this.#bookkeepingFailed(e));

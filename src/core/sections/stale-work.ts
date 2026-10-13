@@ -294,6 +294,9 @@ export interface StalePort extends Pick<SectionPort, "commit" | "canWrite" | "re
 /** How soon waiting stale work is tried again. */
 const RETRY_MS = 3000;
 
+/** How many checks of a Resource between two prunings of its watched units. */
+const PRUNE_EVERY = 32;
+
 export class StaleWorkController {
   readonly #open = new Map<string, readonly StaleOperation[]>();
   readonly #guard = new Set<string>();
@@ -303,6 +306,8 @@ export class StaleWorkController {
    * work of an offline period.
    */
   readonly #unsettled = new Map<string, Set<string>>();
+  /** Checks since the watch was last pruned, by Resource. */
+  readonly #checks = new Map<string, number>();
   readonly #running = new Map<string, Promise<ReapplyResult>>();
   readonly #settled = new Map<string, ReadonlySet<string>>();
   readonly #retry = new Set<string>();
@@ -316,6 +321,10 @@ export class StaleWorkController {
       readonly unit: (
         unitId: string,
       ) => Promise<{ readonly quarantined: boolean; readonly queued: boolean }>;
+      /** The Resource's units stored as quarantined (hex): one indexed query. */
+      readonly quarantined: (resource: string) => Promise<readonly string[]>;
+      /** The Resource's units still queued to be sent (hex): one query. */
+      readonly queued: (resource: string) => Promise<readonly string[]>;
       readonly changed: (resource: string) => void;
       readonly failed?: (error: unknown) => void;
       /**
@@ -357,13 +366,21 @@ export class StaleWorkController {
     if (this.waiting(resource)) return true;
     const set = this.#unsettled.get(resource);
     if (set === undefined || set.size === 0) return false;
-    const cut: string[] = [];
-    for (const u of [...set]) {
-      const s = await this.o.unit(u);
-      if (s.quarantined) cut.push(u);
-      else if (!s.queued) set.delete(u);
+    // One indexed query, whatever the number of units watched (offline, every
+    // unit sent since stays watched): asking each unit cost two reads per
+    // unit and per pass (0.4.0-beta.15 performance re-check).
+    const quarantined = new Set(await this.o.quarantined(resource));
+    const cut = quarantined.size === 0 ? [] : [...set].filter((u) => quarantined.has(u));
+    if (cut.length === 0) {
+      // Units no longer queued (accepted) leave the watch, now and then.
+      const n = (this.#checks.get(resource) ?? 0) + 1;
+      this.#checks.set(resource, n % PRUNE_EVERY);
+      if (n >= PRUNE_EVERY) {
+        const queued = new Set(await this.o.queued(resource));
+        for (const u of [...set]) if (!queued.has(u)) set.delete(u);
+      }
+      return this.waiting(resource);
     }
-    if (cut.length === 0) return this.waiting(resource);
     for (const u of cut) set.delete(u);
     this.epochReconciled(resource, cut);
     return true;
