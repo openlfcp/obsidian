@@ -33,8 +33,8 @@ describe("a Task moved out of its parent by the peer", () => {
     await b.pass(applyChanges(b.note(), indentWithNode(b.note(), [tab]) ?? [tab]));
     await reconnect(a, b);
     expect(a.note()).toMatch(/\n\s+- \[ \] b1\n/);
-    // A's own layout: a blank line after b1, before the paragraph (local, not shared).
-    await a.pass(a.note().replace("\n<!-- lfcp-node: paragraph", "\n\n<!-- lfcp-node: paragraph"));
+    // The blank line before the paragraph stays: b1 nested under Gamma, the
+    // blank line after b1 is what separates the list from the paragraph.
     expect(a.note()).toMatch(/b1\n.*-->\n\n<!-- lfcp-node/);
     const nested = b.note();
     const n = block(nested, "b1")[0];

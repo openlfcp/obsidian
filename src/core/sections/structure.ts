@@ -279,7 +279,15 @@ export function planStructure(
               moved.push(indent + " ".repeat(extra) + t.slice(lead.length));
             }
           }
-          const blankAfter = isBlank(lines[range.to + 1]?.text ?? "x") ? 1 : 0;
+          // The blank line after the subtree goes with it only when a blank
+          // line or the section's start comes before it: else it is what
+          // separates the lines before from the block after (the last Task of
+          // a list moved away left Beta's ref glued to the paragraph's
+          // marker, the marker shown in Live Preview: the owner's check of
+          // 0.4.0-beta.14 step 4).
+          const blankBefore =
+            range.from - 1 === section.startLine || isBlank(lines[range.from - 1]?.text ?? "x");
+          const blankAfter = blankBefore && isBlank(lines[range.to + 1]?.text ?? "x") ? 1 : 0;
           for (let l = range.from; l <= range.to + blankAfter; l++) gone.add(l);
           const change = {
             from: offsetOf(range.from),
