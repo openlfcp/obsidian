@@ -257,6 +257,36 @@ export function restoredMoves(
 }
 
 /**
+ * The placements in an order the model can take them one by one: each after
+ * the placement of the node it follows or goes under, when that one moves
+ * too. Placed before it, it would follow that node where it was (a Task
+ * moved after a pasted one landed where the paste was cut from: the
+ * peer-structure property test, seed 235). Otherwise as given.
+ */
+export function placementOrder<
+  T extends { nodeId: string; parent: string | null; after: string | null },
+>(moves: readonly T[]): T[] {
+  const pending = new Set(moves.map((m) => m.nodeId));
+  const out: T[] = [];
+  let rest = [...moves];
+  while (rest.length > 0) {
+    const ready = rest.filter(
+      (m) =>
+        (m.after === null || m.after === m.nodeId || !pending.has(m.after)) &&
+        (m.parent === null || m.parent === m.nodeId || !pending.has(m.parent)),
+    );
+    // A cycle (not from one note's order): the rest as given.
+    const next = ready.length > 0 ? ready : rest;
+    for (const m of next) {
+      out.push(m);
+      pending.delete(m.nodeId);
+    }
+    rest = rest.filter((m) => !next.includes(m));
+  }
+  return out;
+}
+
+/**
  * `base` with the restored nodes as the note shows them, each after its
  * bound predecessor: the restore brings back the model's node, and the
  * note's copy is what this projection shows of it from now on.

@@ -27,6 +27,7 @@ import {
   commentBlocks,
   markdownState,
   type NodeState,
+  placementOrder,
   planSection,
   predecessor,
   ROOT,
@@ -1041,9 +1042,11 @@ export class SectionEngine {
       plan: {
         ...plan,
         textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)),
-        moves: [...plan.moves, ...freed, ...restoredMoves(note.state, pasted)]
-          .filter(parentShown)
-          .map(anchored),
+        moves: placementOrder(
+          [...plan.moves, ...freed, ...restoredMoves(note.state, pasted)]
+            .filter(parentShown)
+            .map(anchored),
+        ),
       },
       deletes,
       restores: comp.restores,
