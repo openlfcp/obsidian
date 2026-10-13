@@ -239,6 +239,21 @@ describe("a paste that runs into the next line", () => {
     expect(fixed?.insert).toBe(`\n${text}`);
   });
 
+  it("pasted at the start of the section's end marker line: the marker keeps its own line (sweep seed 1822)", async () => {
+    const { a } = await twoVaults(BODY);
+    const md = a.note();
+    const { text, after } = cutWithoutNewline(md);
+    const end = lines(after).findIndex((l) => l.startsWith("<!-- /lfcp-section"));
+    const at = offset(after, end);
+    const fixed = pasteOnOwnLines(after, { from: at, to: at, insert: text });
+    expect(fixed?.insert).toBe(`${text}\n`);
+    const pasted = applyChanges(after, [fixed ?? { from: at, to: at, insert: text }]);
+    expect(lines(pasted).some((l) => l.startsWith("<!-- /lfcp-section"))).toBe(true);
+    const r = await a.pass(pasted);
+    expect(r?.skipped).toBeUndefined();
+    expect(titles(a.note()).slice(-2)).toEqual(["Gamma", "Child"]);
+  });
+
   it("a paste on lines of its own, or outside the section, stands as it is", async () => {
     const { a } = await twoVaults(BODY);
     const md = a.note();

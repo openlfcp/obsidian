@@ -201,7 +201,12 @@ export function pasteOnOwnLines(before: string, change: TextChange): TextChange 
   };
   const a = lineOf(change.from);
   const b = lineOf(change.to);
-  if (sectionAround(before, a, b) === undefined) return null;
+  // Inside a section, or at the very start of its end marker's line (the
+  // pasted lines go before the marker, and must not glue to it).
+  const inside = parseSections(before).sections.some(
+    (s) => s.startLine < a && (b < s.endLine || (b === s.endLine && change.to === starts[b])),
+  );
+  if (!inside) return null;
   const pre = before.slice(starts[a], change.from);
   const post = before.slice(change.to, (starts[b] as number) + (lines[b]?.text.length ?? 0));
   const pasted = splitLines(change.insert);
