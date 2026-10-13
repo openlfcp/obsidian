@@ -174,13 +174,23 @@ export function planRemote(
     }
   }
 
+  /**
+   * A Task line as its fields read it: its indentation is structure (the
+   * structure planner's), never a field edit. A Tab the model has but the
+   * base's line does not (a resumed batch's move, its pass abandoned) is not
+   * the user's edit of the line: a collaborator's change still renders
+   * (sweep seed 4839).
+   */
+  const sameLine = (a: string | undefined, b: string | undefined) =>
+    a === b || (a !== undefined && b !== undefined && a.trimStart() === b.trimStart());
+
   const unchanged = (n: SectionNode): boolean => {
     for (const d of subtree(n)) {
       if (d.id === null) return false; // new local content
       const now = note.nodes[d.id];
       const was = base.nodes[d.id];
       if (now === undefined || was === undefined) return false;
-      if (now.text !== was.text || now.line !== was.line) return false;
+      if (now.text !== was.text || !sameLine(now.line, was.line)) return false;
     }
     return true;
   };
@@ -253,7 +263,7 @@ export function planRemote(
     }
     if (r.projection.issues.length > 0) reports.push(r.projection);
     if (r.line === text) next[id] = { ...was, line: text };
-    else if (now.line !== was.line) deferred.push({ nodeId: id, reason: "local-edit" });
+    else if (!sameLine(now.line, was.line)) deferred.push({ nodeId: id, reason: "local-edit" });
     else {
       const change = spanChange(starts[n.lines.from] ?? 0, text, r.line);
       if (change !== null) changes.push(change);
