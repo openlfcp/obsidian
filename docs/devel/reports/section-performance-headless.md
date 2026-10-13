@@ -160,4 +160,112 @@ against sdk-ts a3e205f, gave these p95 values in ms:
 The JSON of each run (`LFCP_PERF_OUT`) holds every metric's n, p50, p95
 and max, the workload spec, note sizes, queued units and checkpoint
 bytes. Re-run with `LFCP_PERF=1 LFCP_PERF_OUT=/tmp/perf.json pnpm perf
--- -t "W200$"` for one workload.
+-t "W200$"` for one workload. With pnpm 10, `pnpm perf -- -t …` passes
+the `--` on to vitest, which then ignores the filter and runs every
+workload, W2000 included.
+
+## 7. Re-check of 2026-10-13 (0.4.0-beta.15)
+
+Since §5, five things were added that run on every pass or keystroke:
+the `misplaced()` divergence detector and `placementOrder` in the
+engine, the stale-work guard (§19.1, `stale-work.ts`) before each
+section's pass, PendingHints, and the `gluesBinding` check among the
+editor's transaction filters.
+
+### Method
+
+- **Machine.** This run used a different machine from §2 and §5: an
+  Intel i5-13420H with Linux, Node 24.15 and fake IndexedDB. It is about
+  1.8 times slower on the same code, so its numbers are compared with
+  baselines run on the same machine, not with §5.
+- **Baselines.**
+  - 6e958fc: the commit before the first of the five, on SDK
+    0.2.0-beta.6.
+  - 0.4.0-beta.13: SDK 0.2.0-beta.7, with PendingHints only.
+  - The two agree within noise, so the SDK step is not a factor.
+- **Harness.** It now runs what the plugin runs. The port records each
+  commit as own work, and the engine asks the stale-work guard before a
+  section's pass; before this re-check the harness wired neither.
+  `LFCP_PERF_STALE=0` leaves both out, to measure what they cost. Other
+  writers' changes (remote samples, W200-H's history) are committed
+  through the runtime, so they are not this device's own work.
+- **Keystrokes.** A new test, `test/perf/editor.perf.test.ts`, measures
+  the editor's cost per keystroke. It uses the W200 note bound as a
+  shared section and applies 2,000 keystrokes to the same start state.
+  It reports the section editor's filters and hints minus the same
+  keystroke on a plain editor state, as p50.
+- **Runs.** W200 runs were interleaved. Runs under heavy machine load
+  (load average above 3, from other sessions' native suites) were
+  discarded.
+
+### Results: W200, p50 / p95 in ms
+
+Each value is the mean over the runs kept: two for the baselines and
+for main before the fix, three after it.
+
+| Tree | Durable local update | Remote projection | Cached open |
+| --- | ---: | ---: | ---: |
+| 6e958fc (before the five) | 341 / 402 | 293 / 346 | 348 / 386 |
+| 0.4.0-beta.13 | 338 / 385 | 284 / 318 | 350 / 420 |
+| main fbcbed2, guard left out | 331 / 370 | 288 / 326 | 345 / 373 |
+| main fbcbed2, guard as the plugin runs it | 536 / 1,996 | 2,553 / 3,163 | 453 / 473 |
+| after 0fe21ae, guard left out | 332 / 364 | 290 / 316 | 357 / 410 |
+| after 0fe21ae, guard as the plugin runs it | 348 / 390 | 289 / 304 | 346 / 362 |
+
+- **Most of the five cost nothing measurable.** `misplaced()`,
+  `placementOrder` and PendingHints are within noise (±3%).
+- **The stale-work guard regressed W200**, as the plugin runs it:
+  - durable update p95 went up about five times;
+  - remote projection went up about nine times;
+  - cached open went up 31%.
+- **Cause.** `StaleWorkController.check()` read two rows (the unit's
+  status and its outbound item) for every own unit not yet known to be
+  accepted, on every pass.
+  - Offline, no unit is accepted, so every unit sent stays watched.
+  - After 200 edits, one pass spent about 570 ms in the check: about
+    119 units, at 4.8 ms per unit in fake IndexedDB.
+  - Recording each commit as own work costs about 18 ms per commit.
+  - Online, units leave the watch once accepted. Offline or against a
+    slow server, the cost grows with every unsent edit.
+- **Fix (0fe21ae).**
+  - One indexed query per check, `dataUnits.withStatus(R,
+    "quarantined")`, on the units' [resource, status] index, intersected
+    with the watched units.
+  - Units no longer queued leave the watch through one outbound listing
+    every 32 checks.
+  - With the guard, durable update p50 is now +5% against no guard (the
+    own-work record), and remote projection and cached open are within
+    3%.
+- **Native check.** `section-stale-epoch` passes on 1.13.4 and 1.14.4.
+
+The check is not skipped when the control head or key epoch is
+unchanged. sdk-ts saves the new Control chain, then awaits, then
+quarantines and rebuilds the replica, then emits `epoch-reconciled`. A
+check between the first two would record the new head and miss the
+quarantine that follows. A cheap reconcile marker from the SDK, or
+saving and reconciling in one step, would allow that skip later: a
+possible sdk-ts improvement.
+
+### Results: editor, per keystroke, W200 note
+
+The cost below is the section editor's filters and hints, p50 in ms,
+the plain state subtracted.
+
+| Keystroke | 6e958fc | 0.4.0-beta.13 | main |
+| --- | ---: | ---: | ---: |
+| Typing at the end of a Task's title | 0.000–0.001 | 0.000 | 0.002–0.009 |
+| Typing in a paragraph | 0.001 | 0.001–0.002 | 0.002 |
+| Backspace at a Task line's start under a ref | 0.002–0.004 | 0.001 | 0.375 |
+| Typing on a marker line (source mode) | 0.001 | 0.001–0.002 | 0.192 |
+
+- **Ordinary typing.** It costs under 0.01 ms per keystroke on every
+  tree.
+- **The binding-glue check.** It is O(note) when a changed line holds a
+  binding: it counts the binding's lines in the whole note before and
+  after the change.
+  - It applies to Backspace onto a binding line, and to typing on a
+    marker line.
+  - It costs about 0.2 to 0.4 ms there (p95 up to 0.63 ms).
+  - That is large relative to before but far below a 16 ms frame, so it
+    is left as it is.
+- **Typing latency.** The durable local update above covers it.
