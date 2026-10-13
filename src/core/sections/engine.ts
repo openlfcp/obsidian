@@ -1307,6 +1307,29 @@ export class SectionEngine {
       );
       if (sectionW !== undefined)
         diverged = misplaced(markdownState(written, sectionW).state, after, waiting);
+      // A node whose remote change waits for "the user's edit" that nothing
+      // sends (this pass did not commit it, the coalescer does not hold it,
+      // it is not held): the note shows other content than the model, for
+      // good. A divergence too (sweep seed 4839: a Task line taken as edited
+      // for its indentation alone).
+      if (remote?.kind === "patch") {
+        const pending = new Set<string>([...held]);
+        const intentsOf = (intents: readonly SectionIntent[] | undefined) => {
+          for (const i of intents ?? []) {
+            const id = "id" in i ? i.id : createdIdOf(i);
+            if (typeof id === "string") pending.add(id);
+          }
+        };
+        if (local.kind === "committed") intentsOf(local.entry.intents);
+        const queued = port.waiting?.(resource, projectionId);
+        if (queued !== undefined) intentsOf((await this.deps.journal.get(queued))?.intents);
+        const stale = remote.deferred.flatMap((d) =>
+          d.reason === "local-edit" && d.nodeId !== null && !pending.has(d.nodeId)
+            ? [d.nodeId]
+            : [],
+        );
+        if (stale.length > 0) diverged = [...new Set([...diverged, ...stale])].sort();
+      }
     }
     const affected = new Set(local.kind === "committed" ? local.receipt.affectedNodeIds : []);
     const nodeRevisions: Record<string, string | null> = {};
