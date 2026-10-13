@@ -238,19 +238,46 @@ export function composeChanges(
    */
   const map = (p: number, role: "from" | "to"): number | null => {
     let shift = 0;
-    for (const s of at) {
+    for (let i = 0; i < at.length; i++) {
+      const s = at[i] as (typeof at)[number];
       if (p < s.a) return p - shift;
-      if (p === s.a) return s.b === s.a && role === "from" ? s.c.to : s.c.from;
+      if (p === s.a && s.b === s.a) {
+        // Text `first` removed here: a range ends before it, starts after it
+        // (and after any other removal at this same place).
+        if (role === "to") return s.c.from;
+        shift += s.c.insert.length - (s.c.to - s.c.from);
+        continue;
+      }
+      if (p === s.a) return s.c.from;
       if (p < s.b) return null;
-      if (p === s.b) return s.c.to;
+      if (p === s.b) {
+        if (role === "to") return s.c.to;
+        let end = s.c.to;
+        for (let j = i + 1; j < at.length; j++) {
+          const e = at[j] as (typeof at)[number];
+          if (e.a !== p || e.b !== p) break;
+          end = e.c.to;
+        }
+        return end;
+      }
       shift += s.c.insert.length - (s.c.to - s.c.from);
     }
     return p - shift;
   };
   const dropped = new Set<DocChange>();
-  const out: { c: DocChange; rank: number }[] = [];
+  /** `inter`: where the change sits in the intermediate text (ties keep its order). */
+  const out: { c: DocChange; rank: number; inter: number }[] = [];
   for (const c of second) {
-    const covered = at.filter((s) => s.a >= c.from && s.b <= c.to && c.to > c.from);
+    // A span `first` emptied (a deletion) at the very edge of this change is
+    // not covered by it: merged in, an insertion of `second` at that same
+    // edge would land inside the merged range (the 5000-seed sweep, 2974).
+    const covered = at.filter(
+      (s) =>
+        s.a >= c.from &&
+        s.b <= c.to &&
+        c.to > c.from &&
+        (s.b > s.a || (s.a > c.from && s.a < c.to)),
+    );
     for (const s of at)
       if (!covered.includes(s) && c.from < s.b && c.to > s.a && s.b > s.a) return null;
     const from = map(c.from, "from");
@@ -266,10 +293,19 @@ export function composeChanges(
         insert: c.insert,
       },
       rank: c.to === c.from ? (startEdge ? 0 : 2) : 3,
+      inter: c.from,
     });
   }
-  for (const c of spans) if (!dropped.has(c)) out.push({ c, rank: c.to === c.from ? 1 : 3 });
-  return out.sort((x, y) => x.c.from - y.c.from || x.rank - y.rank).map((x) => x.c);
+  for (const s of at)
+    if (!dropped.has(s.c)) out.push({ c: s.c, rank: s.c.to === s.c.from ? 1 : 3, inter: s.a });
+  // At one position of the original: insertions before a removal there (it
+  // would take them), in the order the intermediate text has them.
+  const width = (x: { c: DocChange }) => (x.c.to > x.c.from ? 1 : 0);
+  return out
+    .sort(
+      (x, y) => x.c.from - y.c.from || width(x) - width(y) || x.inter - y.inter || x.rank - y.rank,
+    )
+    .map((x) => x.c);
 }
 
 /** The section `ref` in `markdown`, at or after the line `near` had (the same projection). */

@@ -30,16 +30,19 @@ function changes(r: () => number, n: number): DocChange[] {
       continue;
     }
     out.push({ from, to, insert });
-    p = to + 1;
+    // Sometimes the next change starts right where this one ends (an
+    // insertion, then a deletion at the same place, as the engine's layers
+    // write them).
+    p = to === from || r() < 0.7 ? to + 1 : to;
   }
   return out;
 }
 
 describe("composeChanges", () => {
-  it("equals applying both lists in turn, or refuses (property, 3000 cases)", () => {
+  it("equals applying both lists in turn, never overlapping, or refuses (property, 10000 cases)", () => {
     const r = rng(42);
     let composed = 0;
-    for (let k = 0; k < 3000; k++) {
+    for (let k = 0; k < 10000; k++) {
       const text = "abcdefghij".slice(0, 3 + Math.floor(r() * 8));
       const first = changes(r, text.length);
       const mid = applyChanges(text, first);
@@ -47,12 +50,32 @@ describe("composeChanges", () => {
       const c = composeChanges(first, second);
       if (c === null) continue;
       composed++;
-      expect(applyChanges(text, c), JSON.stringify({ text, first, second })).toBe(
-        applyChanges(mid, second),
-      );
+      const what = JSON.stringify({ text, first, second, c });
+      for (let i = 1; i < c.length; i++)
+        expect((c[i] as DocChange).from, what).toBeGreaterThanOrEqual((c[i - 1] as DocChange).to);
+      expect(applyChanges(text, c), what).toBe(applyChanges(mid, second));
     }
     // Short texts make cuts into fresh inserts common; those are refused by design.
-    expect(composed).toBeGreaterThan(1500);
+    expect(composed).toBeGreaterThan(5000);
+  });
+
+  it("a deletion of `first` at the edge of a deletion of `second` stays apart from an insertion there (sweep seed 2974)", () => {
+    // first: x removed (a remote deletion); second: Alpha inserted where x
+    // was, and the line after it (draft, moved away) removed.
+    const text = "G\nx\nd\nP\n";
+    const first = [{ from: 2, to: 4, insert: "" }];
+    const mid = applyChanges(text, first); // "G\nd\nP\n"
+    const second = [
+      { from: 2, to: 2, insert: "A\n" },
+      { from: 2, to: 4, insert: "" },
+      { from: 6, to: 6, insert: "d\n" },
+    ];
+    const c = composeChanges(first, second);
+    expect(c).not.toBeNull();
+    for (let i = 1; i < (c ?? []).length; i++)
+      expect((c ?? [])[i]?.from).toBeGreaterThanOrEqual((c ?? [])[i - 1]?.to ?? 0);
+    expect(applyChanges(text, c ?? [])).toBe(applyChanges(mid, second));
+    expect(applyChanges(text, c ?? [])).toBe("G\nA\nP\nd\n");
   });
 
   it("keeps an insertion at a span's edge on its side", () => {
