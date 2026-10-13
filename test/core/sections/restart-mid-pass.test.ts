@@ -304,6 +304,8 @@ describe("a restart in the middle of a structural pass", () => {
   // In written(): the note on disk has the pass's bindings.
   it("the note written, its base not saved: the bindings on disk are the batch's", async () => {
     const v = await stopped({ bases: "before-save" });
+    // The base as before the pass: without the batch, and saying so (none applied).
+    expect((await v.bases.load("projection-1"))?.applied).toBeUndefined();
     expect(v.disk()).not.toBe(EDITED);
     expect(v.port.changes).toHaveLength(1);
     await settle(v);
@@ -312,11 +314,11 @@ describe("a restart in the middle of a structural pass", () => {
     expectNoteIsModel(v.port, v.disk());
   });
 
-  // BUG(gap5-base-saved): the resumed batch is applied again onto a base
-  // that has it: Draft's base reads "Draft v2 v2", and every pass sends a
-  // Text edit that takes " v2" off again.
-  it.fails("the note written and its base saved, the journal still at committed", async () => {
+  it("the note written and its base saved, the journal still at committed", async () => {
     const v = await stopped({ bases: "after-save" });
+    // The base saved knows it has the batch, which the journal does not yet.
+    expect((await v.bases.load("projection-1"))?.applied).toEqual(["op-1"]);
+    expect((await v.journal.get("op-1"))?.phase).toBe("committed");
     await settle(v);
     expect(v.port.changes).toHaveLength(1);
     expectEditKept(v.port, v.disk());

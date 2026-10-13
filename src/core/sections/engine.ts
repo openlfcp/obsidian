@@ -609,11 +609,13 @@ export class SectionEngine {
         const marks: Record<string, string | null> = { ...driftMarks(r.base) };
         for (const [id, text] of Object.entries(now))
           if (!(id in marks) && !(r.restored ?? []).includes(id)) marks[id] = text;
-        const { drifted: _marks, ...base } = r.base;
-        await this.deps.bases.save(
-          r.projectionId,
-          Object.keys(marks).length === 0 ? base : { ...base, drifted: marks },
-        );
+        const { drifted: _marks, applied: _applied, ...base } = r.base;
+        const applied = r.entries.map((e) => e.operationId);
+        await this.deps.bases.save(r.projectionId, {
+          ...base,
+          ...(Object.keys(marks).length === 0 ? {} : { drifted: marks }),
+          ...(applied.length === 0 ? {} : { applied }),
+        });
       }
       for (const entry of r.entries) {
         const projected = await markProjected(this.deps, entry, hash);
@@ -788,7 +790,11 @@ export class SectionEngine {
           changes: [],
         };
       if (r.kind !== "project") continue;
-      for (const id of r.receipt.affectedNodeIds) resumedRevisions.set(id, r.receipt.modelRevision);
+      // Saved with its base before the restart: the base has the batch already.
+      const inBase = stored.applied?.includes(e.operationId) === true;
+      if (!inBase)
+        for (const id of r.receipt.affectedNodeIds)
+          resumedRevisions.set(id, r.receipt.modelRevision);
       // The line read as the batch's own Task (a made-up ID is not a valid
       // Task ID: it threw, and every later pass with it, 0.4.0-beta.8).
       // A node of the batch the model has deleted since (vanished at an
@@ -822,27 +828,28 @@ export class SectionEngine {
         ...found.map((b) => [b.id, sourceLines[b.line]?.text] as const),
         ...Object.entries(r.entry.taskLines ?? {}),
       ]);
-      baseState = applyBatch(
-        baseState,
-        r.entry.intents ?? [],
-        ref.sectionId,
-        (id) => lineOf.get(id),
-        // The restore is committed now: the node's base is the model's, read here.
-        (id) => {
-          const rn = r.entry.restoredNodes?.[id];
-          if (rn === undefined) return undefined;
-          if (rn.node.kind === "task") {
-            const at = taskLineOf(section, id);
-            const line =
-              at === undefined
-                ? undefined
-                : modelTaskLine(source, at, id, (taskId) => this.deps.tasks(resource, taskId));
-            return line === undefined ? rn : { ...rn, node: { ...rn.node, line } };
-          }
-          const text = snap.nodes[id]?.text;
-          return text === undefined ? rn : { ...rn, node: { ...rn.node, text } };
-        },
-      );
+      if (!inBase)
+        baseState = applyBatch(
+          baseState,
+          r.entry.intents ?? [],
+          ref.sectionId,
+          (id) => lineOf.get(id),
+          // The restore is committed now: the node's base is the model's, read here.
+          (id) => {
+            const rn = r.entry.restoredNodes?.[id];
+            if (rn === undefined) return undefined;
+            if (rn.node.kind === "task") {
+              const at = taskLineOf(section, id);
+              const line =
+                at === undefined
+                  ? undefined
+                  : modelTaskLine(source, at, id, (taskId) => this.deps.tasks(resource, taskId));
+              return line === undefined ? rn : { ...rn, node: { ...rn.node, line } };
+            }
+            const text = snap.nodes[id]?.text;
+            return text === undefined ? rn : { ...rn, node: { ...rn.node, text } };
+          },
+        );
       entries.push(r.entry);
     }
     const resumedChanges = bindingChanges(

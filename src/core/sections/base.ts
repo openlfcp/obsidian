@@ -407,6 +407,13 @@ export interface StoredBase {
    * 0.4.0-beta.7 stored a list of IDs.
    */
   readonly drifted?: readonly string[] | Readonly<Record<string, string | null>>;
+  /**
+   * The operations whose batch this base already includes, saved with it
+   * before their journal entries finish: a restart between the two resumes
+   * them without applying their batch again (a Text edit applied twice sent
+   * a correction at every pass). Absent (bases before 0.4.0-beta.15): none.
+   */
+  readonly applied?: readonly string[];
 }
 
 /** Bases by projection ID (local state, never synced; OP-24). */

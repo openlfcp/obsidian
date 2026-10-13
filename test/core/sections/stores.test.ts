@@ -65,6 +65,16 @@ describe("KeyValueSectionBaseStore", () => {
     expect(await store.projectionsOf("b.md")).toEqual(["p-2"]);
   });
 
+  it("keeps the operations a base includes; a base stored without them includes none", async () => {
+    const store = new KeyValueSectionBaseStore(kv());
+    await store.save("p-1", { ...base("a.md"), applied: ["op-1"] });
+    expect((await store.load("p-1"))?.applied).toEqual(["op-1"]);
+    // As 0.4.0-beta.14 stored it.
+    await store.save("p-2", base("a.md"));
+    expect(await store.load("p-2")).toEqual(base("a.md"));
+    expect((await store.load("p-2"))?.applied).toBeUndefined();
+  });
+
   it("reads the same as the in-memory store", async () => {
     const a = new KeyValueSectionBaseStore(kv());
     const b = new MemorySectionBaseStore();
