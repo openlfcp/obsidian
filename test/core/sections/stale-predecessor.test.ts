@@ -67,3 +67,22 @@ describe("a placement after a Task the peer deleted meanwhile", () => {
     ]);
   });
 });
+
+describe("a placement under a Task the peer deleted meanwhile", () => {
+  it("waits; the rest of the pass is sent", async () => {
+    const { a, b } = await twoVaults(["- [ ] Alpha", "- [ ] b3", "", "A paragraph."]);
+    const b3 = taskId(b.note(), "b3");
+    // B deletes b3; A, not knowing yet, nests a new Task under it and edits Alpha.
+    const B = lines(b.note());
+    const [bf, bt] = block(b.note(), "b3");
+    B.splice(bf, bt - bf);
+    await b.pass(B.join("\n"), { deletedIds: new Set([b3]) });
+    for (const [res, rb] of b.replicas) a.replicas.get(res)?.receiveChanges(rb.changes());
+    const A = lines(a.note());
+    A.splice(block(a.note(), "b3")[1], 0, "\t- [ ] a9");
+    const r = await a.pass(A.join("\n").replace("- [ ] Alpha", "- [ ] Alpha edited"));
+    expect(r?.local?.kind).toBe("committed");
+    await reconnect(a, b);
+    expect(lines(b.note())).toContain("- [ ] Alpha edited");
+  });
+});

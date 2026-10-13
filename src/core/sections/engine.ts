@@ -918,6 +918,16 @@ export class SectionEngine {
       ...m,
       after: anchor(m.parent, m.after),
     });
+    // §6 again: a parent the model does not show (deleted meanwhile, the
+    // note's copy kept and offered as reappeared) takes no placement: it
+    // would refuse (INVALID_PARENT) the whole batch on every pass. Such a
+    // placement waits until the parent is restored; the rest is sent (the
+    // peer-structure property test, seed 54).
+    const parentShown = (m: { parent: string | null }) => {
+      if (m.parent === null || m.parent === UNBOUND_PARENT || placedHere.has(m.parent)) return true;
+      const p = snap.nodes[m.parent];
+      return p !== undefined && p.lifecycle === "active" && p.hidden !== true;
+    };
     const local = await commitPass(this.deps, {
       projectionId,
       resource,
@@ -930,11 +940,13 @@ export class SectionEngine {
       plan: {
         ...plan,
         textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)),
-        moves: [...plan.moves, ...restoredMoves(note.state, pasted)].map(anchored),
+        moves: [...plan.moves, ...restoredMoves(note.state, pasted)]
+          .filter(parentShown)
+          .map(anchored),
       },
       deletes,
       restores: comp.restores,
-      creations: creations.map(anchored),
+      creations: creations.filter(parentShown).map(anchored),
       newTask: (c, id) => this.deps.newTask(lineText0(c.line), id),
       taskIntents: fields.intents,
       lineOf: lineText0,
