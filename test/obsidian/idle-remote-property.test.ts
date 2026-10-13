@@ -67,12 +67,20 @@ async function run(seed: number) {
       editorInfoField.init(() => ({ file: { path: PATH } }) as never),
     ],
   });
+  // Until nothing moves for three turns: the editor's timer has nothing due,
+  // and no pass ran nor changed the document. One turn of the event loop
+  // runs every pending promise of a pass (the stores are in memory), so a
+  // few turns do; a fixed 200 took over 3 s on Windows, whose timers fire at
+  // most every ~16 ms (Platform smoke, windows-latest: seeds timed out).
   const settle = async () => {
-    for (let i = 0; i < 200; i++) {
+    const mark = () => `${passes.length}\u0000${view.state.doc.toString()}`;
+    for (let i = 0, quiet = 0; i < 200 && quiet < 3; i++) {
       const now = due;
       due = [];
       for (const fn of now) fn();
+      const before = mark();
       await new Promise((resolve) => setTimeout(resolve, 0));
+      quiet = now.length === 0 && due.length === 0 && mark() === before ? quiet + 1 : 0;
     }
   };
   const committed = () =>
