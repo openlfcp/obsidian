@@ -86,3 +86,30 @@ describe("a placement under a Task the peer deleted meanwhile", () => {
     expect(lines(b.note())).toContain("- [ ] Alpha edited");
   });
 });
+
+describe("a waiting placement, once its parent is back", () => {
+  it("is sent: the Task typed under the deleted Task ends up under it everywhere", async () => {
+    const { a, b } = await twoVaults(["- [ ] Alpha", "- [ ] b3", "", "A paragraph."]);
+    const b3 = taskId(b.note(), "b3");
+    const B = lines(b.note());
+    const [bf, bt] = block(b.note(), "b3");
+    B.splice(bf, bt - bf);
+    await b.pass(B.join("\n"), { deletedIds: new Set([b3]) });
+    for (const [res, rb] of b.replicas) a.replicas.get(res)?.receiveChanges(rb.changes());
+    const A = lines(a.note());
+    A.splice(block(a.note(), "b3")[1], 0, "\t- [ ] a9");
+    await a.pass(A.join("\n"));
+    await a.pass(a.note());
+    // b3 comes back (B restores it), and a remote change makes A's pass write.
+    const restore = b.recovery();
+    expect(restore).toEqual([]);
+    await b.pass(b.note().replace("- [ ] Alpha", "- [ ] Alpha 2"));
+    const replica = b.replica();
+    replica.commit([{ intent: "node.restore", id: b3 }] as never);
+    await reconnect(a, b);
+    await reconnect(a, b);
+    const a9 = taskId(a.note(), "a9");
+    expect(a.model()?.nodes[a9]?.parent).toBe(b3);
+    expect(b.note()).toMatch(/- \[ \] b3\n.*\n\s+- \[ \] a9/);
+  });
+});
