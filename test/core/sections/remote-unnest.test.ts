@@ -80,3 +80,29 @@ describe("a child moved out of its parent and the parent moved, in one update", 
     expect(a.note()).toBe(b.note());
   });
 });
+
+describe("a child moved out of its parent, under a new Task right after that parent", () => {
+  it("renders whole: the new Task keeps its marker, the child goes under it (the peer-structure test, seed 762)", async () => {
+    const { a, b } = await twoVaults([
+      "- [ ] Alpha",
+      "- [ ] Gamma",
+      "  - [ ] b2",
+      "",
+      "A paragraph.",
+    ]);
+    // B adds b3 after Gamma and moves b2 under it (one pass).
+    const L = lines(b.note());
+    const [f, t] = block(b.note(), "b2");
+    const b2 = L.splice(f, t - f).map((l) => `\t${l.slice(2)}`);
+    L.splice(f, 0, "- [ ] b3", ...b2);
+    await b.pass(L.join("\n"));
+    await b.pass(b.note());
+    await reconnect(a, b);
+    expect(lines(a.note()).filter((l) => /\[ \]/.test(l))).toEqual([
+      "- [ ] Alpha",
+      "- [ ] Gamma",
+      "- [ ] b3",
+      "  - [ ] b2",
+    ]);
+  });
+});

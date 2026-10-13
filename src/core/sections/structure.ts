@@ -291,7 +291,18 @@ export function planStructure(
           // inside its own removed lines (the blank line after them). It goes
           // where those lines began, or the changes would overlap and the
           // insertion cut into its own line (the peer-structure test, seed 3).
-          const at = pos.offset > change.from && pos.offset < change.to ? change.from : pos.offset;
+          const inside = (offset: number) => offset > change.from && offset < change.to;
+          const at = inside(pos.offset) ? change.from : pos.offset;
+          // What this plan put there before, a new parent the node now goes
+          // under among them, goes there too, in the same order: left inside
+          // the removed lines, it was cut into (the peer-structure test, seed 762).
+          for (const [offset, list] of [...chunks])
+            if (inside(offset)) {
+              chunks.delete(offset);
+              chunks.set(change.from, [...(chunks.get(change.from) ?? []), ...list]);
+            }
+          for (const [other, p] of placed)
+            if (inside(p.offset)) placed.set(other, { ...p, offset: change.from });
           for (const d of subtree(existing)) if (d.id !== null) carried.add(d.id);
           carried.delete(id);
           add(at, { id, kind: m.kind, lines: moved, firstChild: pos.firstChild });
