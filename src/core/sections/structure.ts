@@ -259,19 +259,22 @@ export function planStructure(
           }
           const blankAfter = isBlank(lines[range.to + 1]?.text ?? "x") ? 1 : 0;
           for (let l = range.from; l <= range.to + blankAfter; l++) gone.add(l);
-          removed.push({
-            range,
-            change: {
-              from: offsetOf(range.from),
-              to: offsetOf(range.to + 1 + blankAfter),
-              insert: "",
-            },
-          });
+          const change = {
+            from: offsetOf(range.from),
+            to: offsetOf(range.to + 1 + blankAfter),
+            insert: "",
+          };
+          removed.push({ range, change });
+          // Its new place right after its old parent's subtree, which held it:
+          // inside its own removed lines (the blank line after them). It goes
+          // where those lines began, or the changes would overlap and the
+          // insertion cut into its own line (the peer-structure test, seed 3).
+          const at = pos.offset > change.from && pos.offset < change.to ? change.from : pos.offset;
           for (const d of subtree(existing)) if (d.id !== null) carried.add(d.id);
           carried.delete(id);
-          add(pos.offset, { id, kind: m.kind, lines: moved, firstChild: pos.firstChild });
+          add(at, { id, kind: m.kind, lines: moved, firstChild: pos.firstChild });
           placed.set(id, {
-            offset: pos.offset,
+            offset: at,
             childIndent:
               m.kind === "task" || m.kind === "item" ? childIndent(moved[0] ?? "") : indent,
           });
