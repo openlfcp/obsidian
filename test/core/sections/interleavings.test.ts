@@ -45,6 +45,8 @@ import {
 } from "../../support/section-vaults";
 
 const SEEDS = Number(process.env.LFCP_PROPERTY_SEEDS ?? 40);
+/** The first seed (a long sweep runs in ranges: LFCP_PROPERTY_FROM=1001 LFCP_PROPERTY_SEEDS=2000). */
+const FROM = Number(process.env.LFCP_PROPERTY_FROM ?? 1);
 /** Concurrent moves of the same node checked, over all seeds: the invariant must be exercised. */
 let concurrentMoves = 0;
 /** The editor's other moves run, over all seeds: each must be exercised. */
@@ -439,8 +441,10 @@ async function run(seed: number) {
         }
         trace(`drop own ${k} -> ${to}`);
         gestures.drop++;
-      } else if (y < 0.8) {
-        // Cut from the Task's line start to the end of its last line: an empty line stays.
+      } else if (y < 0.8 && blockAt(lines(md), at)[1] - at > 1) {
+        // Cut from the Task's line start to the end of its last line (its
+        // ref line: a bound Task; an unbound one pasted so is just the
+        // user's own text run together): an empty line stays.
         const L = lines(md);
         const [from, to] = blockAt(L, at);
         const start = offsetOf(md, from);
@@ -582,7 +586,7 @@ describe(`interleavings never bring older text back (${SEEDS} seeds)`, () => {
     expect(ownTasks(b.note())).toEqual([""]);
   });
 
-  for (let seed = 1; seed <= SEEDS; seed++) it(`seed ${seed}`, () => run(seed));
+  for (let seed = FROM; seed <= SEEDS; seed++) it(`seed ${seed}`, () => run(seed));
 
   it("the seeds exercised concurrent moves of one node, and every editor move", () => {
     expect(concurrentMoves).toBeGreaterThan(0);
