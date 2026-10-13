@@ -256,6 +256,14 @@ export function planStructure(
             deferred.push({ nodeId: id, reason: "private-text" });
             return;
           }
+          // Lines another move of this plan already takes (a node moved out
+          // of this subtree, visited first): the changes would overlap and
+          // garble the note. This one waits for the next pass, planned on
+          // the note as this one leaves it (the peer-structure test, seed 666).
+          if (removed.some((r) => r.range.from <= range.to && r.range.to >= range.from)) {
+            deferred.push({ nodeId: id, reason: "no-anchor" });
+            return;
+          }
           const old = /^[ \t]*/.exec(lines[range.from]?.text ?? "")?.[0] ?? "";
           const moved: string[] = [];
           for (let l = range.from; l <= range.to; l++) {

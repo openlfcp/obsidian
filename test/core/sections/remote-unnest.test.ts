@@ -45,3 +45,38 @@ describe("a Task moved out of its parent by the peer", () => {
     expect(lines(a.note()).filter((l) => /^\s*\[ \]/.test(l))).toEqual([]);
   });
 });
+
+describe("a child moved out of its parent and the parent moved, in one update", () => {
+  it("renders whole: no line twice, none cut (the peer-structure test, seed 666)", async () => {
+    const { a, b } = await twoVaults([
+      "- [ ] Alpha",
+      "- [ ] P",
+      "  - [ ] c",
+      "- [ ] X",
+      "",
+      "A paragraph.",
+    ]);
+    // B: c out of P, after Alpha; P after X (one pass, both moves).
+    const L = lines(b.note());
+    const [cf, ct] = block(b.note(), "c");
+    const c = L.splice(cf, ct - cf).map((l) => l.slice(2));
+    const note1 = L.join("\n");
+    const M = lines(note1);
+    const [pf, pt] = block(note1, "P");
+    const p = M.splice(pf, pt - pf);
+    M.splice(block(M.join("\n"), "X")[1], 0, ...p);
+    M.splice(block(M.join("\n"), "Alpha")[1], 0, ...c);
+    await b.pass(M.join("\n"));
+    await reconnect(a, b);
+    await reconnect(a, b);
+    const refs = lines(a.note()).flatMap((l) => /#task:([0-9a-f-]{36})/.exec(l)?.[1] ?? []);
+    expect(new Set(refs).size).toBe(refs.length);
+    expect(lines(a.note()).filter((l) => /\[ \]/.test(l))).toEqual([
+      "- [ ] Alpha",
+      "- [ ] c",
+      "- [ ] X",
+      "- [ ] P",
+    ]);
+    expect(a.note()).toBe(b.note());
+  });
+});
