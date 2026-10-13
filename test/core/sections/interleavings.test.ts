@@ -17,12 +17,23 @@
 // both sides since they last synced, to different places, yields a
 // PLACEMENT_CONFLICT on both (then resolved, as "Review conflicts" does).
 //
+// And the editor's other moves (the owner's checks of 0.4.0-beta.10): Move
+// line, a drag, a Task cut without its trailing newline and pasted at the
+// start of another Task's line, Tab then Shift+Tab, as line-moves.ts turns
+// them into moves of whole Tasks, each with the hint the editor collects.
+//
 // After every written pass, the note shows exactly what the user typed last:
 // never older text, and the user's own Tasks in the order they left them. In
 // the end the model and the peer have it too. The PR run uses 40 seeds;
 // LFCP_PROPERTY_SEEDS=500 runs more.
 
 import { describe, expect, it } from "vitest";
+import { applyChanges } from "../../../src/core/sections/engine";
+import {
+  indentWithNode,
+  moveNodeLines,
+  pasteOnOwnLines,
+} from "../../../src/core/sections/line-moves";
 import {
   lines,
   placementConflict,
@@ -34,6 +45,8 @@ import {
 const SEEDS = Number(process.env.LFCP_PROPERTY_SEEDS ?? 40);
 /** Concurrent moves of the same node checked, over all seeds: the invariant must be exercised. */
 let concurrentMoves = 0;
+/** The editor's other moves run, over all seeds: each must be exercised. */
+const gestures = { "move line": 0, drop: 0, "glued paste": 0, indent: 0 };
 const BODY = ["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma", "", "Clean paragraph."];
 const WORDS = ["draft", "テスト", "仕事", "plan", "かみ", "x"];
 const ctx = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
@@ -43,9 +56,9 @@ const random = (seed: number) => () => {
   return seed / 0x7fffffff;
 };
 
-const TASK = /^- \[ \] (.*)$/;
+const TASK = /^\s*- \[ \] (.*)$/;
 /** The shared Tasks of BODY ("Alpha" with the peer's suffix): they move only among themselves. */
-const SHARED = /^- \[ \] (Alpha|Beta|Gamma)( |$)/;
+const SHARED = /^\s*- \[ \] (Alpha|Beta|Gamma)( |$)/;
 const isOwn = (l: string) => TASK.test(l) && !SHARED.test(l);
 /** The titles of the Task lines this vault's user made (all but BODY's), in note order. */
 const ownTasks = (md: string) =>
@@ -132,6 +145,12 @@ function enter(md: string, title: string): string {
   L.splice(end, 0, `- [ ] ${title}`);
   return L.join("\n");
 }
+/** The offset of line `n`. */
+const offsetOf = (md: string, n: number) =>
+  lines(md)
+    .slice(0, n)
+    .reduce((x, l) => x + l.length + 1, 0);
+
 function setParagraph(md: string, text: string): string {
   const L = lines(md);
   const at = L.findIndex((l) => l.startsWith("<!-- lfcp-node: paragraph:"));
@@ -257,7 +276,10 @@ async function run(seed: number) {
       a.engine.abandoned(p);
       unspent(h);
     } else {
-      await a.pass(md, h);
+      const r = await a.pass(md, h);
+      // Nothing the user did here is held back (a glued paste among them).
+      expect(r?.skipped).not.toBe("blocked");
+      expect(r?.lost ?? []).toEqual([]);
       md = a.note();
     }
     trace(`pass ${mode}${duringTick ? " +tick" : ""}`);
@@ -348,6 +370,82 @@ async function run(seed: number) {
         await b.pass(moved, { deletedIds: id, cut: id, inserted: id });
         continue;
       }
+    } else if (x < 0.94 && clip === null && titles.length > 0 && r() < 0.5) {
+      // The editor's other moves of an own Task (line-moves.ts, the owner's
+      // checks of 0.4.0-beta.10): Move line, a drag (a cut and a paste in one
+      // transaction, not a cut), the cut without its trailing newline pasted
+      // at a line's start, Tab then Shift+Tab.
+      const k = Math.floor(r() * titles.length);
+      const at = ownLine(lines(md), k);
+      const y = r();
+      if (y < 0.3) {
+        const move = moveNodeLines(md, at, at, r() < 0.5 ? "up" : "down");
+        if (move === null) throw new Error("own Task outside the section");
+        md = applyChanges(md, move.changes);
+        for (const id of move.moved) inserted.add(id);
+        trace(`move line own ${k}`);
+        gestures["move line"]++;
+      } else if (y < 0.55) {
+        const { md: without, block } = cutOwn(md, k);
+        const ids = idsIn(block);
+        const title = titles[k] ?? "";
+        titles = titles.filter((_, i) => i !== k);
+        const to = Math.floor(r() * (titles.length + 1));
+        md = pasteOwn(without, to, block);
+        titles = [...titles.slice(0, to), title, ...titles.slice(to)];
+        for (const id of ids) {
+          deletedIds.add(id);
+          inserted.add(id);
+        }
+        trace(`drop own ${k} -> ${to}`);
+        gestures.drop++;
+      } else if (y < 0.8) {
+        // Cut from the Task's line start to the end of its last line: an empty line stays.
+        const L = lines(md);
+        const [from, to] = blockAt(L, at);
+        const start = offsetOf(md, from);
+        const end = offsetOf(md, to) - 1;
+        const text = md.slice(start, end);
+        const ids = idsIn(L.slice(from, to));
+        const without = md.slice(0, start) + md.slice(end);
+        const title = titles[k] ?? "";
+        titles = titles.filter((_, i) => i !== k);
+        for (const id of ids) deletedIds.add(id);
+        cutIds = new Set(ids);
+        // Pasted at the start of another own Task's line (or after the last Task's block).
+        const dest = Math.floor(r() * (titles.length + 1));
+        const line = insertAt(lines(without), dest);
+        const pos = offsetOf(without, line);
+        const change = { from: pos, to: pos, insert: text };
+        md = applyChanges(without, [pasteOnOwnLines(without, change) ?? change]);
+        titles = [...titles.slice(0, dest), title, ...titles.slice(dest)];
+        for (const id of ids) inserted.add(id);
+        trace(`glued paste own ${k} -> ${dest}`);
+        gestures["glued paste"]++;
+      } else if (
+        !TASK.test(lines(md)[at - 1] ?? "") &&
+        !(lines(md)[at - 1] ?? "").includes("lfcp-ref:")
+      ) {
+        // Tab with no Task before it would make it code (four columns after a
+        // paragraph): not a nesting, so not this gesture.
+        trace(`no Tab for own ${k}`);
+      } else {
+        // Tab (it becomes the child of the Task before it), a pass, then Shift+Tab.
+        // (A Task not bound yet has no other lines: the editor's change stands.)
+        const pos = offsetOf(md, at);
+        const tab = { from: pos, to: pos, insert: "\t" };
+        const before = md;
+        md = applyChanges(md, indentWithNode(md, [tab]) ?? [tab]);
+        await passA(mode(), r() < 0.2);
+        const dedent = { from: offsetOf(md, at), to: offsetOf(md, at) + 1, insert: "" };
+        md = applyChanges(md, indentWithNode(md, [dedent]) ?? [dedent]);
+        // Back where it was (a pass in between may have bound it: its ref line is new).
+        expect(ownTasks(md)).toEqual(ownTasks(before));
+        trace(`indent own ${k}`);
+        gestures.indent++;
+      }
+      // Whatever the gesture, the note shows the user's own Tasks as they left them.
+      titles = ownTasks(md);
     } else if (x < 0.94 && clip === null && titles.length > 0) {
       // An own Task cut and pasted elsewhere: in this pass, or the paste later.
       const k = Math.floor(r() * titles.length);
@@ -446,7 +544,8 @@ describe(`interleavings never bring older text back (${SEEDS} seeds)`, () => {
 
   for (let seed = 1; seed <= SEEDS; seed++) it(`seed ${seed}`, () => run(seed));
 
-  it("the seeds exercised concurrent moves of one node", () => {
+  it("the seeds exercised concurrent moves of one node, and every editor move", () => {
     expect(concurrentMoves).toBeGreaterThan(0);
+    for (const n of Object.values(gestures)) expect(n).toBeGreaterThan(0);
   });
 });
