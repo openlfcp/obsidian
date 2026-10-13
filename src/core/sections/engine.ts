@@ -921,6 +921,39 @@ export class SectionEngine {
     const here = new Set([...(ctx.cut ?? []), ...(ctx.restore ?? []), ...(ctx.inserted ?? [])]);
     const comp = compensate(ctx.origin, plan.missing, reappeared, this.#ledger, here);
     const pasted = comp.restores.filter((id) => here.has(id));
+    // A bound node the note shows and this projection's base does not know,
+    // while the model has it active: the user put it there. (A paste
+    // committed nothing while the section waited for Review conflicts,
+    // MS14; Keep then brought the node back where a collaborator had moved
+    // it. Neither a local edit nor a remote change, it stayed apart from the
+    // model on every pass: the peer-structure property test, seed 346.) The
+    // base takes it as the note shows it, and a placement elsewhere than the
+    // model's is sent, the user's paste being the latest word on it.
+    const adopted = Object.keys(note.state.nodes).filter((id) => {
+      const m = snap.nodes[id];
+      return (
+        baseState.nodes[id] === undefined &&
+        note.state.nodes[id]?.parent !== UNBOUND_PARENT &&
+        m !== undefined &&
+        m.lifecycle === "active" &&
+        m.hidden !== true &&
+        !comp.restores.includes(id)
+      );
+    });
+    const modelBefore = (id: string): string | null => {
+      const m = snap.nodes[id];
+      const siblings = (snap.order[m?.parent ?? ROOT] ?? []).filter((x) => {
+        const n = snap.nodes[x];
+        return n !== undefined && n.lifecycle === "active" && n.hidden !== true;
+      });
+      const at = siblings.indexOf(id);
+      return at > 0 ? (siblings[at - 1] as string) : null;
+    };
+    const adoptedMoves = restoredMoves(note.state, adopted).filter(
+      (mv) => snap.nodes[mv.nodeId]?.parent !== mv.parent || modelBefore(mv.nodeId) !== mv.after,
+    );
+    const adoptedBase =
+      adopted.length === 0 ? baseState : withRestored(baseState, note.state, adopted);
     const removedHere = (id: string) => ctx.deletedIds.has(id) || vanished.has(id);
     const deletes = [...new Set([...comp.deletes, ...comp.lost.filter(removedHere)])];
     const lost = comp.lost.filter((id) => !removedHere(id));
@@ -1010,6 +1043,7 @@ export class SectionEngine {
     const placedHere = new Set([
       ...plan.moves.map((m) => m.nodeId),
       ...freed.map((m) => m.nodeId),
+      ...adoptedMoves.map((m) => m.nodeId),
       ...pasted,
       ...comp.restores,
     ]);
@@ -1064,7 +1098,7 @@ export class SectionEngine {
         ...plan,
         textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)),
         moves: placementOrder(
-          [...plan.moves, ...freed, ...restoredMoves(note.state, pasted)]
+          [...plan.moves, ...freed, ...adoptedMoves, ...restoredMoves(note.state, pasted)]
             .filter(parentShown)
             .map(anchored),
         ),
@@ -1128,7 +1162,7 @@ export class SectionEngine {
 
     // 3. The bindings of new nodes, and the base this batch leads to.
     let markerChanges: DocChange[] = [];
-    let localBase = baseState;
+    let localBase = adoptedBase;
     if (local.kind === "committed") {
       entries.push(local.entry);
       const bindings: NewBinding[] = creations.flatMap((c) => {
@@ -1152,7 +1186,7 @@ export class SectionEngine {
         // A restored node's base is what the restore brings back, the model's
         // (a Task: no line yet, so what the user typed on it since stays an edit).
         withModelPlaced(
-          withRestored(baseState, note.state, comp.restores, restoredAs),
+          withRestored(adoptedBase, note.state, comp.restores, restoredAs),
           comp.restores,
           (id) => note.state.nodes[id],
           // The model after this batch: the nodes it restored are in it.
