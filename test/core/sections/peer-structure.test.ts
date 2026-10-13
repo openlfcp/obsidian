@@ -24,6 +24,7 @@ import {
   pasteOnOwnLines,
 } from "../../../src/core/sections/line-moves";
 import type { RecoveryChoice, RecoveryItem } from "../../../src/core/sections/recovery";
+import { freshHints } from "../../../src/obsidian/section-editor";
 import { lines, twoVaults, type Vault } from "../../support/section-vaults";
 
 const SEEDS = Number(process.env.LFCP_PROPERTY_SEEDS ?? 20);
@@ -182,7 +183,13 @@ async function run(seed: number) {
     if (mode === "none") return;
     // A closed note's pass takes what its editor noted before it closed
     // (section-editor.ts PendingHints); no edit adds to it while closed.
-    const h = { deletedIds: s.deletedIds, inserted: s.inserted, cut: s.cut };
+    // As the editor gives them (section-editor.ts freshHints): a node noted
+    // as removed that the note binds again (restored by a collaborator
+    // meanwhile) is no longer removed.
+    const h = {
+      ...freshHints({ deletedIds: s.deletedIds, inserted: s.inserted }, s.md),
+      cut: s.cut,
+    };
     s.deletedIds = new Set();
     s.inserted = new Set();
     if (mode === "abandoned") {
