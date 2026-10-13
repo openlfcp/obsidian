@@ -135,6 +135,9 @@ Each task keeps its hidden ref line with it when you move it:
   another task's line is put on lines of its own. A selection made with
   the keyboard or the mouse never ends halfway through a ref line.
 
+A task you add right after another follows it if a collaborator moved that
+task at the same time.
+
 ### What the marks mean
 
 The **double tick ✓✓** after the heading means **this section is
