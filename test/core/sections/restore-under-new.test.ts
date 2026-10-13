@@ -34,3 +34,29 @@ describe("a cut Task pasted under a new Task", () => {
     expect(a.note()).toMatch(/- \[ \] b4\n.*\n\s+- \[ \] b2\n/);
   });
 });
+
+describe("a cut Task pasted under a new Task after its old parent was deleted", () => {
+  it("ends up under the new Task, though the model hid it under the deleted parent (seed 757)", async () => {
+    const { a, b } = await twoVaults(["- [ ] Alpha", "- [ ] b1", "  - [ ] b2", "", "A paragraph."]);
+    const md = b.note();
+    const b2 = taskId(md, "b2");
+    const b1 = taskId(md, "b1");
+    const L = lines(md);
+    const [f, t] = block(md, "b2");
+    const clip = L.splice(f, t - f).map((l) => l.replace(/^ {2}/, ""));
+    await b.pass(L.join("\n"), { deletedIds: new Set([b2]), cut: new Set([b2]) });
+    const M = lines(b.note());
+    const [g, u] = block(b.note(), "b1");
+    M.splice(g, u - g);
+    await b.pass(M.join("\n"), { deletedIds: new Set([b1]) });
+    const N = lines(b.note());
+    N.splice(block(b.note(), "Alpha")[1], 0, "- [ ] b3", ...clip.map((l) => `\t${l}`));
+    await b.pass(N.join("\n"), { inserted: new Set([b2]), cut: new Set([b2]) });
+    await b.pass(b.note());
+    const b3Line = lines(b.note()).indexOf("- [ ] b3");
+    const b3 = /#task:([0-9a-f-]{36})/.exec(lines(b.note())[b3Line + 1] ?? "")?.[1];
+    expect(b.model()?.nodes[b2]?.parent).toBe(b3);
+    await reconnect(a, b);
+    expect(a.note()).toMatch(/- \[ \] b3\n.*\n\s+- \[ \] b2\n/);
+  });
+});

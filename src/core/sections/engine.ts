@@ -313,18 +313,21 @@ export function composeChanges(
  * it. A restored node under a parent without a binding yet (a Task pasted
  * under a new one) gets no placement in this batch: the restore brings it
  * back where the model has it, and the note's place is a move the next pass
- * sends, once the parent is bound (the peer-structure property test, seed 38).
+ * sends, once the parent is bound (the peer-structure property test, seeds
+ * 38 and 757).
  */
 function withModelPlaced(
   base: SectionState,
   restored: readonly string[],
   inNote: (id: string) => NodeState | undefined,
-  model: SectionState,
+  model: SectionSnapshot,
   as: (id: string, n: NodeState) => NodeState,
 ): SectionState {
   let out = base;
   for (const id of restored) {
     const n = inNote(id);
+    // From the snapshot itself: a node under a deleted parent is hidden, yet
+    // restored, and its move is still the user's to send (seed 757).
     const m = model.nodes[id];
     if (out.nodes[id] !== undefined || n === undefined || m === undefined) continue;
     const key = m.parent ?? ROOT;
@@ -1066,7 +1069,7 @@ export class SectionEngine {
           comp.restores,
           (id) => note.state.nodes[id],
           // The model after this batch: the nodes it restored are in it.
-          sharedState(this.deps.port.snapshot(resource, ref.sectionId) ?? snap),
+          this.deps.port.snapshot(resource, ref.sectionId) ?? snap,
           restoredAs,
         ),
         local.entry.intents ?? [],
