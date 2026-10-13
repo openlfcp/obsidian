@@ -1109,7 +1109,12 @@ export class SectionEngine {
         ...plan,
         textEdits: plan.textEdits.filter((e) => !held.includes(e.nodeId)),
         moves: placementOrder(
-          [...plan.moves, ...freed, ...adoptedMoves, ...restoredMoves(note.state, pasted)]
+          [
+            ...plan.moves,
+            ...freed,
+            ...adoptedMoves,
+            ...restoredMoves(note.state, pasted, (id) => snap.nodes[id]?.parent),
+          ]
             .filter(parentShown)
             .map(anchored),
         ),

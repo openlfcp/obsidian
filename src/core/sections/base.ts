@@ -240,17 +240,26 @@ export function planSection(
 /**
  * The placements of restored nodes as the note shows them: a paste of a cut
  * puts them where they were pasted. A node pasted with its parent keeps its
- * placement under it; one under a parent without a binding yet has none.
+ * placement under it, when the model has it there; one the note shows under
+ * another restored parent than the model's (nested by a Tab that was never
+ * sent before the cut: the peer-structure property test, seed 2998) is moved
+ * under it. One under a parent without a binding yet has none.
  */
 export function restoredMoves(
   note: SectionState,
   restored: readonly string[],
+  /** The node's parent in the model (null: the section), when known. */
+  modelParent: (id: string) => string | null | undefined = () => undefined,
 ): SectionPlan["moves"] {
   const out: { nodeId: string; parent: string | null; after: string | null }[] = [];
   for (const id of restored) {
     const n = note.nodes[id];
     if (n === undefined || n.parent === UNBOUND_PARENT) continue;
-    if (n.parent !== null && restored.includes(n.parent)) continue;
+    if (n.parent !== null && restored.includes(n.parent)) {
+      // Under that parent in the model (or not known): it comes back there.
+      const m = modelParent(id);
+      if (m === undefined || m === n.parent) continue;
+    }
     out.push({ nodeId: id, parent: n.parent, after: predecessor(note, n.parent, id) });
   }
   return out;
