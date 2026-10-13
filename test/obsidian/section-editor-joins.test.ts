@@ -6,11 +6,19 @@
 // (in Live Preview the hidden binding lines are skipped); Delete at a line's
 // end leaves both. A blank line next to a marker, and lines without
 // bindings, still join (the native trace of 0.4.0-beta.13, Live Preview).
+// The check is on the result: a user's typing, deleting or moving in any
+// shape (the list marker kept, two joins at once, a paste onto a ref line) is
+// refused too; undo, redo, the plugin's own writes and other plugins' (no
+// user event) go through.
 
-import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState, type TransactionSpec } from "@codemirror/state";
 import { editorLivePreviewField } from "obsidian";
 import { describe, expect, it } from "vitest";
-import { sectionEditorExtension } from "../../src/obsidian/section-editor";
+import {
+  pluginEdit,
+  sectionEditorExtension,
+  sectionWrite,
+} from "../../src/obsidian/section-editor";
 import { lines, twoVaults } from "../support/section-vaults";
 
 const BODY = ["- [ ] Alpha", "- [ ] Beta", "", "A paragraph.", "", "- [ ] Gamma"];
@@ -180,5 +188,108 @@ describe("joins the filter lets through", () => {
     const to = s.doc.line(beta + 3).from;
     const after = s.update({ changes: { from, to }, userEvent: "delete.selection" }).state;
     expect(after.doc.toString()).not.toContain("- [ ] Beta");
+  });
+});
+
+describe("whatever the transaction's event or shape, no binding line is glued to text", () => {
+  // The owner's Backspace at the start of a Task's text in Live Preview on
+  // macOS (0.4.0-beta.14): the Task's line joined onto the ref line above,
+  // its list marker kept, twice in a row.
+  it("a join that keeps the list marker, as a Backspace: no change, the caret at the end of Alpha's line", async () => {
+    const md = await note();
+    const beta = lineIndex(md, (l) => l === "- [ ] Beta");
+    const s0 = editor(md, true);
+    const ref = s0.doc.line(beta);
+    const line = s0.doc.line(beta + 1);
+    const s = s0.update({ selection: EditorSelection.cursor(line.from + 6) }).state;
+    const after = s.update({
+      changes: { from: ref.to, to: line.from + 6, insert: "- [ ] " },
+      userEvent: "delete.backward",
+    }).state;
+    expect(after.doc.toString()).toBe(md);
+    expect(caret(after)).toEqual({ line: beta - 2, ch: "- [ ] Alpha".length });
+  });
+
+  it("the line break removed as typing, deleting or moving: no change", async () => {
+    const md = await note();
+    const beta = lineIndex(md, (l) => l === "- [ ] Beta");
+    for (const userEvent of ["input", "input.type", "delete", "move.line"]) {
+      const s = editor(md, true);
+      const from = s.doc.line(beta + 1).from;
+      const after = s.update({ changes: { from: from - 1, to: from }, userEvent }).state;
+      expect(after.doc.toString(), userEvent).toBe(md);
+    }
+  });
+
+  it("two joins in one transaction (the start marker and a ref): no change", async () => {
+    const md = await note();
+    const alpha = lineIndex(md, (l) => l === "- [ ] Alpha");
+    const beta = lineIndex(md, (l) => l === "- [ ] Beta");
+    const s = editor(md, true);
+    const a = s.doc.line(alpha + 1).from;
+    const b = s.doc.line(beta + 1).from;
+    const after = s.update({
+      changes: [
+        { from: a - 1, to: a },
+        { from: b - 1, to: b },
+      ],
+      userEvent: "delete.backward",
+    }).state;
+    expect(after.doc.toString()).toBe(md);
+  });
+
+  it("text pasted at the end of a ref line: no change", async () => {
+    const md = await note();
+    const ref = lineIndex(md, REF);
+    const s = editor(md, false);
+    const at = s.doc.line(ref + 1).to;
+    const after = s.update({
+      changes: { from: at, insert: " pasted" },
+      userEvent: "input.paste",
+    }).state;
+    expect(after.doc.toString()).toBe(md);
+  });
+
+  it("typing on a Task line with its ref inline goes through (that ref never stood alone)", () => {
+    const md = [
+      "<!-- lfcp-section: lfcp1:abc#section:x -->",
+      "- [ ] Alpha <!-- lfcp-ref: lfcp1:abc#task:t -->",
+      "<!-- /lfcp-section: lfcp1:abc#section:x -->",
+      "",
+    ].join("\n");
+    const s = editor(md, true);
+    const at = s.doc.line(2).from + "- [ ] Alpha".length;
+    const after = s.update({ changes: { from: at, insert: "s" }, userEvent: "input.type" }).state;
+    expect(after.doc.toString()).toContain("- [ ] Alphas <!-- lfcp-ref:");
+  });
+});
+
+describe("what the check lets through, a binding glued or not", () => {
+  /** Beta's line joined onto Alpha's ref line, with `spec` added. */
+  const join = async (spec: Omit<TransactionSpec, "changes">) => {
+    const md = await note();
+    const beta = lineIndex(md, (l) => l === "- [ ] Beta");
+    const s = editor(md, true);
+    const from = s.doc.line(beta + 1).from;
+    return { md, after: s.update({ changes: { from: from - 1, to: from }, ...spec }).state };
+  };
+
+  it("undo and redo: the user can always undo out of anything", async () => {
+    for (const userEvent of ["undo", "redo"]) {
+      const { md, after } = await join({ userEvent });
+      expect(after.doc.toString(), userEvent).not.toBe(md);
+    }
+  });
+
+  it("the plugin's own writes (a pass, Review conflicts or a repair)", async () => {
+    for (const annotations of [sectionWrite.of("rev"), pluginEdit.of(true)]) {
+      const { md, after } = await join({ annotations, userEvent: "input" });
+      expect(after.doc.toString()).not.toBe(md);
+    }
+  });
+
+  it("another plugin's or an external write (no user event): healed or ATTENTION later, never refused", async () => {
+    const { md, after } = await join({});
+    expect(after.doc.toString()).not.toBe(md);
   });
 });

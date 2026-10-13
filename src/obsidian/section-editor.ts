@@ -19,6 +19,7 @@ import {
   EditorSelection,
   EditorState,
   type Extension,
+  type Text,
   Transaction,
 } from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
@@ -112,6 +113,41 @@ function insertedBindings(tr: Transaction): string[] {
 
 /** A line that only carries a binding: a section marker, a node marker, a child-line ref. */
 const BINDING_LINE = /^[ \t]*<!--[ \t]+\/?lfcp-(?:section|node|ref):[^>]*-->[ \t]*$/;
+const BINDING = /<!--[ \t]+\/?lfcp-(?:section|node|ref):[^>]*-->/g;
+
+/** How many lines of `doc` are `binding` alone. */
+function aloneCount(doc: Text, binding: string): number {
+  const text = doc.toString();
+  let n = 0;
+  for (let at = text.indexOf(binding); at >= 0; at = text.indexOf(binding, at + binding.length))
+    if (BINDING_LINE.test(doc.lineAt(at).text)) n++;
+  return n;
+}
+
+/**
+ * Whether `tr` leaves a binding (a section or node marker, a ref) that stood
+ * alone on its line sharing a line with other text: a line it changed holds
+ * a binding and more, and fewer lines are that binding alone than before.
+ */
+export function gluesBinding(tr: Transaction): boolean {
+  const doc = tr.newDoc;
+  const seen = new Set<string>();
+  let glued = false;
+  tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+    if (glued) return;
+    for (let n = doc.lineAt(fromB).number; n <= doc.lineAt(toB).number; n++) {
+      const text = doc.line(n).text;
+      if (BINDING_LINE.test(text)) continue;
+      for (const m of text.matchAll(BINDING)) {
+        const binding = m[0];
+        if (seen.has(binding)) continue;
+        seen.add(binding);
+        if (aloneCount(doc, binding) < aloneCount(tr.startState.doc, binding)) glued = true;
+      }
+    }
+  });
+  return glued;
+}
 
 /**
  * What a user transaction tells the next pass (PassContext): the bound
@@ -635,35 +671,33 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       { selection: EditorSelection.create(ranges, tr.selection.mainIndex), sequential: true },
     ];
   });
-  // A one-character delete never joins a line to a binding line: Backspace at
-  // column 0 under one, or Delete at the end of the line above one, would
-  // glue text onto a marker the user cannot see in Live Preview (a Task onto
-  // the start marker, Beta onto Alpha's ref). The document stays; Backspace
-  // takes the caret to the end of the nearest visible line above, hidden
-  // binding lines being atomic. A blank line next to a marker still goes:
-  // the joined line is the binding line alone.
+  // No edit of the user leaves a binding line that stood alone sharing its
+  // line with other text: Backspace at the start of a Task line under one,
+  // Delete at the end of the line above one, in whatever shape the editor
+  // dispatches it (one line break removed, or the list marker replaced with
+  // it, or several at once) would glue text onto a marker the user cannot
+  // see in Live Preview. The check is on the result, not the shape. The
+  // document stays; Backspace takes the caret to the end of the nearest
+  // visible line above, hidden binding lines being atomic. A blank line next
+  // to a marker still goes: the joined line is the binding line alone. Only
+  // the user's typing, deleting and moving are checked: undo and redo always
+  // go through (the user can always undo out of anything), and so do the
+  // plugin's own writes and other plugins' (no user event: a rewrite that
+  // breaks a binding is healed or shown as ATTENTION, never silently refused).
   const bindingJoins = EditorState.transactionFilter.of((tr) => {
-    if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined || !tr.isUserEvent("delete"))
+    if (
+      !tr.docChanged ||
+      tr.annotation(sectionWrite) !== undefined ||
+      tr.annotation(pluginEdit) !== undefined ||
+      !(tr.isUserEvent("input") || tr.isUserEvent("delete") || tr.isUserEvent("move"))
+    )
       return tr;
-    let only: { from: number; to: number; inserted: number } | null = null;
-    let count = 0;
-    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
-      count++;
-      only = { from: fromA, to: toA, inserted: inserted.length };
-    });
-    const change = only as { from: number; to: number; inserted: number } | null;
-    if (count !== 1 || change === null || change.inserted !== 0) return tr;
-    const doc = tr.startState.doc;
-    const above = doc.lineAt(change.from);
-    if (change.from !== above.to || above.number === doc.lines) return tr;
-    const below = doc.line(above.number + 1);
-    if (change.to !== below.from) return tr;
-    if (!BINDING_LINE.test(above.text) && !BINDING_LINE.test(below.text)) return tr;
-    if (BINDING_LINE.test(above.text + below.text)) return tr;
+    if (!gluesBinding(tr)) return tr;
     if (!tr.isUserEvent("delete.backward")) return [];
+    const doc = tr.startState.doc;
     const hidden = (text: string) =>
       tr.startState.field(editorLivePreviewField, false) === true && BINDING_LINE.test(text);
-    for (let n = below.number - 1; n >= 1; n--) {
+    for (let n = doc.lineAt(tr.startState.selection.main.head).number - 1; n >= 1; n--) {
       const line = doc.line(n);
       if (!hidden(line.text)) return { selection: { anchor: line.to }, scrollIntoView: true };
     }
