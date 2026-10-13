@@ -48,7 +48,9 @@ describe("abandoned passes never bring older text back", () => {
   };
   const WORDS = ["draft", "テスト", "仕事", "plan", "かみ"];
 
-  for (let seed = 1; seed <= 40; seed++)
+  // The PR run uses 40 seeds; LFCP_PROPERTY_SEEDS=5000 runs more.
+  const SEEDS = Number(process.env.LFCP_PROPERTY_SEEDS ?? 40);
+  for (let seed = 1; seed <= SEEDS; seed++)
     it(`random typing, deleting and composing with abandoned passes (seed ${seed})`, async () => {
       const r = random(seed);
       const { a, b } = await twoVaults(BODY);
