@@ -248,8 +248,10 @@ describe("recovery items (061)", () => {
         [{ intent: write, id: T }],
         [{ intent: write, id: T }],
       ] as SectionIntent[][]);
-      // The SDK lists the two writes; equal, they are no conflict (§7.6).
-      expect(r.tree().scalarConflicts.map((c) => c.field)).toEqual(["lifecycle"]);
+      // Equal, they are no conflict: the SDK lists none (SOP §45,
+      // mvp-0.2-baseline.12; @openlfcp/* 0.2.0-beta.7), and the plugin's own
+      // filter (sdk-snapshot.ts disagrees) would not either.
+      expect(r.tree().scalarConflicts).toEqual([]);
       expect(recoveryItems(model(r))).toEqual([]);
       expect(fromSdkSnapshot(r.snapshot(), SECTION)?.problems).toEqual([]);
       expect(r.snapshot().nodes[T]?.deleted).toBe(write === "node.delete");
