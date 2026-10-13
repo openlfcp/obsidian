@@ -396,19 +396,19 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
         const R = (await p.runtime.registry()).find((e) => e.profile.includes("section")).resourceId;
         const replica = p.runtime.sectionProfile(R).replica;
         const snap = replica.snapshot();
-        const task9 = Object.entries(snap.nodes).find(([, n]) => n.kind === "task" && (replica.task(n.taskId ?? "")?.task?.title ?? "").includes("Task 9"));
+        const task9 = Object.entries(snap.nodes).find(([, n]) => n.kind === "task" && (replica.task(n.taskId ?? "")?.task?.title ?? "").match(/Task 9(?!\d)/) !== null);
         const view = task9 === undefined ? null : replica.task(task9[1].taskId);
         return {
           problems: snap.problems,
           title: view?.task?.title ?? null,
           titleConflicted: view?.fields?.title?.conflicted ?? null,
           titleValues: view?.fields?.title?.values ?? view?.fields?.title?.value ?? null,
-          line: (await app.vault.adapter.read("Launch plan.md")).split("\n").find((l) => l.includes("Task 9")) ?? null,
+          line: (await app.vault.adapter.read("Launch plan.md")).split("\n").find((l) => /Task 9(?!\d)/.test(l)) ?? null,
         };
       });
       const bView = await (async () => {
         const snap = b.port.snapshot(b.b64(joined.resource), joined.sectionId);
-        return { problems: snap?.problems ?? null, line: b.files.get("Private B.md").split("\n").find((l) => l.includes("Task 9")) ?? null };
+        return { problems: snap?.problems ?? null, line: b.files.get("Private B.md").split("\n").find((l) => /Task 9(?!\d)/.test(l)) ?? null };
       })();
       evidence("C10-no-attention", { badge: await badgeOfA(), facts, bView });
       throw new Error("A's badge needs attention");
