@@ -46,6 +46,7 @@ import {
   StaleWorkController,
 } from "../../../src/core/sections/stale-work";
 import { newSectionTask } from "../../../src/core/sections/task-fields";
+import { createTask } from "@openlfcp/shared-objects";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 import { type LiveServer, startLiveServer } from "../../support/live-server";
 import { guardChild } from "../../support/reaper.mjs";
@@ -326,11 +327,47 @@ export async function peer(
       applyRecovery(port, r, sectionId, item, choice, crypto.randomUUID()),
     );
   };
+  /**
+   * A 0.1 collaboration (Shared Objects: Tasks, not a section) of `titles`,
+   * hosted on `server`: what a 0.3 vault joins and keeps syncing after an
+   * upgrade. Its Resource, Task IDs by title, and a read-write link.
+   */
+  const legacy = async (name: string, server: string, titles: readonly string[]) => {
+    const R = await runtime.createResource({ name, endpoints: [server], coordinatorUrl: server });
+    const hosted = await collab.host(R);
+    if (hosted.kind !== "hosted") throw new Error(`host: ${JSON.stringify(hosted)}`);
+    const ids: Record<string, string> = {};
+    for (const title of titles) {
+      const c = createTask({ title, createdBy: status.principalId });
+      ids[title] = c.task.id;
+      await runtime.writeIntent(R, c.intent);
+    }
+    const link = (await collab.invite(R, "read-write")).link.reveal();
+    return { resource: R, ids, link };
+  };
+  /** The Task titles of a 0.1 collaboration, as this peer's replica has them. */
+  const legacyTitles = async (R: ResourceId): Promise<string[]> => {
+    const replica = (await runtime.profileOf(R)).replica;
+    return replica
+      .objectIds()
+      .flatMap((id) => {
+        const t = replica.task(id)?.task;
+        return t === undefined || t === null || t.lifecycle !== "active" ? [] : [t.title];
+      })
+      .sort();
+  };
+  /** A 0.1 Task retitled by this peer. */
+  const legacyRetitle = async (R: ResourceId, id: string, title: string) => {
+    await runtime.writeIntent(R, { intent: "task.set_title", id, title } as never);
+  };
   return {
     runtime,
     collab,
     review,
     resolve,
+    legacy,
+    legacyTitles,
+    legacyRetitle,
     port,
     engine,
     files,

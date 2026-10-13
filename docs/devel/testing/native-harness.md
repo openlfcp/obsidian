@@ -46,6 +46,16 @@ downloads Obsidian. Later runs take about 20 seconds for both versions.
   whose command line contains the cache directory, so it never sees or
   stops another Obsidian.
 
+- **The plugin's files in a test vault are this checkout's.** The harness
+  puts `main.js`, `manifest.json` and `styles.css` into
+  `.obsidian/plugins/shared-tasks/` of each vault copy as **hard links** to
+  this checkout's files: not copies, and not symbolic links (a symlink
+  check does not see them). A spec that writes them in place writes the
+  checkout's build and manifest. Remove a file first, then write it, as
+  `specs/upgrade-install.e2e.mjs` does when it installs another version.
+  The upgrade spec's first runs (2026-10-14) replaced this checkout's
+  `main.js` and `manifest.json` with 0.4.0-beta.15's that way.
+
 ## The cache
 
 | | |
@@ -114,6 +124,7 @@ touch it either.
 | `specs/section-review-conflicts.e2e.mjs` | Review conflicts beyond placement (coverage gap 7): A owns a section, the headless peer B is a member; B, offline, and A change the same Task. A Task's title changed by both, A choosing in "Review conflicts…" or B choosing first; a Task A deleted while B changed it, A choosing Keep it deleted or B choosing Restore first. A needs attention, then both notes show the same Tasks, A's badge is CURRENT and B has nothing to review or send. Reference server at `LFCP_SERVER_BIN`. |
 | `specs/section-restart-mid-pass.e2e.mjs` | A restart of the plugin in the middle of a pass (coverage gap 5): A types on a Task; its pass stops right after the journal reached ids-allocated, committed or projected, or after the projection's base was saved; the plugin is disabled and enabled again. The edit reaches B once, both notes agree, A ends CURRENT and nothing moves afterwards. Reference server at `LFCP_SERVER_BIN`. |
 | `specs/section-other-plugins.e2e.mjs` | Other plugins changing a shared section (coverage gap 10): A owns a section, the headless peer B is a member. A Linter-style rewrite of the whole note through `vault.process` (open, and while another note is open: trailing spaces, list markers, blank lines), a Task's line deleted through the editor API with no user event (with and without its ref line), Templater-style insertions at the cursor (an empty line, the end of a Task's line before its hidden ref, a CodeMirror transaction with no user event). Nothing that was in the section is lost; while A's badge is CURRENT its section shows what B's does; a deletion without a user event needs attention, with the damaged line named. Reference server at `LFCP_SERVER_BIN`. |
+| `specs/upgrade-install.e2e.mjs` | Install and upgrade (069, [support-matrix-0.2.md](support-matrix-0.2.md)): a fresh vault each time (`reloadObsidian` with no plugin enabled), the plugin's files written into it as an update writes them, then enabled. A fresh install of this build; 0.3.4 with 0.1 shared tasks joined from the headless peer B and an edit pending (the server down) updated to this build; 0.4.0-beta.15 with a shared section and an edit pending updated to this build; disabled and enabled, uninstalled and installed again. The older versions are their GitHub release assets, cached in the harness cache under `releases/<version>/` (a case without them is skipped). Reference server at `LFCP_SERVER_BIN`. |
 
 Each run also installs the Obsidian Tasks plugin 8.4.0 (released
 2026-08-25) **disabled**; only `specs/tasks-plugin.e2e.mjs` enables it, so
