@@ -217,7 +217,10 @@ export class PendingHints {
 /**
  * The hints a pass of `source` gets: a node noted as removed that the note
  * still binds, and that was not pasted, was put back (undone, typed back):
- * it is no longer removed.
+ * it is no longer removed. A node noted as inserted (pasted, moved by Move
+ * line) that the note no longer binds was removed since: it is no longer
+ * inserted (both hints for one node came to a pass of the peer-structure
+ * property test, seed 3365).
  */
 export function freshHints<T extends { deletedIds: Set<string>; inserted: Set<string> }>(
   hints: T,
@@ -226,6 +229,7 @@ export function freshHints<T extends { deletedIds: Set<string>; inserted: Set<st
   const bound = boundIds(source);
   for (const id of hints.deletedIds)
     if (bound.has(id) && !hints.inserted.has(id)) hints.deletedIds.delete(id);
+  for (const id of hints.inserted) if (!bound.has(id)) hints.inserted.delete(id);
   return hints;
 }
 

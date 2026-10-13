@@ -135,6 +135,17 @@ describe("only the user's own edits give move hints", () => {
       freshHints({ deletedIds: new Set([id]), inserted: new Set([id]) }, md).deletedIds,
     ).toEqual(new Set([id]));
   });
+
+  it("an insertion the note no longer shows is dropped: a node noted as inserted, then removed", () => {
+    const md = "x\n  <!-- lfcp-ref: lfcp1:R#task:019a2f85-7b31-7c42-b85a-fc843e2f4064 -->\n";
+    const id = "019a2f85-7b31-7c42-b85a-fc843e2f4064";
+    const gone = "019a2f85-7b31-7c42-b85a-fc843e2f4065";
+    // Moved by Move line (inserted), then deleted before the pass (removed): a deletion only.
+    expect(freshHints({ deletedIds: new Set([gone]), inserted: new Set([id, gone]) }, md)).toEqual({
+      deletedIds: new Set([gone]),
+      inserted: new Set([id]),
+    });
+  });
 });
 
 describe("edits without a userEvent still sync as edits", () => {
