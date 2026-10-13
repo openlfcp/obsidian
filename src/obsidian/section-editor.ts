@@ -44,6 +44,14 @@ import {
 } from "../core/sections/rules";
 import { type ChangeOrigin, originOf } from "../core/sections/undo";
 
+/**
+ * The plugin's own edits of an open note outside a pass (Review conflicts,
+ * Keep it deleted, Use shared version, repair, detach, a share or an
+ * insert): reconciled like any edit, but never what the user moved, deleted
+ * or cut, and not another plugin's (the owner's trace of 0.4.0-beta.10).
+ */
+export const pluginEdit = Annotation.define<true>();
+
 /** The plugin's own writes into a note, by pass (ADR 0001 §2). */
 export const sectionWrite = Annotation.define<string>();
 
@@ -116,12 +124,44 @@ export function editHints(tr: Transaction): {
   readonly removed: string[];
   readonly inserted: readonly string[];
 } {
+  // Only the user's own edits say what the user moved or deleted: not
+  // another plugin's, Obsidian's commands or API (no userEvent), the
+  // plugin's own edits, nor a note reloaded from disk ("set").
+  if (
+    tr.annotation(pluginEdit) !== undefined ||
+    tr.annotation(Transaction.userEvent) === undefined ||
+    tr.isUserEvent("set")
+  )
+    return { removed: [], inserted: [] };
   const moveLine = tr.isUserEvent("move.line");
   const moved = tr.annotation(movedNodes);
   return {
     removed: moveLine ? [] : removedWithEveryLine(tr),
     inserted: moved ?? (moveLine ? [] : insertedBindings(tr)),
   };
+}
+
+/**
+ * The hints a pass of `source` gets: a node noted as removed that the note
+ * still binds, and that was not pasted, was put back (undone, typed back):
+ * it is no longer removed.
+ */
+export function freshHints<T extends { deletedIds: Set<string>; inserted: Set<string> }>(
+  hints: T,
+  source: string,
+): T {
+  const bound = boundIds(source);
+  for (const id of hints.deletedIds)
+    if (bound.has(id) && !hints.inserted.has(id)) hints.deletedIds.delete(id);
+  return hints;
+}
+
+/** The bound IDs of a note's binding comments (node markers and Task refs). */
+function boundIds(markdown: string): Set<string> {
+  const out = new Set<string>();
+  if (!markdown.includes("lfcp-")) return out;
+  for (const m of markdown.matchAll(BINDING_ID)) if (m[1] !== undefined) out.add(m[1]);
+  return out;
 }
 
 /** IDs in the binding comments of a removed text: node markers and Task refs. */
@@ -189,6 +229,20 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   let cut: ReadonlySet<string> = new Set();
   const status = (path: string, s: EditorSyncStatus) => o.onStatus?.(path, s);
 
+  /** The hints every view of `path` collected for the next pass; they are taken (the views start afresh). */
+  const takeHints = (path: string): { deletedIds: Set<string>; inserted: Set<string> } => {
+    const deletedIds = new Set<string>();
+    const inserted = new Set<string>();
+    for (const st of views.values()) {
+      if (st.path !== path) continue;
+      for (const id of st.deletedIds) deletedIds.add(id);
+      for (const id of st.inserted) inserted.add(id);
+      st.deletedIds = new Set();
+      st.inserted = new Set();
+    }
+    return { deletedIds, inserted };
+  };
+
   const viewOf = (path: string): [EditorView, ViewState] | undefined => {
     let found: [EditorView, ViewState] | undefined;
     for (const [view, st] of views)
@@ -236,10 +290,10 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       return;
     }
     status(req.path, "reconciling");
-    const deletedIds = st.deletedIds;
-    st.deletedIds = new Set();
-    const inserted = st.inserted;
-    st.inserted = new Set();
+    // What every view of the note noted since the last pass (the pass goes
+    // through one of them), and only what still describes the source: a node
+    // noted as removed that the note still binds, not pasted, was put back.
+    const { deletedIds, inserted } = freshHints(takeHints(req.path), req.source);
     const caret = view.hasFocus
       ? view.state.doc.lineAt(view.state.selection.main.head).number - 1
       : null;
@@ -282,10 +336,15 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     status(req.path, st.scheduler.dirty ? "edited" : "idle");
   };
 
-  const coordinator = new SourceCoordinator(reconcile, (path, error) => {
-    status(path, "error");
-    o.onError?.(path, error);
-  });
+  const coordinator = new SourceCoordinator(
+    reconcile,
+    (path, error) => {
+      status(path, "error");
+      o.onError?.(path, error);
+    },
+    // Back to the source last reconciled: nothing the views noted applies.
+    (path) => takeHints(path),
+  );
 
   const pathOf = (view: EditorView) => view.state.field(editorInfoField, false)?.file?.path ?? null;
 
@@ -332,6 +391,8 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       for (const tr of u.transactions) {
         if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined) continue;
         edited = true;
+        // The plugin's own edit (Review conflicts, repair, …): reconciled, never a hint.
+        if (tr.annotation(pluginEdit) !== undefined) continue;
         const userEvent = tr.annotation(Transaction.userEvent);
         if (userEvent === undefined) this.st.external = true;
         const origin = originOf(userEvent);

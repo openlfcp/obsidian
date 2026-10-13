@@ -56,6 +56,11 @@ export class SourceCoordinator {
     private readonly reconcile: Reconcile,
     /** A pass that threw: reported, and the note stays schedulable (its source is not marked reconciled). */
     private readonly onError: (path: string, error: unknown) => void = () => {},
+    /**
+     * A change brought the note back to the source last reconciled, so no
+     * pass runs: what the editor noted for the next pass describes nothing.
+     */
+    private readonly onSettled: (path: string) => void = () => {},
   ) {}
 
   #note(path: string): NoteState {
@@ -159,7 +164,10 @@ export class SourceCoordinator {
         const hash = contentHash(current.source);
         // A repeated notification of a reconciled source: nothing to do,
         // unless the shared state changed and must be projected.
-        if (hash === n.reconciled && !triggers.has("remote")) continue;
+        if (hash === n.reconciled && !triggers.has("remote")) {
+          this.onSettled(this.#pathOf(n) ?? path);
+          continue;
+        }
         // The note may have been renamed while queued: use its current path.
         const at = this.#pathOf(n) ?? path;
         try {

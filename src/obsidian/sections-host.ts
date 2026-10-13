@@ -6,6 +6,7 @@
 // The sync status comes from the SDK's status stream (026) and what the
 // plugin observes of the session and the model (core/status/facts.ts).
 
+import type { EditorView } from "@codemirror/view";
 import type { Flushed } from "@openlfcp/client";
 import {
   fromBase64url,
@@ -89,7 +90,7 @@ import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
 import { type StatusView, statusView } from "../core/status/reducer";
 import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-status";
 import type { VaultChange } from "../core/vault/changes";
-import { sectionEditorExtension } from "./section-editor";
+import { pluginEdit, sectionEditorExtension } from "./section-editor";
 import {
   goToNextProblem,
   ReadingBadges,
@@ -1340,6 +1341,15 @@ export class SectionsHost {
     if (editor !== null) {
       const changes = fn(editor.getValue());
       if (changes === null || changes.length === 0) return;
+      // Marked as the plugin's own edit: reconciled, never a move hint.
+      const cm = (editor as Editor & { cm?: EditorView }).cm;
+      if (cm !== undefined) {
+        cm.dispatch({
+          changes: changes.map((c) => ({ from: c.from, to: c.to, insert: c.insert })),
+          annotations: pluginEdit.of(true),
+        });
+        return;
+      }
       editor.transaction({
         changes: changes.map((c) => ({
           from: editor.offsetToPos(c.from),

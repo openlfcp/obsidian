@@ -87,6 +87,26 @@ describe("one source per note", () => {
       ["a.md", "file", "v1", "remote"],
     ]);
   });
+
+  it("an editor brought back to the source last reconciled runs no pass, and says so (its hints are dropped)", async () => {
+    const settled: string[] = [];
+    const passes: string[] = [];
+    const c = new SourceCoordinator(
+      async (r) => {
+        passes.push(r.source);
+      },
+      () => {},
+      (path) => settled.push(path),
+    );
+    c.opened("a.md", "v", "v1");
+    c.editorChanged("a.md", "v2");
+    await c.whenIdle("a.md");
+    // Typed, then undone: the source of the last pass again.
+    c.editorChanged("a.md", "v2");
+    await c.whenIdle("a.md");
+    expect(passes).toEqual(["v2"]);
+    expect(settled).toEqual(["a.md"]);
+  });
 });
 
 describe("coalescing", () => {
