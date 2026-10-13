@@ -481,7 +481,9 @@ async function run(seed: number) {
         const before = md;
         md = applyChanges(md, indentWithNode(md, [tab]) ?? [tab]);
         await passA(mode(), r() < 0.2);
-        const dedent = { from: offsetOf(md, at), to: offsetOf(md, at) + 1, insert: "" };
+        // Its line again: the pass may have bound a Task above it (a new ref line).
+        const tabbed = lines(md).findIndex((l) => l.startsWith("\t- [ ]"));
+        const dedent = { from: offsetOf(md, tabbed), to: offsetOf(md, tabbed) + 1, insert: "" };
         md = applyChanges(md, indentWithNode(md, [dedent]) ?? [dedent]);
         // Back where it was (a pass in between may have bound it: its ref line is new).
         expect(ownTasks(md)).toEqual(ownTasks(before));
