@@ -55,8 +55,17 @@ Shared Tasks needs Obsidian 1.13.4 or later.
 1. Install and enable [BRAT](https://github.com/TfTHacker/obsidian42-brat)
    from Settings → Community plugins.
 2. Run "BRAT: Add a beta plugin for testing" from the command palette.
-3. Enter `openlfcp/obsidian`; if BRAT asks for a version, pick the latest.
-4. Enable "Shared Tasks" in Settings → Community plugins.
+3. Enter `openlfcp/obsidian`. In the version field choose **Latest
+   version**: a specific version stays installed, and BRAT will not update
+   it.
+4. Enable "Shared Tasks" in Settings → Community plugins, and check the
+   version it lists is the one you meant to try.
+
+Stuck on an older beta? In BRAT's settings, find `openlfcp/obsidian` in the
+beta plugin list: if it shows a version, it is pinned there. Edit it and
+choose **Latest version** (or remove it and add it again with Latest
+version), then run "BRAT: Check for updates to all beta plugins". BRAT's
+setting "Select latest plugin version by default" saves choosing.
 
 **By hand:** from the
 [latest release](https://github.com/openlfcp/obsidian/releases/latest),

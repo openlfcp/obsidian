@@ -53,9 +53,11 @@ On a pushed tag `X.Y.Z`:
    the manifest asset shows `"id": "shared-tasks"` and the version.
 4. BRAT beta, in a clean vault with Restricted mode off:
    - install BRAT;
-   - run "BRAT: Add a beta plugin for testing" with `openlfcp/obsidian`;
+   - run "BRAT: Add a beta plugin for testing" with `openlfcp/obsidian`,
+     choosing **Latest version** (a specific version pins it: BRAT never
+     updates it);
    - BRAT installs `X.Y.Z` into `.obsidian/plugins/shared-tasks/`;
-     enable Shared Tasks.
+     enable Shared Tasks; Settings → Community plugins shows `X.Y.Z`.
    Then run [testing/load-in-clean-vault.md](testing/load-in-clean-vault.md),
    and create a collaboration on the default server. The line under the
    server field names the project and links its privacy note and terms.
@@ -148,12 +150,18 @@ versions of the SDK, not the development pin.
 5. Install it with BRAT, in a clean vault with Restricted mode off:
    - install BRAT from Community plugins;
    - run "BRAT: Add a beta plugin for testing", enter `openlfcp/obsidian`,
-     and pick the version `0.4.0-beta.1` (or the latest version, which
-     includes pre-releases);
-   - enable Shared Tasks; Settings → Community plugins shows
-     `0.4.0-beta.1`.
+     and choose **Latest version**, which includes pre-releases. A specific
+     version (`0.4.0-beta.1`) pins the plugin there: BRAT's update check
+     skips it ("The version of openlfcp/obsidian is frozen, not updating")
+     and later betas never arrive;
+   - enable Shared Tasks; Settings → Community plugins shows the newest
+     beta.
    Pilot users do the same. A later beta reaches them through BRAT's
-   update check.
+   update check. One stuck on an older beta unpins it: BRAT's settings →
+   the beta plugin list → `openlfcp/obsidian` → **Latest version** (or
+   remove and add it again), then "BRAT: Check for updates to all beta
+   plugins". (BRAT 2.2.0 sorts releases by semver, pre-releases numerically:
+   beta.14 is newer than beta.9.)
 
 6. Leaving the beta: remove the plugin from BRAT and install Shared Tasks
    from Community plugins. A 0.4 beta upgrades local data, which 0.3.x
