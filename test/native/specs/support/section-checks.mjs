@@ -93,7 +93,29 @@ export const stateA = (hex) =>
 
 /** B's model of the section, as JSON. */
 export const jsonB = (b, hex) =>
-  JSON.stringify(b.runtime.sectionProfile(Uint8Array.from(Buffer.from(hex, "hex"))).replica.toJSON());
+  canonical(b.runtime.sectionProfile(Uint8Array.from(Buffer.from(hex, "hex"))).replica.toJSON());
+
+/** JSON with every object's keys sorted: two replicas' equal models give equal strings, whatever their key order. */
+export function canonical(value) {
+  const sort = (v) =>
+    Array.isArray(v)
+      ? v.map(sort)
+      : v !== null && typeof v === "object"
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sort(v[k])]))
+        : v;
+  return JSON.stringify(sort(value));
+}
+
+/** The paths where two JSON values differ (A's value, B's), at most 20. */
+function jsonDiff(x, y, path = "", out = []) {
+  if (out.length >= 20) return out;
+  if (typeof x !== "object" || typeof y !== "object" || x === null || y === null) {
+    if (JSON.stringify(x) !== JSON.stringify(y)) out.push({ path, a: x, b: y });
+    return out;
+  }
+  for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) jsonDiff(x[k], y[k], `${path}/${k}`, out);
+  return out;
+}
 
 /** Waits until A's editor text stays the same for 1.5 s and A is CURRENT. */
 export async function settle(hex, timeout = 30_000) {
@@ -124,7 +146,7 @@ export async function checkStep(label, ctx) {
     b = await browser.waitUntil(
       async () => {
         const now = await stateA(ctx.R);
-        return jsonB(ctx.b, ctx.R) === now.json ? now : false;
+        return jsonB(ctx.b, ctx.R) === canonical(JSON.parse(now.json)) ? now : false;
       },
       { timeout: 20_000 },
     );
@@ -143,6 +165,10 @@ export async function checkStep(label, ctx) {
     modelOrderMatchesNote: JSON.stringify(a.tasks) === JSON.stringify(taskIds),
   });
   if (problems.length > 0 || b === null) evidence(`${label} note`, { md: a.md.split("\n") });
+  if (b === null) {
+    const now = await stateA(ctx.R);
+    evidence(`${label} model diff`, { diff: jsonDiff(JSON.parse(now.json), JSON.parse(jsonB(ctx.b, ctx.R))) });
+  }
   expect(problems).toEqual([]);
   expect(a.badge).toBe("CURRENT");
   expect(a.recovery).toEqual([]);
