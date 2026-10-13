@@ -5,9 +5,18 @@
 // held (the peer-structure property test, seed 15).
 
 import { describe, expect, it } from "vitest";
+import { markdownState } from "../../../src/core/sections/base";
 import { applyChanges } from "../../../src/core/sections/engine";
 import { indentWithNode } from "../../../src/core/sections/line-moves";
-import { block, lines, reconnect, twoVaults, type Vault } from "../../support/section-vaults";
+import { parseSections } from "../../../src/core/sections/parser";
+import {
+  block,
+  lines,
+  reconnect,
+  taskId,
+  twoVaults,
+  type Vault,
+} from "../../support/section-vaults";
 
 const offset = (md: string, n: number) =>
   lines(md)
@@ -58,5 +67,31 @@ describe("a subtree moved by the peer, re-indented", () => {
     expect(lines(a.note())[at + 1]).toMatch(/^ {4}<!-- lfcp-ref: /);
     const r = await a.pass(a.note());
     expect(r?.skipped).toBeUndefined();
+  });
+});
+
+describe("a Task a collaborator adds under a tab-indented parent whose children use spaces", () => {
+  it("is their sibling in the other note, not the last one's child (the peer-structure test, seed 778)", async () => {
+    const { a, b } = await twoVaults([
+      "- [ ] b1",
+      "\t- [ ] a1",
+      "\t  - [ ] b2",
+      "",
+      "A paragraph.",
+    ]);
+    const a1 = taskId(a.note(), "a1");
+    // B adds b4 under a1, after b2, as b2's sibling.
+    const L = lines(b.note());
+    L.splice(block(b.note(), "b2")[1], 0, "\t  - [ ] b4");
+    await b.pass(L.join("\n"));
+    await b.pass(b.note());
+    await reconnect(a, b);
+    const b4 = taskId(a.note(), "b4");
+    expect(b.model()?.nodes[b4]?.parent).toBe(a1);
+    const section = parseSections(a.note()).sections[0];
+    if (section === undefined) throw new Error("no section");
+    expect(markdownState(a.note(), section).state.nodes[b4]?.parent).toBe(a1);
+    const line = (t: string) => lines(a.note()).find((l) => l.includes(`[ ] ${t}`));
+    expect(/^[ \t]*/.exec(line("b4") ?? "")?.[0]).toBe(/^[ \t]*/.exec(line("b2") ?? "")?.[0]);
   });
 });

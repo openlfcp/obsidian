@@ -156,7 +156,16 @@ export function planStructure(
     const p = placed.get(parent);
     if (p !== undefined) return p.childIndent;
     const n = inNote.get(parent);
-    return n === undefined ? null : childIndent(lines[n.lines.from]?.text ?? "");
+    if (n === undefined) return null;
+    // A list child already there gives the indentation its siblings read as
+    // siblings: one more tab after a tab-indented parent can land at a
+    // sibling's content column, nesting the node under that sibling instead
+    // (the peer-structure property test, seed 778).
+    for (const c of n.children) {
+      const text = lines[c.lines.from]?.text ?? "";
+      if (LIST_PREFIX.test(text)) return /^[ \t]*/.exec(text)?.[0] ?? "";
+    }
+    return childIndent(lines[n.lines.from]?.text ?? "");
   };
 
   /** The run position of an ordered item among its siblings: 1 for the first. */
