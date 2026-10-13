@@ -53,6 +53,13 @@ export interface StructurePlan {
 const LIST_PREFIX = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+|$)/;
 const PR = (kind: string | undefined) => kind === "paragraph" || kind === "raw";
 
+/** The columns leading whitespace takes (a tab to the next multiple of 4, as CommonMark). */
+function columns(ws: string): number {
+  let col = 0;
+  for (const c of ws) col = c === "\t" ? col + 4 - (col % 4) : col + 1;
+  return col;
+}
+
 /** The indentation of a child of the list line `text`: one more tab, or spaces to its content column. */
 function childIndent(text: string): string {
   const m = LIST_PREFIX.exec(text);
@@ -253,9 +260,16 @@ export function planStructure(
           const moved: string[] = [];
           for (let l = range.from; l <= range.to; l++) {
             const t = lines[l]?.text ?? "";
-            moved.push(
-              isBlank(t) ? "" : indent + (t.startsWith(old) ? t.slice(old.length) : t.trimStart()),
-            );
+            if (isBlank(t)) moved.push("");
+            else if (t.startsWith(old)) moved.push(indent + t.slice(old.length));
+            else {
+              // Other leading whitespace (a tab typed under a Task rendered
+              // with spaces): the same columns past the subtree's start, so
+              // a nested line stays nested and a ref stays with its Task.
+              const lead = /^[ \t]*/.exec(t)?.[0] ?? "";
+              const extra = Math.max(0, columns(lead) - columns(old));
+              moved.push(indent + " ".repeat(extra) + t.slice(lead.length));
+            }
           }
           const blankAfter = isBlank(lines[range.to + 1]?.text ?? "x") ? 1 : 0;
           for (let l = range.from; l <= range.to + blankAfter; l++) gone.add(l);
