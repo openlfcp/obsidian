@@ -282,7 +282,10 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "open-section-details",
         name: "Open shared section details",
-        editorCallback: (editor, ctx) => this.sections?.openCardAt(editor, ctx.file?.path ?? ""),
+        editorCallback: (editor, ctx) => {
+          const path = ctx.file?.path;
+          if (path !== undefined) this.sections?.openCardAt(editor, path);
+        },
       });
       this.addCommand({
         id: "next-section-problem",
