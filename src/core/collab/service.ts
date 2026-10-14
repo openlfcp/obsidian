@@ -92,6 +92,8 @@ export interface CollabRuntime {
     resource: ResourceId,
   ): Promise<{ readonly allowed: boolean; readonly reason: string | null }>;
   /** An open section Resource: ready (§12.1), and no change held for a missing dependency. */
+  /** Whether the server has a Snapshot of the current epoch (LfcpRuntime.epochSnapshotState). */
+  epochSnapshotState?(resource: ResourceId): Promise<"ready" | "publishing" | "cannot">;
   sectionLoad?(
     resource: ResourceId,
   ): { readonly ready: boolean; readonly loaded: boolean } | undefined;
@@ -120,6 +122,8 @@ export interface CollabOptions {
   readonly connectTimeoutMs?: number;
   /** How long an invitation waits for the coordinator's ACKs (ms). */
   readonly ackTimeoutMs?: number;
+  /** How long an invitation waits for a Snapshot of the current epoch to reach the server (ms). */
+  readonly snapshotTimeoutMs?: number;
   /** How long a join may take (ms). */
   readonly joinTimeoutMs?: number;
   /** A timer: the host's (the plugin passes window.setTimeout, for popout windows). */
@@ -322,6 +326,7 @@ export class Collaboration {
     this.#o = {
       connectTimeoutMs: options.connectTimeoutMs ?? 10_000,
       ackTimeoutMs: options.ackTimeoutMs ?? 15_000,
+      snapshotTimeoutMs: options.snapshotTimeoutMs ?? 60_000,
       joinTimeoutMs: options.joinTimeoutMs ?? 30_000,
       sleep: options.sleep,
       now: options.now ?? Date.now,
@@ -464,6 +469,24 @@ export class Collaboration {
     }
   }
 
+  /** Waits until the server has a Snapshot of R's current epoch, when one is needed and this vault may publish it. */
+  async #epochSnapshot(R: ResourceId): Promise<void> {
+    const runtime = this.#runtime;
+    if (runtime.epochSnapshotState === undefined) return;
+    const deadline = Date.now() + this.#o.snapshotTimeoutMs;
+    for (;;) {
+      const s = await runtime.epochSnapshotState(R);
+      // "cannot": another member who may publish one does (the same rule runs on their device).
+      if (s !== "publishing") return;
+      if (Date.now() > deadline)
+        throw new CollabError(
+          "SNAPSHOT_PENDING",
+          "The collaboration is being prepared for a new member after a change of access. Invite again in a moment.",
+        );
+      await this.#o.sleep(250);
+    }
+  }
+
   /** "Invite collaborator": a one-time invitation with a preset's abilities. */
   async invite(R: ResourceId, preset: InvitePreset): Promise<Invitation> {
     const entry = await this.#entry(R);
@@ -488,6 +511,10 @@ export class Collaboration {
         "CONTROL_PENDING",
         "An earlier access change to this collaboration has not reached the server yet. Invite again once it has.",
       );
+    // After a rotation (Remove access) whoever joins receives only the current
+    // epoch's key: the closed epochs reach them through a Snapshot of the
+    // current one, which this vault publishes first if none is on the server.
+    await this.#epochSnapshot(R);
     const endpoints = [...chain.state.route.endpoints]
       .sort((a, b) => (a.priority < b.priority ? -1 : a.priority > b.priority ? 1 : 0))
       .map((e) => e.url);

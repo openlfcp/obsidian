@@ -385,6 +385,9 @@ interface OpenedSection {
   readonly binding: Parameters<SyncClient["open"]>[0];
 }
 
+/** How often a Resource's epoch Snapshot is looked for again (ms). */
+const EPOCH_CHECK_MS = 10_000;
+
 export class LfcpRuntime {
   readonly #env: RuntimeEnv;
   #install: Install;
@@ -392,6 +395,16 @@ export class LfcpRuntime {
   readonly #publishers = new Set<string>();
   /** This vault's 0.1 units (writeIntent) per Resource (hex) since its last Snapshot (POST-007). */
   readonly #ownUnits = new Map<string, number>();
+  /**
+   * Resources (hex) whose current Data Epoch is past 0 and holds no Snapshot
+   * here: a member who joins after a rotation receives only the current
+   * epoch's key, so the closed epochs reach them only through a Snapshot of
+   * the current one (LFCP-WIRE-01 §18, §29.3). Derived from storage, so a
+   * restart, a reconnect or another member's rotation finds it again.
+   */
+  readonly #epochSnapshotDue = new Set<string>();
+  /** When each Resource's epoch Snapshot was last looked for (ms). */
+  readonly #epochChecked = new Map<string, number>();
 
   #countOwn(resource: ResourceId, units: number): void {
     const key = toHex(resource);
@@ -1457,6 +1470,50 @@ export class LfcpRuntime {
    * rotated. Refused, with nothing queued, unless the Resource is live and
    * current here; queued records stay pending until the server commits them.
    */
+  /**
+   * Whether `resource` needs a Snapshot of its current epoch from this vault
+   * (the SDK's policy asks every tick): looked for again in storage at most
+   * every 10 s, so a rotation, by this vault or another member, is found.
+   */
+  #epochDue(resource: ResourceId): boolean {
+    const key = toHex(resource);
+    const now = this.#env.timers.now();
+    if (now - (this.#epochChecked.get(key) ?? Number.NEGATIVE_INFINITY) >= EPOCH_CHECK_MS) {
+      this.#epochChecked.set(key, now);
+      void this.#checkEpochSnapshot(resource).catch(() => undefined);
+    }
+    return this.#epochSnapshotDue.has(key);
+  }
+
+  /** Records whether `resource`'s current epoch (past 0, its key held) has no Snapshot here. */
+  async #checkEpochSnapshot(resource: ResourceId): Promise<boolean> {
+    const storage = this.#ready().storage;
+    const open = (await storage.control.epochs(resource)).find((e) => e.closedBy === null);
+    const due =
+      open !== undefined &&
+      open.epoch > 0n &&
+      open.dekRef !== null &&
+      (await storage.snapshots.list(resource, { epoch: open.epoch })).length === 0;
+    if (due) this.#epochSnapshotDue.add(toHex(resource));
+    else this.#epochSnapshotDue.delete(toHex(resource));
+    return due;
+  }
+
+  /**
+   * Before an invitation (soak finding #3): whether the server has a
+   * Snapshot of the Resource's current epoch from this vault's view.
+   * "ready": none is needed, or ours is stored and sent; "publishing":
+   * this vault publishes one now (the SDK's next tick) or is sending it;
+   * "cannot": one is needed and this vault may not publish it.
+   */
+  async epochSnapshotState(resource: ResourceId): Promise<"ready" | "publishing" | "cannot"> {
+    const storage = this.#ready().storage;
+    const due = await this.#checkEpochSnapshot(resource);
+    if (due && !this.#publishers.has(toHex(resource))) return "cannot";
+    const queued = (await storage.outbound.list(resource)).some((i) => i.kind === "snapshot");
+    return due || queued ? "publishing" : "ready";
+  }
+
   revokeSectionAccess(resource: ResourceId, subject: PrincipalId): Promise<RevokeAccessResult> {
     if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
     return this.#engine(async () => {
@@ -1591,7 +1648,8 @@ export class LfcpRuntime {
       // The SDK counts merged units and those of sync.commit; the 0.1 writes
       // (writeIntent queues its units directly) are added here.
       snapshotPolicy: (R, units) =>
-        units + (this.#ownUnits.get(toHex(R)) ?? 0) >= (this.#env.snapshotEvery ?? 200) &&
+        (units + (this.#ownUnits.get(toHex(R)) ?? 0) >= (this.#env.snapshotEvery ?? 200) ||
+          this.#epochDue(R)) &&
         this.#publishers.has(toHex(R)) &&
         // V3: no Snapshot of a section from a device where sections are read-only.
         !(this.#env.sectionsReadOnly === true && this.#sections.has(toHex(R))),
@@ -1616,7 +1674,10 @@ export class LfcpRuntime {
       }
       this.#onEvent(e);
       // Whether this vault may publish Snapshots, from the validated Control state.
-      if (e.type === "snapshot-published") this.#ownUnits.delete(toHex(e.resourceId));
+      if (e.type === "snapshot-published") {
+        this.#ownUnits.delete(toHex(e.resourceId));
+        this.#epochSnapshotDue.delete(toHex(e.resourceId));
+      }
       if (e.type === "resource-state" && e.state === "LIVE")
         void client
           .accessState(e.resourceId)
