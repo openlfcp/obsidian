@@ -172,6 +172,8 @@ export interface CreationService {
     chosen: ImportChoices,
   ): Promise<CreationEntry>;
   run(entry: CreationEntry, at?: () => string | null): Promise<CreationResult>;
+  /** The creation as its journal holds it now (a reconcile resumes from there), if journaled. */
+  current(operationId: string): Promise<CreationEntry | undefined>;
   cancel(entry: CreationEntry): Promise<CreationEntry>;
   imports(path?: string): Promise<CreationEntry[]>;
   rollback(
@@ -192,6 +194,8 @@ export interface InsertionService {
     preview: InsertPreview,
   ): Promise<InsertionEntry>;
   run(entry: InsertionEntry): Promise<InsertResult>;
+  /** The insertion as its journal holds it now (a reconcile resumes from there), if journaled. */
+  current(insertionId: string): Promise<InsertionEntry | undefined>;
 }
 
 /** The projection bases of notes (SectionBaseStore). */

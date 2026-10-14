@@ -4,7 +4,7 @@
 // settles, also when it threw.
 
 import { describe, expect, it } from "vitest";
-import { type Flow, InFlight } from "../../src/core/in-flight";
+import { type Flow, InFlight, type Reconciled } from "../../src/core/in-flight";
 
 describe("InFlight", () => {
   it("a second run under the same key meanwhile does nothing; another key runs", async () => {
@@ -87,5 +87,99 @@ describe("InFlight", () => {
     step();
     await first;
     expect(seen).toEqual(["preview brought forward", "stage: creating"]);
+  });
+
+  it("D12: an unknown outcome keeps the key until a reconcile settles it; one check at a time", async () => {
+    const f = new InFlight();
+    const closed: string[] = [];
+    let answer: (r: Reconciled) => void = () => undefined;
+    let fail: (e: Error) => void = () => undefined;
+    let checks = 0;
+    await f.run(
+      "note:1",
+      () => undefined,
+      async (flow) => {
+        flow.unresolved("being checked", () => {
+          checks++;
+          return new Promise<Reconciled>((r, x) => {
+            answer = r;
+            fail = x;
+          });
+        });
+      },
+      "starting",
+      () => closed.push("closed"),
+    );
+    const flow = f.get("note:1") as Flow;
+    expect(flow.unknown).toBe(true);
+    expect(flow.stage).toBe("being checked");
+    // A repeated start is handed the flow and checks it; a check meanwhile joins that one.
+    const ran: string[] = [];
+    await f.run(
+      "note:1",
+      (running) => void running.check(),
+      async () => ran.push("second"),
+    );
+    const joined = flow.check();
+    expect(checks).toBe(1);
+    expect(flow.checking).toBe(true);
+    answer("unknown");
+    await joined;
+    expect(f.busy("note:1")).toBe(true);
+    // A reconcile that throws leaves it unknown.
+    const failing = flow.check();
+    expect(checks).toBe(2);
+    fail(new Error("offline"));
+    await failing;
+    expect(f.busy("note:1")).toBe(true);
+    expect(closed).toEqual([]);
+    // Settled: closed once, the key free; a new run is a new flow.
+    const settle = flow.check();
+    answer("settled");
+    await settle;
+    expect(f.busy("note:1")).toBe(false);
+    expect(closed).toEqual(["closed"]);
+    expect(ran).toEqual([]);
+    await f.run(
+      "note:1",
+      () => undefined,
+      async () => ran.push("later"),
+    );
+    expect(ran).toEqual(["later"]);
+  });
+
+  it("late callbacks on a closed flow are ignored: its dialog, stage, check and generation", async () => {
+    const f = new InFlight();
+    let kept: Flow | undefined;
+    await f.run(
+      "k",
+      () => undefined,
+      async (flow) => {
+        kept = flow;
+      },
+    );
+    const flow = kept as Flow;
+    expect(flow.closed).toBe(true);
+    let revealed = false;
+    flow.showing(() => {
+      revealed = true;
+    });
+    expect(flow.reveal()).toBe(false);
+    expect(revealed).toBe(false);
+    flow.stage = "late";
+    expect(flow.stage).toBe("running");
+    flow.unresolved("late", async () => "settled");
+    expect(flow.unknown).toBe(false);
+    await flow.check();
+    expect(f.byGeneration(flow.generation)).toBeUndefined();
+    // A new flow under the same key is another generation.
+    await f.run(
+      "k",
+      () => undefined,
+      async (next) => {
+        expect(next.generation).not.toBe(flow.generation);
+        expect(f.byGeneration(next.generation)).toBe(next);
+      },
+    );
   });
 });

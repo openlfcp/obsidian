@@ -99,7 +99,11 @@ Rules:
   before any side effect. A label without it acts at once and changes no
   shared state.
 - **A4.** A second invocation of a running action reveals the running flow; it
-  does not start another one (LFCP-03-002, 010).
+  does not start another one (LFCP-03-002, 010). A flow whose last effect has
+  an unknown result keeps its reservation: a second invocation, or "Check the
+  result", checks that result for the same operation and never starts a new
+  one (owner decision D12). Once the result is known, a later explicit share
+  or insert is a new operation.
 - **A5.** An action that does not apply to the context is hidden. One that
   applies but is blocked is shown disabled with its reason, for example
   "Detach this section" while the section is loading (owner decision D10).
