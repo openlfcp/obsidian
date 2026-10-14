@@ -29,8 +29,18 @@ describe("plugin", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: true,
+      developerPanePrototype: false,
       settingsVersion: 2,
     });
+  });
+
+  it("registers the pane prototype and its command only with the developer flag (LFCP-03-007)", async () => {
+    const off = await loaded();
+    expect(off.host.views.size).toBe(0);
+    expect(off.host.commands.map((c) => c.id)).not.toContain("open-pane-prototype");
+    const on = await loaded({ developerPanePrototype: true });
+    expect([...on.host.views.keys()]).toEqual(["shared-tasks-pane-prototype"]);
+    expect(on.host.commands.map((c) => c.id)).toContain("open-pane-prototype");
   });
 
   it("connects at once when the network comes back, or the app is shown or focused again", async () => {
@@ -105,6 +115,7 @@ describe("plugin", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: true,
+      developerPanePrototype: false,
       settingsVersion: 2,
     });
     expect(server?.text?.value).toBe(PROJECT_SERVER);
@@ -120,6 +131,7 @@ describe("plugin", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: true,
+      developerPanePrototype: false,
       settingsVersion: 2,
     });
 

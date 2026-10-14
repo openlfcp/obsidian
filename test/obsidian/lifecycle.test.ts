@@ -118,6 +118,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: true,
+      developerPanePrototype: false,
       settingsVersion: 2,
     });
     const dump = JSON.stringify(stored);

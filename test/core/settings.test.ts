@@ -24,6 +24,7 @@ describe("settings", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: false,
+      developerPanePrototype: false,
       settingsVersion: SETTINGS_VERSION,
     });
     expect(
@@ -41,6 +42,13 @@ describe("settings", () => {
     expect(normalizeSettings({ sectionsDisabled: "yes" }).sectionsDisabled).toBe(false);
   });
 
+  it("keep the developer pane prototype off unless data.json turns it on (LFCP-03-007)", () => {
+    expect(DEFAULT_SETTINGS.developerPanePrototype).toBe(false);
+    expect(normalizeSettings({}).developerPanePrototype).toBe(false);
+    expect(normalizeSettings({ developerPanePrototype: "yes" }).developerPanePrototype).toBe(false);
+    expect(normalizeSettings({ developerPanePrototype: true }).developerPanePrototype).toBe(true);
+  });
+
   it("offer the project server on a fresh install", () => {
     expect(PROJECT_SERVER).toBe("wss://sync.openlfcp.org/v1/ws");
     expect(DEFAULT_SETTINGS.defaultServer).toBe(PROJECT_SERVER);
@@ -56,6 +64,7 @@ describe("settings", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: false,
+      developerPanePrototype: false,
       settingsVersion: 2,
     });
     expect(normalizeSettings({ refPlacement: "inline" }).defaultServer).toBe(PROJECT_SERVER);
