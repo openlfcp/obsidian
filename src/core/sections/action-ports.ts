@@ -248,6 +248,8 @@ export interface SectionServices {
   pass(path: string, text?: string): void;
   /** A projection detached from a note: its facts are dropped. */
   forget(key: string, projectionId: string): void;
+  /** A section Resource came or went (a creation ran): the registry view reads it again. */
+  registryChanged(): void;
   /** Recomputes the sections' statuses soon. */
   scheduleStatus(): void;
   /** Why the plugin cannot run here (another instance holds the data), or null. */
@@ -264,8 +266,11 @@ export interface SectionServices {
   commands(): ResourceCommands | null;
   /** The local aliases of identities (Principal ID prefix → label). */
   aliases(): Promise<Record<string, string>>;
-  /** Sets (or, with "", clears) the local alias of identity `id`. */
-  setAlias(id: string, name: string): Promise<void>;
-  /** Removes an identity's access to a section Resource (060); throws when the outcome is unknown. */
-  revokeAccess(resource: ResourceId, principal: string): Promise<RevokeOutcome>;
+  /** Sets (or, with "", clears) the local alias of identity `id`; false while not running. */
+  setAlias(id: string, name: string): Promise<boolean>;
+  /**
+   * Removes an identity (Principal ID hex) from a section Resource (060):
+   * null while not running; throws when the outcome is unknown.
+   */
+  revokeAccess(resource: ResourceId, principal: string): Promise<RevokeOutcome | null>;
 }
