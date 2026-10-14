@@ -5,7 +5,7 @@
 // (a local write or the server). While an effect runs the pane offers no
 // next step, only its progress. Pure: no Obsidian.
 
-import type { ActionId } from "./actions";
+import type { ActionId } from "../actions/catalog";
 
 export type FlowKind = "share" | "invite" | "join" | "insert" | "repair";
 export type FlowOutcome = "running" | "unknown" | "unfinished";
