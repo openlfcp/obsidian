@@ -100,6 +100,20 @@ function movedNotSent(h: HeldEdits): string {
   return ` Moved, not sent: ${names.join(", ")}${more}.`;
 }
 
+/** Where held text is kept (LFCP-03-003): only in the note, saved to disk or not yet. */
+function keptIn(h: HeldEdits): string {
+  switch (h.persistence) {
+    case "saved":
+      return " Kept only in this note, saved.";
+    case "unsaved":
+      return " Kept only in this note, not saved to disk yet.";
+    case "unknown":
+      return " Kept only in this note.";
+    default:
+      return "";
+  }
+}
+
 /** The card's content. */
 export function sectionCard(input: CardInput): SectionCard {
   const v = input.view;
@@ -116,7 +130,7 @@ export function sectionCard(input: CardInput): SectionCard {
   // F-04: edits held back come first, counted, with their cause.
   for (const h of held)
     facts.push(
-      `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).${movedNotSent(h)}`,
+      `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).${movedNotSent(h)}${keptIn(h)}`,
     );
   if (kinds.has("save-failed")) facts.push("Not all local changes are saved for sync.");
   else if (kinds.has("local-edit")) facts.push("Local changes are being processed.");
@@ -136,8 +150,15 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push(`${plural(n, "refused update", "refused updates")} kept in your note, not sent.`);
   } else if (kinds.has("stale-work"))
     facts.push("Offline edits from before an access change are kept in your note, not sent yet.");
-  else if (!kinds.has("save-failed") && !kinds.has("local-edit") && held.length === 0)
-    facts.push("No local changes waiting.");
+  else if (!kinds.has("save-failed") && !kinds.has("local-edit"))
+    // An empty queue is its own fact (LFCP-03-003): held edits are not in it.
+    facts.push(
+      held.length > 0
+        ? "No updates waiting in the sync queue: the edits held in your note are not in it."
+        : kinds.has("held-unchecked")
+          ? "No updates waiting in the sync queue. Notes with this section are still being checked for edits not sent."
+          : "No local changes waiting.",
+    );
   if (kinds.has("evidence-unavailable"))
     facts.push(
       "The server acknowledged some updates without confirming it stored them: they are not shown as accepted.",
@@ -160,8 +181,15 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push(
       "Not current: the server has not got the edits held in your note. Other changes are received as usual.",
     );
-  else
+  else if (kinds.has("held-unchecked"))
+    facts.push("Not current yet: not every note with this section was checked.");
+  else if (v.sync.current)
     facts.push("Current as last checked with the server. This does not mean others have seen it.");
+  // The shared version is caught up; this vault's own changes are not in it yet.
+  else
+    facts.push(
+      "The shared version is current as last checked with the server; changes from this vault above are not in it yet.",
+    );
   if (denied) facts.push("The sync server does not accept your edits to this section now.");
   else
     facts.push(
