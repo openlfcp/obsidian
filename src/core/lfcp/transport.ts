@@ -5,9 +5,11 @@
 // connection (liveness.ts). Nothing here is guessed from a timer: a
 // connection is "connecting" after the SDK said CONNECTING and until it
 // says READY or DISCONNECTED, and an attempt "failed" only when the SDK
-// reported it DISCONNECTED before READY. A retry after a loss or a failure
-// keeps reading as that loss or failure until READY: the sections do not
-// flip between "offline" and "connecting" on every backoff. Pure bookkeeping.
+// reported it DISCONNECTED before READY. While a retry after a loss or a
+// failure is under way it keeps reading as that loss or failure, so the
+// sections do not flip between "offline" and "connecting" on every
+// backoff; the retry's own end then decides: READY, or "failed" (a first
+// retry after "lost" that fails becomes "failed"). Pure bookkeeping.
 
 import type { ClientConnectionState } from "@openlfcp/wire";
 
