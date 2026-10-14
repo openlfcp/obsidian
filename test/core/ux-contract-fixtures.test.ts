@@ -28,6 +28,13 @@ const ACCESS = new Set([
   "refused",
 ]);
 const CONNECTION = new Set(["offline", "connecting", "connected", "failed"]);
+const QUALIFIER = new Set([
+  "no-evidence",
+  "not-syncing",
+  "lost",
+  "network-offline",
+  "not-responding",
+]);
 const EDITOR = new Set(["none", "source", "live-preview", "reading"]);
 const CURSOR = new Set(["none", "private-heading", "private-text", "inside-section"]);
 const SELECTION_REASONS = new Set([
@@ -165,14 +172,29 @@ function checkSection(section: Obj, where: string): void {
   count(section.placements, `${where}.placements`);
   const access = obj(section.access, `${where}.access`);
   oneOf(access.access, ACCESS, `${where}.access.access`);
-  if (access.verifiedAt !== null)
-    expect(Number.isNaN(Date.parse(str(access.verifiedAt, `${where}.access.verifiedAt`)))).toBe(
-      false,
-    );
-  for (const k of ["current", "canInvite"] as const)
-    if (access[k] !== null) expect(access[k], `${where}.access.${k}`).toBeTypeOf("boolean");
+  // StatusView.access (LFCP-03-005): verifiedAt in local milliseconds, as AccessFacts.
+  expect(Object.keys(access).sort(), `${where}.access keys`).toEqual([
+    "access",
+    "checking",
+    "current",
+    "verifiedAt",
+  ]);
+  count(access.verifiedAt, `${where}.access.verifiedAt`);
+  if (access.current !== null)
+    expect(access.current, `${where}.access.current`).toBeTypeOf("boolean");
   expect(access.checking, `${where}.access.checking`).toBeTypeOf("boolean");
-  if (section.connection !== null) oneOf(section.connection, CONNECTION, `${where}.connection`);
+  // Inviting comes from the access list (AccessView), not from the status facts.
+  const view = obj(section.accessView, `${where}.accessView`);
+  if (view.canInvite !== null)
+    expect(view.canInvite, `${where}.accessView.canInvite`).toBeTypeOf("boolean");
+  if (section.connection !== null) {
+    const connection = oneOf(section.connection, CONNECTION, `${where}.connection`);
+    // StatusView.connectionQualifier: null while connected or connecting (a failed attempt may have none).
+    if (connection === "connected" || connection === "connecting")
+      expect(section.connectionQualifier, `${where}.connectionQualifier`).toBeNull();
+    else if (connection === "offline" || section.connectionQualifier !== null)
+      oneOf(section.connectionQualifier, QUALIFIER, `${where}.connectionQualifier`);
+  }
   if (section.refusal !== null) str(section.refusal, `${where}.refusal`);
   for (const [i, p] of arr(section.problems, `${where}.problems`).entries()) {
     const pr = obj(p, `${where}.problems[${i}]`);

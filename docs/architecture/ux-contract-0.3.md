@@ -192,10 +192,11 @@ Every other problem is listed below it, in the same order.
 | 9 | Conditions `loading`, `access-checking` | `open-details` (no "current" claim) |
 | 10 | Conditions `catching-up`, `local-edit`, `offline`, `pending`, `control-pending`, `evidence-unavailable` | §5.1 (offline or queued with no other problem: `sync-details`) |
 | 11 | Condition `held-unchecked` (`heldCheck: "pending"`) | `open-details` (no "current" claim) |
+| 11a | Condition `connecting` (`connection: "connecting"`, LFCP-03-005) | `open-details` (no "current" claim) |
 | 12 | An unfinished flow (P2) | `continue-flow` |
 | 13 | No condition: ordinary context | §5.1 |
 
-Rows 1 and 4–11 are the conditions of `statusView` on `main` in the order
+Rows 1 and 4–11a are the conditions of `statusView` on `main` in the order
 it pushes them, so the card's first condition and the pane's primary
 action never disagree. Rows 2, 3 and 12 are flows, which the reducer does
 not see. The package's order differs; see RC-03.
@@ -269,12 +270,17 @@ unknown, never as zero.
 | `sync.queue.batches` 0 and edits held | "No updates waiting in the sync queue: the edits held in your note are not in it." | "No local changes waiting"; "Nothing to send" |
 | `sync.sharedModel` "unknown" | Nothing about acceptance | "The server accepted your changes" |
 | `localPersistence` "unconfirmed" | "Local changes are being saved" | "Changes saved" |
-| Access `current` false | "Access as last verified <time>; it may have changed." | "Access verified with the server <time>." |
+| Access `current` false | In the access list: "Access as last verified <time>; it may have changed." | "Access verified with the server <time>." |
+| Access `revoked` or `not-member`, `current` not true | The problem's sentence, then "This is as this device last verified it; it may have changed." (no time) | The removal or non-membership as confirmed |
 | Access `refused` | "The sync server no longer accepts changes from this vault for this section." | "Offline"; "Your access was removed" |
 | Access `not-member` | "This vault is not a member of this section." | "Your access was removed" |
 | Access `revoked` | "Your access to this section was removed. Your local copy stays." | "not a member" |
-| `connection` "offline" | "Offline: local updates wait on this device." | "failed" |
-| `connection` "connecting" or "failed" | Only from a real transition or error fact (LFCP-03-005) | Any state guessed from a timeout or an animation |
+| `connection` "offline", `connectionQualifier` "lost" or "no-evidence" (or "not-syncing") | "Offline: local updates wait on this device." | "failed" |
+| `connection` "offline", `connectionQualifier` "network-offline" | "Offline (no network): local updates wait on this device." | "failed"; "The server is down" |
+| `connection` "offline", `connectionQualifier` "not-responding" | "Offline: the server stopped responding, reconnecting. Local updates wait on this device." | "failed" |
+| `connection` "failed" | "Could not connect to the server; trying again. Local updates wait on this device."; with `connectionQualifier` "not-responding": "The server stopped responding and connecting again failed; trying again. Local updates wait on this device." | "Offline" alone; a failure without a failed attempt |
+| `connection` "connecting" | "Connecting to the server: not checked with it yet. Local updates wait on this device."; the label "Connecting to the server" when it is the first condition | "Current"; "failed" |
+| `connection` "connecting" or "failed" | Only from a real transition or error fact (LFCP-03-005, `docs/architecture/access-connection-facts.md`) | Any state guessed from a timeout or an animation |
 | Registry placement index building | "Looking for copies in your notes…" | "Not inserted yet"; "Never used" |
 
 - **F1. The double tick ✓✓ is the mark of a shared section** (F-08). It
@@ -417,7 +423,12 @@ unfinished flows, selection, content, refusal and read-only cases. Each
 state gives:
 
 - `facts`: the input, shaped like `StatusView.sync`, the access and
-  connection facts, the context and the registry. `null` is unknown;
+  connection facts, the context and the registry. `null` is unknown.
+  `section.access` is `StatusView.access` (`verifiedAt` in local
+  milliseconds); `section.connection`, `connectionQualifier` and
+  `refusal` are the view's fields of the same names.
+  `section.accessView.canInvite` comes from the access list (`AccessView`),
+  not from the status facts;
 - `expected.primaryCta`: an action ID, or `null` with a reason;
 - `expected.enabled` and `expected.disabled`: action IDs, each with its
   reason;
