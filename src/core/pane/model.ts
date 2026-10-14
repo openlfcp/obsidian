@@ -13,6 +13,10 @@
 
 import { rowLabel } from "../sections/registry-view";
 import { SHARE_SCOPE, type ShareWarning, shareCounts, shareWarningText } from "../sections/share";
+import {
+  selectionReasonText as reasonText,
+  type SelectionReason as TargetSelectionReason,
+} from "../sections/target";
 import { CONNECTING_TEXT, heldFact, offlineText, sectionProblems } from "../status/card";
 import type { HeldCause } from "../status/held";
 import { type Condition, STATE_LABEL, type StatusState, type StatusView } from "../status/reducer";
@@ -26,17 +30,8 @@ import {
   stageOf,
 } from "./flows";
 
-/** Why a selection cannot be shared exactly (UX §4.2). */
-export type SelectionReason =
-  | "no-heading-start"
-  | "partial-line"
-  | "crossing"
-  | "nested-heading"
-  | "partial-block"
-  | "unclosed-fence"
-  | "already-bound"
-  | "legacy-tasks"
-  | "broken-ref";
+/** Why a selection cannot be shared exactly (UX §4.2): the executor's reasons (LFCP-03-009). */
+export type SelectionReason = TargetSelectionReason;
 
 export interface PaneSelection {
   readonly fromLine: number;
@@ -214,29 +209,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 /** The sentence of an ineligible selection (UX §4.2), with its line where it names one. */
 export function selectionReasonText(s: PaneSelection): string {
-  const n = s.line ?? s.fromLine;
-  switch (s.reason) {
-    case "no-heading-start":
-      return "A shared section starts at its heading. Your selection does not.";
-    case "partial-line":
-      return "The selection ends in the middle of a line. Select whole lines.";
-    case "crossing":
-      return "The selection runs past the end of the heading's section.";
-    case "nested-heading":
-      return `Line ${n} is a heading inside the selection. Share each part as its own section.`;
-    case "partial-block":
-      return `The selection ends in the middle of a paragraph or list item (line ${n}). End it at a blank line.`;
-    case "unclosed-fence":
-      return `A code block from line ${n} is not closed. Close it before sharing.`;
-    case "already-bound":
-      return `Line ${n} is already part of a shared section.`;
-    case "legacy-tasks":
-      return "Tasks in the selection are already shared in another collaboration.";
-    case "broken-ref":
-      return `The shared task marker on line ${n} is damaged. Repair it before sharing.`;
-    case null:
-      return "";
-  }
+  // The pane counts lines from 1; the executor's sentences take the 0-based line.
+  return s.reason === null ? "" : reasonText(s.reason, (s.line ?? s.fromLine) - 1);
 }
 
 /** What the pane says, to the user, when there is no primary action (contract §5, P4). */
