@@ -159,3 +159,88 @@ Each is numbered as reported during the run.
 The acceptance soak runs on the 0.4.0-beta.18 candidate (with sdk-ts
 0.2.0-beta.9), with the same harness and pass criteria, and checks #11
 in particular. No further discovery runs on beta.17.
+
+## 6. Acceptance soak on 0.4.0-beta.18
+
+**Date:** 2026-10-14. **Run:** 08:05–12:11 UTC, 245 minutes, on obsidian
+`main` at `af16007` (0.4.0-beta.18) with `@openlfcp/*` 0.2.0-beta.9 from
+npm. It uses the same harness, events and criteria as §1 and §2, and ran
+with nothing else from the workers on the machine. The owner's desktop
+Obsidian was open.
+
+There was one interruption. At 09:48:30–09:49:03 UTC (103 min),
+robust-simon took a 30 s CPU profile of peer B (inspector on
+127.0.0.1, then closed), with the orchestrator's agreement. B's pass
+times at checkpoint 11 include that window.
+
+**A conflict nobody resolves, from 86 min.** A genuine concurrent
+structural conflict arose: some of a peer's Tasks sit under another
+peer's, and an owner deleted a parent while another peer added a child.
+No peer resolves conflicts in the harness, so all sections stayed at
+"Needs your attention" (structural-conflict) from then on. The
+orchestrator agreed to judge convergence from then by the models, and
+by the notes outside the conflicted subtree.
+
+### Result
+
+| Criterion | Result |
+| --- | --- |
+| No divergence | **Met, with one transient.** Every checkpoint to 70 min converged. The models (and the 0.1 tasks) were equal at every checkpoint but 15 (184 min). There B, whose single passes then took minutes, was 245 units behind and still applying; the models were equal again from 16. |
+| No growth trend beyond ~20 % | **Not met for pass time** (A's p50: 89 ms at 4 units, 1.1–1.3 s from 3,300 units on). **WASM memory is fixed**: 6–20 MiB through 5,357 units (beta.17: 44–51 MiB at 435). RSS: A 341 MiB to 1.5 GiB, B 367 MiB to 1.6 GiB. |
+| Reconnect under 30 s | **Met but once.** Outages of 2–5 min came back in 4.7–15.3 s (beta.17: up to 56 s), and the first server restart in 4.4–8.3 s. After the second restart, B (in a minutes-long pass) received its first frame after 102.9 s. |
+
+### Per checkpoint
+
+Units stored by A; pass p50/p95 (ms), RSS/heap (MiB) and WASM (MiB) per
+peer.
+
+| # | min | Tasks | A | B | C |
+| ---: | ---: | ---: | --- | --- | --- |
+| 1 | 0 | 151 | 4 u, 89/156, 341/112, 9.1 | 134/159, 367/175, 6.1 | 145/218, 352/137, 6.1 |
+| 4 | 30 | 172 | 1,352 u, 231/421, 620/302, 9.1 | 238/436, 709/120, 6.8 | 238/447, 699/240, 6.8 |
+| 6 | 50 | 164 | 2,226 u, 483/1,150, 605/88, 9.5 | 536/1,567, 843/204, 13.8 | 565/1,549, 850/347, 9.4 |
+| 8 | 71 | 123 | 2,967 u, 930/3,959, 656/166, 10.3 | 1,199/5,132, 992/103, 13.8 | 1,794/5,685, 942/415, 10.5 |
+| 9 | 86 | 124 | 3,323 u, 1,081/3,640, 711/252, 11.4 | 1,245/5,920, 1,090/173, 13.8 | 782/5,364, 1,056/182, 17.7 |
+| 11 | 116 | 126 | 3,759 u, 1,139/4,578, 716/198, 14.0 | 958/42,593, 1,182/504, 20.2 | 3,838/52,009, 1,192/420, 19.7 |
+| 13 | 150 | 108 | 4,165 u, 1,160/3,485, 734/148, 16.2 | 1,395/11,958, 1,311/341, 36.5 | (removed) |
+| 15 | 184 | 109 | 4,693 u, 1,324/4,150, 1,367/469, 19.8 | 1,444/29,896, 1,380/625, 36.5 | |
+| 16 | 200 | 120 | 4,993 u, 2,238/5,484, 1,451/785, 19.8 | 1,461/760,505, 1,377/252, 40.8 | |
+| 19 | 245 | 124 | 5,357 u, 197/14,392, 1,465/459, 19.8 | 1,682/3,625, 1,616/1,080, 40.8 | |
+
+- **Before the conflict**, pass time grows with history at a nearly flat
+  Task count. This is the "Long history" limit, now reached within about
+  an hour by three people.
+- **After the conflict**, B's and C's passes reach tens of seconds, and
+  one of B's took 12.7 minutes. The orchestrator reads this as the SDK's
+  retained edits being quadratic in the history, which the open
+  conflict amplifies. sdk-ts 0.2.0-beta.10 addresses it, and beta.19
+  takes it.
+
+### Removal and a new member (#3, #11)
+
+- At 120 min A removed C, and C2 joined. C2 loaded the whole section from
+  A's Snapshot of the new epoch within seconds: the same section and the
+  same 766 nodes as A. **#3 holds.**
+- "Insert shared section…" then refused C2's insert. The model still had
+  the open conflict, and the preview refuses a section it cannot render
+  ("not-renderable"). The harness has no retry for that, so C2 left the
+  run.
+- **#11** (a newcomer's binding error) could therefore not be observed.
+- The refusal itself is accepted for 0.4.0. Its notice now says what to
+  do (`0c87bc3`), and LFCP-02-123 lifts the refusal.
+
+### Findings
+
+| # | Finding | Status |
+| --- | --- | --- |
+| 7 | Pass time grows with history; under an open conflict, single passes of minutes on the members | sdk-ts 0.2.0-beta.10 (in beta.19) |
+| 12 | With the conflict open for over two hours, the owner's own new Tasks could no longer be saved: at 245 min A was at "Local save failed" (INVALID_PREDECESSOR), with 21 Task lines of its own unbound. It is visible, not silent, and the conflict was never resolved | New; for triage (a conflict left open long enough blocks edits next to it) |
+| — | A newcomer cannot insert while a structural conflict is open | Notice fixed `0c87bc3`; LFCP-02-123 |
+| 11 | Newcomer binding error | Not observable in this run (above) |
+
+The fixes of the discovery run hold where this run reached them: #3,
+#8, and the replica memory fix (above). The late-ACK fix and #1: no
+section was ever at "Server confirmation unavailable" (EVIDENCE_UNKNOWN)
+or stuck sending. #9: no section showed "reappeared", its symptom (this
+run had no per-move trace). Raw data:
+`~/dev/openlfcp-rw/runs/soak/accept-b18/` on the test machine.
