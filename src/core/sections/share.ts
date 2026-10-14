@@ -280,28 +280,42 @@ function problemText(x: ShareProblem): string {
   }
 }
 
-export function shareMessages(p: SharePreview): ShareMessages {
-  const problems = p.problems.map(problemText);
-  const warnings = p.warnings.flatMap((w): string[] => {
-    if (w === "local-comments")
-      return ["Comments (%% … %% and <!-- … -->) in this section stay on this device."];
-    if (w === "private-text-before-next-heading")
-      return [
-        "The text after the section, under the same heading, stays private, but Obsidian folds, drags and embeds it with the heading.",
-      ];
-    return [];
-  });
-  const c = p.counts;
-  const parts = [
+/** The persistent scope sentence of a share preview (UX §3). */
+export const SHARE_SCOPE =
+  "Everything inside this section, including future additions, will be shared.";
+
+/** A preview warning's sentence; null for the scope warning, which `scope` says. */
+export function shareWarningText(w: ShareWarning): string | null {
+  switch (w) {
+    case "local-comments":
+      return "Comments (%% … %% and <!-- … -->) in this section stay on this device.";
+    case "private-text-before-next-heading":
+      return "The text after the section, under the same heading, stays private, but Obsidian folds, drags and embeds it with the heading.";
+    case "future-additions":
+      return null;
+  }
+}
+
+/** What a preview counts: "2 tasks, 1 paragraph, 0 list items, 2 other blocks". */
+export function shareCounts(c: Omit<SharePreview["counts"], "characters">): string {
+  return [
     plural(c.tasks, "task"),
     plural(c.paragraphs, "paragraph"),
     plural(c.items, "list item"),
     ...(c.raw > 0 ? [plural(c.raw, "other block")] : []),
-  ];
+  ].join(", ");
+}
+
+export function shareMessages(p: SharePreview): ShareMessages {
+  const problems = p.problems.map(problemText);
+  const warnings = p.warnings.flatMap((w) => {
+    const text = shareWarningText(w);
+    return text === null ? [] : [text];
+  });
   return {
     heading: `Share section "${p.title}"`,
-    scope: "Everything inside this section, including future additions, will be shared.",
-    counts: `${parts.join(", ")}${p.changes > 1 ? `; sent in ${p.changes} parts` : ""}.`,
+    scope: SHARE_SCOPE,
+    counts: `${shareCounts(p.counts)}${p.changes > 1 ? `; sent in ${p.changes} parts` : ""}.`,
     problems,
     warnings,
   };
