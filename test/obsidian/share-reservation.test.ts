@@ -226,6 +226,49 @@ describe("Share reserved per note (LFCP-03-002)", () => {
     expect(noticesSince(v, notices).join(" | ")).not.toMatch(FRIGHT);
   }, 60_000);
 
+  it("a rename after Share was pressed, before the note is bound: the renamed note is bound", async () => {
+    const v = await open("B2");
+    const rec = record(v);
+    await v.write("Plan.md", NOTE);
+    const r = v.runtime;
+    const commit = r.commitSection;
+    // The import is stored; the note is renamed before the creation binds it.
+    r.commitSection = async (R, intents, o) => {
+      const receipt = await commit(R, intents, o);
+      rename(v, "Plan.md", "Moved.md");
+      return receipt;
+    };
+    const notices = v.mock.notices.length;
+    const flow = v.plugin.sections?.share(editorOn(v, "Plan.md").editor as never, "Plan.md");
+    await until("the share preview", () => (openModals(v).length === 1 ? true : undefined));
+    click(openModals(v)[0] as (typeof v.mock.modals)[number], "Share");
+    await flow;
+    await v.settle();
+    const stored = await rec.stored();
+    const op = rec.ops[0]?.operationId as string;
+    const entry = (await r.localState.get(`section-create:${op}`)) as Record<string, unknown>;
+    expect({
+      stored: stored.length,
+      listed: await rec.listed(),
+      ops: new Set(rec.ops.map((o) => o.operationId)).size,
+      path: entry.path,
+      phase: entry.phase,
+      bound: parseSections(v.read("Moved.md")).sections.map((s) => toBase64url(s.ref.resourceId)),
+      old: v.app.vault.files.has("Plan.md"),
+    }).toEqual({
+      stored: 1,
+      listed: stored,
+      ops: 1,
+      path: "Moved.md",
+      phase: "projected",
+      bound: stored,
+      old: false,
+    });
+    expect(noticesSince(v, notices).join(" | ")).toMatch(/created on this device/);
+    expect(noticesSince(v, notices).join(" | ")).not.toMatch(/changed since the preview/);
+    expect(noticesSince(v, notices).join(" | ")).not.toMatch(FRIGHT);
+  }, 60_000);
+
   it("a deleted note: the approved share writes nothing and makes no Resource", async () => {
     const v = await open("C");
     const rec = record(v);

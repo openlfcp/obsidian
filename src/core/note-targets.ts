@@ -2,9 +2,11 @@
 // (LFCP-03-002, OBSIDIAN-UX-ARCHITECTURE-03 §3/§4). A flow holds its note
 // from its start to its end: the note keeps one identity meanwhile, so the
 // flow's reservation (InFlight key `note:<id>`) stays the same when the note
-// is renamed, and the flow writes to the note's current path, not the path
-// it started on. A deleted note's target has no path: the flow's effect is
-// refused, never written elsewhere. Identities live only while held; they
+// is renamed. A share or import writes at the note's path at the moment of
+// each write (SectionCreation.run asks it before checking and before
+// binding, and journals a new path); an insert reads it once, when its
+// preview is approved. A deleted note's target has no path: the flow's
+// effect is refused, never written elsewhere. Identities live only while held; they
 // are not persisted (a restart resumes from the creation journal, which
 // records the path). Pure: the host feeds the vault's rename and delete
 // events in as they happen.

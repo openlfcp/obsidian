@@ -360,8 +360,13 @@ export class SectionCreation {
     return { kind, entry: e };
   }
 
-  /** Runs, or resumes, a creation as far as it goes now. */
-  async run(entry: CreationEntry): Promise<CreationResult> {
+  /**
+   * Runs, or resumes, a creation as far as it goes now. `at`, when given,
+   * is the note's path now (null once deleted), asked before each write:
+   * a note renamed since the creation was journaled is written at its new
+   * path, which is journaled too (LFCP-03-002); a deleted one is stale.
+   */
+  async run(entry: CreationEntry, at?: () => string | null): Promise<CreationResult> {
     let e = entry;
     const R = fromBase64url(e.resource) as ResourceId;
     if (e.phase === "cancelled") {
@@ -372,6 +377,9 @@ export class SectionCreation {
     if (e.phase === "prepared") {
       // A preview stale already (the note changed, or another creation bound
       // it first): nothing is made. A Resource from a run a crash cut is discarded.
+      // A note deleted meanwhile: stale, never written at a path another note may take.
+      if (at?.() === null) return this.#stale(e);
+      e = await this.#follow(e, at);
       if (!(await this.#bindable(e))) return this.#stale(e);
       const server = this.deps.server();
       await this.deps.host.createSectionResource({
@@ -400,6 +408,9 @@ export class SectionCreation {
       await this.#save(e);
     }
     if (e.phase === "local") {
+      // A note deleted meanwhile: stale, never written at a path another note may take.
+      if (at?.() === null) return this.#stale(e);
+      e = await this.#follow(e, at);
       if (!(await this.#project(e))) return this.#stale(e);
       e = { ...e, phase: "projected" };
       await this.#save(e);
@@ -448,6 +459,15 @@ export class SectionCreation {
         : { ...rest, discarded: out.kind };
     await this.#save(e);
     return e;
+  }
+
+  /** The entry at the note's path now, journaled when the note moved. */
+  async #follow(e: CreationEntry, at?: () => string | null): Promise<CreationEntry> {
+    const path = at?.();
+    if (path === undefined || path === null || path === e.path) return e;
+    const moved: CreationEntry = { ...e, path };
+    await this.#save(moved);
+    return moved;
   }
 
   /** A stale creation: cancelled, its Resource (if any) discarded, the note as it is. */
