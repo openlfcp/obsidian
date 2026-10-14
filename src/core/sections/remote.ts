@@ -353,6 +353,15 @@ export function misplaced(
   };
   for (const id of Object.keys(note.nodes))
     if (shown(id) && note.nodes[id]?.parent !== model.nodes[id]?.parent) out.add(id);
+  // Shown in the note while the model hides it (active, under a node the
+  // model does not show): no remote plan removes or places it, and nothing
+  // else reports it (soak finding #10 on 0.4.0-beta.17), so the note would
+  // read as current for good. A divergence too.
+  for (const id of Object.keys(note.nodes)) {
+    const m = model.nodes[id];
+    if (!skip.has(id) && m !== undefined && m.lifecycle === "active" && m.hidden === true)
+      out.add(id);
+  }
   for (const [key, kids] of Object.entries(model.order)) {
     const both = (id: string) => shown(id) && !out.has(id);
     const want = kids.filter(both);

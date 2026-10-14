@@ -8,7 +8,7 @@ import type { SectionState } from "../../../src/core/sections/base";
 import type { SectionSnapshot } from "../../../src/core/sections/port";
 import { misplaced } from "../../../src/core/sections/remote";
 import { projectionFact } from "../../../src/core/status/projections";
-import { block, lines, twoVaults } from "../../support/section-vaults";
+import { block, lines, PLAN, taskId, twoVaults } from "../../support/section-vaults";
 
 const node = (parent: string | null) => ({ kind: "task" as const, parent, line: "" });
 function state(order: Record<string, string[]>): SectionState {
@@ -39,10 +39,19 @@ describe("misplaced: the note's tree against the model's", () => {
     expect(misplaced(state({ "": ["g", "a", "b"], g: ["d"] }), m, new Set())).toEqual([]);
   });
 
-  it("leaves out nodes whose placement waits, and nodes the model hides", () => {
+  it("leaves out nodes whose placement waits", () => {
     const m = model({ "": ["g", "a", "b"], g: ["d"] }, ["b"]);
     expect(misplaced(state({ "": ["g", "a"], a: ["d"] }), m, new Set(["d"]))).toEqual([]);
-    expect(misplaced(state({ "": ["b", "g", "a"], g: ["d"] }), m, new Set())).toEqual([]);
+  });
+
+  it("reports a node the note shows while the model hides it (soak #10)", () => {
+    // Active in the model, under a node it does not show: no remote plan
+    // removes or places it, so without this the badge stayed CURRENT.
+    const m = model({ "": ["g", "a", "b"], g: ["d"] }, ["b"]);
+    expect(misplaced(state({ "": ["b", "g", "a"], g: ["d"] }), m, new Set())).toEqual(["b"]);
+    expect(misplaced(state({ "": ["g", "a"], g: ["d"] }), m, new Set())).toEqual([]);
+    // Unless its placement waits for the user's edit.
+    expect(misplaced(state({ "": ["b", "g", "a"], g: ["d"] }), m, new Set(["b"]))).toEqual([]);
   });
 });
 
@@ -78,5 +87,41 @@ describe("a pass that leaves the note's tree unlike the model's", () => {
     expect(next?.diverged).toBeUndefined();
     if (next === undefined) throw new Error("no result");
     expect(projectionFact(next).facts).toMatchObject({ source: "clean", application: "current" });
+  });
+});
+
+describe("a node the note shows while the model hides it (soak #10)", () => {
+  it("is not current: its projection diverged", async () => {
+    const { a, b } = await twoVaults([
+      "- [ ] Alpha",
+      "- [ ] Beta",
+      "- [ ] Gamma",
+      "",
+      "A paragraph.",
+    ]);
+    const md = a.note();
+    const alpha = taskId(md, "Alpha");
+    const beta = taskId(md, "Beta");
+    // In the shared state Beta ends up under Alpha, and Alpha is deleted:
+    // Beta is active but hidden (under a node the model does not show).
+    for (const [res, ra] of a.replicas) b.replicas.get(res)?.receiveChanges(ra.changes());
+    const rev = b.model()?.revision as string;
+    await b.port.commit(PLAN.R, [{ intent: "node.move", id: beta, parent: alpha, after: null }], {
+      operationId: "hide-1",
+    });
+    await b.port.commit(PLAN.R, [{ intent: "node.delete", id: alpha }], {
+      operationId: "hide-2",
+    });
+    expect(rev).not.toBe(b.model()?.revision);
+    for (const [res, rb] of b.replicas) a.replicas.get(res)?.receiveChanges(rb.changes());
+    const snap = a.model();
+    expect(snap?.nodes[beta]).toMatchObject({ lifecycle: "active", hidden: true });
+    // A's note still shows Beta after its passes: never CURRENT over it.
+    let last = await a.pass(a.note());
+    last = (await a.pass(a.note())) ?? last;
+    expect(a.note()).toContain(beta);
+    expect(last?.diverged).toContain(beta);
+    if (last === undefined) throw new Error("no result");
+    expect(projectionFact(last).facts.source).toBe("diverged");
   });
 });
