@@ -1,9 +1,10 @@
 # MVP 0.3: performance budgets and pilot protocol
 
 **Task:** LFCP-03-006 (gates G03-F, G03-G). **Frozen:** 2026-10-15, before
-any measurement. **Status:** proposed by the package and pinned here; the
-owner may change a value only before the first qualifying run, by a pull
-request that says why.
+any measurement. **Status:** pinned here. B1 and B2 and the pilot
+threshold come from the MVP 0.3 package; B3–B6 are new in this document.
+The owner may change a value only before the first qualifying run, by a
+pull request that says why.
 
 The budgets and the pass threshold below do not move after a result is
 known. A change after a run needs a new candidate and a full rerun of the
@@ -37,7 +38,7 @@ defaults" and "Pilot"). The UX being measured is
 | B2 | Warm pane open | Pane command or ribbon click, pane already created once → pane content committed | p95 ≤ 500 ms | G03-F |
 | B3 | Cold pane open | The first pane open after the plugin loads, registry ready | Recorded, no budget in 0.3 | Reported |
 | B4 | Loading feedback | Pane open or join start while the network waits → a visible loading or connecting state | p95 ≤ 500 ms | G03-F |
-| B5 | No full-vault scan | Vault file reads (`read`, `cachedRead`) per caret event, after warm-up | 0 | G03-F |
+| B5 | No full-vault scan | Reads (`read`, `cachedRead`) of notes other than the active one, per caret event, after warm-up | 0 | G03-F |
 | B6 | No status writes | Markdown writes and undo-history entries caused by status events alone | 0 | G03-F |
 
 ### 1.3 Method
