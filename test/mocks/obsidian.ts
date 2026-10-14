@@ -337,9 +337,26 @@ export abstract class SuggestModal<T> extends Modal {
   }
 }
 
+/** A workspace leaf, as a view's constructor gets it (LFCP-03-007). */
+export class WorkspaceLeaf {}
+
+/** Obsidian's ItemView: its content is a real element when the test has a DOM. */
+export class ItemView {
+  readonly contentEl: unknown =
+    typeof document === "undefined" ? new FakeElement("div") : document.createElement("div");
+  constructor(readonly leaf: WorkspaceLeaf) {}
+  async onOpen(): Promise<void> {}
+  async onClose(): Promise<void> {}
+}
+
 export class Plugin {
   settings?: unknown;
   readonly commands: Command[] = [];
+  /** Views registered by type, with their factories. */
+  readonly views = new Map<string, (leaf: WorkspaceLeaf) => unknown>();
+  registerView(type: string, factory: (leaf: WorkspaceLeaf) => unknown): void {
+    this.views.set(type, factory);
+  }
   readonly settingTabs: PluginSettingTab[] = [];
   /** What saveData stored; what loadData returns. */
   stored: unknown;

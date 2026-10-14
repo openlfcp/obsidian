@@ -54,6 +54,12 @@ export interface Settings {
    * false` most 0.3.x installs saved does not turn them off.
    */
   sectionsDisabled: boolean;
+  /**
+   * Developer only (data.json, not in the settings tab): registers the pane
+   * prototype's view and its "Open pane prototype (developer)" command
+   * (LFCP-03-007). Off: neither exists, so the palette does not list it.
+   */
+  developerPanePrototype: boolean;
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */
   settingsVersion: number;
 }
@@ -64,6 +70,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   showSharingMetadata: false,
   sectionComments: "local",
   sectionsDisabled: false,
+  developerPanePrototype: false,
   settingsVersion: SETTINGS_VERSION,
 };
 
@@ -105,6 +112,7 @@ export function normalizeSettings(stored: unknown): Settings {
       : DEFAULT_SETTINGS.sectionComments,
     // 0.4.0: the 0.3.x `sectionsPreview` key is dropped; sections are on unless disabled.
     sectionsDisabled: data.sectionsDisabled === true,
+    developerPanePrototype: data.developerPanePrototype === true,
     settingsVersion: SETTINGS_VERSION,
   };
 }
