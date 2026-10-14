@@ -22,9 +22,12 @@ import type {
   SectionPrompter,
   SectionServices,
 } from "./action-ports";
+import { sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
+import { sameSection } from "./grammar";
 import { type InsertResult, insertRefusalMessage } from "./insert";
 import { type LegacySource, legacyPreflight } from "./legacy";
+import { detachAt } from "./rules";
 import { preflight, proposeRange, revalidate, type SharePreview, type ShareRange } from "./share";
 
 export interface SectionActionEnv {
@@ -366,6 +369,67 @@ export class SectionActions {
     await this.#finish(entry, target).then(
       (r) => this.#notifyCreation(entry, r),
       this.#notifyFailure(entry),
+    );
+  }
+
+  /**
+   * "Detach this section" (§10, MS10-detach): after a confirmation, the
+   * section under the cursor loses every binding in this note and keeps its
+   * text as private text; this note's projection base is dropped. Nothing
+   * is published: the shared section, other notes and collaborators are
+   * unchanged.
+   */
+  async detachSectionAt(editor: SectionEditor, path: string): Promise<void> {
+    const { prompter, notes, services } = this.env;
+    const md = editor.text();
+    const found = detachAt(md, editor.cursorLine());
+    if (found === null) {
+      prompter.notice("Shared Tasks: put the cursor in a shared section to detach it.");
+      return;
+    }
+    const ask = prompter.confirm({
+      title: `Detach "${found.title}" in this note`,
+      message:
+        "Its text stays in this note as your own and no longer updates. The shared section, your other notes and your collaborators are not changed.",
+      action: "Detach",
+    });
+    if (!(await ask.result)) return;
+    let detached = false;
+    await notes.edit(path, (current) => {
+      // Only the note the confirmation was asked about.
+      if (current !== md) return null;
+      detached = true;
+      // The one span that differs, so the editor keeps its cursor and scroll elsewhere.
+      const next = found.markdown;
+      let from = 0;
+      while (from < current.length && from < next.length && current[from] === next[from]) from++;
+      let tail = 0;
+      while (
+        tail < current.length - from &&
+        tail < next.length - from &&
+        current[current.length - 1 - tail] === next[next.length - 1 - tail]
+      )
+        tail++;
+      return [{ from, to: current.length - tail, insert: next.slice(from, next.length - tail) }];
+    });
+    if (!detached) {
+      prompter.notice("Shared Tasks: the note changed meanwhile. Nothing was detached; try again.");
+      return;
+    }
+    // LFCP-03-011: the copy is no longer a placement of the section.
+    services.indexed(path, found.markdown);
+    const bases = services.bases();
+    if (bases !== null)
+      for (const id of await bases.projectionsOf(path)) {
+        const b = await bases.load(id);
+        if (b !== undefined && sameSection(b.locator.section, found.section)) {
+          await bases.save(id, null);
+          services.forget(sectionKey(found.section), id);
+        }
+      }
+    services.pass(path);
+    prompter.notice(
+      `Shared Tasks: "${found.title}" is no longer shared in this note. The shared section itself is unchanged.`,
     );
   }
 

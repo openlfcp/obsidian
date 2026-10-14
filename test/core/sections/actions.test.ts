@@ -17,8 +17,14 @@ import type {
   TextChange,
 } from "../../../src/core/sections/action-ports";
 import { SectionActions } from "../../../src/core/sections/actions";
+import { MemorySectionBaseStore, type SectionState } from "../../../src/core/sections/base";
 import type { CreationEntry, CreationResult } from "../../../src/core/sections/create";
 import { applyChanges } from "../../../src/core/sections/engine";
+import {
+  formatBoundary,
+  parseSectionRef,
+  type SectionRef,
+} from "../../../src/core/sections/grammar";
 import type {
   InsertionEntry,
   InsertPreview,
@@ -583,5 +589,75 @@ describe("insert (LFCP-03-008 over 052)", () => {
     open[0]?.answer(false);
     await first;
     expect(t.calls).toEqual(["preview", "watch"]);
+  });
+});
+
+const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
+const S = parseSectionRef(`lfcp1:${R0}#section:${SID}`) as SectionRef;
+const KEY = `${R0}#${SID}`;
+const BOUND = [
+  "Private before.",
+  "## Launch",
+  formatBoundary("start", S),
+  "- [ ] Alpha",
+  formatBoundary("end", S),
+  "Private after.",
+  "",
+].join("\n");
+const EMPTY: SectionState = { title: "Launch", nodes: {}, order: {} } as unknown as SectionState;
+
+describe("detach (LFCP-03-008 over §10)", () => {
+  async function detachSetup() {
+    const bases = new MemorySectionBaseStore();
+    await bases.save("p1", { locator: { path: "Plan.md", section: S }, state: EMPTY });
+    await bases.save("p2", { locator: { path: "Other.md", section: S }, state: EMPTY });
+    const t = setup(() => ({ bases: () => bases }));
+    t.notes.files.set("Plan.md", BOUND);
+    t.editor.line = 3;
+    return { ...t, bases };
+  }
+
+  it("confirmed: the bindings go, this note's base is dropped, nothing else is touched", async () => {
+    const t = await detachSetup();
+    t.prompter.script.confirm = [true];
+    await t.actions.detachSectionAt(t.editor, "Plan.md");
+    expect(t.notes.files.get("Plan.md")).toBe(
+      ["Private before.", "## Launch", "- [ ] Alpha", "Private after.", ""].join("\n"),
+    );
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    expect(await t.bases.projectionsOf("Other.md")).toEqual(["p2"]);
+    expect(t.calls).toEqual(["indexed Plan.md", `forget ${KEY} p1`, "pass Plan.md"]);
+    expect(t.prompter.notices).toEqual([
+      'Shared Tasks: "Launch" is no longer shared in this note. The shared section itself is unchanged.',
+    ]);
+  });
+
+  it("stale: a note changed during the confirmation is not detached", async () => {
+    const t = await detachSetup();
+    const flow = t.actions.detachSectionAt(t.editor, "Plan.md");
+    await flush();
+    t.notes.files.set("Plan.md", BOUND.replace("Alpha", "Alpha!"));
+    t.prompter.open("confirm")[0]?.answer(true);
+    await flow;
+    expect(t.notes.writes).toEqual([]);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual(["p1"]);
+    expect(t.calls).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: the note changed meanwhile. Nothing was detached; try again.",
+    ]);
+  });
+
+  it("cancelled, or the cursor outside a section: nothing written", async () => {
+    const t = await detachSetup();
+    t.prompter.script.confirm = [false];
+    await t.actions.detachSectionAt(t.editor, "Plan.md");
+    t.editor.line = 0;
+    await t.actions.detachSectionAt(t.editor, "Plan.md");
+    expect(t.notes.writes).toEqual([]);
+    expect(t.calls).toEqual([]);
+    expect(t.prompter.dialogs.map((d) => d.kind)).toEqual(["confirm"]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: put the cursor in a shared section to detach it.",
+    ]);
   });
 });
