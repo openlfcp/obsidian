@@ -30,6 +30,14 @@ describe("Resolve shared task conflict in and out of a shared section (F-05)", (
     const out = await inA(async ({ app, obsidian }) => {
       const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
       const lines = view.editor.getValue().split("\n");
+      const find = async (pred) => {
+        for (let i = 0; i < 300; i++) {
+          const hit = pred();
+          if (hit) return hit;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return null;
+      };
       const run = async (line) => {
         for (const n of document.querySelectorAll(".notice")) n.remove();
         view.editor.setCursor({ line, ch: 0 });
@@ -46,7 +54,8 @@ describe("Resolve shared task conflict in and out of a shared section (F-05)", (
           notices: [...document.querySelectorAll(".notice")].map((n) => n.textContent),
         };
         for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
-        await new Promise((r) => setTimeout(r, 200));
+        // Closing animates: the next run must not see this modal still in the DOM.
+        seen.closed = (await find(() => document.querySelector(".modal-container") === null)) !== null;
         return seen;
       };
       return {
@@ -56,6 +65,7 @@ describe("Resolve shared task conflict in and out of a shared section (F-05)", (
     });
     evidence("F-05 dispatch", out);
     expect(out.inside.title).toBe('Conflicts in "Dispatch"');
+    expect(out.inside.closed).toBe(true);
     expect(out.inside.body).toContain("Nothing needs a choice now.");
     expect(out.inside.notices.join(" ")).not.toContain("newer version");
     expect(out.outside.title).toBe(null);
