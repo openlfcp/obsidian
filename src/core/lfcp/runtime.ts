@@ -74,6 +74,7 @@ import {
   type SecretStore,
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
+import type { DiscardResult } from "../sections/create";
 import { historyRows } from "./history";
 import {
   createInstall,
@@ -318,16 +319,6 @@ export type RegistryState =
   | "control_conflict"
   /** Another Data Profile than Shared Objects: never opened here (needs a newer plugin). */
   | "unsupported";
-
-/**
- * What discardUnhosted did with a Resource a creation gave up: deleted
- * (never sent), kept on this device (maybe sent, or the deletion failed;
- * the reason as a code), or nothing (not stored).
- */
-export type DiscardOutcome =
-  | { readonly kind: "deleted" }
-  | { readonly kind: "kept"; readonly reason: string }
-  | { readonly kind: "absent" };
 
 export interface RegistryEntry {
   readonly resourceId: ResourceId;
@@ -1311,8 +1302,8 @@ export class LfcpRuntime {
    * (LFCP-03-002), never listed or announced, counted by keptDiscarded.
    * A Resource not stored is a no-op ("absent").
    */
-  discardUnhosted(resource: ResourceId): Promise<DiscardOutcome> {
-    return this.#engine(async (): Promise<DiscardOutcome> => {
+  discardUnhosted(resource: ResourceId): Promise<DiscardResult> {
+    return this.#engine(async (): Promise<DiscardResult> => {
       const key = toHex(resource);
       if ((await this.#ready().storage.resources.get(resource)) === undefined)
         return { kind: "absent" };
@@ -1351,7 +1342,7 @@ export class LfcpRuntime {
    * marked (and #forgetDiscarded tries again at the next start). Refused
    * (RESOURCE_SENT) or failed: it stays, marked.
    */
-  async #forget(resource: ResourceId): Promise<DiscardOutcome> {
+  async #forget(resource: ResourceId): Promise<DiscardResult> {
     const { storage, secrets } = this.#ready();
     try {
       const result = await deleteUnsentResource(storage, secrets, resource);
