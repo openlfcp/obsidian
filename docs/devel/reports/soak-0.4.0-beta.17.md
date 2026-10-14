@@ -296,5 +296,14 @@ for an hour without a binding error, so **#11 did not occur**.
 - **Transient note divergences:** one extra node on B, cleared within
   10 min; and C2 at the end. They are visible as "Needs your attention",
   never silent, and the models stayed equal. Not traced.
+- **RSS still grows somewhat:** +13 % (A) and +23 % (B) from 40 to
+  125 min, with heap (100–290 MiB) and WASM (6–25 MiB) flat. The growth
+  is outside both; not investigated.
+
+Triage (the orchestrator, 2026-10-14): no action for GA on any of the
+three. The p95 tail of about 0.5 s comes at about 5,000 units after a
+2-hour burst of three editors, which real pairs reach only over weeks.
+The note divergences are visible, and cleared where observed. The RSS
+growth stays noted here.
 
 Raw data: `~/dev/openlfcp-rw/runs/soak/accept-b19/` on the test machine.
