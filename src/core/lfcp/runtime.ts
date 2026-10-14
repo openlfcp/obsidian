@@ -1327,8 +1327,10 @@ export class LfcpRuntime {
    * Section Resources a creation gave up that are still stored on this
    * device, for the diagnostics and a later recovery; never listed as
    * collaborations. `sent`: its data may have been sent (RESOURCE_SENT),
-   * so it is kept for good; otherwise its deletion failed or has not run
-   * yet, and the next start tries it again.
+   * so it is kept for good; otherwise its deletion failed (DELETE_FAILED)
+   * and the next start tries it again. A mark with no recorded reason
+   * (written by 0.4.0, or before the deletion ran) counts as sent: the
+   * safe reading.
    */
   async keptDiscarded(): Promise<{ readonly resourceId: ResourceId; readonly sent: boolean }[]> {
     const storage = this.#install.storage;
@@ -1336,10 +1338,10 @@ export class LfcpRuntime {
     const out: { resourceId: ResourceId; sent: boolean }[] = [];
     for (const row of await storage.resources.list()) {
       if (!(await this.#isDiscarded(row.resourceId))) continue;
-      const mark = await this.localState.get(discardedKey(row.resourceId));
+      const reason = await this.localState.get(discardReasonKey(row.resourceId));
       out.push({
         resourceId: row.resourceId,
-        sent: typeof mark === "string" && mark.startsWith("RESOURCE_SENT"),
+        sent: typeof reason !== "string" || reason.startsWith("RESOURCE_SENT"),
       });
     }
     return out;
@@ -1350,7 +1352,9 @@ export class LfcpRuntime {
    * never sent (deleteUnsentResource); its discarded mark is removed only
    * once the deletion has committed, so a crash in between leaves it
    * marked (and #forgetDiscarded tries again at the next start). Refused
-   * (RESOURCE_SENT) or failed: it stays, its mark the reason.
+   * (RESOURCE_SENT) or failed: it stays, marked, its reason under a key of
+   * its own. The mark stays `true`, as 0.4.0 wrote and reads it, so a
+   * rollback to 0.4.0 still hides the Resource and retries its deletion.
    */
   async #forget(resource: ResourceId): Promise<DiscardResult> {
     const { storage, secrets } = this.#ready();
@@ -1365,9 +1369,10 @@ export class LfcpRuntime {
       reason = "DELETE_FAILED";
     }
     if (reason !== "") {
-      await this.localState.put(discardedKey(resource), reason);
+      await this.localState.put(discardReasonKey(resource), reason);
       return { kind: "kept", reason };
     }
+    await this.localState.put(discardReasonKey(resource), undefined);
     await this.localState.put(discardedKey(resource), undefined);
     return { kind: "deleted" };
   }
@@ -1383,9 +1388,8 @@ export class LfcpRuntime {
   async #isDiscarded(resource: ResourceId): Promise<boolean> {
     const key = toHex(resource);
     if (this.#discarded.has(key)) return true;
-    // true, or the reason it was kept (a string).
-    const mark = await this.localState.get(discardedKey(resource));
-    if (mark !== true && typeof mark !== "string") return false;
+    // `true`, the 0.4.0 contract (the reason is kept apart: discardReasonKey).
+    if ((await this.localState.get(discardedKey(resource))) !== true) return false;
     this.#discarded.add(key);
     return true;
   }
@@ -1887,6 +1891,9 @@ export class LfcpRuntime {
 /** The local state key of a Resource's display name (sealed, LFCP-02-098). */
 export const resourceNameKey = (resource: ResourceId): string => `resource-name:${toHex(resource)}`;
 const discardedKey = (resource: ResourceId): string => `resource-discarded:${toHex(resource)}`;
+/** Why a discarded Resource was kept (LFCP-03-002): "RESOURCE_SENT:<detail>" or "DELETE_FAILED". */
+const discardReasonKey = (resource: ResourceId): string =>
+  `resource-discard-reason:${toHex(resource)}`;
 
 /** How long start waits for a held writer lock, and how often it tries (#takeLock). */
 const LOCK_WAIT_MS = 5000;

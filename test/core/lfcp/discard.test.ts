@@ -36,6 +36,9 @@ async function made() {
 const held = (device: Device, slot: string) => (device.slots.values.get(slot) ?? "") !== "";
 const marked = (r: LfcpRuntime, R: ResourceId) =>
   r.localState.get(`resource-discarded:${toHex(R)}`);
+/** Why it was kept, under its own key (LFCP-03-002); the mark itself stays `true` (0.4.0). */
+const reason = (r: LfcpRuntime, R: ResourceId) =>
+  r.localState.get(`resource-discard-reason:${toHex(R)}`);
 
 describe("a section Resource discarded before it was hosted", () => {
   it("never sent: its rows and its Data Epoch key are deleted, and its mark goes", async () => {
@@ -90,7 +93,9 @@ describe("a section Resource discarded before it was hosted", () => {
     });
     expect(await storage.resources.get(R)).toBeDefined();
     for (const slot of added) expect(held(device, slot)).toBe(true);
-    expect(await marked(r, R)).toBe("RESOURCE_SENT:attempted");
+    // The 0.4.0 contract: the mark is exactly `true`, so 0.4.0 after a rollback still hides it.
+    expect(await marked(r, R)).toBe(true);
+    expect(await reason(r, R)).toBe("RESOURCE_SENT:attempted");
     // Kept and counted (LFCP-03-002), never deleted by a later start.
     expect((await r.keptDiscarded()).map((k) => [toHex(k.resourceId), k.sent])).toEqual([
       [toHex(R), true],
@@ -117,7 +122,8 @@ describe("a section Resource discarded before it was hosted", () => {
     expect(await r.discardUnhosted(R)).toEqual({ kind: "kept", reason: "DELETE_FAILED" });
     storage.commit = commit;
     expect(await storage.resources.get(R)).toBeDefined();
-    expect(await marked(r, R)).toBe("DELETE_FAILED");
+    expect(await marked(r, R)).toBe(true);
+    expect(await reason(r, R)).toBe("DELETE_FAILED");
     // Counted apart from a maybe-sent one: the next start deletes it.
     expect((await r.keptDiscarded()).map((k) => [toHex(k.resourceId), k.sent])).toEqual([
       [toHex(R), false],
@@ -131,6 +137,7 @@ describe("a section Resource discarded before it was hosted", () => {
     expect(await s.control.epochs(R)).toEqual([]);
     for (const slot of added) expect(held(device, slot)).toBe(false);
     expect(await marked(again, R)).toBeUndefined();
+    expect(await reason(again, R)).toBeUndefined();
   });
 
   it("stopped after the deletion, before the mark went: the start finds nothing to do", async () => {
@@ -157,5 +164,52 @@ describe("a section Resource discarded before it was hosted", () => {
     expect(await r.discardUnhosted(other)).toEqual({ kind: "absent" });
     expect(await storage.resources.list()).toHaveLength(1);
     expect(await r.keptDiscarded()).toEqual([]);
+  });
+
+  it("a mark written by 0.4.0 (true, no reason): hidden, counted as maybe sent, its deletion retried", async () => {
+    const { device, local, r, R, storage } = await made();
+    // As 0.4.0 left it: marked, the deletion refused (an outbound item attempted), no reason key.
+    await storage.commit([
+      {
+        op: "enqueue",
+        item: {
+          itemId: hash32(new Uint8Array(32).fill(6)),
+          resourceId: R,
+          kind: "data-unit",
+          bytes: new Uint8Array([1]),
+          attempts: 1,
+          lastAttempt: new Date().toISOString(),
+          nextAttempt: null,
+          blocked: null,
+        },
+      },
+    ]);
+    await r.localState.put(`resource-discarded:${toHex(R)}`, true);
+    await r.stop();
+    const again = await start(device, local);
+    // Before this start retried it, a mark without a reason would read as maybe sent;
+    // the start's retry records the reason, the mark stays `true`.
+    expect(await marked(again, R)).toBe(true);
+    expect(await reason(again, R)).toBe("RESOURCE_SENT:attempted");
+    expect((await again.registry()).map((e) => toHex(e.resourceId))).not.toContain(toHex(R));
+    await expect(again.openSection(R)).rejects.toThrow("unknown Resource");
+    expect((await again.keptDiscarded()).map((k) => [toHex(k.resourceId), k.sent])).toEqual([
+      [toHex(R), true],
+    ]);
+    // No reason at all (none recorded yet): the safe reading, maybe sent.
+    await again.localState.put(`resource-discard-reason:${toHex(R)}`, undefined);
+    expect((await again.keptDiscarded()).map((k) => [toHex(k.resourceId), k.sent])).toEqual([
+      [toHex(R), true],
+    ]);
+  });
+
+  it("a never-sent mark from 0.4.0 is deleted by the next start, as 0.4.0 would", async () => {
+    const { device, local, r, R } = await made();
+    await r.localState.put(`resource-discarded:${toHex(R)}`, true);
+    await r.stop();
+    const again = await start(device, local);
+    expect(await again.storage?.resources.get(R)).toBeUndefined();
+    expect(await marked(again, R)).toBeUndefined();
+    expect(await again.keptDiscarded()).toEqual([]);
   });
 });
