@@ -476,4 +476,43 @@ describe("creating a shared section", () => {
     expect((await creation.run(out.entry)).kind).toBe("cancelled");
     expect(await storage.resources.get(R)).toBeDefined();
   });
+
+  it("follows a rename before binding: binds the note at its new path and journals it (LFCP-03-002)", async () => {
+    const env = await setup();
+    const creation = new SectionCreation(env.deps);
+    const entry = await creation.prepare("Launch.md", NOTE, env.preview());
+    let path: string | null = "Launch.md";
+    const commit = env.deps.port.commit;
+    // Renamed after the Resource and import are stored, before the note is bound.
+    const port: SectionPort = {
+      ...env.deps.port,
+      commit: async (res, intents, o) => {
+        const receipt = await commit(res, intents, o);
+        env.files.set("Moved.md", env.files.get("Launch.md") as string);
+        env.files.delete("Launch.md");
+        path = "Moved.md";
+        return receipt;
+      },
+    };
+    const out = await new SectionCreation({ ...env.deps, port }).run(entry, () => path);
+    expect(out.kind).toBe("hosted");
+    expect(out.entry.path).toBe("Moved.md");
+    expect(parseSections(env.files.get("Moved.md") as string).sections).toHaveLength(1);
+    expect(env.files.has("Launch.md")).toBe(false);
+    const saved = (await env.r.localState.get(`section-create:${entry.operationId}`)) as {
+      path: string;
+    };
+    expect(saved.path).toBe("Moved.md");
+    expect(await env.sectionResources()).toHaveLength(1);
+  });
+
+  it("a note deleted before binding: stale, nothing written anywhere", async () => {
+    const env = await setup();
+    const creation = new SectionCreation(env.deps);
+    const entry = await creation.prepare("Launch.md", NOTE, env.preview());
+    const out = await creation.run(entry, () => null);
+    expect(out.kind).toBe("stale");
+    expect(env.files.get("Launch.md")).toBe(NOTE);
+    expect(await env.sectionResources()).toEqual([]);
+  });
 });

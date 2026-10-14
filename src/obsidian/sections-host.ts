@@ -667,7 +667,7 @@ export class SectionsHost {
         return;
       }
       flow.stage = `section "${approved.title}" is being shared from this note. Its result shows when it is done.`;
-      await this.createSection(target.path, editor.getValue(), approved);
+      await this.createSection(target.path, editor.getValue(), approved, target);
     });
   }
 
@@ -723,7 +723,13 @@ export class SectionsHost {
     this.#targets.deleted(path);
   }
 
-  async createSection(path: string, markdown: string, preview: SharePreview): Promise<void> {
+  async createSection(
+    path: string,
+    markdown: string,
+    preview: SharePreview,
+    /** The note held by the flow: a rename before the note is bound is followed (LFCP-03-002). */
+    target?: NoteTarget,
+  ): Promise<void> {
     const creation = this.#creation;
     if (creation === null) {
       new Notice("Shared Tasks: still starting. Share the section again in a moment.");
@@ -734,7 +740,7 @@ export class SectionsHost {
       return;
     }
     const entry = await creation.prepare(path, markdown, preview);
-    await this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+    await this.#finish(entry, target).then((r) => notifyCreation(entry, r), notifyFailure(entry));
   }
 
   /**
@@ -808,19 +814,22 @@ export class SectionsHost {
     }
   }
 
-  async #finish(entry: CreationEntry): Promise<CreationResult> {
+  /** Runs a creation; with the flow's held note, at that note's path at each write. */
+  async #finish(entry: CreationEntry, target?: NoteTarget): Promise<CreationResult> {
     const creation = this.#creation as SectionCreation;
-    const result = await creation.run(entry);
+    const result = await creation.run(entry, target === undefined ? undefined : () => target.path);
     if (result.kind === "stale") await creation.cancel(result.entry);
     if (result.kind === "hosted" || result.kind === "local") {
       await this.#watch(fromKey(entry.resource));
-      const file = this.app.vault.getFileByPath(entry.path);
-      const open = this.#openEditor(entry.path);
+      // Where the creation bound it: the renamed note's path, if it moved.
+      const path = result.entry.path;
+      const file = this.app.vault.getFileByPath(path);
+      const open = this.#openEditor(path);
       const text = open?.getValue() ?? (file === null ? null : await this.app.vault.read(file));
       if (text !== null) {
-        this.#index(entry.path, text);
-        if (open !== null) this.editor.remoteChanged(entry.path);
-        else this.editor.remoteChanged(entry.path, text);
+        this.#index(path, text);
+        if (open !== null) this.editor.remoteChanged(path);
+        else this.editor.remoteChanged(path, text);
       }
     }
     return result;
@@ -1814,7 +1823,7 @@ export class SectionsHost {
       );
       return;
     }
-    await this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+    await this.#finish(entry, target).then((r) => notifyCreation(entry, r), notifyFailure(entry));
   }
 
   /**
