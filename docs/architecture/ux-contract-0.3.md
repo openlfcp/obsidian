@@ -14,7 +14,9 @@ content policy and scope of the MVP 0.3 user interface: the Shared Tasks
 pane, the editor context menu, the section card and the palette. Every 0.3
 task that adds or changes a user-facing surface implements this contract.
 The status reducer and the action seam (LFCP-03-008, 013, 023) make the
-fixtures pass; this task does not bind them to code.
+fixtures pass. The pane's view model (LFCP-03-007, `src/core/pane/`)
+already runs them through the real reducer
+(`test/core/pane/model-fixtures.test.ts`).
 
 ## 1. Authority
 
@@ -436,5 +438,8 @@ state gives:
   in that state. `globalForbiddenClaims` apply to every state.
 
 The schema test checks the shape, the coverage of the eight required
-states and the consistency with the catalogue. LFCP-03-013 and 023 run the
-same fixtures through the real reducer and pane.
+states and the consistency with the catalogue. A fixture's section must be
+one the reducer can produce: LFCP-03-007 rebuilds its `StatusFacts`, runs
+`statusView` and the pane view model, and checks the view, the primary
+action, the enabled and disabled actions (reasons word for word) and the
+claims. LFCP-03-013 and 023 run the same fixtures through the real hosts.
