@@ -6,8 +6,8 @@
 // sync and not evidence. Pure: no Obsidian; the developer view
 // (src/obsidian/ui/pane-prototype-view.ts) renders `model()`.
 
-import type { ActionId } from "./actions";
-import { ACTIONS } from "./actions";
+import type { ActionId } from "../actions/catalog";
+import { ACTIONS } from "../actions/catalog";
 import { FLOW_STAGES, type FlowKind, flowAction, stageOf } from "./flows";
 import { type FixtureFacts, type FixtureSection, paneFactsOf } from "./mock-facts";
 import {

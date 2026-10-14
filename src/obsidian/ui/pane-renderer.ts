@@ -12,7 +12,7 @@
 //   else on the pane's heading; an update never takes focus from elsewhere.
 // - Narrow panes: everything wraps; colours and spacing are Obsidian's CSS variables.
 
-import type { ActionId } from "../../core/pane/actions";
+import type { ActionId } from "../../core/actions/catalog";
 import type { PaneAction, PaneModel } from "../../core/pane/model";
 
 export interface PaneHandlers {

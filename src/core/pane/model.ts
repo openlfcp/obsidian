@@ -11,6 +11,7 @@
 // primary action never disagree. Every disabled action states its reason;
 // a disabled button is never the only guard (the executor checks again).
 
+import { ACTIONS, type ActionId, SOURCE_CHANGING } from "../actions/catalog";
 import { rowLabel } from "../sections/registry-view";
 import { SHARE_SCOPE, type ShareWarning, shareCounts, shareWarningText } from "../sections/share";
 import {
@@ -20,7 +21,6 @@ import {
 import { CONNECTING_TEXT, heldFact, offlineText, sectionProblems } from "../status/card";
 import type { HeldCause } from "../status/held";
 import { type Condition, STATE_LABEL, type StatusState, type StatusView } from "../status/reducer";
-import { ACTIONS, type ActionId, SOURCE_CHANGING } from "./actions";
 import {
   FLOW_STAGES,
   FLOW_TITLE,

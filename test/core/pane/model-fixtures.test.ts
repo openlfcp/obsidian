@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACTION_IDS, ACTIONS } from "../../../src/core/pane/actions";
+import { ACTION_IDS, ACTIONS } from "../../../src/core/actions/catalog";
 import { type FixtureFacts, paneFactsOf, statusFactsOf } from "../../../src/core/pane/mock-facts";
 import {
   type PaneAction,

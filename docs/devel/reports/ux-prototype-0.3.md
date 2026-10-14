@@ -15,7 +15,7 @@ host) and 013 (context, CTA, statuses) reuse it.
 | Part | Where | What it does |
 | --- | --- | --- |
 | View model | `src/core/pane/model.ts` | Pure: `(context, registry, section StatusView, flow) → PaneModel`. Holds the current context, the primary CTA (P1), secondary actions with disabled reasons, destructive actions in a menu, status lines, the share preview summary, the section list ("In this note", "Placed elsewhere", "Not inserted yet"), unfinished flows. Every text follows the contract |
-| Catalogue and flows | `src/core/pane/actions.ts`, `src/core/pane/flows.ts` | The §3 action catalogue; the stages of share, invite, join, insert and repair, each waiting for the user or for an effect |
+| Catalogue and flows | `src/core/actions/catalog.ts`, `src/core/pane/flows.ts` | The §3 action catalogue; the stages of share, invite, join, insert and repair, each waiting for the user or for an effect |
 | Mock facts | `src/core/pane/mock-facts.ts` | Turns a fixture section (a StatusView-level fact set) into `StatusFacts` and runs the real `statusView`. The pane reads a real StatusView with its conditions, not a second status path |
 | Prototype | `src/core/pane/prototype.ts` | The four UX §3 layouts, a no-note start, every fixture, and clickable flows: share → invite, join → insert, problem (held edits → repair). Clicks move the mock only |
 | Renderer | `src/obsidian/ui/pane-renderer.ts` | Plain DOM from a `PaneModel`: native buttons, visible focus, no focus trap, disabled actions focusable with their reason, focus kept across redraws, Obsidian CSS variables, narrow layout (`styles.css`) |
