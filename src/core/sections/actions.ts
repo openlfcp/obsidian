@@ -79,7 +79,7 @@ export class SectionActions {
    */
   share(editor: SectionEditor, path: string): Promise<void> {
     return this.#oneFlow(path, "share", async (target, flow) => {
-      const approved = await this.shareSection(editor, path, flow, target);
+      const approved = await this.#shareSection(editor, path, flow, target);
       if (approved === null) return;
       // The note as it is now: renamed meanwhile, its new path; deleted, nothing.
       if (target.path === null) {
@@ -89,7 +89,7 @@ export class SectionActions {
         return;
       }
       flow.stage = `section "${approved.title}" is being shared from this note. Its result shows when it is done.`;
-      await this.createSection(target.path, editor.text(), approved, target);
+      await this.#createSection(target.path, editor.text(), approved, target);
     });
   }
 
@@ -207,7 +207,7 @@ export class SectionActions {
    * creation is journaled first, then runs; an interrupted one goes on
    * at the next start.
    */
-  async createSection(
+  async #createSection(
     path: string,
     markdown: string,
     preview: SharePreview,
@@ -271,7 +271,7 @@ export class SectionActions {
    * approved preview is revalidated against the note as it is then (UX02):
    * a changed range is shown again. Returns the approved preview, or null.
    */
-  async shareSection(
+  async #shareSection(
     editor: SectionEditor,
     path: string,
     flow?: Flow,

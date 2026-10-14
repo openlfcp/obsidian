@@ -26,10 +26,8 @@ import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
-import type { Flow } from "../core/in-flight";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
-import type { NoteTarget } from "../core/note-targets";
 import { splitLines } from "../core/refs/lines";
 import type {
   ReviewResult,
@@ -58,7 +56,6 @@ import {
 } from "../core/sections/recovery";
 import { SectionRegistryView } from "../core/sections/registry-view";
 import { bindsOwnNode, type PastedBinding, removeNodeLines } from "../core/sections/rules";
-import type { SharePreview } from "../core/sections/share";
 import {
   KeyValueStaleWorkStore,
   StaleWorkController,
@@ -680,16 +677,6 @@ export class SectionsHost {
     this.actions.noteDeleted(path);
   }
 
-  /** Creates the shared section of an approved preview (LFCP-02-050): the section actions'. */
-  createSection(
-    path: string,
-    markdown: string,
-    preview: SharePreview,
-    target?: NoteTarget,
-  ): Promise<void> {
-    return this.actions.createSection(path, markdown, preview, target);
-  }
-
   /**
    * "Insert shared section…" (LFCP-02-052): a ready, fully loaded section
    * of this vault, previewed, then written after the block at the cursor
@@ -1251,16 +1238,6 @@ export class SectionsHost {
       const changes = fn(text);
       return changes === null ? text : applyChanges(text, changes);
     });
-  }
-
-  /** The share preview (LFCP-02-049): the section actions'. Returns the approved preview, or null. */
-  shareSection(
-    editor: Editor,
-    path: string,
-    flow?: Flow,
-    target?: NoteTarget,
-  ): Promise<SharePreview | null> {
-    return this.actions.shareSection(asSectionEditor(editor), path, flow, target);
   }
 
   /**
