@@ -26,7 +26,7 @@ import {
   type TAbstractFile,
   type TFile,
 } from "obsidian";
-import { CollabCommands, type Prompter } from "../core/collab/commands";
+import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
 import { rehostNotice } from "../core/collab/view";
 import { COMMANDS } from "../core/commands";
@@ -142,6 +142,13 @@ export default class OpenLfcpPlugin extends Plugin {
       defaultServer: () => this.settings.defaultServer,
       sections: () => !this.settings.sectionsDisabled,
       wrote: (path, markdown) => this.#enqueue(() => this.projection.reindex(path, markdown)),
+      // F-05: "Resolve shared task conflict" in a section opens the section's own review.
+      ...(this.settings.sectionsDisabled
+        ? {}
+        : {
+            sectionConflicts: (note: ActiveNote) =>
+              this.sections?.reviewConflictsAt(note.text, note.line),
+          }),
     });
     const handlers: Readonly<Record<string, () => Promise<void>>> = {
       "share-task-under-cursor": () => ui.shareTaskUnderCursor(),
