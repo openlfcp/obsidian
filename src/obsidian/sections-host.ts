@@ -52,6 +52,7 @@ import { abandonOnce } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { type ParsedSection, parseSections, type SectionScan } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
+import { noteSections, PlacementIndex } from "../core/sections/placement-index";
 import { CommitRefused, type ModelNode, type SectionSnapshot } from "../core/sections/port";
 import {
   applyRecovery,
@@ -157,8 +158,8 @@ export class SectionsHost {
   /** The notes those flows act on, followed across renames (LFCP-03-002). */
   readonly #targets = new NoteTargets();
   #bases: KeyValueSectionBaseStore | null = null;
-  /** Notes that hold a section, by the section's Resource (hex of its ID). */
-  readonly #notes = new Map<string, Set<string>>();
+  /** Notes that hold a copy of each section Resource, and whether every note was read (011). */
+  readonly #placements = new PlacementIndex();
   readonly editor: ReturnType<typeof sectionEditorExtension>;
   /** Section status badges (LFCP-02-058): in editors, and in Reading view. */
   readonly status = sectionStatusExtension(
@@ -607,10 +608,15 @@ export class SectionsHost {
     await this.#creation.settleCancelled().catch((error) => this.#bookkeepingFailed(error));
     // LFCP-03-003: until every note with a section is found and checked, none is current.
     this.#heldChecks.begin();
+    // LFCP-03-011: "not inserted anywhere" only once every note was read.
+    this.#placements.begin();
+    let indexFailure: string | undefined = "the notes were not all read";
     try {
       await this.#startNotes(runtime);
+      indexFailure = undefined;
     } finally {
       this.#heldChecks.end();
+      this.#placements.end(indexFailure);
       this.scheduleStatus();
     }
     // Creations a restart interrupted go on from their journal (SSP §12.2).
@@ -1861,7 +1867,7 @@ export class SectionsHost {
       return;
     }
     if (c.kind === "rename") {
-      for (const paths of this.#notes.values()) if (paths.delete(c.oldPath)) paths.add(c.path);
+      this.#placements.rename(c.oldPath, c.path);
       this.#heldChecks.renamed(c.oldPath, c.path);
       // The new path's pass records its damaged copies again.
       if (this.#projectionFacts.damaged(c.oldPath, new Set())) this.scheduleStatus();
@@ -1877,27 +1883,23 @@ export class SectionsHost {
       this.#projectionFacts.persisted(c.path, await this.#persistence(c.path, text))
     )
       this.scheduleStatus();
-    const known = [...this.#notes.values()].some((p) => p.has(c.path));
+    const known = this.#placements.has(c.path);
     if (!known && !text.includes(SECTION_MARK)) return;
     this.#index(c.path, text);
     this.editor.fileChanged(c.path, text);
   }
 
   #index(path: string, text: string): void {
-    this.#unindex(path);
-    for (const s of parseSections(text).sections) {
-      const key = toKey(s.ref.resourceId);
-      this.#notes.set(key, (this.#notes.get(key) ?? new Set()).add(path));
-    }
+    this.#placements.index(path, noteSections(parseSections(text)));
   }
 
   #unindex(path: string): void {
-    for (const paths of this.#notes.values()) paths.delete(path);
+    this.#placements.unindex(path);
   }
 
   /** A section's model changed: a pass on each note that holds it. */
   async #remote(resource: ResourceId): Promise<void> {
-    for (const path of this.#notes.get(toKey(resource)) ?? []) {
+    for (const path of this.#placements.notesWith(toKey(resource))) {
       const open = this.app.workspace
         .getLeavesOfType("markdown")
         .some((l) => l.view instanceof MarkdownView && l.view.file?.path === path);
