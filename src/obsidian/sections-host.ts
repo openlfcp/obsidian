@@ -99,6 +99,7 @@ import {
   type HeldPersistence,
   heldEdits,
 } from "../core/status/held";
+import { HeldChecks } from "../core/status/held-checks";
 import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
 import { type StatusView, type SyncFacts, statusView } from "../core/status/reducer";
 import { runtimeStatusSource, SdkStatusTracker } from "../core/status/sdk-tracker";
@@ -140,13 +141,11 @@ export class SectionsHost {
   /** Share, import and insert flows, one per note at a time (F-03, F-C04). */
   readonly #flows = new InFlight();
   /**
-   * Notes with sections not checked for held edits since the start, with
-   * the Resources (hex) of those sections (LFCP-03-003): until a note is
-   * checked, its sections are never shown as current.
+   * Notes with sections not checked for held edits since the start
+   * (LFCP-03-003): until a note is checked, its sections are never shown
+   * as current; a failed pass leaves them unknown, not "being checked".
    */
-  readonly #unchecked = new Map<string, Set<string>>();
-  /** The start is still finding the notes with sections: none is known checked. */
-  #indexing = false;
+  readonly #heldChecks = new HeldChecks();
   #bases: KeyValueSectionBaseStore | null = null;
   /** Notes that hold a section, by the section's Resource (hex of its ID). */
   readonly #notes = new Map<string, Set<string>>();
@@ -228,6 +227,8 @@ export class SectionsHost {
       },
       // D1: a failing note says so once, until it passes again.
       onError: (path, error) => {
+        // LFCP-03-003: its held edits are unknown until a pass succeeds.
+        if (this.#heldChecks.failed(path)) this.scheduleStatus();
         if (
           this.#passErrors.shouldShow(path, error instanceof Error ? error.message : String(error))
         )
@@ -267,7 +268,10 @@ export class SectionsHost {
         if (this.#projectionFacts.damaged(path, damaged, damagedLines)) changed = true;
         if (changed) this.scheduleStatus();
         // F-04: what each copy holds back, counted against its base.
-        void this.#noteHeld(path, pass, scan).catch((e) => this.#bookkeepingFailed(e));
+        void this.#noteHeld(path, pass, scan).catch((e) => {
+          if (this.#heldChecks.failed(path)) this.scheduleStatus();
+          this.#bookkeepingFailed(e);
+        });
       },
     });
   }
@@ -301,20 +305,18 @@ export class SectionsHost {
     if (this.#projectionFacts.persisted(path, persistence)) changed = true;
     // Checked, but for a section whose model is not loaded yet (compared at its
     // next pass); a stale source passes again.
-    const unchecked = this.#unchecked.get(path);
-    if (unchecked !== undefined && pass.stale !== true) {
-      const waiting = new Set(
-        pass.sections
-          .filter((r) => r.skipped === "importing" || r.skipped === "no-snapshot")
-          .map((r) => toKey(r.section.resourceId)),
-      );
-      for (const hex of unchecked)
-        if (!waiting.has(hex)) {
-          unchecked.delete(hex);
-          changed = true;
-        }
-      if (unchecked.size === 0) this.#unchecked.delete(path);
-    }
+    if (
+      pass.stale !== true &&
+      this.#heldChecks.passed(
+        path,
+        new Set(
+          pass.sections
+            .filter((r) => r.skipped === "importing" || r.skipped === "no-snapshot")
+            .map((r) => toKey(r.section.resourceId)),
+        ),
+      )
+    )
+      changed = true;
     for (const d of scan.damaged)
       this.#heldNotice(
         sectionKey(d.ref),
@@ -581,11 +583,11 @@ export class SectionsHost {
       refPlacement: this.refPlacement,
     });
     // LFCP-03-003: until every note with a section is found and checked, none is current.
-    this.#indexing = true;
+    this.#heldChecks.begin();
     try {
       await this.#startNotes(runtime);
     } finally {
-      this.#indexing = false;
+      this.#heldChecks.end();
       this.scheduleStatus();
     }
     // Creations a restart interrupted go on from their journal (SSP §12.2).
@@ -608,9 +610,9 @@ export class SectionsHost {
       const text = await this.app.vault.cachedRead(file);
       if (!text.includes(SECTION_MARK)) continue;
       this.#index(file.path, text);
-      this.#unchecked.set(
+      this.#heldChecks.found(
         file.path,
-        new Set(parseSections(text).sections.map((s) => toKey(s.ref.resourceId))),
+        parseSections(text).sections.map((s) => toKey(s.ref.resourceId)),
       );
       this.editor.remoteChanged(file.path, text);
     }
@@ -1314,8 +1316,7 @@ export class SectionsHost {
               .length ?? 0,
           refusal: runtime.refusal(R)?.code ?? null,
           // LFCP-03-003: a note with the section not checked yet may hold edits.
-          heldChecked:
-            !this.#indexing && ![...this.#unchecked.values()].some((hexes) => hexes.has(hex)),
+          heldCheck: this.#heldChecks.state(hex),
           ...(this.#stale === null
             ? {}
             : { staleWork: this.#stale.counts(r), settledOperations: this.#stale.settled(r) }),
@@ -1680,18 +1681,14 @@ export class SectionsHost {
   async vaultChange(c: VaultChange): Promise<void> {
     if (c.kind === "delete") {
       this.#unindex(c.path);
-      this.#unchecked.delete(c.path);
+      this.#heldChecks.deleted(c.path);
       if (this.#projectionFacts.damaged(c.path, new Set())) this.scheduleStatus();
       this.editor.deleted(c.path);
       return;
     }
     if (c.kind === "rename") {
       for (const paths of this.#notes.values()) if (paths.delete(c.oldPath)) paths.add(c.path);
-      const unchecked = this.#unchecked.get(c.oldPath);
-      if (unchecked !== undefined) {
-        this.#unchecked.delete(c.oldPath);
-        this.#unchecked.set(c.path, unchecked);
-      }
+      this.#heldChecks.renamed(c.oldPath, c.path);
       // The new path's pass records its damaged copies again.
       if (this.#projectionFacts.damaged(c.oldPath, new Set())) this.scheduleStatus();
       this.editor.renamed(c.oldPath, c.path);

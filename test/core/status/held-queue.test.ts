@@ -258,7 +258,7 @@ describe("U03-06: combinations", () => {
 
 describe("unknown stays unknown", () => {
   it("a note not checked yet since the start: no count, no current, said so", () => {
-    const s = surfaces({ ...accepted, heldChecked: false });
+    const s = surfaces({ ...accepted, heldCheck: "pending" });
     expect(s.view.state).toBe("LOADING");
     expect(s.view.label).toBe("Checking notes for edits not sent");
     expect(s.view.sync).toMatchObject({
@@ -281,8 +281,35 @@ describe("unknown stays unknown", () => {
       projections: [],
       sdk: undefined,
     };
-    expect(observedFacts({ ...o, heldChecked: false }).heldChecked).toBe(false);
-    expect("heldChecked" in observedFacts(o)).toBe(false);
+    expect(observedFacts({ ...o, heldCheck: "pending" }).heldCheck).toBe("pending");
+    expect(observedFacts({ ...o, heldCheck: "failed" }).heldCheck).toBe("failed");
+    expect("heldCheck" in observedFacts(o)).toBe(false);
+  });
+
+  it("an unchecked note does not hide offline or sending: they speak first, still not current", () => {
+    const offline = surfaces({ ...accepted, connection: "offline", heldCheck: "pending" });
+    expect(offline.view.state).toBe("OFFLINE");
+    expect(offline.view.sync.current).toBe(false);
+    expect(offline.view.conditions.map((c) => c.kind)).toEqual(["offline", "held-unchecked"]);
+    const sending = surfaces({ ...accepted, batches: [waiting("b2")], heldCheck: "pending" });
+    expect(sending.view.state).toBe("SENDING");
+    expect(sending.view.sync.held.projections).toBeNull();
+  });
+
+  it("a note whose check failed: attention, held edits unknown, no promise of progress", () => {
+    const s = surfaces({ ...accepted, heldCheck: "failed" });
+    expect(s.view.state).toBe("ATTENTION");
+    expect(s.view.sync).toMatchObject({
+      held: { projections: null, edits: null, persistence: "unknown" },
+      current: false,
+    });
+    expect(s.card.problems).toEqual([
+      "Checking a note with this section for edits not sent failed, so whether it holds any is unknown. Edits in it may not have been sent.",
+    ]);
+    expect(s.text).not.toMatch(/being checked|Current as last checked|No local changes waiting/);
+    expect(s.card.facts).toContain(
+      "Not current: whether a note with this section holds edits not sent is unknown.",
+    );
   });
 });
 
@@ -361,7 +388,7 @@ describe("the vault's summary (pane-ready)", () => {
     const sum = vaultSyncSummary([
       statusView({ ...accepted, projections: [projection(h(2), "unsupported")] }),
       statusView({ ...accepted, projections: [projection(h(null), "binding-error")] }),
-      statusView({ ...accepted, heldChecked: false }),
+      statusView({ ...accepted, heldCheck: "pending" }),
     ]);
     expect(sum.held).toEqual({
       sections: 2,

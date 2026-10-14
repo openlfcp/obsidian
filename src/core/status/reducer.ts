@@ -13,6 +13,7 @@
 // one never clears a newer edit.
 
 import type { HeldCause, HeldEdits, HeldPersistence } from "./held";
+import type { HeldCheck } from "./held-checks";
 
 /** The state keys of §6. */
 export type StatusState =
@@ -119,11 +120,12 @@ export interface StatusFacts {
   readonly staleWork?: { readonly pending: number; readonly review: number };
   /**
    * Whether every note that holds a copy of the section was checked for
-   * held edits since the start (LFCP-03-003). False: some copy may hold
-   * edits nobody counted yet, so the section is never shown as current.
+   * held edits since the start (LFCP-03-003, held-checks.ts): "pending",
+   * some note not passed yet; "failed", its pass failed, so whether it
+   * holds edits is unknown. Either way the section is never current.
    * Absent: checked.
    */
-  readonly heldChecked?: boolean;
+  readonly heldCheck?: HeldCheck;
 }
 
 /** One reason the state is what it is; all of them stay in the details card. */
@@ -140,6 +142,8 @@ export type Condition =
   | { readonly kind: "loading" }
   /** Some note with a copy of the section was not checked for held edits yet (LFCP-03-003). */
   | { readonly kind: "held-unchecked" }
+  /** Checking a note with a copy of the section failed: its held edits are unknown (LFCP-03-003). */
+  | { readonly kind: "held-unknown" }
   | { readonly kind: "access-checking" }
   | { readonly kind: "catching-up" }
   | { readonly kind: "local-edit" }
@@ -284,6 +288,8 @@ export function statusView(facts: StatusFacts): StatusView {
     // Edits held back are never current (F-04), whatever the source says.
     else if (p.held !== undefined)
       c.push({ kind: "source", projectionId: p.id, source: "diverged" });
+  // A note whose check failed may hold edits nobody can count: a problem, not progress.
+  if (facts.heldCheck === "failed") c.push({ kind: "held-unknown" });
   // 4. Structural or lifecycle conflicts, then scalar conflicts.
   const nodes = (kind: ModelProblemFacts["kind"]) =>
     facts.problems.filter((p) => p.kind === kind).flatMap((p) => p.nodeIds);
@@ -295,8 +301,6 @@ export function statusView(facts: StatusFacts): StatusView {
   const loading =
     facts.replica === "not-loaded" || facts.replica === "importing" || facts.access === "unknown";
   if (loading) c.push({ kind: "loading" });
-  // A copy not checked yet may hold edits: never current until it is.
-  if (facts.heldChecked === false) c.push({ kind: "held-unchecked" });
   // Refused or removed, the Control view cannot catch up: nothing is being checked.
   if (
     facts.accessChecking === true &&
@@ -333,6 +337,9 @@ export function statusView(facts: StatusFacts): StatusView {
     c.push({ kind: "control-pending", actions: facts.pendingControl });
   if (waiting.length > 0 && facts.acceptanceEvidence === "unavailable")
     c.push({ kind: "evidence-unavailable" });
+  // A note not checked yet may hold edits: never current, but last, so
+  // offline, sending and the rest still speak first.
+  if (facts.heldCheck === "pending") c.push({ kind: "held-unchecked" });
 
   const readOnly = facts.access === "reader";
   const allAccepted = facts.batches.length > 0 && facts.batches.every(accepted);
@@ -398,7 +405,7 @@ function syncFacts(
   states: Readonly<Record<string, StatusState>>,
 ): SyncFacts {
   const kinds = new Set(c.map((x) => x.kind));
-  const checked = facts.heldChecked !== false;
+  const checked = facts.heldCheck === undefined || facts.heldCheck === "checked";
   const persistence: HeldPersistence | null = !checked
     ? "unknown"
     : held.length === 0
@@ -479,6 +486,7 @@ function primary(
     case "rejected":
     case "stale-work":
     case "source":
+    case "held-unknown":
     case "structural-conflict":
     case "scalar-conflict":
       return "ATTENTION";
