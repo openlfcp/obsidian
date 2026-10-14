@@ -1712,8 +1712,9 @@ export class SectionsHost {
   async vaultChange(c: VaultChange): Promise<void> {
     if (c.kind === "delete") {
       this.#unindex(c.path);
-      this.#heldChecks.deleted(c.path);
-      if (this.#projectionFacts.damaged(c.path, new Set())) this.scheduleStatus();
+      // The last note not checked yet gone: its sections are no longer "Checking…".
+      const unchecked = this.#heldChecks.deleted(c.path);
+      if (this.#projectionFacts.damaged(c.path, new Set()) || unchecked) this.scheduleStatus();
       this.editor.deleted(c.path);
       return;
     }

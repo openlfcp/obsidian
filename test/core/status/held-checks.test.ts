@@ -68,6 +68,28 @@ describe("held checks after a start", () => {
     expect(c.state("r1")).toBe("checked");
   });
 
+  it("deleting the last unchecked note says it changed; a checked or unknown note does not", () => {
+    const c = new HeldChecks();
+    c.found("A.md", ["r1"]);
+    c.found("B.md", ["r1"]);
+    c.passed("B.md", none);
+    expect(c.state("r1")).toBe("pending");
+    // B.md was checked already: its deletion changes no section's check.
+    expect(c.deleted("B.md")).toBe(false);
+    expect(c.deleted("A.md")).toBe(true);
+    expect(c.state("r1")).toBe("checked");
+    expect(c.deleted("A.md")).toBe(false);
+    expect(c.deleted("Other.md")).toBe(false);
+  });
+
+  it("deleting a note whose pass failed says it changed", () => {
+    const c = new HeldChecks();
+    c.found("A.md", ["r1"]);
+    c.failed("A.md");
+    expect(c.deleted("A.md")).toBe(true);
+    expect(c.state("r1")).toBe("checked");
+  });
+
   it("a note without sections is never pending", () => {
     const c = new HeldChecks();
     c.found("A.md", []);
