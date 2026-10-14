@@ -1934,17 +1934,19 @@ const notifyFailure = (entry: CreationEntry) => (e: unknown) => {
 
 const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
 
-/** An open dialog brought in front of any other and focused (a repeated start of its flow). */
+/**
+ * An open dialog brought in front of any other and focused (a repeated
+ * start of its flow). The dialog itself takes the focus, never its Share
+ * or Insert button: a repeated hotkey followed by Enter must not confirm.
+ */
 function bringForward(modal: Modal): void {
   const box = (modal as { containerEl?: HTMLElement }).containerEl;
   box?.parentElement?.appendChild(box);
   const el = modal.modalEl;
-  // The test mock's elements have no querySelector.
-  const button =
-    typeof el.querySelector === "function"
-      ? (el.querySelector<HTMLElement>("button.mod-cta") ?? el.querySelector<HTMLElement>("button"))
-      : null;
-  (button ?? el).focus?.();
+  // Focusable without entering the Tab order (the test mock's elements have no attributes).
+  if (typeof el.setAttribute === "function" && !el.hasAttribute("tabindex"))
+    el.setAttribute("tabindex", "-1");
+  el.focus?.();
 }
 
 /** Local aliases of identities (Principal ID → label), in the plugin's local state. */

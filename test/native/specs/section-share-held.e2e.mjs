@@ -139,8 +139,10 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
       const n = shareModals().length;
       const front = [...document.body.querySelectorAll(":scope > .modal-container")].at(-1);
       const inFront = front?.contains(shareModals()[0] ?? null) ?? false;
+      // The dialog has the focus, not its Share button (Enter after a repeated hotkey must not share).
+      const focus = document.activeElement === shareModals()[0] ? "dialog" : (document.activeElement?.tagName ?? null);
       for (const m of shareModals()) [...m.querySelectorAll("button")].find((x) => x.textContent === "Share").click();
-      return { n, inFront };
+      return { n, inFront, focus };
     }, NOTE);
     await browser.waitUntil(
       () =>
@@ -162,7 +164,7 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
     const said = await notices();
     const md = (await stateA()).md;
     evidence("F-03", { previews, sections, said, bound: md.match(/<!-- lfcp-section: /g)?.length ?? 0 });
-    expect(previews).toEqual({ n: 1, inFront: true });
+    expect(previews).toEqual({ n: 1, inFront: true, focus: "dialog" });
     expect(sections).toBe(1);
     expect(md.match(/<!-- lfcp-section: /g)).toHaveLength(1);
     expect(said).toContain('Shared Tasks: section "Twice" is shared.');
