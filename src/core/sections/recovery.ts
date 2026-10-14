@@ -243,16 +243,24 @@ export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
       });
   const cycle: { nodeId: string; label: string }[] = [];
   for (const r of m.tree.recovery) {
-    if (r.code === "PLACEMENT_CONFLICT")
+    if (r.code === "PLACEMENT_CONFLICT") {
+      // Not under a deleted node: the commit would be refused (INVALID_PARENT).
+      // With no place left, the section's top level is the one to offer.
+      const live = (m.tree.candidates.get(r.id) ?? []).filter(
+        (c) => c.parent === m.sectionId || m.snapshot.nodes[c.parent]?.deleted !== true,
+      );
       out.push({
         kind: "placement",
         key: `placement:${r.id}`,
         nodeId: r.id,
         // Its parent is what is in question: no provisional one in its label.
         label: labelOf(m, r.id, false),
-        choices: placementChoices(m, r.id, m.tree.candidates.get(r.id) ?? []),
+        choices:
+          live.length > 0
+            ? placementChoices(m, r.id, live)
+            : [{ parent: m.sectionId, after: null, label: "First in the section" }],
       });
-    else if (r.code === "PARENT_CYCLE") cycle.push({ nodeId: r.id, label: labelOf(m, r.id) });
+    } else if (r.code === "PARENT_CYCLE") cycle.push({ nodeId: r.id, label: labelOf(m, r.id) });
     else if (r.code === "LIFECYCLE_CONFLICT")
       out.push({
         kind: "lifecycle",

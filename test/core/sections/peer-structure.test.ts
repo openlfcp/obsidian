@@ -520,7 +520,7 @@ describe(`both vaults change the structure at once (${SEEDS - FROM + 1} seeds)`,
 // state matters as much as the state (346: a paste while the section waited
 // for Review conflicts, then Keep; 778: a Task added under a tab-indented
 // parent whose children use spaces).
-const REGRESSIONS = [346, 778, 1593, 1602, 2998, 3365, 3776, 4658, 4839].filter(
+const REGRESSIONS = [346, 778, 1593, 1602, 2998, 3365, 3776, 4658, 4839, 8501].filter(
   (s) => s < FROM || s > SEEDS,
 );
 if (REGRESSIONS.length > 0)

@@ -284,6 +284,44 @@ describe("recovery items (061)", () => {
     expect(revalidate(field, recoveryItems(model(later))).kind).toBe("gone");
   });
 
+  it("a place under a deleted node is not offered: it could never be applied", () => {
+    // One writer moves "Draft" under "One" and deletes "One"; the other moves
+    // it under "Two". The SDK refuses a placement under a deleted parent
+    // (INVALID_PARENT): the only place to offer is under "Two".
+    const r = merged(base(), [
+      [
+        { intent: "node.move", id: X, parent: I1, after: null },
+        { intent: "node.delete", id: I1 },
+      ],
+      [{ intent: "node.move", id: X, parent: I2, after: null }],
+    ] as SectionIntent[][]);
+    const placement = recoveryItems(model(r)).find((i) => i.kind === "placement");
+    if (placement?.kind !== "placement") throw new Error("no placement item");
+    expect(placement.choices.map((c) => c.parent)).toEqual([I2]);
+    r.commit(resolution(placement, { parent: I2 }, SECTION) as never);
+    expect(recoveryItems(model(r)).filter((i) => i.kind === "placement")).toEqual([]);
+    expect(r.snapshot().nodes[X]?.parent).toBe(I2);
+    // Both places deleted: the section's top level is offered, and it applies.
+    const gone = merged(base(), [
+      [
+        { intent: "node.move", id: X, parent: I1, after: null },
+        { intent: "node.delete", id: I1 },
+      ],
+      [
+        { intent: "node.move", id: X, parent: I2, after: null },
+        { intent: "node.delete", id: I2 },
+      ],
+    ] as SectionIntent[][]);
+    expect(gone.tree().recovery.some((x) => x.code === "PLACEMENT_CONFLICT")).toBe(true);
+    const last = recoveryItems(model(gone)).find((i) => i.kind === "placement");
+    if (last?.kind !== "placement") throw new Error("no placement item");
+    expect(last.choices).toEqual([{ parent: SECTION, after: null, label: "First in the section" }]);
+    gone.commit(resolution(last, { parent: SECTION }, SECTION) as never);
+    expect(gone.tree().recovery.some((x) => x.code === "PLACEMENT_CONFLICT")).toBe(false);
+    expect(recoveryItems(model(gone)).filter((i) => i.kind === "placement")).toEqual([]);
+    expect(gone.snapshot().nodes[X]?.parent).toBe(SECTION);
+  });
+
   it("applying re-reads access and the model: stale or read-only applies nothing", async () => {
     const b = base();
     const A = [{ intent: "node.move", id: X, parent: T, after: P }] as SectionIntent[];
