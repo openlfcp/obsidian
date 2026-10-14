@@ -50,17 +50,39 @@ describe("Resolve shared task conflict in and out of a shared section (F-05)", (
         for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
         return seen;
       }, line);
-    // Closing a modal animates: the next case must not see this one still in the DOM.
-    const closed = () =>
-      browser.waitUntil(() => inA(() => document.querySelector(".modal-container") === null), {
-        timeout: 10_000,
-        timeoutMsg: "the modal closed",
-      });
+    // Every modal closed before the next case, so that it never sees this
+    // one's: the close buttons clicked (Escape as well, once that was not
+    // enough) until none is left. What was open is kept as evidence.
+    const closeAll = async (label) => {
+      const seen = [];
+      try {
+        await browser.waitUntil(
+          async () => {
+            const open = await inA(() => {
+              const modals = [...document.querySelectorAll(".modal-container .modal")].map((m) => ({
+                title: m.querySelector(".modal-title")?.textContent ?? null,
+                closeButton: m.querySelector(".modal-close-button") !== null,
+                html: m.outerHTML.slice(0, 300),
+              }));
+              for (const x of document.querySelectorAll(".modal-container .modal-close-button")) x.click();
+              return modals;
+            });
+            if (open.length === 0) return true;
+            seen.push(open);
+            if (seen.length > 1) await browser.keys("Escape");
+            return false;
+          },
+          { timeout: 10_000, interval: 250, timeoutMsg: `the modals after ${label} closed` },
+        );
+      } finally {
+        evidence(`F-05 modals after ${label}`, { polls: seen.length, first: seen[0] ?? [], last: seen.at(-1) ?? [] });
+      }
+    };
     const out = {};
     out.inside = await run(lines.findIndex((l) => l.startsWith("- [ ] Alpha")));
-    await closed();
+    await closeAll("inside");
     out.outside = await run(lines.findIndex((l) => l.startsWith("- [ ] Outside")));
-    await closed();
+    await closeAll("outside");
     evidence("F-05 dispatch", out);
     expect(out.inside.title).toBe('Conflicts in "Dispatch"');
     expect(out.inside.body).toContain("Nothing needs a choice now.");
