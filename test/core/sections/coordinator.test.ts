@@ -217,3 +217,59 @@ describe("the text a pass wrote (the idle editor that reverted a collaborator's 
     ]);
   });
 });
+
+describe("a change while a pass writes (soak finding #9)", () => {
+  it("stays the source: the next pass takes it, and the editor's hints are not dropped", async () => {
+    const passes: PassRequest[] = [];
+    const settled: string[] = [];
+    let during: (() => void) | null = null;
+    const c = new SourceCoordinator(
+      async (r) => {
+        passes.push(r);
+        // The pass wrote nothing new; the user pastes before it is done writing.
+        during?.();
+        during = null;
+        c.written(r.path, r.source);
+      },
+      () => {},
+      (p) => settled.push(p),
+    );
+    c.opened("a.md", "view", "cut");
+    during = () => c.editorChanged("a.md", "cut, then pasted");
+    c.editorChanged("a.md", "cut");
+    await c.whenIdle("a.md");
+    expect(passes.map((p) => p.source)).toEqual(["cut", "cut, then pasted"]);
+    expect(settled).toEqual([]);
+  });
+
+  it("a closed note's file changing while its pass writes is passed again too", async () => {
+    const passes: PassRequest[] = [];
+    let during: (() => void) | null = null;
+    const c = new SourceCoordinator(async (r) => {
+      passes.push(r);
+      during?.();
+      during = null;
+      c.written(r.path, r.source);
+    });
+    during = () => c.fileChanged("a.md", "v2");
+    c.fileChanged("a.md", "v1");
+    await c.whenIdle("a.md");
+    expect(passes.map((p) => p.source)).toEqual(["v1", "v2"]);
+  });
+
+  it("an open note's file event (autosave) during a pass does not ask for another", async () => {
+    const passes: PassRequest[] = [];
+    let during: (() => void) | null = null;
+    const c = new SourceCoordinator(async (r) => {
+      passes.push(r);
+      during?.();
+      during = null;
+      c.written(r.path, `${r.source} written`);
+    });
+    c.opened("a.md", "view", "v1");
+    during = () => c.fileChanged("a.md", "v1");
+    c.editorChanged("a.md", "v1 typed");
+    await c.whenIdle("a.md");
+    expect(passes.map((p) => p.source)).toEqual(["v1 typed"]);
+  });
+});

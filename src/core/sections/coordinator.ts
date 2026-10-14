@@ -46,6 +46,12 @@ interface NoteState {
   reconciled?: string;
   /** How many times a pass wrote the note (written()). */
   writes?: number;
+  /** How many times the editor's document changed (editorChanged). */
+  editorChanges?: number;
+  /** How many times the file changed (fileChanged). */
+  fileChanges?: number;
+  /** The change count of the running pass's route when it started. */
+  passFrom?: number;
   running: boolean;
   dirty: Set<Trigger>;
 }
@@ -96,6 +102,7 @@ export class SourceCoordinator {
   editorChanged(path: string, doc: string): void {
     const n = this.#note(path);
     n.editorSource = doc;
+    n.editorChanges = (n.editorChanges ?? 0) + 1;
     this.#request(path, "local");
   }
 
@@ -110,8 +117,17 @@ export class SourceCoordinator {
   written(path: string, doc: string): void {
     const n = this.#notes.get(path);
     if (n === undefined) return;
-    if (n.views.size > 0) n.editorSource = doc;
-    else n.fileSource = doc;
+    // A change that came while the pass was writing (the user pasted during
+    // its last await) is newer than `doc`: it stays the source, and the next
+    // pass takes it with what the editor noted. Taking `doc` as the source
+    // made the loop find it reconciled and drop those hints: a paste of a
+    // Task cut a moment before was never restored, and the cut's deletion
+    // stood for collaborators (soak finding #9 on 0.4.0-beta.17).
+    const newer = n.running && this.#changes(n) !== (n.passFrom ?? 0);
+    if (!newer) {
+      if (n.views.size > 0) n.editorSource = doc;
+      else n.fileSource = doc;
+    }
     n.reconciled = contentHash(doc);
     n.writes = (n.writes ?? 0) + 1;
   }
@@ -123,6 +139,7 @@ export class SourceCoordinator {
   fileChanged(path: string, content: string): void {
     const n = this.#note(path);
     n.fileSource = content;
+    n.fileChanges = (n.fileChanges ?? 0) + 1;
     if (n.views.size === 0) this.#request(path, "local");
   }
 
@@ -191,6 +208,7 @@ export class SourceCoordinator {
         const at = this.#pathOf(n) ?? path;
         try {
           const writes = n.writes;
+          n.passFrom = this.#changes(n);
           await this.reconcile({ path: at, ...current, triggers });
           // A pass that wrote said what it reconciled (written()).
           if (n.writes === writes) n.reconciled = hash;
@@ -205,6 +223,11 @@ export class SourceCoordinator {
       this.#idle.delete(at);
       for (const resolve of waiting) resolve();
     }
+  }
+
+  /** The change count of the note's current route: its editor's while open, else its file's. */
+  #changes(n: NoteState): number {
+    return n.views.size > 0 ? (n.editorChanges ?? 0) : (n.fileChanges ?? 0);
   }
 
   #pathOf(n: NoteState): string | undefined {
