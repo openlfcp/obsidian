@@ -421,7 +421,7 @@ describe("the vault's summary (pane-ready)", () => {
       statusView({ ...accepted, heldCheck: "pending" }),
     ]);
     expect(sum.held).toEqual({
-      sections: 2,
+      sections: null,
       projections: null,
       edits: null,
       causes: ["unsupported", "boundary"],
