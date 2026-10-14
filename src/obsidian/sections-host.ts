@@ -96,11 +96,13 @@ import {
   HELD_CAUSE,
   type HeldCause,
   type HeldEdits,
+  type HeldPersistence,
   heldEdits,
 } from "../core/status/held";
 import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
-import { type StatusView, statusView } from "../core/status/reducer";
+import { type StatusView, type SyncFacts, statusView } from "../core/status/reducer";
 import { runtimeStatusSource, SdkStatusTracker } from "../core/status/sdk-tracker";
+import { type VaultSyncSummary, vaultSyncSummary } from "../core/status/summary";
 import type { VaultChange } from "../core/vault/changes";
 import { pluginEdit, sectionEditorExtension } from "./section-editor";
 import {
@@ -137,6 +139,14 @@ export class SectionsHost {
   readonly #watched = new Set<string>();
   /** Share, import and insert flows, one per note at a time (F-03, F-C04). */
   readonly #flows = new InFlight();
+  /**
+   * Notes with sections not checked for held edits since the start, with
+   * the Resources (hex) of those sections (LFCP-03-003): until a note is
+   * checked, its sections are never shown as current.
+   */
+  readonly #unchecked = new Map<string, Set<string>>();
+  /** The start is still finding the notes with sections: none is known checked. */
+  #indexing = false;
   #bases: KeyValueSectionBaseStore | null = null;
   /** Notes that hold a section, by the section's Resource (hex of its ID). */
   readonly #notes = new Map<string, Set<string>>();
@@ -271,6 +281,8 @@ export class SectionsHost {
     let changed = false;
     const passed = new Set<string>();
     const seen = new Map<string, number>();
+    // LFCP-03-003: held text is only in the note; whether that is saved to disk.
+    const persistence = await this.#persistence(path);
     for (const r of pass.sections) {
       const key = sectionKey(r.section);
       // The k-th result of a section is its k-th copy in the note.
@@ -280,11 +292,29 @@ export class SectionsHost {
       if (section === undefined) continue;
       passed.add(r.projectionId);
       const base = (await this.#bases?.load(r.projectionId))?.state;
-      const h = heldEdits({ path, markdown: pass.source, scan, section, result: r, base });
+      const found = heldEdits({ path, markdown: pass.source, scan, section, result: r, base });
+      const h = found === null ? null : { ...found, persistence };
       if (this.#projectionFacts.held(key, r.projectionId, h)) changed = true;
       this.#heldNotice(key, r.projectionId, section.heading.title, h);
     }
     if (this.#projectionFacts.heldPassed(path, passed)) changed = true;
+    if (this.#projectionFacts.persisted(path, persistence)) changed = true;
+    // Checked, but for a section whose model is not loaded yet (compared at its
+    // next pass); a stale source passes again.
+    const unchecked = this.#unchecked.get(path);
+    if (unchecked !== undefined && pass.stale !== true) {
+      const waiting = new Set(
+        pass.sections
+          .filter((r) => r.skipped === "importing" || r.skipped === "no-snapshot")
+          .map((r) => toKey(r.section.resourceId)),
+      );
+      for (const hex of unchecked)
+        if (!waiting.has(hex)) {
+          unchecked.delete(hex);
+          changed = true;
+        }
+      if (unchecked.size === 0) this.#unchecked.delete(path);
+    }
     for (const d of scan.damaged)
       this.#heldNotice(
         sectionKey(d.ref),
@@ -293,6 +323,25 @@ export class SectionsHost {
         damagedHeld(path, `damaged:${path}`, d.heading?.line ?? d.startLine),
       );
     if (changed) this.scheduleStatus();
+  }
+
+  /**
+   * Whether note `path` is saved to disk as it is shown (LFCP-03-003): a
+   * closed note is its file; an open one is saved when its file has the
+   * editor's text. `disk`: the file's text, when just read.
+   */
+  async #persistence(path: string, disk?: string): Promise<HeldPersistence> {
+    const file = this.app.vault.getFileByPath(path);
+    if (file === null) return "unknown";
+    const editor = this.#openEditor(path);
+    if (editor === null) return "saved";
+    try {
+      return editor.getValue() === (disk ?? (await this.app.vault.cachedRead(file)))
+        ? "saved"
+        : "unsaved";
+    } catch {
+      return "unknown";
+    }
   }
 
   /** Projections whose held edits were announced, with their cause (once until they clear). */
@@ -531,6 +580,21 @@ export class SectionsHost {
       newInsertionId: newProjectionId,
       refPlacement: this.refPlacement,
     });
+    // LFCP-03-003: until every note with a section is found and checked, none is current.
+    this.#indexing = true;
+    try {
+      await this.#startNotes(runtime);
+    } finally {
+      this.#indexing = false;
+      this.scheduleStatus();
+    }
+    // Creations a restart interrupted go on from their journal (SSP §12.2).
+    for (const entry of await this.#creation.unfinished())
+      void this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+  }
+
+  /** The section Resources watched, their stale work scanned, and every note with a section passed. */
+  async #startNotes(runtime: LfcpRuntime): Promise<void> {
     for (const entry of await runtime.registry())
       if (entry.profile === SECTIONS_PROFILE_ID) await this.#watch(entry.resourceId);
     // §19.1 after a restart: own units found quarantined (a cut not handled
@@ -544,11 +608,12 @@ export class SectionsHost {
       const text = await this.app.vault.cachedRead(file);
       if (!text.includes(SECTION_MARK)) continue;
       this.#index(file.path, text);
+      this.#unchecked.set(
+        file.path,
+        new Set(parseSections(text).sections.map((s) => toKey(s.ref.resourceId))),
+      );
       this.editor.remoteChanged(file.path, text);
     }
-    // Creations a restart interrupted go on from their journal (SSP §12.2).
-    for (const entry of await this.#creation.unfinished())
-      void this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
   }
 
   /**
@@ -1177,6 +1242,20 @@ export class SectionsHost {
   }
 
   /** Recomputes the sections' statuses soon (several triggers make one pass). */
+  /**
+   * Pane-ready sync facts (LFCP-03-003): one section's (key: Resource
+   * base64url # section ID), held edits, queue and shared model apart;
+   * undefined before its first status.
+   */
+  sectionSync(key: string): SyncFacts | undefined {
+    return this.#statuses.get(key)?.sync;
+  }
+
+  /** Pane-ready: every watched section's sync, summed per fact, never across them. */
+  syncSummary(): VaultSyncSummary {
+    return vaultSyncSummary(this.#statuses.values());
+  }
+
   scheduleStatus(): void {
     if (this.#statusDue !== null) return;
     this.#statusDue = window.setTimeout(() => {
@@ -1234,6 +1313,9 @@ export class SectionsHost {
             (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit")
               .length ?? 0,
           refusal: runtime.refusal(R)?.code ?? null,
+          // LFCP-03-003: a note with the section not checked yet may hold edits.
+          heldChecked:
+            !this.#indexing && ![...this.#unchecked.values()].some((hexes) => hexes.has(hex)),
           ...(this.#stale === null
             ? {}
             : { staleWork: this.#stale.counts(r), settledOperations: this.#stale.settled(r) }),
@@ -1251,6 +1333,8 @@ export class SectionsHost {
           old.state === v.state &&
           old.pendingBatches === v.pendingBatches &&
           JSON.stringify(old.conditions) === JSON.stringify(v.conditions) &&
+          JSON.stringify(old.held) === JSON.stringify(v.held) &&
+          JSON.stringify(old.sync) === JSON.stringify(v.sync) &&
           [...old.pendingNodeIds].join() === [...v.pendingNodeIds].join()
         );
       });
@@ -1617,12 +1701,18 @@ export class SectionsHost {
   async vaultChange(c: VaultChange): Promise<void> {
     if (c.kind === "delete") {
       this.#unindex(c.path);
+      this.#unchecked.delete(c.path);
       if (this.#projectionFacts.damaged(c.path, new Set())) this.scheduleStatus();
       this.editor.deleted(c.path);
       return;
     }
     if (c.kind === "rename") {
       for (const paths of this.#notes.values()) if (paths.delete(c.oldPath)) paths.add(c.path);
+      const unchecked = this.#unchecked.get(c.oldPath);
+      if (unchecked !== undefined) {
+        this.#unchecked.delete(c.oldPath);
+        this.#unchecked.set(c.path, unchecked);
+      }
       // The new path's pass records its damaged copies again.
       if (this.#projectionFacts.damaged(c.oldPath, new Set())) this.scheduleStatus();
       this.editor.renamed(c.oldPath, c.path);
@@ -1631,6 +1721,12 @@ export class SectionsHost {
     const file = this.app.vault.getFileByPath(c.path);
     if (!(file instanceof TFile) || file.extension !== "md") return;
     const text = await this.app.vault.read(file);
+    // LFCP-03-003: a note holding edits was saved (or changed on disk): is it saved as shown now?
+    if (
+      this.#projectionFacts.holds(c.path) &&
+      this.#projectionFacts.persisted(c.path, await this.#persistence(c.path, text))
+    )
+      this.scheduleStatus();
     const known = [...this.#notes.values()].some((p) => p.has(c.path));
     if (!known && !text.includes(SECTION_MARK)) return;
     this.#index(c.path, text);
