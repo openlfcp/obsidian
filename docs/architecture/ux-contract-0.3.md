@@ -57,7 +57,9 @@ and names do not change.
 
 Each action has one stable ID and one label. The pane, the card, the editor
 context menu and the palette call the same handler with the same guards
-(LFCP-03-008, U03-07). A disabled action states its reason in words; the
+(LFCP-03-008, U03-07), through one dispatcher (`src/core/actions/dispatcher.ts`);
+each action's availability is one pure predicate (`src/core/actions/descriptors.ts`,
+LFCP-03-010). A disabled action states its reason in words; the
 executor checks the same condition again before any side effect, so a
 disabled button is never the only guard.
 

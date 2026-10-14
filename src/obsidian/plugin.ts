@@ -19,6 +19,8 @@ import type { EditorView } from "@codemirror/view";
 import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import {
   apiVersion,
+  type Editor,
+  type MarkdownFileInfo,
   MarkdownView,
   Notice,
   Platform,
@@ -26,6 +28,8 @@ import {
   type TAbstractFile,
   type TFile,
 } from "obsidian";
+import type { ActionId } from "../core/actions/catalog";
+import { ActionDispatcher, coreHandlers } from "../core/actions/dispatcher";
 import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
 import { rehostNotice } from "../core/collab/view";
@@ -115,6 +119,11 @@ export default class OpenLfcpPlugin extends Plugin {
   readonly conflicts = new ConflictRegistry();
   /** The last projection pass (for tests and diagnostics). */
   lastProjection: Promise<unknown> = Promise.resolve();
+  /**
+   * The one dispatcher of the MVP 0.3 actions (LFCP-03-010): the palette
+   * commands, the section card and the pane run their actions through it.
+   */
+  actions: ActionDispatcher = new ActionDispatcher({});
   /** The LFCP runtime once started (null before, after unload, or if it failed). */
   runtime: LfcpRuntime | null = null;
   /** Why the runtime did not start, if it failed. */
@@ -151,14 +160,18 @@ export default class OpenLfcpPlugin extends Plugin {
               this.sections?.reviewConflictsAt(note.text, note.line),
           }),
     });
+    this.actions = new ActionDispatcher(
+      coreHandlers({ sections: () => this.sections?.actions ?? null, collab: ui }),
+    );
     const handlers: Readonly<Record<string, () => Promise<void>>> = {
       "share-task-under-cursor": () => ui.shareTaskUnderCursor(),
       "insert-shared-object": () => ui.insertSharedObject(),
       "share-selected-tasks": () => ui.shareSelectedTasks(),
       "insert-all-tasks": () => ui.insertAllTasks(),
       "create-collaboration": () => ui.createCollaboration(),
-      "join-collaboration": () => ui.joinCollaboration(),
-      "invite-collaborator": () => ui.inviteCollaborator(),
+      // The pane's "Join with a link…" and "Invite collaborator…": one handler, one lock.
+      "join-collaboration": () => this.actions.run("join-with-link"),
+      "invite-collaborator": () => this.actions.run("invite"),
       "resource-status": () => ui.resourceStatus(),
       "detach-shared-task": () => ui.detachSharedTask(),
       "resolve-shared-conflict": () => ui.resolveConflictUnderCursor(),
@@ -234,11 +247,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "share-section",
         name: "Share section…",
-        editorCallback: (editor, ctx) => {
-          const path = ctx.file?.path;
-          if (path === undefined) return;
-          void this.sections?.share(editor, path);
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("share-section", editor, ctx),
       });
       // LFCP-02-063: no plugin UI in a copy of rendered content; the two copy commands.
       this.registerDomEvent(document, "copy", (e) => {
@@ -282,10 +291,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "open-section-details",
         name: "Open shared section details",
-        editorCallback: (editor, ctx) => {
-          const path = ctx.file?.path;
-          if (path !== undefined) this.sections?.openCardAt(editor, path);
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("open-details", editor, ctx),
       });
       this.addCommand({
         id: "next-section-problem",
@@ -297,18 +303,12 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "detach-section",
         name: "Detach this section",
-        editorCallback: (editor, ctx) => {
-          const path = ctx.file?.path;
-          if (path !== undefined) void this.sections?.detachSectionAt(editor, path);
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("detach-section", editor, ctx),
       });
       this.addCommand({
         id: "repair-shared-sections",
         name: "Repair shared sections in this note",
-        editorCallback: (editor, ctx) => {
-          const path = ctx.file?.path;
-          if (path !== undefined) void this.sections?.repairNote(editor, path);
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("repair-sections", editor, ctx),
       });
       this.addCommand({
         id: "restore-section-import",
@@ -321,13 +321,21 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "insert-section",
         name: "Insert shared section…",
-        editorCallback: (editor, ctx) => {
-          const path = ctx.file?.path;
-          if (path !== undefined) void this.sections?.insertSection(editor, path);
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("insert-into-note", editor, ctx),
       });
     }
     this.#starting = this.#startRuntime();
+  }
+
+  /**
+   * A palette command on the note of its editor: the action's one handler
+   * (LFCP-03-010), on the note captured now (LFCP-03-009).
+   */
+  #runOnNote(id: ActionId, editor: Editor, ctx: MarkdownView | MarkdownFileInfo): Promise<void> {
+    const path = ctx.file?.path;
+    const sections = this.sections;
+    if (path === undefined || sections === null) return Promise.resolve();
+    return this.actions.run(id, { target: sections.capture(editor, path) }, "palette");
   }
 
   override onunload(): void {

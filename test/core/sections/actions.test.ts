@@ -5,7 +5,9 @@
 // written or created after a change, a refusal or a failure the executor
 // cannot classify, and a running flow is revealed, never started twice.
 
+import { toBase64url } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
+import { ActionDispatcher, coreHandlers } from "../../../src/core/actions/dispatcher";
 import { SECTIONS_READ_ONLY } from "../../../src/core/lfcp/runtime";
 import type {
   CreationService,
@@ -1400,5 +1402,74 @@ describe("stable target and exact selection (LFCP-03-009, U03-03/04/05/12)", () 
     expect(t.prompter.notices).toEqual([
       "Shared Tasks: the note was deleted. Nothing was detached.",
     ]);
+  });
+});
+
+describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () => {
+  function dispatch(t: ReturnType<typeof setup>) {
+    const collab: string[] = [];
+    const d = new ActionDispatcher(
+      coreHandlers({
+        sections: () => t.actions,
+        collab: {
+          joinCollaboration: async () => void collab.push("join"),
+          inviteCollaborator: async () => void collab.push("invite (choose)"),
+          inviteTo: async (r) => void collab.push(`invite ${toBase64url(r)}`),
+        },
+      }),
+    );
+    return { d, collab };
+  }
+
+  it("palette, menu and pane on one note: one preview, brought forward, nothing created twice", async () => {
+    const t = setup();
+    const { d } = dispatch(t);
+    const first = d.run("share-section", { target: t.editor.at() }, "palette");
+    await flush();
+    await d.run("share-section", { target: t.editor.at() }, "pane");
+    await d.run("insert-into-note", { target: t.editor.at() }, "pane");
+    await d.run("share-whole-section", { target: t.editor.at() }, "menu");
+    expect(t.prompter.dialogs).toHaveLength(1);
+    expect(t.prompter.dialogs[0]?.forward).toBe(3);
+    t.prompter.open("share")[0]?.answer(true);
+    await first;
+    expect(t.calls.filter((c) => c.startsWith("prepare"))).toEqual(['prepare Plan.md "Plan"']);
+    expect(t.prompter.notices).toEqual(['Shared Tasks: section "Plan" is shared.']);
+  });
+
+  it("D12 across surfaces: palette share unknown, the pane's Check the result settles the same operation", async () => {
+    const t = setup();
+    const { d } = dispatch(t);
+    t.prompter.script.share = [true];
+    t.creation.result = () => Promise.reject(new Error("socket closed"));
+    await d.run("share-section", { target: t.editor.at() }, "palette");
+    const [flow] = t.actions.flows();
+    // The menu's repeat: checked (still unknown), not a new preview.
+    await d.run("share-section", { target: t.editor.at() }, "menu");
+    await flush();
+    expect(t.prompter.dialogs).toHaveLength(1);
+    t.creation.result = (e) => Promise.resolve({ kind: "hosted", entry: e });
+    // A late click for another generation does nothing.
+    await d.run("check-result", { flow: (flow?.generation ?? 0) + 100 }, "pane");
+    expect(t.calls.filter((c) => c === "run op-1")).toHaveLength(2);
+    await d.run("check-result", { flow: flow?.generation ?? 0 }, "pane");
+    expect(t.calls.filter((c) => c === "run op-1")).toHaveLength(3);
+    expect(t.calls).not.toContain("run op-2");
+    expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
+    expect(t.actions.flows()).toEqual([]);
+  });
+
+  it("the card, the pane and the palette reach the same collaboration handlers", async () => {
+    const t = setup();
+    const { d, collab } = dispatch(t);
+    const section = { key: `${R0}#s1`, title: "Plan" };
+    await d.run("invite", { section }, "card");
+    await d.run("invite", { section }, "pane");
+    await d.run("invite", {}, "palette");
+    await d.run("join-with-link", {}, "palette");
+    await d.run("join-with-link", {}, "pane");
+    expect(collab).toEqual([`invite ${R0}`, `invite ${R0}`, "invite (choose)", "join", "join"]);
+    expect(d.handles("go-to-problem")).toBe(false);
+    await d.run("go-to-problem", {}, "pane");
   });
 });
