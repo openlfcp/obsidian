@@ -82,6 +82,8 @@ function problemText(c: Condition): string | null {
           : c.source === "diverged"
             ? "One copy of this section differs from the shared version."
             : "One copy of this section has a damaged boundary or binding line.";
+    case "held-unknown":
+      return "Checking a note with this section for edits not sent failed, so whether it holds any is unknown. Edits in it may not have been sent.";
     case "structural-conflict":
       return `A structure conflict touches ${plural(c.nodeIds.length, "item", "items")}: their place is not updated in your note until it is resolved.`;
     case "scalar-conflict":
@@ -155,9 +157,11 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push(
       held.length > 0
         ? "No updates waiting in the sync queue: the edits held in your note are not in it."
-        : kinds.has("held-unchecked")
-          ? "No updates waiting in the sync queue. Notes with this section are still being checked for edits not sent."
-          : "No local changes waiting.",
+        : kinds.has("held-unknown")
+          ? "No updates waiting in the sync queue. Whether a note with this section holds edits not sent is unknown."
+          : kinds.has("held-unchecked")
+            ? "No updates waiting in the sync queue. Notes with this section are still being checked for edits not sent."
+            : "No local changes waiting.",
     );
   if (kinds.has("evidence-unavailable"))
     facts.push(
@@ -181,6 +185,8 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push(
       "Not current: the server has not got the edits held in your note. Other changes are received as usual.",
     );
+  else if (kinds.has("held-unknown"))
+    facts.push("Not current: whether a note with this section holds edits not sent is unknown.");
   else if (kinds.has("held-unchecked"))
     facts.push("Not current yet: not every note with this section was checked.");
   else if (v.sync.current)
