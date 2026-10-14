@@ -15,6 +15,7 @@ import {
   type InsertionDeps,
   type InsertPreview,
   insertionLine,
+  insertRefusalMessage,
   SectionInsertion,
 } from "../../../src/core/sections/insert";
 import { parseSections } from "../../../src/core/sections/parser";
@@ -303,5 +304,24 @@ describe("inserting a shared section", () => {
     const again = await insertion.prepare("Week.md", TARGET, 0, preview);
     expect((await insertion.run(again)).kind).toBe("inserted");
     expect(toBase64url(resourceOf(env.R))).toBe(env.R);
+  });
+});
+
+describe("what Insert shared section… says when it cannot insert yet", () => {
+  it("a section with a conflict to resolve: who can resolve it, where, and what to do then", () => {
+    // The beta.18 acceptance soak: a new member, invited while a structural
+    // conflict was open, was told only that the section "has a problem to resolve".
+    expect(insertRefusalMessage("not-renderable")).toBe(
+      'Shared Tasks: this section has a conflict to resolve before it can be inserted. Ask a member who already has it in a note to open its details and choose "Review conflicts…", then run "Insert shared section…" again.',
+    );
+  });
+
+  it("a section still importing, or not fully arrived: try again", () => {
+    expect(insertRefusalMessage("importing")).toBe(
+      "Shared Tasks: this section is still being imported. Try again when it is ready.",
+    );
+    expect(insertRefusalMessage("not-loaded")).toBe(
+      "Shared Tasks: this section has not fully arrived yet. Try again in a moment.",
+    );
   });
 });

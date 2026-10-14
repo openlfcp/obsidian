@@ -41,7 +41,12 @@ import {
   sharedState,
 } from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
-import { type InsertResult, renderSection, SectionInsertion } from "../core/sections/insert";
+import {
+  type InsertResult,
+  insertRefusalMessage,
+  renderSection,
+  SectionInsertion,
+} from "../core/sections/insert";
 import { abandonOnce } from "../core/sections/journal";
 import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
 import { type ParsedSection, parseSections, type SectionScan } from "../core/sections/parser";
@@ -628,13 +633,7 @@ export class SectionsHost {
     if (choice === null) return;
     const preview = await insertion.preview(choice.resource as ResourceId, choice.sectionId);
     if ("refused" in preview) {
-      new Notice(
-        preview.refused === "importing"
-          ? "Shared Tasks: this section is still being imported. Try again when it is ready."
-          : preview.refused === "not-loaded"
-            ? "Shared Tasks: this section has not fully arrived yet. Try again in a moment."
-            : "Shared Tasks: this section cannot be shown here yet (it has a problem to resolve).",
-      );
+      new Notice(insertRefusalMessage(preview.refused));
       return;
     }
     await this.#watch(choice.resource as ResourceId);

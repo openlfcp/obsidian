@@ -37,6 +37,24 @@ export type InsertRefusal =
   /** The model has problems, or a node cannot be written as it is. */
   | "not-renderable";
 
+/**
+ * What "Insert shared section…" says when it cannot insert yet. A section
+ * whose model has a conflict (a structural one, from members' concurrent
+ * edits) is not insertable until a member resolves it: the notice says who
+ * can and how (the beta.18 acceptance soak, where a new member could not
+ * tell why, or what to do; LFCP-02-123 is the change that lifts this).
+ */
+export function insertRefusalMessage(refused: InsertRefusal): string {
+  switch (refused) {
+    case "importing":
+      return "Shared Tasks: this section is still being imported. Try again when it is ready.";
+    case "not-loaded":
+      return "Shared Tasks: this section has not fully arrived yet. Try again in a moment.";
+    case "not-renderable":
+      return 'Shared Tasks: this section has a conflict to resolve before it can be inserted. Ask a member who already has it in a note to open its details and choose "Review conflicts…", then run "Insert shared section…" again.';
+  }
+}
+
 export interface InsertPreview {
   readonly resource: string;
   readonly sectionId: string;
