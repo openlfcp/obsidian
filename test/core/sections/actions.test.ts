@@ -1237,7 +1237,7 @@ describe("stable target and exact selection (LFCP-03-009, U03-03/04/05/12)", () 
         `prepare Plan.md line ${PLAN} rev ${NOTE.length}`,
         "run ins-1",
         "indexed Plan.md",
-        "pass Plan.md (file)",
+        "pass Plan.md",
       ]);
       expect(t.prompter.notices).toEqual([
         'Shared Tasks: section "Shared" was inserted into "Plan", which is not open.',

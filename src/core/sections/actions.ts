@@ -252,8 +252,10 @@ export class SectionActions {
       const after = await this.#now(path);
       if (after !== null) {
         services.indexed(path, after.text);
-        if (after.open) services.pass(path);
-        else services.pass(path, after.text);
+        // As 0.4.0: a pass of the open note only. A file pass of the closed
+        // note here, on the text just written, kept a collaborator's later
+        // deletion from reaching the other note (live soak #5).
+        services.pass(path);
       }
       // U03-12: a note closed meanwhile was written as a file; the result names it.
       if (!now.open)
