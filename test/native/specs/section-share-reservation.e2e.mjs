@@ -81,6 +81,8 @@ describe("the share reservation follows the note (LFCP-03-002)", () => {
         modals: modals().length,
         previews: shareModals().length,
         inFront: front?.contains(shareModals()[0] ?? null) ?? false,
+        // The dialog has the focus, not its Share button.
+        focus: document.activeElement === shareModals()[0] ? "dialog" : (document.activeElement?.tagName ?? null),
         path: app.workspace.getActiveFile()?.path ?? null,
       };
       for (const m of shareModals()) [...m.querySelectorAll("button")].find((x) => x.textContent === "Share").click();
@@ -111,7 +113,7 @@ describe("the share reservation follows the note (LFCP-03-002)", () => {
     });
     const said = await notices();
     evidence("U03-09-rename", { seen, base, now, after, said });
-    expect(seen).toEqual({ modals: 1, previews: 1, inFront: true, path: "After rename.md" });
+    expect(seen).toEqual({ modals: 1, previews: 1, inFront: true, focus: "dialog", path: "After rename.md" });
     expect({ listed: now.listed - base.listed, stored: now.stored - base.stored }).toEqual({ listed: 1, stored: 1 });
     expect(after).toEqual({ oldPath: false, bound: 1 });
     expect(said).toContain('Shared Tasks: section "Renamed share" is shared.');
