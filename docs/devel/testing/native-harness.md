@@ -52,12 +52,17 @@ What a run does:
    commit in `server.lock` and `openlfcp/sdk-rs` at the server's own
    `sdk-rs.lock`, and builds `lfcp-server` with `cargo build --release
    --locked` (toolchain: the server's `rust-toolchain.toml`). Its target
-   directory is cached by system, server commit and `Cargo.lock`: a cold
-   build takes several minutes, a cached one seconds. The binary goes to
-   the harness jobs as an artifact.
+   directory is cached by system, server commit and `Cargo.lock`: the job
+   takes about a minute cold, half a minute cached. The binary goes to the
+   harness jobs as an artifact.
 2. **Harness.** One job per system and Obsidian version builds the plugin
    and the harness bundles (`pnpm native` without the run), with
-   `LFCP_SERVER_BIN` set to that binary and `LFCP_REQUIRE_LIVE=1`. The live
+   `LFCP_SERVER_BIN` set to that binary and `LFCP_REQUIRE_LIVE=1`. The
+   plugin is a **developer build** (`LFCP_DEV_PANE=1`), with the pane
+   prototype that `specs/pane-prototype.e2e.mjs` checks; the native set
+   never runs the release build. That one is checked by
+   `test/bundle.test.ts` (`pnpm test`): built without `LFCP_DEV_PANE`, it
+   must not contain the prototype. The live
    specs never skip: without a server they fail. The spec checkout
    (`spec.lock`) is not needed: no native spec reads it.
 3. **No skips.** The release assets `specs/upgrade-install.e2e.mjs`
@@ -68,8 +73,8 @@ What a run does:
    directory (`OPENLFCP_OBSIDIAN_CACHE`).
 
 Every spec on `ubuntu-latest` with one Obsidian version takes about 20
-minutes in all: about a minute for the server, 15 to 16 for the specs
-(2026-10-15, 38 spec files).
+minutes in all: half a minute to a minute for the server, about 18 for
+the specs (2026-10-15, 40 spec files).
 
 Results:
 
@@ -77,7 +82,9 @@ Results:
 - The artifact `native-<os>-<version>` holds `native.log`: the whole
   WebdriverIO output with the `METRIC {…}` and `EVIDENCE {…}` lines. Get it
   with `gh run download <run id> -n native-ubuntu-latest-1.14.4`, then
-  `grep -E 'METRIC|EVIDENCE' native.log`. Cite the run id in a PR's
+  `grep -E 'METRIC|EVIDENCE' native.log`. Its `screenshots/` folder holds
+  the screenshots of `specs/pane-prototype.e2e.mjs` (`LFCP_SCREENSHOT_DIR`).
+  Cite the run id in a PR's
   evidence. Metrics vary by runner and never gate.
 - A failure: `gh run view <run id> --log-failed` shows the failing step;
   the spec reporter's error and stack are in `native.log` (search for
@@ -184,7 +191,7 @@ touch it either.
 | `specs/section-resolve-dispatch.e2e.mjs` | "Resolve shared task conflict" by where the cursor is (F-05, U03-24): A shares a section, the headless peer B joins. With the cursor on a Task of the section the command opens that section's "Review conflicts…" and gives no "newer version" advice; on a plain Task below the section the 0.1 command answers as before. Reference server at `LFCP_SERVER_BIN`. |
 | `specs/section-restart-mid-pass.e2e.mjs` | A restart of the plugin in the middle of a pass (coverage gap 5): A types on a Task; its pass stops right after the journal reached ids-allocated, committed or projected, or after the projection's base was saved; the plugin is disabled and enabled again. The edit reaches B once, both notes agree, A ends CURRENT and nothing moves afterwards. Reference server at `LFCP_SERVER_BIN`. |
 | `specs/section-other-plugins.e2e.mjs` | Other plugins changing a shared section (coverage gap 10): A owns a section, the headless peer B is a member. A Linter-style rewrite of the whole note through `vault.process` (open, and while another note is open: trailing spaces, list markers, blank lines), a Task's line deleted through the editor API with no user event (with and without its ref line), Templater-style insertions at the cursor (an empty line, the end of a Task's line before its hidden ref, a CodeMirror transaction with no user event). Nothing that was in the section is lost; while A's badge is CURRENT its section shows what B's does; a deletion without a user event needs attention, with the damaged line named. Reference server at `LFCP_SERVER_BIN`. |
-| `specs/pane-prototype.e2e.mjs` | LFCP-03-007, NOT_RUN when written (first run in CI after LFCP-03-031): the developer pane prototype on mock facts. No command without the `developerPanePrototype` flag; each scenario and fixture in a narrow pane, light and dark, with the fixture's primary action and a screenshot in `$LFCP_SCREENSHOT_DIR` (default: the temp directory); share → invite by keyboard, focus kept in the pane, the flow keeping its note when the active note changes. Needs a developer build, `LFCP_DEV_PANE=1 pnpm native`: a release build leaves the prototype out (D11). `native.yml` has to set `LFCP_DEV_PANE=1` for its build when it runs this spec (note for LFCP-03-031 and PR #8). See [../reports/ux-prototype-0.3.md](../reports/ux-prototype-0.3.md) |
+| `specs/pane-prototype.e2e.mjs` | LFCP-03-007, first run in CI with LFCP-03-031 (passed on Linux, Obsidian 1.14.4): the developer pane prototype on mock facts. No command without the `developerPanePrototype` flag; each scenario and fixture in a narrow pane, light and dark, with the fixture's primary action and a screenshot in `$LFCP_SCREENSHOT_DIR` (default: the temp directory); share → invite by keyboard, focus kept in the pane, the flow keeping its note when the active note changes. Needs a developer build, `LFCP_DEV_PANE=1 pnpm native`: a release build leaves the prototype out (D11). `native.yml` builds with `LFCP_DEV_PANE=1` and keeps the screenshots in its artifact. See [../reports/ux-prototype-0.3.md](../reports/ux-prototype-0.3.md) |
 | `specs/upgrade-install.e2e.mjs` | Install and upgrade (069, [support-matrix-0.2.md](support-matrix-0.2.md)): a fresh vault each time (`reloadObsidian` with no plugin enabled), the plugin's files written into it as an update writes them, then enabled. A fresh install of this build; 0.3.4 with 0.1 shared tasks joined from the headless peer B and an edit pending (the server down) updated to this build; 0.4.0-beta.15 with a shared section and an edit pending updated to this build; disabled and enabled, uninstalled and installed again. The older versions are their GitHub release assets, cached in the harness cache under `releases/<version>/` (a case without them is skipped). Reference server at `LFCP_SERVER_BIN`. |
 
 Each run also installs the Obsidian Tasks plugin 8.4.0 (released
