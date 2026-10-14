@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { SECTIONS_READ_ONLY } from "../../../src/core/lfcp/runtime";
 import type {
   CreationService,
+  InsertionService,
   SectionEditor,
   SectionNotes,
   SectionPrompter,
@@ -18,6 +19,12 @@ import type {
 import { SectionActions } from "../../../src/core/sections/actions";
 import type { CreationEntry, CreationResult } from "../../../src/core/sections/create";
 import { applyChanges } from "../../../src/core/sections/engine";
+import type {
+  InsertionEntry,
+  InsertPreview,
+  InsertRefusal,
+  InsertResult,
+} from "../../../src/core/sections/insert";
 import type { SharePreview } from "../../../src/core/sections/share";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -268,9 +275,7 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     expect(t.prompter.open("share")).toHaveLength(1);
     await t.actions.share(t.editor, "Plan.md");
     // The insert entry shares the note's reservation.
-    await t.actions.reserve("Plan.md", "insert", async () => {
-      throw new Error("must not run");
-    });
+    await t.actions.insertSection(t.editor, "Plan.md");
     expect(t.prompter.dialogs).toHaveLength(1);
     expect(t.prompter.dialogs[0]?.forward).toBe(2);
     expect(t.prompter.announced).toEqual([
@@ -440,5 +445,143 @@ describe("import of 0.1 shared Tasks (LFCP-03-008 over 053)", () => {
       "Shared Tasks: the import cannot start (a choice is missing: CONFLICT). Nothing changed.",
     ]);
     expect(t.notes.writes).toEqual([]);
+  });
+});
+
+/** An insertion journal that records its calls. */
+function fakeInsertion(calls: string[]) {
+  const preview: InsertPreview = {
+    resource: R0,
+    sectionId: "s1",
+    title: "Shared",
+    block: "## Shared\n",
+    readOnly: false,
+    revision: "r1",
+  };
+  const i = {
+    refused: null as InsertRefusal | null,
+    result: (e: InsertionEntry): Promise<InsertResult> =>
+      Promise.resolve({ kind: "inserted", entry: e }),
+    async preview(): Promise<InsertPreview | { readonly refused: InsertRefusal }> {
+      calls.push("preview");
+      return i.refused === null ? preview : { refused: i.refused };
+    },
+    async prepare(path: string, markdown: string, line: number, p: InsertPreview) {
+      calls.push(`prepare ${path} line ${line} rev ${markdown.length}`);
+      const entry: InsertionEntry = {
+        insertionId: "ins-1",
+        path,
+        preview: p,
+        target: { revision: "x", line, anchor: null, before: 0 },
+        phase: "prepared",
+      };
+      return entry;
+    },
+    async run(e: InsertionEntry): Promise<InsertResult> {
+      calls.push(`run ${e.insertionId}`);
+      return i.result(e);
+    },
+  };
+  return i satisfies InsertionService;
+}
+
+describe("insert (LFCP-03-008 over 052)", () => {
+  const choice = { resource: new Uint8Array(32), sectionId: "s1", title: "Shared" };
+  function insertSetup(choices: (typeof choice)[] | null = [choice]) {
+    const calls: string[] = [];
+    const insertion = fakeInsertion(calls);
+    const t = setup(() => ({
+      insertion: () => insertion,
+      sectionChoices: async () => choices,
+      watch: async () => {
+        calls.push("watch");
+      },
+      indexed: (path) => calls.push(`indexed ${path}`),
+      pass: (path, text) => calls.push(`pass ${path}${text === undefined ? "" : " (file)"}`),
+    }));
+    return { ...t, calls, insertion };
+  }
+
+  it("a picked, approved section is journaled at the cursor, inserted, indexed and passed", async () => {
+    const t = insertSetup();
+    t.prompter.script.pick = [choice];
+    t.prompter.script.insert = [true];
+    await t.actions.insertSection(t.editor, "Plan.md");
+    expect(t.calls).toEqual([
+      "preview",
+      "watch",
+      `prepare Plan.md line ${PLAN} rev ${NOTE.length}`,
+      "run ins-1",
+      "indexed Plan.md",
+      "pass Plan.md",
+    ]);
+    expect(t.prompter.notices).toEqual([]);
+  });
+
+  it("stale: the note changed where the block would go; nothing indexed, said once", async () => {
+    const t = insertSetup();
+    t.prompter.script.pick = [choice];
+    t.prompter.script.insert = [true];
+    t.insertion.result = (e) => Promise.resolve({ kind: "stale", entry: e });
+    await t.actions.insertSection(t.editor, "Plan.md");
+    expect(t.calls.at(-1)).toBe("run ins-1");
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: the note changed where the section would go. Insert it again.",
+    ]);
+  });
+
+  it("a refused preview, a cancelled choice, a deleted note and no section write nothing", async () => {
+    const refused = insertSetup();
+    refused.insertion.refused = "importing";
+    refused.prompter.script.pick = [choice];
+    await refused.actions.insertSection(refused.editor, "Plan.md");
+    expect(refused.calls).toEqual(["preview"]);
+    expect(refused.prompter.notices).toHaveLength(1);
+    expect(refused.prompter.open()).toEqual([]);
+
+    const cancelled = insertSetup();
+    cancelled.prompter.script.pick = [null];
+    await cancelled.actions.insertSection(cancelled.editor, "Plan.md");
+    expect(cancelled.calls).toEqual([]);
+
+    const deleted = insertSetup();
+    deleted.prompter.script.pick = [choice];
+    const flow = deleted.actions.insertSection(deleted.editor, "Plan.md");
+    await flush(20);
+    deleted.actions.noteDeleted("Plan.md");
+    deleted.prompter.open("insert")[0]?.answer(true);
+    await flow;
+    expect(deleted.calls).toEqual(["preview", "watch"]);
+    expect(deleted.prompter.notices).toEqual([
+      "Shared Tasks: the note was deleted while the preview was open. Nothing was inserted.",
+    ]);
+
+    const none = insertSetup([]);
+    await none.actions.insertSection(none.editor, "Plan.md");
+    expect(none.prompter.notices).toEqual(["Shared Tasks: no shared section on this device yet."]);
+    const starting = insertSetup(null);
+    await starting.actions.insertSection(starting.editor, "Plan.md");
+    expect(starting.prompter.notices).toEqual([
+      "Shared Tasks: still starting. Try again in a moment.",
+    ]);
+  });
+
+  it("a second insert while the insert preview is open brings it forward", async () => {
+    const t = insertSetup();
+    t.prompter.script.pick = [choice];
+    const first = t.actions.insertSection(t.editor, "Plan.md");
+    await flush(20);
+    await t.actions.insertSection(t.editor, "Plan.md");
+    await t.actions.share(t.editor, "Plan.md");
+    const open = t.prompter.open("insert");
+    expect(open).toHaveLength(1);
+    expect(open[0]?.forward).toBe(2);
+    expect(t.prompter.announced).toEqual([
+      "Shared Tasks: the insert preview is open. Finish or cancel it first.",
+      "Shared Tasks: the insert preview is open. Finish or cancel it first.",
+    ]);
+    open[0]?.answer(false);
+    await first;
+    expect(t.calls).toEqual(["preview", "watch"]);
   });
 });
