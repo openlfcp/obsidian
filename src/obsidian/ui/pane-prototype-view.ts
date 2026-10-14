@@ -98,6 +98,8 @@ export class PanePrototypeView extends ItemView {
   override async onClose(): Promise<void> {
     this.contentEl.replaceChildren();
     this.#pane = null;
+    this.#controls = null;
+    this.#select = null;
   }
 
   /** Shows a scenario or a fixture (`fixture:<id>`). */
