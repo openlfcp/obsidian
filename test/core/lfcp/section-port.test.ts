@@ -122,13 +122,15 @@ async function device() {
       operationId: "create",
     },
   );
+  const released: string[] = [];
   const port = new SdkSectionPort({
     profile: () => profile,
     commit: (r, intents, o) => sync.commit(r, intents, o),
     storage,
     canWrite: (r) => sync.canWrite(r),
+    released: (r, op) => released.push(`${toBase64url(r)} ${op}`),
   });
-  return { R, b64: toBase64url(R), storage, profile, sync, port };
+  return { R, b64: toBase64url(R), storage, profile, sync, port, released };
 }
 
 describe("SdkSectionPort on the real SDK", () => {
@@ -160,6 +162,8 @@ describe("SdkSectionPort on the real SDK", () => {
     expect(await d.port.receiptOf(d.b64, "op-1")).toEqual(r);
     await d.port.releaseReceipt(d.b64, "op-1");
     expect(await d.port.receiptOf(d.b64, "op-1")).toBeUndefined();
+    // Once released, the caller checks the batch's status again (soak #1).
+    expect(d.released).toEqual([`${d.b64} op-1`]);
   });
 
   it("turns the SDK's refusals into the port's", async () => {

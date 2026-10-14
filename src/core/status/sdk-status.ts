@@ -32,6 +32,19 @@ export interface SdkStatus {
   readonly needsSnapshot: boolean;
 }
 
+/**
+ * `st` without the batch of `operationId`: the SDK holds it no more (its
+ * receipt released when final), so it is accepted or refused and gone. A
+ * report of it read across that release says "pending" (soak #1); nothing
+ * would report it again.
+ */
+export function forgetBatch(st: SdkStatus, operationId: string): SdkStatus {
+  if (!st.batches.some((b) => b.id === operationId) && !st.unconfirmed.has(operationId)) return st;
+  const unconfirmed = new Set(st.unconfirmed);
+  unconfirmed.delete(operationId);
+  return { ...st, batches: st.batches.filter((b) => b.id !== operationId), unconfirmed };
+}
+
 /** One SDK batch status as the reducer's batch: hex unit IDs; nodes from the receipt. */
 export function batchFacts(b: BatchStatus): BatchFacts {
   return {

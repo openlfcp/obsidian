@@ -95,7 +95,7 @@ import {
 } from "../core/status/held";
 import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
 import { type StatusView, statusView } from "../core/status/reducer";
-import { applySdkEvent, fromSnapshot, type SdkStatus } from "../core/status/sdk-status";
+import { runtimeStatusSource, SdkStatusTracker } from "../core/status/sdk-tracker";
 import type { VaultChange } from "../core/vault/changes";
 import { pluginEdit, sectionEditorExtension } from "./section-editor";
 import {
@@ -170,7 +170,13 @@ export class SectionsHost {
   /** Own offline work a Key Epoch cut off (stale-work.ts): guarded, re-applied, reviewed. */
   #stale: StaleWorkController | null = null;
   /** The SDK's status of each section Resource (hex): batches, acceptance, access (026). */
-  readonly #sdk = new Map<string, SdkStatus>();
+  readonly #sdk = new SdkStatusTracker(
+    runtimeStatusSource({
+      runtime: () => this.#runtime,
+      watched: (R) => this.#watched.has(toKey(R)),
+      changed: () => this.scheduleStatus(),
+    }),
+  );
   /** Section Resources whose session was LIVE in this run (hex). */
   readonly #wasLive = new Set<string>();
 
@@ -402,6 +408,8 @@ export class SectionsHost {
           recordOwn: (op) => this.#stale?.ownWork.recordOwn(op) ?? staleStore.recordOwn(op),
         },
         now: () => Date.now(),
+        // A release may race an ACK's report (soak #1): the batch is checked in storage.
+        released: (r, op) => void this.#sdk.confirm(r, op),
       },
       // Typing coalescing (025): a burst of typing is one unit, not one per key.
       {
@@ -464,7 +472,7 @@ export class SectionsHost {
       },
     });
     runtime.on((e) => {
-      if (e.type === "status") this.#statusEvent(e.resourceId, e.event);
+      if (e.type === "status") this.#sdk.event(e.resourceId, e.event);
       if (e.type === "epoch-reconciled") {
         const units = [
           ...e.applied.excluded.map((x) => toHex(x.unitId)),
@@ -678,24 +686,8 @@ export class SectionsHost {
   }
 
   /** The SDK's status snapshot of a Resource: at the start, and after a skipped revision. */
-  async #statusSnapshot(R: ResourceId): Promise<void> {
-    const runtime = this.#runtime;
-    if (runtime === null) return;
-    const snapshot = await runtime.sectionStatusSnapshot(R).catch(() => undefined);
-    if (snapshot !== undefined) this.#sdk.set(toKey(R), fromSnapshot(snapshot));
-    this.scheduleStatus();
-  }
-
-  #statusEvent(R: ResourceId, event: Parameters<typeof applySdkEvent>[1]): void {
-    const key = toKey(R);
-    const known = this.#sdk.get(key);
-    if (known === undefined) {
-      if (this.#watched.has(key)) void this.#statusSnapshot(R);
-      return;
-    }
-    const next = applySdkEvent(known, event);
-    this.#sdk.set(key, next);
-    if (next.needsSnapshot) void this.#statusSnapshot(R);
+  #statusSnapshot(R: ResourceId): Promise<void> {
+    return this.#sdk.snapshot(R);
   }
 
   /**

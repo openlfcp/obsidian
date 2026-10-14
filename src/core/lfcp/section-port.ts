@@ -48,6 +48,15 @@ export interface SectionResources {
   /** Where each committed own operation is recorded, for re-applying stale work (§19.1). */
   readonly ownWork?: Pick<StaleWorkStore, "recordOwn">;
   readonly now?: () => number;
+  /**
+   * After a receipt is released. A release forgets a final batch's status,
+   * and it runs outside the SDK's own queue: an ACK that lands meanwhile can
+   * be reported from a status read half before and half after it, as
+   * "pending" for a batch that is accepted and gone, and nothing reports it
+   * again (soak finding #1 on 0.4.0-beta.17). The caller checks the
+   * batch's status here.
+   */
+  readonly released?: (resource: ResourceId, operationId: string) => void;
 }
 
 const asResource = (b64: string): ResourceId => resourceId(fromBase64url(b64));
@@ -307,8 +316,10 @@ export class SdkSectionPort implements SectionPort {
     return r === undefined ? undefined : portReceipt(r);
   }
 
-  releaseReceipt(resource: string, operationId: string): Promise<void> {
-    return releaseReceipt(this.resources.storage, asResource(resource), operationId);
+  async releaseReceipt(resource: string, operationId: string): Promise<void> {
+    const R = asResource(resource);
+    await releaseReceipt(this.resources.storage, R, operationId);
+    this.resources.released?.(R, operationId);
   }
 
   async canWrite(resource: string): Promise<WriteAccess> {
