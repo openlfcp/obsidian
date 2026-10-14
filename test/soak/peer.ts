@@ -13,6 +13,8 @@ import { SectionEngine } from "../../src/core/sections/engine";
 import { parseSections } from "../../src/core/sections/parser";
 import * as mock from "../mocks/obsidian";
 import { E2EVault, until } from "../support/e2e-vault";
+// After e2e-vault (it installs fake-indexeddb): finished transactions are dropped.
+import "../support/idb-prune";
 
 // Nothing leaves this machine: every socket goes to the local server.
 {
@@ -186,7 +188,8 @@ export class SoakPeer {
     proto.loadData = async function () {
       return this.stored ?? { sectionsDisabled: false, defaultServer: server, settingsVersion: 2 };
     };
-    const vault = await E2EVault.open(name);
+    // The plugin's own tick (the tests' 20 ms would tick 12.5 times as often).
+    const vault = await E2EVault.open(name, { tickMs: 250 });
     if (vault.plugin.sections === null || vault.plugin.settings.defaultServer !== server)
       throw new Error(`${name}: sections off or another server`);
     const p = new SoakPeer(name, me, vault, server, seed);

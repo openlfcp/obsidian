@@ -256,10 +256,14 @@ export class E2EVault {
   #instance = new Instance();
   #plugin!: OpenLfcpPlugin;
 
-  private constructor(readonly name: string) {}
+  private constructor(
+    readonly name: string,
+    /** The sync driver's tick; tests use a fast one, a soak the plugin's own (250 ms). */
+    readonly tickMs = 20,
+  ) {}
 
-  static async open(name: string): Promise<E2EVault> {
-    const v = new E2EVault(name);
+  static async open(name: string, opts: { readonly tickMs?: number } = {}): Promise<E2EVault> {
+    const v = new E2EVault(name, opts.tickMs);
     await v.#start(false);
     return v;
   }
@@ -288,7 +292,7 @@ export class E2EVault {
     return {
       ...base,
       webSocket: this.network.factory,
-      tickMs: 20,
+      tickMs: this.tickMs,
       timers: {
         setInterval: (fn, ms) => {
           const h = setInterval(fn, ms);
