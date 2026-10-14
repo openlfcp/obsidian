@@ -12,8 +12,9 @@ import {
   type Task,
 } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
+import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
 import OpenLfcpPlugin, { LOCK_HELD_ADVICE } from "../../src/obsidian/plugin";
@@ -468,6 +469,31 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(mock.notices).toEqual([
       "Shared Tasks: another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
     ]);
+  });
+
+  it("deleting a note not checked for held edits yet recomputes the statuses (no lasting 'Checking…')", async () => {
+    const host = new SectionsHost(
+      new mock.App() as never,
+      () => undefined,
+      () => "child-line",
+      () => "local",
+      () => null,
+      () => "wss://sync.example/v1/ws",
+    );
+    const schedule = vi.spyOn(host, "scheduleStatus").mockImplementation(() => undefined);
+    const deleted = vi.spyOn(HeldChecks.prototype, "deleted");
+    try {
+      // A note with nothing pending: no status pass for it.
+      await host.vaultChange({ kind: "delete", path: "Checked.md" });
+      expect(deleted).toHaveLastReturnedWith(false);
+      expect(schedule).not.toHaveBeenCalled();
+      // The last note not checked yet: its sections' check changes.
+      deleted.mockReturnValueOnce(true);
+      await host.vaultChange({ kind: "delete", path: "Unchecked.md" });
+      expect(schedule).toHaveBeenCalledTimes(1);
+    } finally {
+      deleted.mockRestore();
+    }
   });
 
   it("a held lock is tried again in the background: it runs once free, said once, without a reload", async () => {

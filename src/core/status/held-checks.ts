@@ -65,10 +65,14 @@ export class HeldChecks {
     if (this.#failed.delete(oldPath)) this.#failed.add(newPath);
   }
 
-  /** A note gone: nothing in it to check. */
-  deleted(path: string): void {
-    this.#pending.delete(path);
+  /**
+   * A note gone: nothing in it to check. True when it was not checked yet,
+   * so its sections' checks may have changed (the last unchecked note gone).
+   */
+  deleted(path: string): boolean {
+    const changed = this.#pending.delete(path);
     this.#failed.delete(path);
+    return changed;
   }
 
   /** The check of the sections of Resource `resource` (hex). */
