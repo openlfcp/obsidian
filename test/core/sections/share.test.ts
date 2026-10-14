@@ -3,6 +3,11 @@
 // canaries; MS36).
 
 import { describe, expect, it } from "vitest";
+import {
+  formatBoundary,
+  parseSectionRef,
+  type SectionRef,
+} from "../../../src/core/sections/grammar";
 import { parseSections } from "../../../src/core/sections/parser";
 import {
   preflight,
@@ -193,5 +198,37 @@ describe("the preview's words", () => {
     expect(nested.problems).toEqual([
       "Line 2 is a heading inside the section. Share each part as its own section, or end the section before it.",
     ]);
+  });
+});
+
+describe("S4 (LFCP-03-009): a damaged boundary's region is never a share boundary", () => {
+  const S = parseSectionRef(
+    "lfcp1:yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE#section:019a2f85-7b31-7c42-b85a-fc843e2f4001",
+  ) as SectionRef;
+  // A start marker without its end claims down to the end of the note.
+  const DAMAGED = lines(
+    "## Shared",
+    formatBoundary("start", S),
+    "- [ ] In",
+    "",
+    "## Private later",
+    "- [ ] Mine",
+  );
+
+  it("the cursor's heading section below it is blocked in the preview", () => {
+    const range = proposeRange(DAMAGED, 4);
+    if (range === null) throw new Error("no range");
+    const p = preflight(DAMAGED, range);
+    expect(p.problems).toContainEqual({ code: "DAMAGED_BOUNDARY", line: 1 });
+    expect(shareMessages(p).problems).toContain(
+      "The shared section from line 2 has a damaged boundary, so this text may belong to it. Repair shared sections in this note before sharing.",
+    );
+  });
+
+  it("a heading section above the damaged region is not blocked by it", () => {
+    const md = `## Before\n- [ ] Free\n\n${DAMAGED}`;
+    const range = proposeRange(md, 0);
+    if (range === null) throw new Error("no range");
+    expect(preflight(md, range).problems).toEqual([]);
   });
 });
