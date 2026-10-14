@@ -21,8 +21,11 @@ host) and 013 (context, CTA, statuses) reuse it.
 | Renderer | `src/obsidian/ui/pane-renderer.ts` | Plain DOM from a `PaneModel`: native buttons, visible focus, no focus trap, disabled actions focusable with their reason, focus kept across redraws, Obsidian CSS variables, narrow layout (`styles.css`) |
 | Developer view | `src/obsidian/ui/pane-prototype-view.ts` | An `ItemView` with a state picker, a narrow toggle and the prototype's own controls ("Mock: finish …", "Cancel", "Continue later", "Mock: switch the active note") |
 
-**Opening it.** Set `"developerPanePrototype": true` in the plugin's
-`data.json`, reload the plugin, and run "Open pane prototype (developer)".
+**Opening it.** Build with `LFCP_DEV_PANE=1` (for example
+`LFCP_DEV_PANE=1 pnpm build`), set `"developerPanePrototype": true` in the
+plugin's `data.json`, reload the plugin, and run "Open pane prototype
+(developer)". A release build leaves the prototype out (owner decision
+D11): there the flag does nothing.
 Without the flag the view and the command are not registered, so the
 palette does not list them. There is no ribbon, menu or settings entry:
 production entries belong to LFCP-03-012.
@@ -71,6 +74,9 @@ still has to feed the model from the real hosts (`SectionsHost` status,
 | Fixture `unknown-result-insert`: `localPersistence` "confirmed" → "unconfirmed" | With `heldCheck` "pending" the reducer always reports `localPersistence` "unconfirmed" (held text not known to be on disk). The fixture stated a view the reducer cannot produce. The schema test now checks this invariant |
 | Fixture `selection-exact`: a `preview` with the warnings `future-additions` and `private-text-before-next-heading` | Its required claim (the H5 sentence about private text after the section) is a share preview warning (`share.ts`), but the fixture had no preview fact to show it from |
 | Contract header and §13: the view model of 007 already runs the fixtures | Previously it said no task bound them to code before 013 |
+| Contract §5 P4 and fixtures `no-editor`, `selection-crossing`: `primaryCtaNone` is a sentence for the user ("Open a note to share from it, or join with a link."; "Select the lines of one section, from its heading, to share it."), checked word for word | The renderer shows it to the user; the old texts were reviewer notes |
+| Contract A5 and T1a; fixture `no-editor` without the disabled "Copy readable text" | Owner decisions D10 and D9 |
+| The pane's problem texts are the card's (`sectionProblems`, `heldFact`, `offlineText` exported from `card.ts`); a test checks that every fixture's pane problems equal the card's | Review: the pane had its own copies, and their wording had drifted |
 
 ## 4. Findings
 
@@ -78,16 +84,16 @@ still has to feed the model from the real hosts (`SectionsHost` status,
 | --- | --- | --- |
 | P-01 | The fixtures give a section at StatusView level without `conditions`, so P1 cannot be read from them directly. The prototype rebuilds `StatusFacts` and runs `statusView`, and all 20 states then bind | Keep `model-fixtures.test.ts` as the frozen suite. 013 passes the host's real `StatusView`. A new fixture must be one the reducer can produce |
 | P-02 | `cursor: "private-text"` does not say whether a heading lies above the cursor, which `proposeRange` needs. The model is conservative: "Share section…" is a secondary action and there is no primary | 013: add a context fact (the heading `proposeRange` would take, or none) and make Share primary only with a heading |
-| P-03 | Which section the pane is about when the cursor is not in one is not defined. The `unplaced` fixture has the cursor in private text and Sprint in focus. The model takes the section as given | 013 decides the rule. Proposal: the section under the cursor, else the row the user chose in the list, else the section just joined until the user moves on. Never pick one automatically from the list |
+| P-03 | Which section the pane is about when the cursor is not in one was not defined. The `unplaced` fixture has the cursor in private text and Sprint in focus | Owner decision D9: under the cursor, else chosen in the list, else just joined (contract T1a, `paneFocus` in the model). 013 feeds it from the hosts |
 | P-04 | I4 "ready means hosted" needs a hosting fact that `StatusView` does not carry. `PaneSection.hosting` was added (optional) | 013/014: feed it from the same source as the card's `hosting` input |
 | P-05 | Flow stage names mix journal stages ("captured", "projected", "claiming capability") with pane-only steps ("preview", "role", "link"). `flows.ts` lists them, and an unknown stage counts as waiting for the user, never as a guessed effect | 014–017: map each journal stage onto `FLOW_STAGES` and keep the names in one place |
 | P-06 | "Cancel" and "Continue later" are flow controls (P2) and not catalogue actions. The prototype offers Cancel only before any effect and "Continue later" after one | Contract §3/§5 could name them as flow controls when 014 implements them |
 | P-07 | During a join, the header's "Join with a link…" and a flow step "Join" would be two buttons with nearly the same meaning. The prototype makes pasting the link and choosing Join in the pane field the explicit Join (UX §6, I5). While the link is awaited there is no primary, and the header entry stays (A2) | 015/016: one Join step, in the field |
 | P-08 | A disabled action must state its reason, and `disabled` buttons cannot be focused. The renderer uses `aria-disabled`, a visible reason under the button and `aria-describedby`; a click does nothing | 013: keep this pattern; the executor still checks again (A3) |
-| P-09 | The `no-editor` and `unknown-result-join` fixtures require disabled actions that do not apply there ("Copy readable text": "No note is open."). In a narrow pane they add noise | Review with the owner: show only the disabled actions a user would look for in that state |
+| P-09 | The `no-editor` fixture required a disabled action that does not apply there ("Copy readable text": "No note is open."). In a narrow pane it adds noise | Owner decision D10 (contract A5): hidden when it does not apply, disabled with a reason when it applies but is blocked. The fixture and the model follow it; "Detach this section" is disabled while the section loads |
 | P-10 | No fixture has a running flow at an effect stage (no primary, progress only, P1 row 2) | 013: add one, e.g. a join while "claiming capability" is running |
 | P-11 | The package's healthy main text ("сервер принял изменения") would claim acceptance of this device's changes. The prototype uses the contract's §6 sentence ("Current as last checked with the server. This does not mean others have seen it.") | None: the contract already decides this |
-| P-12 | The prototype and the fixtures are in `main.js` even with the flag off: about 62 KB of the minified bundle, 26 KB of it the fixtures | 012: keep it as a developer tool for the pilot, or strip it with a build flag before the stable release |
+| P-12 | The prototype and the fixtures were in `main.js` even with the flag off: about 62 KB of the minified bundle, 26 KB of it the fixtures | Owner decision D11: only a build with `LFCP_DEV_PANE=1` contains them (`scripts/build.mjs` stubs the view's module); a release build does not, and the data.json flag does nothing there. `test/bundle.test.ts` checks it |
 | P-13 | The brief counted 19 fixture states; `states.json` has 20 | None: the tests use the file's count |
 
 ## 5. Not covered here
@@ -104,6 +110,7 @@ still has to feed the model from the real hosts (`SectionsHost` status,
 ```sh
 pnpm vitest run test/core/pane test/obsidian/pane-renderer.test.ts \
   test/core/ux-contract-fixtures.test.ts test/core/settings.test.ts test/obsidian/plugin.test.ts
-# Native (not run in this task; CI after LFCP-03-031):
+# Native (not run in this task; CI after LFCP-03-031), on a developer build:
+LFCP_DEV_PANE=1 pnpm build
 LFCP_SCREENSHOT_DIR=<dir> pnpm --dir test/native test -- --spec test/native/specs/pane-prototype.e2e.mjs
 ```
