@@ -135,7 +135,8 @@ export type SelectionReason =
   | "legacy-tasks"
   | "broken-ref"
   | "damaged-boundary"
-  | "multiple-selections";
+  | "multiple-selections"
+  | "heading-only";
 
 /** What "Share section…" acts on, from the cursor or the selection. */
 export type ShareScope =
@@ -242,6 +243,9 @@ export function shareScope(
     return refused("crossing", next);
   }
   if (partialLine) return refused("partial-line", last, own);
+  // S7 (owner D13): the heading alone, over a section with a body, is not an empty section.
+  if (last === from.line && own.lastLine > from.line)
+    return refused("heading-only", from.line, own);
   const range: ShareRange = { headingLine: from.line, lastLine: last };
   const { problems } = preflight(markdown, range);
   for (const code of PROBLEM_ORDER) {
@@ -281,6 +285,8 @@ export function selectionReasonText(reason: SelectionReason, line: number | null
       return DAMAGED_BOUNDARY_TEXT(line ?? 0);
     case "multiple-selections":
       return "Several parts of the note are selected. Select one range of lines.";
+    case "heading-only":
+      return "Only the heading is selected. Select the lines to share with it.";
   }
 }
 

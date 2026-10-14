@@ -169,6 +169,7 @@ An ineligible selection blocks "Share section…" with one reason:
 | `broken-ref` | The shared task marker on line N is damaged. Repair it before sharing. | None |
 | `damaged-boundary` | The shared section from line N has a damaged boundary, so this text may belong to it. Repair shared sections in this note before sharing. | None |
 | `multiple-selections` | Several parts of the note are selected. Select one range of lines. | None |
+| `heading-only` | Only the heading is selected. Select the lines to share with it. | "Share the whole section…" |
 
 - **S1. No silent expansion.** The selection is never widened to the
   heading section, the next heading or the end of the note without the user's
@@ -188,6 +189,11 @@ An ineligible selection blocks "Share section…" with one reason:
   takes a scope or writes: the action says to finish typing first. A
   section-changing action from Reading view asks to open the note for
   editing (T4).
+- **S7. A heading alone is not an empty section** (owner decision D13). A
+  selection of only the heading line, when the heading's section has a
+  body, is refused as `heading-only` with the explicit fallback "Share the
+  whole section…" and its new preview. A heading whose section is empty is
+  shared as it is (LFCP-03-009).
 
 ## 5. Primary call to action
 

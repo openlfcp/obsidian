@@ -845,6 +845,38 @@
       }
     },
     {
+      "id": "selection-heading-only",
+      "category": "selection",
+      "cases": ["U03-04"],
+      "findings": ["F-07"],
+      "description": "Only the heading line Launch is selected; its section has Tasks under it (owner decision D13).",
+      "facts": {
+        "context": {
+          "editor": "source",
+          "note": "Plan.md",
+          "cursor": "private-heading",
+          "selection": { "fromLine": 4, "toLine": 4, "eligibility": "ineligible", "reason": "heading-only", "fallback": "share-whole-section" },
+          "flow": null
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
+        "section": null
+      },
+      "expected": {
+        "primaryCta": "share-whole-section",
+        "enabled": [
+          { "action": "share-whole-section", "reason": "Explicit fallback: opens a new preview of the heading's section." }
+        ],
+        "disabled": [
+          { "action": "share-section", "reason": "Only the heading is selected. Select the lines to share with it." }
+        ],
+        "requiredClaims": ["Only the heading is selected. Select the lines to share with it."],
+        "forbiddenClaims": [
+          "Everything inside this section, including future additions, will be shared.",
+          "0 tasks, 0 paragraphs, 0 list items."
+        ]
+      }
+    },
+    {
       "id": "content-comments-and-table",
       "category": "content",
       "cases": ["U03-26"],

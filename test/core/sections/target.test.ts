@@ -202,6 +202,23 @@ describe("an ineligible selection: one reason, a fallback only where the contrac
     });
   });
 
+  it("S7 (D13): the heading line alone over a body asks for the whole section; an empty section is shared as it is", () => {
+    // The whole heading line, or part of it down to column 0 of the next line.
+    for (const s of [sel(1, 0, 1, 9), sel(1, 3, 2, 0)])
+      expect(refusedAs(NOTE, s)).toMatchObject({
+        reason: "heading-only",
+        line: 1,
+        fallback: whole,
+      });
+    // Ending inside the heading's text is a partial line first.
+    expect(refusedAs(NOTE, sel(1, 0, 1, 4))).toMatchObject({ reason: "partial-line" });
+    const empty = "## Empty\n\n## Next\n- [ ] Other\n";
+    expect(scope(empty, sel(0, 0, 1, 0))).toEqual({
+      kind: "exact",
+      range: { headingLine: 0, lastLine: 0 },
+    });
+  });
+
   it("multiple-selections: several ranges are not one scope", () => {
     expect(refusedAs(NOTE, [...sel(1, 0, 3, 10), ...sel(5, 0, 6, 14)])).toMatchObject({
       reason: "multiple-selections",
@@ -318,6 +335,7 @@ describe("parity with the UX contract (§4.2 table) and its fixtures", () => {
       "broken-ref",
       "damaged-boundary",
       "multiple-selections",
+      "heading-only",
     ]);
     for (const r of table)
       expect(selectionReasonText(r.id as SelectionReason, 41).replace(/\b42\b/g, "N"), r.id).toBe(
@@ -380,6 +398,16 @@ describe("parity with the UX contract (§4.2 table) and its fixtures", () => {
     const text1 = selectionReasonText(r1.reason, r1.line);
     expect(none.expected.requiredClaims).toContain(text1);
     expect(none.expected.disabled.find((d) => d.action === "share-section")?.reason).toBe(text1);
+    // selection-heading-only: the heading line (4) alone; Tasks follow under it.
+    const only = fixture("selection-heading-only");
+    const r3 = refusedAs(md, sel(4, 0, 4, 9));
+    expect(r3.reason).toBe(only.facts.context.selection?.reason);
+    expect(r3.fallback === null ? null : "share-whole-section").toBe(
+      only.facts.context.selection?.fallback,
+    );
+    const text3 = selectionReasonText(r3.reason, r3.line);
+    expect(only.expected.requiredClaims).toContain(text3);
+    expect(only.expected.disabled.find((d) => d.action === "share-section")?.reason).toBe(text3);
     // selection-crossing: from the heading (4) past the next one (13) to line 20.
     const crossing = fixture("selection-crossing");
     const r2 = refusedAs(md, sel(4, 0, 20, 8));
