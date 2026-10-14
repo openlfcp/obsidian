@@ -13,7 +13,8 @@
 
 import { rowLabel } from "../sections/registry-view";
 import { SHARE_SCOPE, type ShareWarning, shareCounts, shareWarningText } from "../sections/share";
-import { HELD_CAUSE, type HeldCause } from "../status/held";
+import { CONNECTING_TEXT, heldFact, offlineText, sectionProblems } from "../status/card";
+import type { HeldCause } from "../status/held";
 import { type Condition, STATE_LABEL, type StatusState, type StatusView } from "../status/reducer";
 import { ACTIONS, type ActionId, SOURCE_CHANGING } from "./actions";
 import {
@@ -238,6 +239,26 @@ export function selectionReasonText(s: PaneSelection): string {
   }
 }
 
+/** What the pane says, to the user, when there is no primary action (contract §5, P4). */
+export const NO_PRIMARY = {
+  noNote: "Open a note to share from it, or join with a link.",
+  noSection: "Select the lines of one section, from its heading, to share it.",
+  noHeading: "Put the cursor on a heading, or select a section, to share it.",
+} as const;
+
+/**
+ * D9 (owner): the section the pane is about. The one under the cursor, else
+ * the one chosen in the list, else the one just joined; never another one
+ * picked from the list on its own.
+ */
+export function paneFocus(keys: {
+  readonly underCursor: string | null;
+  readonly chosen: string | null;
+  readonly justJoined: string | null;
+}): string | null {
+  return keys.underCursor ?? keys.chosen ?? keys.justJoined;
+}
+
 /** Held edits kept because this vault may not send them: reviewed, not repaired. */
 const ACCESS_HELD: ReadonlySet<HeldCause> = new Set([
   "read-only",
@@ -259,81 +280,24 @@ function sourcePrimary(v: StatusView, c: Extract<Condition, { kind: "source" }>)
   return "repair-sections";
 }
 
-/** Why the section is not connected, as the card says it (UX §6): never "failed" without an attempt. */
+/** Why the section is not connected, in the card's words (UX §6): never "failed" without an attempt. */
 function connectionText(v: StatusView): string | null {
-  switch (v.connection) {
-    case "connected":
-      return null;
-    case "connecting":
-      return "Connecting to the server: not checked with it yet. Local updates wait on this device.";
-    case "failed":
-      return v.connectionQualifier === "not-responding"
-        ? "The server stopped responding and connecting again failed; trying again. Local updates wait on this device."
-        : "Could not connect to the server; trying again. Local updates wait on this device.";
-    case "offline":
-      return v.connectionQualifier === "network-offline"
-        ? "Offline (no network): local updates wait on this device."
-        : v.connectionQualifier === "not-responding"
-          ? "Offline: the server stopped responding, reconnecting. Local updates wait on this device."
-          : "Offline: local updates wait on this device.";
-  }
+  if (v.connection === "connected") return null;
+  return v.connection === "connecting" ? CONNECTING_TEXT : offlineText(v);
 }
 
-function conditionText(c: Condition, v: StatusView): string | null {
-  const asOf =
-    v.access.current === true
-      ? ""
-      : " This is as this device last verified it; it may have changed.";
-  switch (c.kind) {
-    case "save-failed":
-      return "Some local changes are not safely saved for sync. Keep the note open; nothing was sent for them.";
-    case "access":
-      switch (c.access) {
-        case "refused":
-          return "The sync server no longer accepts changes from this vault for this section.";
-        case "revoked":
-          return `Your access to this section was removed. Your local copy stays.${asOf}`;
-        case "not-member":
-          return `This vault is not a member of this section.${asOf}`;
-        default:
-          return "This device does not hold the section's key yet. Edits wait until it arrives.";
-      }
-    case "server-refused":
-      return `The sync server refused this section (${c.code}). Your local copy stays.`;
-    case "invalid-profile":
-      return "This section's data is not valid for this version of Shared Tasks.";
-    case "rejected":
-      return `The server refused ${plural(c.batchIds.length, "update")} (${c.code}). The text stays in your note.`;
-    case "stale-work":
-      return c.review > 0
-        ? `${plural(c.review, "offline edit")} could not be sent after an access change. Your note keeps them until you review them.`
-        : `${plural(c.pending, "offline edit")} from before an access change ${c.pending === 1 ? "is" : "are"} being sent again.`;
-    case "held-unknown":
-      return "Not current: whether a note with this section holds edits not sent is unknown.";
-    case "structural-conflict":
-      return `A structure conflict touches ${plural(c.nodeIds.length, "item")}: their place in your note waits for your choice.`;
-    case "scalar-conflict":
-      return `Conflicting edits on ${plural(c.nodeIds.length, "item")}: both values are kept until you choose.`;
-    default:
-      return null;
-  }
-}
-
+/**
+ * Problems first, in the card's words (sectionProblems, heldFact): the pane,
+ * the card and the badge say the same thing. Then the separate facts (§6).
+ */
 function statusLines(s: PaneSection, o: PaneOptions): PaneLine[] {
   const v = s.view;
   const kinds = new Set(v.conditions.map((c) => c.kind));
-  const problems: PaneLine[] = [];
+  const problems: PaneLine[] = sectionProblems(v).map((text) => ({ text, tone: "problem" }));
+  // F-04: edits held in a note, counted, with their cause (§6), as the card's facts say them.
+  for (const h of [...v.held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1)))
+    problems.push({ text: heldFact(h), tone: "problem" });
   const info: PaneLine[] = [];
-  for (const c of v.conditions) {
-    const text = conditionText(c, v);
-    if (text !== null) problems.push({ text, tone: "problem" });
-  }
-  // F-04: edits held in a note come first among the facts, counted, with their cause (§6).
-  for (const h of v.held)
-    problems.push({
-      text: `${h.count === null ? "Edits" : plural(h.count, "edit")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).`,
-      tone: "problem",
-    });
   const q = v.sync.queue;
   if (q.batches > 0)
     info.push({
@@ -348,6 +312,11 @@ function statusLines(s: PaneSection, o: PaneOptions): PaneLine[] {
   else if (kinds.has("held-unchecked"))
     info.push({
       text: "No updates waiting in the sync queue. Notes with this section are still being checked for edits not sent.",
+      tone: "info",
+    });
+  if (kinds.has("held-unknown"))
+    info.push({
+      text: "Not current: whether a note with this section holds edits not sent is unknown.",
       tone: "info",
     });
   if (kinds.has("local-edit")) info.push({ text: "Local changes are being saved", tone: "info" });
@@ -569,8 +538,8 @@ function availability(f: PaneFacts): Map<ActionId, Avail> {
   if (reading) on("open-for-editing");
   if (f.setup) on("open-settings");
 
-  if (!noteOpen) off("copy-readable", "No note is open.");
-  else if (ctx.cursor === "inside-section" && s !== null) on("copy-readable");
+  // D10: an action that does not apply here is hidden, not disabled.
+  if (noteOpen && ctx.cursor === "inside-section" && s !== null) on("copy-readable");
 
   if (s === null || v === undefined) {
     if (next === "invite") on("invite");
@@ -618,10 +587,11 @@ function availability(f: PaneFacts): Map<ActionId, Avail> {
     on("go-to-problem");
 
   // Destructive: secondary, each with its existing confirmation (A1).
+  // Applicable unless this vault surely may not manage access; enabled only when it surely may.
   if (s.canInvite !== false) {
     if (v.connection !== "connected")
       off("remove-access", "Removing access needs a connection to the section's server.");
-    else if (v.access.current !== true || v.access.checking)
+    else if (s.canInvite !== true || v.access.current !== true || v.access.checking)
       off(
         "remove-access",
         "Removing access waits until this device has checked access with the server.",
@@ -631,6 +601,8 @@ function availability(f: PaneFacts): Map<ActionId, Avail> {
   if (v.held.some((h) => ACCESS_HELD.has(h.cause))) on("discard-local-copy");
   if (ctx.cursor === "inside-section") {
     if (reading) off("detach-section", "Open the note for editing to detach it.");
+    else if (kinds.has("loading"))
+      off("detach-section", "Detaching waits until this section has loaded on this device.");
     else on("detach-section");
   }
   return a;
@@ -651,13 +623,13 @@ function primaryOf(
     if (ctx.editor === "none")
       return {
         id: null,
-        none: "No note: the context area has no action. Join and the section list stay available.",
+        none: NO_PRIMARY.noNote,
       };
     const sel = ctx.selection;
     if (sel?.eligibility === "exact") return { id: "share-section", none: null };
     if (sel?.eligibility === "ineligible")
       return sel.fallback === null
-        ? { id: null, none: "No fallback: only the reason is shown." }
+        ? { id: null, none: NO_PRIMARY.noSection }
         : { id: "share-whole-section", none: null };
     if (ctx.cursor === "private-heading") return { id: "share-section", none: null };
     if (s !== null && v !== undefined) {
@@ -668,7 +640,7 @@ function primaryOf(
     }
     return {
       id: null,
-      none: "Put the cursor on a heading, or select a section, to share it.",
+      none: NO_PRIMARY.noHeading,
     };
   };
   const pick = (): { id: ActionId | null; none: string | null } => {

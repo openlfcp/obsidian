@@ -60,14 +60,13 @@
       },
       "expected": {
         "primaryCta": null,
-        "primaryCtaNone": "No note: the context area has no action. Join and the section list stay available.",
+        "primaryCtaNone": "Open a note to share from it, or join with a link.",
         "enabled": [
           { "action": "join-with-link", "reason": "Joining needs no note." },
           { "action": "insert-into-note", "reason": "From the section list: the user chooses or creates the note." }
         ],
         "disabled": [
-          { "action": "share-section", "reason": "Open a note to share a section from it." },
-          { "action": "copy-readable", "reason": "No note is open." }
+          { "action": "share-section", "reason": "Open a note to share a section from it." }
         ],
         "requiredClaims": [],
         "forbiddenClaims": ["Not inserted yet", "No shared sections", "Create collaboration"]
@@ -765,7 +764,6 @@
         "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
         "section": null,
         "preview": {
-          "sectionComments": "local",
           "counts": { "tasks": 2, "paragraphs": 2, "items": 0, "raw": 0 },
           "warnings": ["future-additions", "private-text-before-next-heading"],
           "problems": []
@@ -834,7 +832,7 @@
       },
       "expected": {
         "primaryCta": null,
-        "primaryCtaNone": "No fallback: the selection crosses into another section; only the reason is shown.",
+        "primaryCtaNone": "Select the lines of one section, from its heading, to share it.",
         "enabled": [
           { "action": "join-with-link", "reason": "Joining needs no selection." }
         ],
@@ -857,7 +855,6 @@
         "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
         "section": null,
         "preview": {
-          "sectionComments": "local",
           "counts": { "tasks": 2, "paragraphs": 1, "items": 0, "raw": 2 },
           "warnings": ["future-additions", "local-comments"],
           "problems": []
