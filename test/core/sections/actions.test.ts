@@ -178,6 +178,8 @@ class MemoryNotes implements SectionNotes {
 interface FakeCreation extends CreationService {
   /** What `run` does with an entry. */
   result: (entry: CreationEntry) => Promise<CreationResult>;
+  /** The entries as the journal holds them (`current`), by operation ID. */
+  readonly journal: Map<string, CreationEntry>;
   /** The note path getter `run` was last given. */
   lastAt: (() => string | null) | undefined;
 }
@@ -189,6 +191,11 @@ function fakeCreation(calls: string[]) {
     result: (entry: CreationEntry): Promise<CreationResult> =>
       Promise.resolve({ kind: "hosted", entry }),
     lastAt: undefined,
+    journal: new Map(),
+    async current(operationId: string) {
+      calls.push(`current ${operationId}`);
+      return c.journal.get(operationId);
+    },
     async prepare(path: string, _markdown: string, preview: SharePreview) {
       calls.push(`prepare ${path} "${preview.title}"`);
       return entry(`op-${++n}`, path, preview);
@@ -361,17 +368,98 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     ]);
   });
 
-  it("unknown outcome: a creation that throws is left to its journal, said so; the note is free again", async () => {
+  it("D12: an unknown outcome keeps the note; a repeat checks the same operation, never a new one", async () => {
     const t = setup();
-    t.prompter.script.share = [true, false];
+    t.prompter.script.share = [true];
     t.creation.result = () => Promise.reject(new Error("socket closed"));
     await t.actions.share(t.editor.at());
     expect(t.calls).toEqual(['prepare Plan.md "Plan"', "run op-1"]);
     expect(t.prompter.notices).toEqual([
-      'Shared Tasks: creating section "Plan" stopped (socket closed). It goes on at the next start.',
+      'Shared Tasks: creating section "Plan" stopped (socket closed); its result is not known yet. Share section… on this note checks it again and creates nothing new; it also goes on at the next start.',
     ]);
+    const [held] = t.actions.flows();
+    expect(held).toMatchObject({ kind: "share", path: "Plan.md", outcome: "unknown" });
+
+    // A repeat (any entry: share, insert) opens nothing and allocates nothing: it checks op-1 again.
+    t.prompter.notices.length = 0;
+    t.calls.length = 0;
+    // The journal went on as far as "local" before the error: the check resumes from there.
+    const journaled = entry("op-1", "Plan.md", { title: "Plan" } as SharePreview);
+    t.creation.journal.set("op-1", { ...journaled, phase: "local" });
+    await t.actions.share(t.editor.at());
+    await t.actions.insertSection(t.editor.at());
+    await flush();
+    const checking =
+      'Shared Tasks: the result of sharing section "Plan" from this note is being checked. Nothing new is created.';
+    expect(t.prompter.notices).toEqual([
+      checking,
+      checking,
+      'Shared Tasks: the result of creating section "Plan" is still not known (socket closed). Nothing new was created.',
+    ]);
+    // One check at a time; the same operation ID, as the journal holds it.
+    expect(t.calls).toEqual(["current op-1", "run op-1"]);
+    expect(t.prompter.dialogs.filter((d) => d.kind === "share")).toHaveLength(1);
+    expect(t.actions.flows()).toHaveLength(1);
+
+    // "Check the result" (the pane) settles it: the same op-1, hosted; the note is free.
+    t.prompter.notices.length = 0;
+    t.calls.length = 0;
+    const resumedFrom: string[] = [];
+    t.creation.result = (e) => {
+      resumedFrom.push(e.phase);
+      return Promise.resolve({ kind: "hosted", entry: e });
+    };
+    expect(await t.actions.checkResult(held?.generation ?? 0)).toBe(true);
+    expect(resumedFrom).toEqual(["local"]);
+    expect(t.calls).toEqual([
+      "current op-1",
+      "run op-1",
+      "registryChanged",
+      "watch",
+      "indexed Plan.md",
+      "pass Plan.md",
+    ]);
+    expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
+    expect(t.actions.flows()).toEqual([]);
+
+    // A late "Check the result" for the closed flow does nothing.
+    t.calls.length = 0;
+    expect(await t.actions.checkResult(held?.generation ?? 0)).toBe(false);
+    expect(t.calls).toEqual([]);
+
+    // A later explicit share is a new operation, from a new preview.
+    t.prompter.script.share = [true];
     await t.actions.share(t.editor.at());
     expect(t.prompter.dialogs.filter((d) => d.kind === "share")).toHaveLength(2);
+    expect(t.calls).toContain("run op-2");
+  });
+
+  it("D12: a stale or cancelled creation is known: the note is free at once", async () => {
+    const t = setup();
+    t.prompter.script.share = [true, false];
+    t.creation.result = (e) => Promise.resolve({ kind: "cancelled", entry: e });
+    await t.actions.share(t.editor.at());
+    expect(t.actions.flows()).toEqual([]);
+    await t.actions.share(t.editor.at());
+    expect(t.prompter.dialogs.filter((d) => d.kind === "share")).toHaveLength(2);
+  });
+
+  it("a creation a restart interrupted holds its note while it runs; a share meanwhile waits", async () => {
+    const t = setup();
+    let finish: (r: CreationResult) => void = () => undefined;
+    t.creation.result = () => new Promise((r) => (finish = r));
+    const resumed = entry("op-7", "Plan.md", { title: "Plan" } as SharePreview);
+    const running = t.actions.resumeCreation(resumed);
+    await flush();
+    await t.actions.share(t.editor.at());
+    expect(t.prompter.dialogs).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      'Shared Tasks: section "Plan" is being shared from this note. Its result shows when it is done.',
+    ]);
+    finish({ kind: "hosted", entry: resumed });
+    await running;
+    expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
+    expect(t.actions.flows()).toEqual([]);
   });
 
   it("stale preview: a note changed while the preview was open is shown again; a lost heading shares nothing", async () => {
@@ -488,8 +576,14 @@ function fakeInsertion(calls: string[]) {
     readOnly: false,
     revision: "r1",
   };
+  let n = 0;
   const i = {
     refused: null as InsertRefusal | null,
+    journal: new Map<string, InsertionEntry>(),
+    async current(insertionId: string) {
+      calls.push(`current ${insertionId}`);
+      return i.journal.get(insertionId);
+    },
     result: (e: InsertionEntry): Promise<InsertResult> =>
       Promise.resolve({ kind: "inserted", entry: e }),
     async preview(): Promise<InsertPreview | { readonly refused: InsertRefusal }> {
@@ -499,7 +593,7 @@ function fakeInsertion(calls: string[]) {
     async prepare(path: string, markdown: string, line: number, p: InsertPreview) {
       calls.push(`prepare ${path} line ${line} rev ${markdown.length}`);
       const entry: InsertionEntry = {
-        insertionId: "ins-1",
+        insertionId: `ins-${++n}`,
         path,
         preview: p,
         target: { revision: "x", line, anchor: null, before: 0 },
@@ -546,6 +640,38 @@ describe("insert (LFCP-03-008 over 052)", () => {
       "pass Plan.md",
     ]);
     expect(t.prompter.notices).toEqual([]);
+  });
+
+  it("D12: an insertion that throws keeps the note; a repeat checks ins-1; a later insert is ins-2", async () => {
+    const t = insertSetup();
+    t.prompter.script.pick = [choice];
+    t.prompter.script.insert = [true];
+    t.insertion.result = () => Promise.reject(new Error("disk full"));
+    await t.actions.insertSection(t.editor.at());
+    expect(t.prompter.notices).toEqual([
+      'Shared Tasks: inserting section "Shared" stopped (disk full); whether it was written is not known yet. Insert shared section… on this note checks it again and inserts nothing new.',
+    ]);
+    expect(t.actions.flows()).toMatchObject([{ kind: "insert", outcome: "unknown" }]);
+
+    // A repeat from the palette, or a share on the same note: no dialog, no new insertion ID.
+    t.calls.length = 0;
+    t.prompter.notices.length = 0;
+    t.insertion.result = (e) => Promise.resolve({ kind: "inserted", entry: e });
+    await t.actions.insertSection(t.editor.at());
+    await flush(20);
+    expect(t.prompter.notices[0]).toBe(
+      'Shared Tasks: the result of inserting section "Shared" into this note is being checked. Nothing new is inserted.',
+    );
+    expect(t.calls).toEqual(["current ins-1", "run ins-1", "indexed Plan.md", "pass Plan.md"]);
+    expect(t.prompter.dialogs.filter((d) => d.kind === "pick")).toHaveLength(1);
+    expect(t.actions.flows()).toEqual([]);
+
+    // Settled: a later explicit insert is a new insertion.
+    t.calls.length = 0;
+    t.prompter.script.pick = [choice];
+    t.prompter.script.insert = [true];
+    await t.actions.insertSection(t.editor.at());
+    expect(t.calls).toContain("run ins-2");
   });
 
   it("stale: the note changed where the block would go; nothing indexed, said once", async () => {

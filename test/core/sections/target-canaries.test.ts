@@ -150,6 +150,7 @@ function setup() {
     candidates: none,
     model: none,
     readOnly: () => false,
+    unavailable: none,
     server: () => "wss://sync.example/v1/ws",
     refPlacement: () => "child-line",
     watch: async () => undefined,

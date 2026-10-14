@@ -244,6 +244,11 @@ export class SectionInsertion {
   }
 
   /** The insertions not written yet, to resume. */
+  /** The entry as the journal holds it now (a reconcile of an unknown outcome resumes it), if any. */
+  async current(insertionId: string): Promise<InsertionEntry | undefined> {
+    return (await this.deps.journal.get(entryKey(insertionId))) as InsertionEntry | undefined;
+  }
+
   async unfinished(): Promise<InsertionEntry[]> {
     const out: InsertionEntry[] = [];
     for (const id of ids(await this.deps.journal.get(OPEN))) {

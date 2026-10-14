@@ -2,10 +2,19 @@
 // insert, detach, repair and the section card, Obsidian-free. An editor
 // adapter supplies the ports of action-ports.ts; this executor decides what
 // to ask, checks again before each side effect, and calls the section cores
-// (share, create, insert, rules, repair, recovery). The palette and the
-// card call it now; the menu and pane entries (LFCP-03-010, 012) call the
-// same methods, so every surface shares one handler, one guard and one
-// reservation per note.
+// (share, create, insert, rules, repair, recovery). Every surface (palette,
+// card, editor menu, pane) reaches these methods through one dispatcher
+// (actions/dispatcher.ts, LFCP-03-010), so it shares one handler, one
+// guard and one reservation per note. The guards are the action
+// descriptors' predicates (actions/descriptors.ts), checked again here on
+// the facts as they are when the action runs.
+//
+// An effect whose outcome is unknown (a creation or an insertion that
+// threw) does not free its note (owner decision D12): the flow stays
+// reserved until a reconcile of the same operation, from its journal,
+// finds the result. A repeated start meanwhile runs that check and says
+// so; it never allocates a new operation. Once the result is known, a
+// later explicit share or insert is a new operation.
 //
 // Behaviour is that of 0.4.0's SectionsHost, moved: the texts, the order of
 // the dialogs and the checks are unchanged, except where LFCP-03-009 binds
@@ -15,8 +24,8 @@
 // eligible selection as it is (UX contract 0.3 §4).
 
 import { fromBase64url, type ResourceId, toBase64url } from "@openlfcp/core";
-import { type Flow, InFlight } from "../in-flight";
-import { SECTIONS_READ_ONLY } from "../lfcp/runtime";
+import { type HostNeeds, hostRefusal, hostRefusalNotice } from "../actions/descriptors";
+import { type Flow, InFlight, type Reconciled } from "../in-flight";
 import { type NoteTarget, NoteTargets } from "../note-targets";
 import { scanRefs } from "../refs";
 import { REMOVE_CONFIRMATION, type RevokeOutcome, revokeMessage } from "../status/access";
@@ -36,7 +45,13 @@ import { sectionAtLine, sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
 import { sameState, sharedState } from "./engine";
 import { sameSection } from "./grammar";
-import { type InsertResult, insertRefusalMessage, renderSection } from "./insert";
+import {
+  type InsertionEntry,
+  type InsertPreview,
+  type InsertResult,
+  insertRefusalMessage,
+  renderSection,
+} from "./insert";
 import { type LegacySource, legacyPreflight } from "./legacy";
 import { type ParsedSection, parseSections } from "./parser";
 import type { SectionSnapshot } from "./port";
@@ -63,9 +78,37 @@ export interface SectionActionEnv {
   readonly services: SectionServices;
 }
 
+/** A share, import or insert flow, as the pane lists it (LFCP-03-013). */
+export interface ActiveFlow {
+  /** The flow's number: "Check the result" names it, so a late click on a closed flow does nothing. */
+  readonly generation: number;
+  readonly kind: "share" | "insert";
+  /** The note the flow holds, where it is now; null once deleted. */
+  readonly path: string | null;
+  /** Where it stands, in words. */
+  readonly stage: string;
+  /** "unknown": its last effect's result is not known; the note stays reserved until it is. */
+  readonly outcome: "running" | "unknown";
+  /** A check of the unknown result runs now. */
+  readonly checking: boolean;
+}
+
+/** What a creation came to: its journal's result, or unknown (it threw). */
+type CreationOutcome =
+  | { readonly kind: "known"; readonly result: CreationResult }
+  | { readonly kind: "unknown"; readonly error: unknown };
+
+/** Share and import: a new section is hosted from this device. */
+const SHARE_NEEDS: HostNeeds = { writes: true, server: true };
+const SHARE_AGAIN = "Share the section again in a moment.";
+
+const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
 export class SectionActions {
   /** Share, import and insert flows, one per note at a time (F-03, F-C04), keyed by its held identity. */
   readonly #flows = new InFlight();
+  /** What each running flow is and holds, by generation (the pane's list of flows). */
+  readonly #active = new Map<number, { kind: ActiveFlow["kind"]; target: NoteTarget }>();
   /** The notes those flows act on, followed across renames (LFCP-03-002). */
   readonly #targets = new NoteTargets();
   /** The open details card, redrawn when its section's status changes. */
@@ -116,8 +159,29 @@ export class SectionActions {
       const approved = await this.#shareSection(captured(at), target, flow, whole);
       if (approved === null) return;
       flow.stage = `section "${approved.preview.title}" is being shared from this note. Its result shows when it is done.`;
-      await this.#createSection(approved.path, approved.text, approved.preview, target);
+      await this.#createSection(approved.path, approved.text, approved.preview, target, flow);
     });
+  }
+
+  /**
+   * The host guard of the action descriptors (hostRefusal), on the host as
+   * it is now: says why not and returns true when the host refuses.
+   * `starting` is whether the services this action needs are not running yet.
+   */
+  #refused(needs: HostNeeds, starting: boolean, again?: string): boolean {
+    const { prompter, services } = this.env;
+    const why = hostRefusal(
+      {
+        unavailable: services.unavailable(),
+        starting,
+        readOnly: services.readOnly(),
+        server: services.server().trim() !== "",
+      },
+      needs,
+    );
+    if (why === null) return false;
+    prompter.notice(hostRefusalNotice(why, again));
+    return true;
   }
 
   /** The note at `path` now: its open editor's text, else its file's; null when no file is there. */
@@ -152,28 +216,75 @@ export class SectionActions {
     path: string,
     kind: "share" | "insert",
     body: (target: NoteTarget, flow: Flow) => Promise<void>,
+    busy: (running: Flow) => void = (running) => this.#revealFlow(running),
   ): Promise<void> {
+    // Held until the flow closes: an unknown outcome keeps the note, and follows its renames.
     const held = this.#targets.hold(path);
-    try {
-      await this.#flows.run(
-        `note:${held.target.id}`,
-        (running) => this.#revealFlow(running),
-        (flow) => body(held.target, flow),
-        kind === "share"
-          ? "a section of this note is being shared."
-          : "a section is being inserted into this note.",
-      );
-    } finally {
-      held.release();
-    }
+    let generation = 0;
+    await this.#flows.run(
+      `note:${held.target.id}`,
+      (running) => {
+        held.release();
+        busy(running);
+      },
+      (flow) => {
+        generation = flow.generation;
+        this.#active.set(generation, { kind, target: held.target });
+        return body(held.target, flow);
+      },
+      kind === "share"
+        ? "a section of this note is being shared."
+        : "a section is being inserted into this note.",
+      () => {
+        this.#active.delete(generation);
+        held.release();
+      },
+    );
   }
 
-  /** A repeated start of a running flow: its open dialog brought forward, else where it stands. */
+  /**
+   * A repeated start of a running flow: its open dialog brought forward,
+   * else where it stands. A flow whose result is unknown is checked again
+   * (the same operation, from its journal), never started anew (D12).
+   */
   #revealFlow(running: Flow): void {
     if (running.reveal()) return;
     const text = `Shared Tasks: ${running.stage}`;
     this.env.prompter.notice(text);
     this.env.prompter.announce(text);
+    if (running.unknown) void running.check();
+  }
+
+  /** The share, import and insert flows running now, or whose result is being reconciled. */
+  flows(): ActiveFlow[] {
+    const out: ActiveFlow[] = [];
+    for (const [, f] of this.#flows.entries()) {
+      const a = this.#active.get(f.generation);
+      if (a === undefined) continue;
+      out.push({
+        generation: f.generation,
+        kind: a.kind,
+        path: a.target.path,
+        stage: f.stage,
+        outcome: f.unknown ? "unknown" : "running",
+        checking: f.checking,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * "Check the result" (UX contract §3, `check-result`): reconciles the
+   * unknown result of flow `generation`, the same operation from its
+   * journal. A flow that closed meanwhile (a late click) is left alone:
+   * false.
+   */
+  async checkResult(generation: number): Promise<boolean> {
+    const flow = this.#flows.byGeneration(generation);
+    if (flow === undefined || !flow.unknown) return false;
+    this.#revealFlow(flow);
+    await flow.check();
+    return true;
   }
 
   /** While `dialog` is open, a repeated start of `flow` brings it forward and says so. */
@@ -207,10 +318,8 @@ export class SectionActions {
     if (!(await this.#startable(at, target, "inserted"))) return;
     const insertion = services.insertion();
     const choices = insertion === null ? null : await services.sectionChoices();
-    if (insertion === null || choices === null) {
-      prompter.notice("Shared Tasks: still starting. Try again in a moment.");
-      return;
-    }
+    if (this.#refused({}, insertion === null || choices === null)) return;
+    if (insertion === null || choices === null) return;
     if (choices.length === 0) {
       prompter.notice("Shared Tasks: no shared section on this device yet.");
       return;
@@ -245,24 +354,75 @@ export class SectionActions {
       prompter.notice(invalidationText(why, "inserted"));
       return;
     }
+    if (this.#refused({}, services.insertion() === null)) return;
     const entry = await insertion.prepare(path, at.text, at.cursorLine, preview);
-    const result = await insertion.run(entry);
-    this.#notifyInsertion(result);
-    if (result.kind === "inserted") {
-      const after = await this.#now(path);
-      if (after !== null) {
-        services.indexed(path, after.text);
-        // As 0.4.0: a pass of the open note only. A file pass of the closed
-        // note here, on the text just written, kept a collaborator's later
-        // deletion from reaching the other note (live soak #5).
-        services.pass(path);
-      }
-      // U03-12: a note closed meanwhile was written as a file; the result names it.
-      if (!now.open)
-        prompter.notice(
-          `Shared Tasks: section "${preview.title}" was inserted into "${noteName(path)}", which is not open.`,
-        );
+    flow.stage = `section "${preview.title}" is being inserted into this note.`;
+    let result: InsertResult;
+    try {
+      result = await insertion.run(entry);
+    } catch (e) {
+      // D12: whether the block was written is unknown. The note stays reserved; the same insertion is checked.
+      prompter.notice(
+        `Shared Tasks: inserting section "${preview.title}" stopped (${errorText(e)}); whether it was written is not known yet. Insert shared section… on this note checks it again and inserts nothing new.`,
+      );
+      flow.unresolved(
+        `the result of inserting section "${preview.title}" into this note is being checked. Nothing new is inserted.`,
+        () => this.#reconcileInsertion(entry, preview),
+      );
+      return;
     }
+    await this.#inserted(result, entry.path, now.open, preview);
+  }
+
+  /** What became of an insertion, said, and the note indexed and passed when it was written. */
+  async #inserted(
+    result: InsertResult,
+    path: string,
+    open: boolean,
+    preview: InsertPreview,
+  ): Promise<void> {
+    const { prompter, services } = this.env;
+    this.#notifyInsertion(result);
+    if (result.kind !== "inserted") return;
+    const after = await this.#now(path);
+    if (after !== null) {
+      services.indexed(path, after.text);
+      // As 0.4.0: a pass of the open note only. A file pass of the closed
+      // note here, on the text just written, kept a collaborator's later
+      // deletion from reaching the other note (live soak #5).
+      services.pass(path);
+    }
+    // U03-12: a note closed meanwhile was written as a file; the result names it.
+    if (!open)
+      prompter.notice(
+        `Shared Tasks: section "${preview.title}" was inserted into "${noteName(path)}", which is not open.`,
+      );
+  }
+
+  /**
+   * An insertion whose result was unknown, run again from its journal: the
+   * same insertion ID, which finds its block if it was written (D12).
+   */
+  async #reconcileInsertion(entry: InsertionEntry, preview: InsertPreview): Promise<Reconciled> {
+    const insertion = this.env.services.insertion();
+    if (insertion === null) return "unknown";
+    const current = (await insertion.current(entry.insertionId)) ?? entry;
+    let result: InsertResult;
+    try {
+      result = await insertion.run(current);
+    } catch (e) {
+      this.env.prompter.notice(
+        `Shared Tasks: whether section "${preview.title}" was inserted is still not known (${errorText(e)}). Nothing new was inserted.`,
+      );
+      return "unknown";
+    }
+    await this.#inserted(
+      result,
+      current.path,
+      this.env.notes.capture(current.path) !== null,
+      preview,
+    );
+    return "settled";
   }
 
   /** What became of an insertion, when there is something to say. */
@@ -287,33 +447,78 @@ export class SectionActions {
     markdown: string,
     preview: SharePreview,
     /** The note held by the flow: a rename before the note is bound is followed (LFCP-03-002). */
-    target?: NoteTarget,
+    target: NoteTarget,
+    flow: Flow,
   ): Promise<void> {
-    const { prompter, services } = this.env;
-    const creation = services.creation();
-    if (creation === null) {
-      prompter.notice("Shared Tasks: still starting. Share the section again in a moment.");
-      return;
-    }
-    if (services.server().trim() === "") {
-      prompter.notice(
-        "Shared Tasks: set a default sync server in the settings to share a section.",
-      );
-      return;
-    }
+    const creation = this.env.services.creation();
+    // The descriptors' guard again, as the effect starts.
+    if (this.#refused(SHARE_NEEDS, creation === null, SHARE_AGAIN) || creation === null) return;
     const entry = await creation.prepare(path, markdown, preview);
-    await this.#finish(entry, target).then(
-      (r) => this.#notifyCreation(entry, r),
-      this.#notifyFailure(entry),
+    await this.#settle(entry, target, flow);
+  }
+
+  /**
+   * A creation a restart interrupted goes on from its journal (SSP §12.2),
+   * its result said. It holds its note like a share does (D12), so a share
+   * started meanwhile on that note waits for its result; when the note is
+   * already held, it runs as before, unreserved.
+   */
+  resumeCreation(entry: CreationEntry): Promise<void> {
+    return this.#oneFlow(
+      entry.path,
+      "share",
+      async (target, flow) => {
+        flow.stage = `section "${entry.preview.title}" is being shared from this note. Its result shows when it is done.`;
+        await this.#settle(entry, target, flow);
+      },
+      () => void this.#settle(entry),
     );
   }
 
-  /** A creation a restart interrupted goes on from its journal (SSP §12.2), its result said. */
-  resumeCreation(entry: CreationEntry): Promise<void> {
-    return this.#finish(entry).then(
-      (r) => this.#notifyCreation(entry, r),
-      this.#notifyFailure(entry),
+  /**
+   * Runs a creation and says what became of it. An unknown outcome keeps
+   * the flow's note reserved (D12) until a reconcile of the same operation
+   * settles it; without a flow it is left to its journal.
+   */
+  async #settle(entry: CreationEntry, target?: NoteTarget, flow?: Flow): Promise<void> {
+    const out = await this.#outcome(entry, target);
+    if (out.kind === "known") {
+      this.#notifyCreation(entry, out.result);
+      return;
+    }
+    const title = entry.preview.title;
+    this.env.prompter.notice(
+      `Shared Tasks: creating section "${title}" stopped (${errorText(out.error)}); its result is not known yet. Share section… on this note checks it again and creates nothing new; it also goes on at the next start.`,
     );
+    flow?.unresolved(
+      `the result of sharing section "${title}" from this note is being checked. Nothing new is created.`,
+      () => this.#reconcileCreation(entry, target),
+    );
+  }
+
+  /** A creation whose outcome was unknown, run again from its journal: the same operation ID (D12). */
+  async #reconcileCreation(entry: CreationEntry, target?: NoteTarget): Promise<Reconciled> {
+    const creation = this.env.services.creation();
+    if (creation === null) return "unknown";
+    const current = (await creation.current(entry.operationId)) ?? entry;
+    const out = await this.#outcome(current, target);
+    if (out.kind === "unknown") {
+      this.env.prompter.notice(
+        `Shared Tasks: the result of creating section "${entry.preview.title}" is still not known (${errorText(out.error)}). Nothing new was created.`,
+      );
+      return "unknown";
+    }
+    this.#notifyCreation(current, out.result);
+    return "settled";
+  }
+
+  /** A creation's typed outcome: hosted, local, stale, failed or cancelled; unknown when it threw. */
+  async #outcome(entry: CreationEntry, target?: NoteTarget): Promise<CreationOutcome> {
+    try {
+      return { kind: "known", result: await this.#finish(entry, target) };
+    } catch (error) {
+      return { kind: "unknown", error };
+    }
   }
 
   /** Runs a creation; with the flow's held note, at that note's path at each write. */
@@ -357,11 +562,9 @@ export class SectionActions {
     whole: boolean,
   ): Promise<{ preview: SharePreview; path: string; text: string } | null> {
     const { prompter, services } = this.env;
-    // V3: no new shared section from a device where sections are read-only.
-    if (services.readOnly()) {
-      prompter.notice(`Shared Tasks: ${SECTIONS_READ_ONLY}.`);
-      return null;
-    }
+    // V3: no new shared section from a device where sections are read-only;
+    // none while starting or without a server (the descriptors' guard).
+    if (this.#refused(SHARE_NEEDS, services.creation() === null, SHARE_AGAIN)) return null;
     if (!(await this.#startable(at, target, "shared"))) return null;
     const md = at.text;
     const scope = shareScope(md, at.cursorLine, at.selections);
@@ -461,10 +664,7 @@ export class SectionActions {
   ): Promise<void> {
     const { prompter, services } = this.env;
     const creation = services.creation();
-    if (creation === null) {
-      prompter.notice("Shared Tasks: still starting. Try again in a moment.");
-      return;
-    }
+    if (this.#refused(SHARE_NEEDS, creation === null) || creation === null) return;
     const md = at.text;
     // The sources as this device holds them now (0.1 collaborations).
     const sources = new Map<string, LegacySource>();
@@ -501,12 +701,8 @@ export class SectionActions {
       return;
     }
     if (flow !== undefined) flow.stage = `section "${title}" is being imported from this note.`;
-    if (services.server().trim() === "") {
-      prompter.notice(
-        "Shared Tasks: set a default sync server in the settings to share a section.",
-      );
-      return;
-    }
+    // The descriptors' guard again, as the effect starts.
+    if (this.#refused(SHARE_NEEDS, services.creation() === null)) return;
     let entry: CreationEntry;
     try {
       entry = await creation.prepareImport(path, now.text, range, source, chosen);
@@ -516,10 +712,7 @@ export class SectionActions {
       );
       return;
     }
-    await this.#finish(entry, target).then(
-      (r) => this.#notifyCreation(entry, r),
-      this.#notifyFailure(entry),
-    );
+    await this.#settle(entry, target, flow);
   }
 
   /**
@@ -644,10 +837,8 @@ export class SectionActions {
     const model = services.model();
     const bases = services.bases();
     const journal = services.candidates();
-    if (model === null || bases === null || journal === null) {
-      prompter.notice("Shared Tasks: still starting. Try again in a moment.");
-      return;
-    }
+    if (this.#refused({}, model === null || bases === null || journal === null)) return;
+    if (model === null || bases === null || journal === null) return;
     const md = at.text;
     const items = repairItems(md);
     const known = new Set<string>();
@@ -743,11 +934,7 @@ export class SectionActions {
    */
   async openCard(key: string, title: string): Promise<void> {
     const { prompter, notes, services } = this.env;
-    const unavailable = services.unavailable();
-    if (unavailable !== null) {
-      prompter.notice(unavailable);
-      return;
-    }
+    if (this.#refused({}, false)) return;
     const content = await services.cardContent(key, title);
     if (content === null) {
       prompter.notice("Shared Tasks: this section is still loading. Try again in a moment.");
@@ -768,10 +955,11 @@ export class SectionActions {
     const actions: CardAction[] = [
       // Conflicts are resolved one by one, by the user (061).
       ...(conflicts.length > 0
-        ? [{ label: "Review conflicts…", run: () => this.#openRecovery(key, title) }]
+        ? [{ label: "Review conflicts…", run: () => this.reviewConflicts(key, title) }]
         : []),
-      // Inviting is offered by the validated access (060), never by default.
-      ...(content.access?.canInvite === true && !services.readOnly()
+      // Inviting is offered by the validated access (060), never by default;
+      // never from a device where sections are read-only (the descriptors' guard).
+      ...(content.access?.canInvite === true && !this.#mayNot({ writes: true })
         ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
         : []),
       // F-04: where edits are held, and the repair of that note.
@@ -815,7 +1003,7 @@ export class SectionActions {
       },
       // 060: confirmed first; queued is pending until the server commits it.
       // V3: no access change from a device where sections are read-only.
-      ...(services.readOnly()
+      ...(this.#mayNot({ writes: true })
         ? {}
         : {
             remove: (principal: string, label: string) => {
@@ -886,22 +1074,42 @@ export class SectionActions {
    * (F-05): that section's "Review conflicts…", as its card opens it.
    */
   reviewConflictsAt(text: string, line: number): void {
-    const { prompter, services } = this.env;
-    const unavailable = services.unavailable();
-    if (unavailable !== null) {
-      prompter.notice(unavailable);
-      return;
-    }
+    if (this.#refused({}, false)) return;
     const at = sectionAtLine(text, line);
     if (at === null) {
-      prompter.notice("Shared Tasks: put the cursor in a shared section to review its conflicts.");
+      this.env.prompter.notice(
+        "Shared Tasks: put the cursor in a shared section to review its conflicts.",
+      );
       return;
     }
-    if (services.model() === null || !services.known(at.key)) {
+    this.reviewConflicts(at.key, at.title);
+  }
+
+  /** "Review conflicts…" of section `key` (the card's button, the pane's), once it has loaded. */
+  reviewConflicts(key: string, title: string): void {
+    const { prompter, services } = this.env;
+    if (this.#refused({}, false)) return;
+    if (services.model() === null || !services.known(key)) {
       prompter.notice("Shared Tasks: this section is still loading. Try again in a moment.");
       return;
     }
-    this.#openRecovery(at.key, at.title);
+    this.#openRecovery(key, title);
+  }
+
+  /** Whether the host guard refuses `needs` now, without saying so (an entry not offered). */
+  #mayNot(needs: HostNeeds): boolean {
+    const { services } = this.env;
+    return (
+      hostRefusal(
+        {
+          unavailable: services.unavailable(),
+          starting: false,
+          readOnly: services.readOnly(),
+          server: services.server().trim() !== "",
+        },
+        needs,
+      ) !== null
+    );
   }
 
   /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
@@ -970,14 +1178,6 @@ export class SectionActions {
       );
     else if (r.kind === "failed")
       notice(`Shared Tasks: section "${title}" could not be created (${r.reason}).`);
-  }
-
-  /** A creation that threw: its outcome is unknown, so it is left to its journal. */
-  #notifyFailure(entry: CreationEntry): (e: unknown) => void {
-    return (e) =>
-      this.env.prompter.notice(
-        `Shared Tasks: creating section "${entry.preview.title}" stopped (${e instanceof Error ? e.message : String(e)}). It goes on at the next start.`,
-      );
   }
 }
 
