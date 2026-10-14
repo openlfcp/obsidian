@@ -9,6 +9,7 @@
 | [architecture/collaboration.md](architecture/collaboration.md) | developers | The collaboration commands: SDK flows, invite presets, secrets, exact-byte detach, offline and blocked states (LFCP-065) |
 | [architecture/section-parser.md](architecture/section-parser.md) | developers | The shared-section parser (MVP 0.2, not wired yet): modules, reuse of the 0.1 scanner, fail-closed boundaries, raw blocks, the private tail |
 | [architecture/decisions/0001-codemirror-transactions-for-sections.md](architecture/decisions/0001-codemirror-transactions-for-sections.md) | developers | ADR 0001 (proposed, MVP 0.2): CodeMirror transactions for shared sections in open notes, the file path for the rest; spikes S1–S6 |
+| [architecture/ux-contract-0.3.md](architecture/ux-contract-0.3.md) | developers | The MVP 0.3 UX contract (LFCP-03-006): actions and labels, target and exact selection with explicit fallback, call-to-action precedence, what status facts may claim, shared title and local alias, raw blocks and comments, invitation text, scope limits, resolved contradictions with the package; fixtures in test/fixtures/ux-0.3 |
 | [demos/two-vault-demo.md](demos/two-vault-demo.md) | everyone | The canonical two-vault demo in real Obsidian, step by step with expected results (LFCP-072) |
 | [assets/shared-tasks-demo.gif](assets/shared-tasks-demo.gif) | everyone | The demo animation shown in the README: a task ticked in one vault updates in the other (synthetic notes) |
 | [guides/user-guide.md](guides/user-guide.md) | everyone | Step-by-step user guide: install, create, share, invite, join, many tasks at once, offline, conflicts, troubleshooting |
@@ -17,6 +18,7 @@
 | [devel/testing/mobile-sections-checklist.md](devel/testing/mobile-sections-checklist.md) | developers, owner | Manual checks of read-only shared sections on one mobile device (LFCP-02-095, V3) |
 | [devel/testing/two-obsidian-beta-check.md](devel/testing/two-obsidian-beta-check.md) | release | One-page manual check of a 0.4 beta on two real Obsidian vaults: invitation, editing together, offline, a conflict, removing access |
 | [devel/testing/two-vault-e2e.md](devel/testing/two-vault-e2e.md) | developers | The two-vault E2E against the real server: running it, what it proves, the harness (LFCP-066) |
+| [devel/testing/pilot-0.3.md](devel/testing/pilot-0.3.md) | developers, release | MVP 0.3 performance budgets (B1–B6) and the human pilot protocol (five pairs, threshold, what is recorded), frozen before any measurement (LFCP-03-006) |
 | [devel/testing/security-vertical-slice.md](devel/testing/security-vertical-slice.md) | release | The MVP 0.1 security/privacy release gate (LFCP-071): every security boundary in one live scenario |
 | [devel/testing/load-in-clean-vault.md](devel/testing/load-in-clean-vault.md) | developers | Manual check: load the built plugin in a clean vault |
 | [devel/testing/ime-checklist.md](devel/testing/ime-checklist.md) | release | Manual IME check in a shared note before the first 0.4 beta (the condition of ADR 0001) |
@@ -67,4 +69,3 @@
 
 The Markdown ref grammar is normative and lives in
 `spec: integration/MARKDOWN-REFS-01.md`.
-| [architecture/ux-contract-0.3.md](architecture/ux-contract-0.3.md) | developers | The MVP 0.3 UX contract (LFCP-03-006): actions and labels, target and exact selection with explicit fallback, call-to-action precedence, what status facts may claim, shared title and local alias, raw blocks and comments, invitation text, scope limits, resolved contradictions with the package; fixtures in test/fixtures/ux-0.3 |
