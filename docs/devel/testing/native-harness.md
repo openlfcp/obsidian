@@ -5,11 +5,10 @@ desktop app, started from the command line. The specs read Obsidian's state
 (the app object, the DOM, CodeMirror) and run commands. The unit tests
 (`pnpm test`) cannot reach any of this: they use a mock of the Obsidian API.
 
-Locally with `pnpm native`; in CI by hand: the "Native harness" workflow
-(`.github/workflows/native.yml`, Actions → Run workflow) runs it on macOS,
-Linux (under `xvfb-run`) and Windows for both pinned Obsidian versions. It
-caches Obsidian with `actions/cache` and keeps each log, `METRIC` lines
-included, as an artifact. Metrics never gate.
+Locally with `pnpm native`; in CI on demand with the "Native harness"
+workflow (`.github/workflows/native.yml`, [below](#run-it-in-ci)). CI is
+the place for a full run: a task branch does not need the owner's Mac, its
+630 MB Obsidian cache or a server built at `server.lock`.
 
 ## Run it
 
@@ -26,6 +25,63 @@ downloads Obsidian. Later runs take about 20 seconds for both versions.
 - `pnpm --dir test/native test -- --spec test/native/specs/smoke.e2e.mjs`:
   run one spec without rebuilding. It uses whatever `main.js` is in the
   repository root.
+
+## Run it in CI
+
+The workflow runs only when started by hand, on any branch:
+
+```sh
+gh workflow run native.yml --ref <branch>                       # every spec, ubuntu-latest, Obsidian 1.14.4
+gh workflow run native.yml --ref <branch> -f specs="smoke,section-ime*"
+gh workflow run native.yml --ref <branch> -f os="ubuntu-latest,macos-latest,windows-latest" -f obsidian="1.13.4,1.14.4"
+gh run watch <run id> --exit-status
+gh run view <run id> --log-failed
+```
+
+Or Actions → "Native harness" → Run workflow, with the same inputs.
+
+| Input | Default | What |
+| --- | --- | --- |
+| `specs` | empty: every spec | Spec names (`smoke`), file names (`smoke.e2e.mjs`) or globs (`section-*`) under `test/native/specs`, separated by commas or spaces. A name that matches nothing fails the run |
+| `os` | `ubuntu-latest` | Runners, comma-separated: `ubuntu-latest`, `macos-latest`, `windows-latest`. Linux is the cheapest; add the others for a platform check |
+| `obsidian` | `1.14.4` | Obsidian versions, comma-separated; the pinned ones are `1.13.4` and `1.14.4`. Each version is its own job |
+
+What a run does:
+
+1. **Server.** One job per system checks out `openlfcp/server` at the
+   commit in `server.lock` and `openlfcp/sdk-rs` at the server's own
+   `sdk-rs.lock`, and builds `lfcp-server` with `cargo build --release
+   --locked` (toolchain: the server's `rust-toolchain.toml`). Its target
+   directory is cached by system, server commit and `Cargo.lock`: a cold
+   build takes several minutes, a cached one seconds. The binary goes to
+   the harness jobs as an artifact.
+2. **Harness.** One job per system and Obsidian version builds the plugin
+   and the harness bundles (`pnpm native` without the run), with
+   `LFCP_SERVER_BIN` set to that binary and `LFCP_REQUIRE_LIVE=1`. The live
+   specs never skip: without a server they fail. The spec checkout
+   (`spec.lock`) is not needed: no native spec reads it.
+3. **No skips.** The release assets `specs/upgrade-install.e2e.mjs`
+   updates from (0.3.4, 0.4.0-beta.15) are downloaded into the harness
+   cache first, and a job whose log reports any skipped test fails.
+4. **Caches.** Obsidian (installer, app, chromedriver) is cached per
+   system and version with `actions/cache`, under the runner's temp
+   directory (`OPENLFCP_OBSIDIAN_CACHE`).
+
+Every spec on `ubuntu-latest` with one Obsidian version takes about 20
+minutes in all: about a minute for the server, 15 to 16 for the specs
+(2026-10-15, 38 spec files).
+
+Results:
+
+- The job summary lists the reporter's totals per spec file.
+- The artifact `native-<os>-<version>` holds `native.log`: the whole
+  WebdriverIO output with the `METRIC {…}` and `EVIDENCE {…}` lines. Get it
+  with `gh run download <run id> -n native-ubuntu-latest-1.14.4`, then
+  `grep -E 'METRIC|EVIDENCE' native.log`. Cite the run id in a PR's
+  evidence. Metrics vary by runner and never gate.
+- A failure: `gh run view <run id> --log-failed` shows the failing step;
+  the spec reporter's error and stack are in `native.log` (search for
+  `✖` or `failing`). Rerun only the failing spec with `-f specs=<name>`.
 
 ## What it never touches
 
