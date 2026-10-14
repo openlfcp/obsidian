@@ -244,3 +244,57 @@ section was ever at "Server confirmation unavailable" (EVIDENCE_UNKNOWN)
 or stuck sending. #9: no section showed "reappeared", its symptom (this
 run had no per-move trace). Raw data:
 `~/dev/openlfcp-rw/runs/soak/accept-b18/` on the test machine.
+
+## 7. Final acceptance soak on 0.4.0-beta.19
+
+**Date:** 2026-10-14. **Run:** 13:27–15:32 UTC, 125 minutes, on obsidian
+`main` at `43c7ce2` (0.4.0-beta.19) with `@openlfcp/*` 0.2.0-beta.10.
+That build contains `01231e4` (#12). The harness, events and criteria
+are those of §1 and §2, with the events scaled to the 2-hour run:
+- one peer offline every 7–15 min for 1–2.5 min;
+- server restarts at 40 and 80 min;
+- the removal and the new member at 60 min.
+
+The main criterion this time was pass p95 under about 0.5 s through the
+run. robust-simon's rc15 gates ran at nice 19 from about 13:30 to 13:45
+UTC (3–18 min). Nothing else ran.
+
+### Result
+
+| Criterion | Result |
+| --- | --- |
+| Pass p95 under ~0.5 s | **Met but at the last checkpoint.** p50 is flat at 98–126 ms through 4,979 units (beta.18: 1.1–1.3 s from 3,300). p95 stays at 164–437 ms to 111 min, and is 526 ms on A at 125 min (B 455, C2 347). The tail rises slowly in the second hour (A: 313, 343, 410, 437, 526 ms at 76–125 min); single passes reached 1.8 s at the end. |
+| No divergence | **Models met; notes with transients.** The models (and the 0.1 tasks) were equal at all 12 checkpoints. 9 of 12 converged fully. At 66 and 91 min, B's note showed one node more than the model ("Needs your attention", source-diverged), each cleared by the next checkpoint. At 125 min, the last, C2's note had 2 unbound lines and two Task titles behind the model, also shown as source-diverged; no later checkpoint shows whether it cleared. |
+| Memory | WASM 6–25 MiB. RSS from 320–356 MiB to 754 (A) and 856 (B) MiB. It is +13 % (A) and +23 % (B) from 40 to 125 min; C2 went from 404 to 575 MiB in 64 min. Heap flat at 100–290 MiB. |
+| Reconnect under 30 s | **Met.** Offline periods: 0.2–12.3 s. Server restarts: 5.3–7.6 s and 5.5–6.3 s. |
+
+No section was ever at "Server confirmation unavailable", "reappeared"
+or "Local save failed", and there were no edit errors.
+
+The new member, C2, joined after the removal and inserted the section
+within a second. No structural conflict was open this time. C2 edited
+for an hour without a binding error, so **#11 did not occur**.
+
+### Per checkpoint (pass p50/p95 in ms, RSS MiB)
+
+| # | min | Units (A) | A | B | C / C2 |
+| ---: | ---: | ---: | --- | --- | --- |
+| 1 | 0 | 4 | 90/170, 333 | 131/172, 320 | 149/164, 356 |
+| 4 | 30 | 1,377 | 103/205, 586 | 104/204, 620 | 107/207, 689 |
+| 6 | 51 | 2,293 | 109/265, 664 | 107/273, 710 | 114/269, 755 |
+| 7 | 66 | 2,764 | 113/369, 668 | 113/344, 586 | C2: 164/231, 404 |
+| 8 | 76 | 3,217 | 100/313, 670 | 100/297, 756 | 99/218, 732 |
+| 10 | 101 | 4,119 | 106/410, 712 | 103/366, 831 | 110/295, 499 |
+| 11 | 111 | 4,580 | 112/437, 745 | 115/435, 836 | 114/345, 553 |
+| 12 | 125 | 4,979 | 126/526, 754 | 114/455, 856 | 116/347, 575 |
+
+### Open after this run
+
+- **The p95 tail still rises slowly with history** (p50 does not). It
+  is within the target to 111 min and just above it at 125 min. A
+  longer run would show whether it levels off.
+- **Transient note divergences:** one extra node on B, cleared within
+  10 min; and C2 at the end. They are visible as "Needs your attention",
+  never silent, and the models stayed equal. Not traced.
+
+Raw data: `~/dev/openlfcp-rw/runs/soak/accept-b19/` on the test machine.
