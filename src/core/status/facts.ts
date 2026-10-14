@@ -42,6 +42,8 @@ export interface ObservedSection {
   readonly settledOperations?: ReadonlySet<string>;
   /** Own offline work a Key Epoch cut off (stale-work.ts). */
   readonly staleWork?: { readonly pending: number; readonly review: number };
+  /** Every note with the section was checked for held edits (LFCP-03-003); absent: checked. */
+  readonly heldChecked?: boolean;
 }
 
 const SCALAR = /SCALAR|TITLE_CONFLICT|FIELD_CONFLICT/;
@@ -117,6 +119,7 @@ export function observedFacts(o: ObservedSection): StatusFacts {
     acceptanceEvidence: unconfirmed ? "unavailable" : "available",
     projections: o.projections,
     ...(o.staleWork === undefined ? {} : { staleWork: o.staleWork }),
+    ...(o.heldChecked === undefined ? {} : { heldChecked: o.heldChecked }),
   };
 }
 

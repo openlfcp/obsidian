@@ -5,7 +5,7 @@
 // a healthy one in another note stays healthy (SI12). Pure.
 
 import type { SectionResult } from "../sections/engine";
-import { damagedHeld, type HeldEdits } from "./held";
+import { damagedHeld, type HeldEdits, type HeldPersistence } from "./held";
 import type { ProjectionFacts } from "./reducer";
 
 /** A pass result as its projection's facts, and the operation it failed to save, if any. */
@@ -78,6 +78,28 @@ export class ProjectionFactsStore {
     return changed;
   }
 
+  /**
+   * Whether note `path`, where edits are held, is saved to disk now
+   * (LFCP-03-003): each of its held entries says so. True when it changed.
+   */
+  persisted(path: string, persistence: HeldPersistence): boolean {
+    let changed = false;
+    for (const held of this.#held.values())
+      for (const [id, h] of held)
+        if (h.path === path && h.persistence !== persistence) {
+          held.set(id, { ...h, persistence });
+          changed = true;
+        }
+    return changed;
+  }
+
+  /** Whether some edits are held in note `path`. */
+  holds(path: string): boolean {
+    for (const held of this.#held.values())
+      for (const h of held.values()) if (h.path === path) return true;
+    return false;
+  }
+
   /** Every held projection, by section key. */
   allHeld(): ReadonlyMap<string, readonly HeldEdits[]> {
     return new Map([...this.#held].map(([k, m]) => [k, [...m.values()]]));
@@ -128,7 +150,10 @@ export class ProjectionFactsStore {
       if (!projections.has(id)) changed = true;
       projections.set(id, { id, source: "binding-error", application: "blocked" });
       this.#facts.set(key, projections);
-      if (this.held(key, id, damagedHeld(path, id, lines?.get(key) ?? 0))) changed = true;
+      // What is known of the note's saving stays until the next check says otherwise.
+      const persistence = this.#held.get(key)?.get(id)?.persistence;
+      const h = damagedHeld(path, id, lines?.get(key) ?? 0);
+      if (this.held(key, id, persistence === undefined ? h : { ...h, persistence })) changed = true;
     }
     return changed;
   }

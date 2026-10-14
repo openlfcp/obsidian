@@ -12,7 +12,7 @@
 // to exactly the units it names, so a duplicate changes nothing and an old
 // one never clears a newer edit.
 
-import type { HeldEdits } from "./held";
+import type { HeldCause, HeldEdits, HeldPersistence } from "./held";
 
 /** The state keys of §6. */
 export type StatusState =
@@ -117,6 +117,13 @@ export interface StatusFacts {
    * being re-applied, and those waiting for the user's review.
    */
   readonly staleWork?: { readonly pending: number; readonly review: number };
+  /**
+   * Whether every note that holds a copy of the section was checked for
+   * held edits since the start (LFCP-03-003). False: some copy may hold
+   * edits nobody counted yet, so the section is never shown as current.
+   * Absent: checked.
+   */
+  readonly heldChecked?: boolean;
 }
 
 /** One reason the state is what it is; all of them stay in the details card. */
@@ -131,6 +138,8 @@ export type Condition =
   | { readonly kind: "structural-conflict"; readonly nodeIds: readonly string[] }
   | { readonly kind: "scalar-conflict"; readonly nodeIds: readonly string[] }
   | { readonly kind: "loading" }
+  /** Some note with a copy of the section was not checked for held edits yet (LFCP-03-003). */
+  | { readonly kind: "held-unchecked" }
   | { readonly kind: "access-checking" }
   | { readonly kind: "catching-up" }
   | { readonly kind: "local-edit" }
@@ -165,6 +174,54 @@ export interface StatusView {
   readonly held: readonly HeldEdits[];
   /** The tooltip of the primary state (§6). */
   readonly label: string;
+  /** The separate sync facts a pane or card shows side by side (LFCP-03-003). */
+  readonly sync: SyncFacts;
+}
+
+/**
+ * Held local source, the outbound queue and the shared model as separate
+ * facts (LFCP-03-003, OBSIDIAN-UX-ARCHITECTURE-03 §5): never added up, and
+ * an unknown count stays unknown.
+ */
+export interface SyncFacts {
+  /** Durable local batches the server has not accepted yet, and their Data Units. */
+  readonly queue: {
+    readonly batches: number;
+    /** Every waiting batch has a stable identity, so `batches` may be shown. */
+    readonly counted: boolean;
+    readonly units: number;
+  };
+  /** Edits held in notes, not sent and not queued. */
+  readonly held: {
+    /** Projections holding edits; null while some note was not checked yet. */
+    readonly projections: number | null;
+    /** Edits held; null when some copy's edits cannot be counted, or a note was not checked. */
+    readonly edits: number | null;
+    readonly causes: readonly HeldCause[];
+    /**
+     * Whether the notes holding them are saved to disk: "unsaved" when some
+     * is not, "unknown" when some was not checked; null when nothing is held.
+     */
+    readonly persistence: HeldPersistence | null;
+  };
+  /**
+   * Local saving of this vault's changes: failed (a commit failed), unconfirmed
+   * (a commit in progress, or held edits not known to be on disk), confirmed.
+   */
+  readonly localPersistence: "confirmed" | "unconfirmed" | "failed";
+  /**
+   * Per projection (copy in a note): its own state, what it holds back and
+   * whether that copy alone is current, for a pane's list of places.
+   */
+  readonly projections: readonly ProjectionSync[];
+  /** The shared model as this device last checked it, whatever the notes hold. */
+  readonly sharedModel: "accepted" | "catching-up" | "unknown";
+  /**
+   * The whole section is current: nothing held, unchecked, queued or
+   * failing, and the shared model caught up. A pane says "current" only
+   * when this holds.
+   */
+  readonly current: boolean;
 }
 
 export const STATE_LABEL: Readonly<Record<StatusState, string>> = {
@@ -238,6 +295,8 @@ export function statusView(facts: StatusFacts): StatusView {
   const loading =
     facts.replica === "not-loaded" || facts.replica === "importing" || facts.access === "unknown";
   if (loading) c.push({ kind: "loading" });
+  // A copy not checked yet may hold edits: never current until it is.
+  if (facts.heldChecked === false) c.push({ kind: "held-unchecked" });
   // Refused or removed, the Control view cannot catch up: nothing is being checked.
   if (
     facts.accessChecking === true &&
@@ -294,6 +353,7 @@ export function statusView(facts: StatusFacts): StatusView {
     );
     projections[p.id] = primary(own, { readOnly, allAccepted, connected });
   }
+  const held = facts.projections.flatMap((p) => (p.held === undefined ? [] : [p.held]));
   return {
     state,
     conditions: c,
@@ -305,11 +365,101 @@ export function statusView(facts: StatusFacts): StatusView {
     projectionPaused: facts.problems.some((p) => p.kind === "structural"),
     projections,
     readOnly,
-    held: facts.projections.flatMap((p) => (p.held === undefined ? [] : [p.held])),
+    held,
     label:
       c[0]?.kind === "access-checking"
         ? "Access being checked with the server"
-        : STATE_LABEL[state],
+        : c[0]?.kind === "held-unchecked"
+          ? "Checking notes for edits not sent"
+          : STATE_LABEL[state],
+    sync: syncFacts(facts, c, state, waiting, held, projections),
+  };
+}
+
+/** One copy's sync facts (LFCP-03-003). */
+export interface ProjectionSync {
+  readonly id: string;
+  readonly state: StatusState;
+  /** What it holds back, not sent; null: nothing (or not checked yet: see `checked`). */
+  readonly held: HeldEdits | null;
+  /** Its note was checked for held edits since the start. */
+  readonly checked: boolean;
+  /** This copy is current: its state quiet, nothing held, its note checked. */
+  readonly current: boolean;
+}
+
+/** The separate sync facts of a view (LFCP-03-003): pure. */
+function syncFacts(
+  facts: StatusFacts,
+  c: readonly Condition[],
+  state: StatusState,
+  waiting: readonly BatchFacts[],
+  held: readonly HeldEdits[],
+  states: Readonly<Record<string, StatusState>>,
+): SyncFacts {
+  const kinds = new Set(c.map((x) => x.kind));
+  const checked = facts.heldChecked !== false;
+  const persistence: HeldPersistence | null = !checked
+    ? "unknown"
+    : held.length === 0
+      ? null
+      : held.some((h) => h.persistence === "unsaved")
+        ? "unsaved"
+        : held.every((h) => h.persistence === "saved")
+          ? "saved"
+          : "unknown";
+  const sharedModel: SyncFacts["sharedModel"] =
+    facts.replica !== "loaded" || facts.catchUp === "unknown" || facts.catchUp === "not-started"
+      ? "unknown"
+      : facts.catchUp === "receiving" ||
+          facts.projections.some((p) => p.application === "patch-pending")
+        ? facts.connection === "connected"
+          ? "catching-up"
+          : "unknown"
+        : "accepted";
+  const localPersistence: SyncFacts["localPersistence"] = kinds.has("save-failed")
+    ? "failed"
+    : kinds.has("local-edit") || (persistence !== null && persistence !== "saved")
+      ? "unconfirmed"
+      : "confirmed";
+  return {
+    queue: {
+      batches: waiting.length,
+      counted: waiting.every((b) => b.stable !== false),
+      units: waiting.reduce(
+        (n, b) => n + b.unitIds.filter((u) => !b.acceptedUnitIds.includes(u)).length,
+        0,
+      ),
+    },
+    held: {
+      projections: checked ? held.length : null,
+      edits:
+        !checked || held.some((h) => h.count === null)
+          ? null
+          : held.reduce((n, h) => n + (h.count ?? 0), 0),
+      causes: [...new Set(held.map((h) => h.cause))],
+      persistence,
+    },
+    projections: facts.projections.map((p) => {
+      const own = states[p.id] ?? state;
+      return {
+        id: p.id,
+        state: own,
+        held: p.held ?? null,
+        checked,
+        current:
+          (own === "CURRENT" || own === "READ_ONLY_CURRENT") && checked && p.held === undefined,
+      };
+    }),
+    localPersistence,
+    sharedModel,
+    current:
+      (state === "CURRENT" || state === "READ_ONLY_CURRENT") &&
+      checked &&
+      held.length === 0 &&
+      waiting.length === 0 &&
+      localPersistence === "confirmed" &&
+      sharedModel === "accepted",
   };
 }
 
@@ -333,6 +483,7 @@ function primary(
     case "scalar-conflict":
       return "ATTENTION";
     case "loading":
+    case "held-unchecked":
     case "access-checking":
       return "LOADING";
     case "catching-up":

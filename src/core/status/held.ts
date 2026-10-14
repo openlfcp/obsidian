@@ -50,7 +50,19 @@ export interface HeldEdits {
    * never loses a move silently (the owner's check of 0.4.0-beta.10).
    */
   readonly moved?: readonly string[];
+  /**
+   * Whether the note holding them is saved to disk (LFCP-03-003): the held
+   * text is in no queue or journal, only in the note. Absent: not checked.
+   */
+  readonly persistence?: HeldPersistence;
 }
+
+/**
+ * Where held text is kept: "saved" when the note's file on disk has what
+ * the note shows; "unsaved" when an open note shows text its file does not
+ * have yet; "unknown" when that could not be checked.
+ */
+export type HeldPersistence = "saved" | "unsaved" | "unknown";
 
 /** The short reason, after "N edits not sent: ". */
 export const HELD_CAUSE: Readonly<Record<HeldCause, string>> = {
