@@ -101,7 +101,16 @@ export interface StatusFacts {
   readonly pendingControl: readonly string[];
   /** The Control view is behind the server's (027): access is being checked. */
   readonly accessChecking?: boolean;
+  /**
+   * The section's connection (LFCP-03-005, F-C06): "connected" while its
+   * Resource is open in a session; "connecting" and "failed" only from the
+   * session's own transitions (an attempt under way; an attempt that ended
+   * before READY); "offline" otherwise, with `connectionQualifier` saying
+   * why when something did.
+   */
   readonly connection: "offline" | "connecting" | "connected" | "failed";
+  /** Why not connected (offline or failed); null: a failed attempt, no cause known; absent: no evidence. */
+  readonly connectionQualifier?: ConnectionQualifier | null;
   /**
    * The server refuses the Resource for good (its code): not a connection
    * problem, so never shown as offline.
@@ -128,6 +137,22 @@ export interface StatusFacts {
   readonly heldCheck?: HeldCheck;
 }
 
+/**
+ * Why a section is not connected, from evidence only (LFCP-03-005):
+ * - "no-evidence": its session reported no transition yet, or it has none (local only);
+ * - "not-syncing": the session is READY, the section's Resource is not open
+ *   on it (closed, blocked on a key or a Control fork, refused);
+ * - "lost": it was connected, the connection went down; reconnecting;
+ * - "network-offline": the system said the network is gone;
+ * - "not-responding": the connection answered nothing and was dropped (liveness.ts).
+ */
+export type ConnectionQualifier =
+  | "no-evidence"
+  | "not-syncing"
+  | "lost"
+  | "network-offline"
+  | "not-responding";
+
 /** One reason the state is what it is; all of them stay in the details card. */
 export type Condition =
   | { readonly kind: "save-failed"; readonly batchIds: readonly string[] }
@@ -148,6 +173,8 @@ export type Condition =
   | { readonly kind: "catching-up" }
   | { readonly kind: "local-edit" }
   | { readonly kind: "offline" }
+  /** The session is connecting (a real transition, LFCP-03-005): not current until it is up. */
+  | { readonly kind: "connecting" }
   | { readonly kind: "pending"; readonly batches: number }
   | { readonly kind: "control-pending"; readonly actions: readonly string[] }
   | { readonly kind: "evidence-unavailable" };
@@ -180,6 +207,31 @@ export interface StatusView {
   readonly label: string;
   /** The separate sync facts a pane or card shows side by side (LFCP-03-003). */
   readonly sync: SyncFacts;
+  /** This vault's access and its freshness, kept apart from the state (LFCP-03-005). */
+  readonly access: AccessFacts;
+  /** The section's connection (LFCP-03-005): never guessed, see StatusFacts.connection. */
+  readonly connection: StatusFacts["connection"];
+  /** Why not connected; null while connected or connecting, or for a failed attempt with no known cause. */
+  readonly connectionQualifier: ConnectionQualifier | null;
+  /** The server's code when it refuses the Resource for good; null otherwise. */
+  readonly refusal: string | null;
+}
+
+/**
+ * This vault's access to a section as a pane shows it (LFCP-03-005,
+ * F-C05): each denial its own value (read-only is "reader"; revoked,
+ * not-member, refused and unavailable-key stay apart), with the as-of of
+ * the Control view it comes from. Unknown stays unknown (null), never a
+ * default.
+ */
+export interface AccessFacts {
+  readonly access: StatusFacts["access"];
+  /** When the Control state the answer comes from was verified (local ms); null: never, or not known. */
+  readonly verifiedAt: number | null;
+  /** That view is current with the server's; false: behind it; null: no server said yet, or not known. */
+  readonly current: boolean | null;
+  /** Access is being checked with the server now (the view is behind it). */
+  readonly checking: boolean;
 }
 
 /**
@@ -340,6 +392,14 @@ export function statusView(facts: StatusFacts): StatusView {
   // A note not checked yet may hold edits: never current, but last, so
   // offline, sending and the rest still speak first.
   if (facts.heldCheck === "pending") c.push({ kind: "held-unchecked" });
+  // A connection being made (LFCP-03-005): nothing is checked with the
+  // server until it is up, so never current; last, like the check above.
+  if (
+    facts.refusal === undefined &&
+    facts.access !== "refused" &&
+    facts.connection === "connecting"
+  )
+    c.push({ kind: "connecting" });
 
   const readOnly = facts.access === "reader";
   const allAccepted = facts.batches.length > 0 && facts.batches.every(accepted);
@@ -378,8 +438,26 @@ export function statusView(facts: StatusFacts): StatusView {
         ? "Access being checked with the server"
         : c[0]?.kind === "held-unchecked"
           ? "Checking notes for edits not sent"
-          : STATE_LABEL[state],
+          : c[0]?.kind === "connecting"
+            ? "Connecting to the server"
+            : c[0]?.kind === "offline" && facts.connection === "failed"
+              ? "Could not connect to the server; local updates will wait"
+              : STATE_LABEL[state],
     sync: syncFacts(facts, c, state, waiting, held, projections),
+    access: {
+      access: facts.access,
+      verifiedAt: facts.accessVerifiedAt ?? null,
+      current: facts.accessCurrent ?? null,
+      checking: c.some((x) => x.kind === "access-checking"),
+    },
+    connection: facts.connection,
+    connectionQualifier:
+      facts.connection === "connected" || facts.connection === "connecting"
+        ? null
+        : facts.connectionQualifier === undefined
+          ? "no-evidence"
+          : facts.connectionQualifier,
+    refusal: facts.refusal ?? null,
   };
 }
 
@@ -493,6 +571,7 @@ function primary(
     case "loading":
     case "held-unchecked":
     case "access-checking":
+    case "connecting":
       return "LOADING";
     case "catching-up":
       return o.allAccepted ? "ACCEPTED_CATCHING_UP" : "LOADING";

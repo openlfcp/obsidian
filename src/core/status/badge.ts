@@ -57,7 +57,14 @@ export function headingBadge(title: string, view: StatusView): HeadingBadge {
         ? "pending changes"
         : `${view.pendingBatches} local ${view.pendingBatches === 1 ? "update" : "updates"} waiting`,
     );
-  else if (SYNC_ICON[view.state] !== null) facts.push(STATE_LABEL[view.state].toLowerCase());
+  // Offline or a failed attempt, connecting: said as the tooltip says it (LFCP-03-005).
+  else if (SYNC_ICON[view.state] !== null)
+    facts.push(
+      (view.state === "OFFLINE" || view.conditions[0]?.kind === "connecting"
+        ? view.label
+        : STATE_LABEL[view.state]
+      ).toLowerCase(),
+    );
   if (view.readOnly) facts.push("read-only");
   return {
     state: view.state,

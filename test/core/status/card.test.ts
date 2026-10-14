@@ -123,6 +123,8 @@ describe("the section card", () => {
   it("problems first, in words; the technical part last", () => {
     const c = card({
       access: "revoked",
+      accessVerifiedAt: 1,
+      accessCurrent: true,
       problems: [{ kind: "scalar", code: "SCALAR_CONFLICT", nodeIds: ["a", "b"] }],
     });
     expect(c.problems).toEqual([

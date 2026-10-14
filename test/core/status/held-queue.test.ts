@@ -411,6 +411,9 @@ describe("the vault's summary (pane-ready)", () => {
       queue: { batches: 1, counted: true, units: 2 },
       held: { sections: 1, projections: 1, edits: 3, causes: ["unsupported"] },
       unchecked: 0,
+      connection: { connected: 3, connecting: 0, failed: 0, offline: 0 },
+      // These facts carry no access freshness: not known current.
+      accessNotCurrent: 3,
     });
   });
 
