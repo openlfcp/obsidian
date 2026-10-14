@@ -20,6 +20,7 @@
 import { contentHash } from "../projection/guard";
 import { isBlank, splitLines } from "../refs/lines";
 import { scanRefs } from "../refs/scanner";
+import { sectionContext } from "./context";
 import { formatBoundary, type SectionRef } from "./grammar";
 import { type ParsedSection, parseSections, type SectionNode } from "./parser";
 import { nodeSource } from "./source-map";
@@ -43,7 +44,13 @@ export type ShareProblem =
   /** 0.1 shared Tasks: they go through the explicit import path (UX §3). */
   | { readonly code: "LEGACY_SHARED_TASKS"; readonly lines: readonly number[] }
   /** A ref that cannot be read: nothing is shared until it is repaired. */
-  | { readonly code: "BROKEN_REF"; readonly line: number };
+  | { readonly code: "BROKEN_REF"; readonly line: number }
+  /**
+   * The range lies in the region a damaged section boundary claims, from
+   * its start marker (`line`) to the end of the note (LFCP-03-009, UX
+   * contract S4): a diagnostic region, never a share boundary.
+   */
+  | { readonly code: "DAMAGED_BOUNDARY"; readonly line: number };
 
 export type ShareWarning =
   | "future-additions"
@@ -175,6 +182,9 @@ export function preflight(markdown: string, range: ShareRange): SharePreview {
       problems.push({ code: "BROKEN_REF", line: d.line });
       break;
     }
+  // S4: a damaged boundary claims down to the end of the note; nothing in it is shared.
+  const damaged = damagedFrom(markdown, range);
+  if (damaged !== null) problems.push({ code: "DAMAGED_BOUNDARY", line: damaged });
 
   const counts = { tasks: 0, paragraphs: 0, items: 0, raw: 0, characters: 0 };
   if (section !== undefined) {
@@ -213,6 +223,15 @@ export function preflight(markdown: string, range: ShareRange): SharePreview {
     warnings,
     privateTail,
   };
+}
+
+/** Where the damaged boundary that claims part of `range` starts, or null when none does. */
+function damagedFrom(markdown: string, range: ShareRange): number | null {
+  const lines = { from: range.headingLine, to: range.lastLine };
+  if (sectionContext(markdown, lines) !== "damaged") return null;
+  const { damaged } = parseSections(markdown);
+  const at = [...damaged].reverse().find((d) => d.startLine <= range.lastLine);
+  return at?.startLine ?? range.headingLine;
 }
 
 /** The preview of an already shared section: what is outside it under its heading (MS36, H5). */
@@ -258,6 +277,10 @@ export interface ShareMessages {
   readonly warnings: readonly string[];
 }
 
+/** S4: the sentence for a range in a damaged boundary's region (also the selection reason). */
+export const DAMAGED_BOUNDARY_TEXT = (line: number): string =>
+  `The shared section from line ${line + 1} has a damaged boundary, so this text may belong to it. Repair shared sections in this note before sharing.`;
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** One blocking problem in the user's words. */
@@ -277,6 +300,8 @@ function problemText(x: ShareProblem): string {
       return `${plural(x.lines.length, "task is", "tasks are")} already shared in another collaboration. Import creates new shared tasks; existing collaborations continue separately.`;
     case "BROKEN_REF":
       return `The shared task marker on line ${x.line + 1} is damaged. Repair it before sharing.`;
+    case "DAMAGED_BOUNDARY":
+      return DAMAGED_BOUNDARY_TEXT(x.line);
   }
 }
 
