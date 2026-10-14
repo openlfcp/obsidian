@@ -134,9 +134,19 @@ describe("diagnostics (LFCP-02-065)", () => {
   it("given-up shares kept on this device: counted when any, never listed as collaborations (LFCP-03-002)", () => {
     const none = diagnosticReport(input(log()), false);
     expect(none).not.toContain("Given-up shares");
-    const text = diagnosticReport({ ...input(log()), keptShares: 2 }, false);
+    const text = diagnosticReport({ ...input(log()), keptShares: { sent: 2, deleting: 0 } }, false);
     expect(text).toContain(
       "Given-up shares kept on this device: 2 (not hosted; not deleted, their data may have left this device)",
+    );
+    expect(text).not.toContain("to be deleted at the next start");
+    // A deletion that failed (never sent) is not "may have left this device".
+    const failed = diagnosticReport(
+      { ...input(log()), keptShares: { sent: 0, deleting: 1 } },
+      false,
+    );
+    expect(failed).not.toContain("Given-up shares kept on this device");
+    expect(failed).toContain(
+      "Given-up shares to be deleted at the next start: 1 (never sent; the deletion did not finish)",
     );
     expect(text).toContain("Collaborations: 1");
   });

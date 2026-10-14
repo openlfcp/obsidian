@@ -293,7 +293,7 @@ describe("Share reserved per note (LFCP-03-002)", () => {
     expect({
       stored: await rec.stored(),
       listed: await rec.listed(),
-      kept: (await r.keptDiscarded()).map(toBase64url),
+      kept: (await r.keptDiscarded()).map((k) => [toBase64url(k.resourceId), k.sent]),
       phase: entry.phase,
       discarded: entry.discarded,
       keptReason: entry.keptReason,
@@ -301,7 +301,7 @@ describe("Share reserved per note (LFCP-03-002)", () => {
     }).toEqual({
       stored: [R],
       listed: [],
-      kept: [R],
+      kept: [[R, true]],
       phase: "cancelled",
       discarded: "kept",
       keptReason: "RESOURCE_SENT:attempted",
@@ -342,7 +342,9 @@ describe("Share reserved per note (LFCP-03-002)", () => {
       (await (r2.storage as LfcpStorage).resources.list()).map((x) => toBase64url(x.resourceId)),
     ).toEqual([R]);
     expect(await r2.registry()).toEqual([]);
-    expect((await r2.keptDiscarded()).map(toBase64url)).toEqual([R]);
+    expect((await r2.keptDiscarded()).map((k) => [toBase64url(k.resourceId), k.sent])).toEqual([
+      [R, true],
+    ]);
     await expect(r2.openSection(RId)).rejects.toThrow("unknown Resource");
     expect(noticesSince(v, after).join(" | ")).not.toMatch(FRIGHT);
 

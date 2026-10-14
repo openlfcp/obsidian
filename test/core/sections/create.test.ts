@@ -468,7 +468,9 @@ describe("creating a shared section", () => {
     });
     expect(await storage.resources.get(R)).toBeDefined();
     expect(await env.sectionResources()).toEqual([]);
-    expect((await env.r.keptDiscarded()).map(toBase64url)).toEqual([entry.resource]);
+    expect((await env.r.keptDiscarded()).map((k) => [toBase64url(k.resourceId), k.sent])).toEqual([
+      [entry.resource, true],
+    ]);
     expect(await creation.unfinished()).toEqual([]);
     // Run again (a later start): still kept, nothing else happens.
     expect((await creation.run(out.entry)).kind).toBe("cancelled");
