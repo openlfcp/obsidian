@@ -192,10 +192,12 @@ export function sectionCard(input: CardInput): SectionCard {
   else if (v.sync.current)
     facts.push("Current as last checked with the server. This does not mean others have seen it.");
   // The shared version is caught up; this vault's own changes are not in it yet.
-  else
+  else if (v.pendingBatches > 0 || kinds.has("local-edit"))
     facts.push(
       "The shared version is current as last checked with the server; changes from this vault above are not in it yet.",
     );
+  // Not current for another reason (a conflict, access being checked): said above.
+  else facts.push("The shared version is current as last checked with the server.");
   if (denied) facts.push("The sync server does not accept your edits to this section now.");
   else
     facts.push(

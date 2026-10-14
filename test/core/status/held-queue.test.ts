@@ -256,6 +256,36 @@ describe("U03-06: combinations", () => {
   });
 });
 
+describe("the shared version's line (review L1)", () => {
+  it("no own changes waiting (a conflict, access being checked): no claim about this vault's changes", () => {
+    for (const facts of [
+      {
+        ...accepted,
+        problems: [{ kind: "scalar" as const, code: "SCALAR_CONFLICT", nodeIds: ["n1"] }],
+      },
+      { ...accepted, accessChecking: true },
+    ]) {
+      const s = surfaces(facts);
+      expect(s.view.sync.current).toBe(false);
+      expect(s.card.facts).toContain(
+        "The shared version is current as last checked with the server.",
+      );
+      expect(s.text).not.toMatch(/changes from this vault|Current as last checked/);
+    }
+  });
+
+  it("local changes being processed: they are not in the shared version yet", () => {
+    const s = surfaces({
+      ...accepted,
+      projections: [{ id: "p", source: "editing", application: "current" }],
+    });
+    expect(s.view.state).toBe("LOCAL_EDIT");
+    expect(s.card.facts).toContain(
+      "The shared version is current as last checked with the server; changes from this vault above are not in it yet.",
+    );
+  });
+});
+
 describe("unknown stays unknown", () => {
   it("a note not checked yet since the start: no count, no current, said so", () => {
     const s = surfaces({ ...accepted, heldCheck: "pending" });
