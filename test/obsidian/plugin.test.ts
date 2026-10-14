@@ -33,7 +33,7 @@ describe("plugin", () => {
     });
   });
 
-  it("connects at once when the network comes back, or the app is shown again", async () => {
+  it("connects at once when the network comes back, or the app is shown or focused again", async () => {
     const { plugin, host } = await loaded();
     let calls = 0;
     let lost = 0;
@@ -57,6 +57,9 @@ describe("plugin", () => {
     } finally {
       g.document = had;
     }
+    // Back to Obsidian's window (soak finding #8): no wait for the backoff.
+    fire("focus");
+    expect(calls).toBe(3);
     plugin.runtime = null;
   });
 

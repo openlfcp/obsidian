@@ -123,9 +123,10 @@ export default class OpenLfcpPlugin extends Plugin {
 
   override async onload(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
-    // Back online, or shown again after a while in the background: connect
-    // now, not at the end of the reconnect backoff (up to 60 s).
+    // Back online, shown or focused again after a while: connect now, not at
+    // the end of the reconnect backoff (up to 15 s).
     this.registerDomEvent(window, "online", () => this.runtime?.networkBack());
+    this.registerDomEvent(window, "focus", () => this.runtime?.networkBack());
     // Gone: the sessions close now, not minutes later on a missed heartbeat.
     this.registerDomEvent(window, "offline", () => this.runtime?.networkLost());
     this.registerDomEvent(window.document, "visibilitychange", () => {

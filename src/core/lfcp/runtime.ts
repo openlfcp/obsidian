@@ -1590,9 +1590,9 @@ export class LfcpRuntime {
   }
 
   /**
-   * The network is back (the window's "online", the app shown again): each
-   * disconnected session connects now instead of at the end of its backoff
-   * (up to 60 s), and later attempts wait as from the start. A live or
+   * The network is back (the window's "online", the app shown or focused
+   * again): each disconnected session connects now instead of at the end of
+   * its backoff (up to 15 s), and later attempts wait as from the start. A live or
    * connecting session is left alone.
    */
   networkBack(): void {
