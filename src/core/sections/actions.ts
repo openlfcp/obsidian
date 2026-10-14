@@ -15,8 +15,13 @@ import { type Flow, InFlight } from "../in-flight";
 import { SECTIONS_READ_ONLY } from "../lfcp/runtime";
 import { type NoteTarget, NoteTargets } from "../note-targets";
 import { scanRefs } from "../refs";
+import { REMOVE_CONFIRMATION, type RevokeOutcome, revokeMessage } from "../status/access";
 import type {
+  CardAction,
+  CardHandle,
+  CardRowActions,
   LostBase,
+  ResourceCommands,
   SectionDialog,
   SectionEditor,
   SectionNotes,
@@ -24,7 +29,7 @@ import type {
   SectionServices,
 } from "./action-ports";
 import { markdownState, newProjectionId } from "./base";
-import { sectionKey } from "./context";
+import { sectionAtLine, sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
 import { sameState, sharedState } from "./engine";
 import { sameSection } from "./grammar";
@@ -47,6 +52,9 @@ export class SectionActions {
   readonly #flows = new InFlight();
   /** The notes those flows act on, followed across renames (LFCP-03-002). */
   readonly #targets = new NoteTargets();
+  /** The open details card, redrawn when its section's status changes. */
+  #card: { readonly key: string; readonly title: string; readonly handle: CardHandle } | null =
+    null;
 
   constructor(private readonly env: SectionActionEnv) {}
 
@@ -563,6 +571,223 @@ export class SectionActions {
         );
       },
     });
+  }
+
+  /**
+   * The details card of a section (LFCP-02-059), opened from its badge or
+   * the palette. Its actions run on the section's Resource after checking
+   * it is still here (stable ref, revalidated).
+   */
+  async openCard(key: string, title: string): Promise<void> {
+    const { prompter, notes, services } = this.env;
+    const unavailable = services.unavailable();
+    if (unavailable !== null) {
+      prompter.notice(unavailable);
+      return;
+    }
+    const content = await services.cardContent(key, title);
+    if (content === null) {
+      prompter.notice("Shared Tasks: this section is still loading. Try again in a moment.");
+      return;
+    }
+    const R = fromKey(key.slice(0, key.indexOf("#")));
+    const still = (run: (c: ResourceCommands) => Promise<void>) => () => {
+      const commands = services.commands();
+      if (!services.known(key) || commands === null) {
+        prompter.notice("Shared Tasks: this section is no longer on this device.");
+        return;
+      }
+      void run(commands);
+    };
+    const conflicts = services.recoveryItems(key);
+    const kept = await this.#keptCopies(key);
+    const held = content.held[0];
+    const actions: CardAction[] = [
+      // Conflicts are resolved one by one, by the user (061).
+      ...(conflicts.length > 0
+        ? [{ label: "Review conflicts…", run: () => this.#openRecovery(key, title) }]
+        : []),
+      // Inviting is offered by the validated access (060), never by default.
+      ...(content.access?.canInvite === true && !services.readOnly()
+        ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
+        : []),
+      // F-04: where edits are held, and the repair of that note.
+      ...(held === undefined
+        ? []
+        : [
+            {
+              label: `Go to line ${held.line + 1}`,
+              run: () => void notes.goToLine(held.path, held.line),
+            },
+            ...(["unsupported", "binding", "boundary", "base-unknown"].includes(held.cause)
+              ? [
+                  {
+                    label: "Repair shared sections in this note",
+                    run: () => void this.#repairAt(held.path),
+                  },
+                ]
+              : []),
+          ]),
+      { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
+      // Text kept on this device after a refusal (a local copy, never applied by itself).
+      ...(kept.length > 0
+        ? [
+            {
+              label: `Discard ${kept.length === 1 ? "the local copy" : `${kept.length} local copies`}…`,
+              run: () => void this.#discardKept(key, title),
+            },
+          ]
+        : []),
+    ];
+    this.#card?.handle.close();
+    let handle: CardHandle | null = null;
+    const rows: CardRowActions = {
+      // A local alias: a label of this device for an identity, never sent.
+      alias: (id, label) => {
+        void prompter.alias(label.startsWith("Member ") ? "" : label).then(async (name) => {
+          if (name === null || !(await services.setAlias(id, name))) return;
+          const fresh = await services.cardContent(key, title);
+          if (fresh !== null) handle?.update(fresh);
+        });
+      },
+      // 060: confirmed first; queued is pending until the server commits it.
+      // V3: no access change from a device where sections are read-only.
+      ...(services.readOnly()
+        ? {}
+        : {
+            remove: (principal: string, label: string) => {
+              const ask = prompter.confirm({
+                title: `Remove access: ${label}`,
+                message: REMOVE_CONFIRMATION,
+                action: "Remove access",
+              });
+              void ask.result.then(async (yes) => {
+                if (!yes) return;
+                let outcome: RevokeOutcome | null | undefined;
+                try {
+                  outcome = await services.revokeAccess(R, principal);
+                } catch {
+                  // Outcome unknown: the access list says whether a change is pending.
+                  outcome = undefined;
+                }
+                if (outcome === null) return;
+                const aliases = await services.aliases();
+                const message =
+                  outcome === undefined
+                    ? "Removing access failed. The access list shows whether a change is pending."
+                    : revokeMessage(
+                        outcome,
+                        (hex) => aliases[hex.slice(0, 8)] ?? `Member ${hex.slice(0, 8)}`,
+                      );
+                prompter.notice(`Shared Tasks: ${message}`);
+                const fresh = await services.cardContent(key, title);
+                if (fresh !== null && handle !== null && this.#card?.handle === handle)
+                  handle.update(fresh);
+              });
+            },
+          }),
+    };
+    handle = prompter.card(
+      content,
+      actions,
+      () => {
+        if (this.#card !== null && this.#card.handle === handle) this.#card = null;
+      },
+      rows,
+    );
+    this.#card = { key, title, handle };
+  }
+
+  /** The open card, redrawn with its section's facts now (its status changed). */
+  async refreshCard(): Promise<void> {
+    const card = this.#card;
+    if (card === null) return;
+    const content = await this.env.services.cardContent(card.key, card.title);
+    if (content !== null) card.handle.update(content);
+  }
+
+  /** "Open shared section details" (064): the card of the section under the cursor. */
+  openCardAt(editor: SectionEditor): void {
+    const at = sectionAtLine(editor.text(), editor.cursorLine());
+    if (at === null) {
+      this.env.prompter.notice(
+        "Shared Tasks: put the cursor in a shared section to see its details.",
+      );
+      return;
+    }
+    void this.openCard(at.key, at.title);
+  }
+
+  /**
+   * "Resolve shared task conflict" with the cursor in a shared section
+   * (F-05): that section's "Review conflicts…", as its card opens it.
+   */
+  reviewConflictsAt(text: string, line: number): void {
+    const { prompter, services } = this.env;
+    const unavailable = services.unavailable();
+    if (unavailable !== null) {
+      prompter.notice(unavailable);
+      return;
+    }
+    const at = sectionAtLine(text, line);
+    if (at === null) {
+      prompter.notice("Shared Tasks: put the cursor in a shared section to review its conflicts.");
+      return;
+    }
+    if (services.model() === null || !services.known(at.key)) {
+      prompter.notice("Shared Tasks: this section is still loading. Try again in a moment.");
+      return;
+    }
+    this.#openRecovery(at.key, at.title);
+  }
+
+  /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
+  #openRecovery(key: string, title: string): void {
+    const { prompter, services } = this.env;
+    if (services.model() === null) return;
+    prompter.review(title, services.recoveryItems(key), (item, choice) =>
+      services.resolveRecovery(key, item, choice),
+    );
+  }
+
+  /** "Repair shared sections in this note" from a card (F-04): the note opened first. */
+  async #repairAt(path: string): Promise<void> {
+    const { notes } = this.env;
+    const editor = await notes.goToLine(path, notes.openEditor(path)?.cursorLine() ?? 0);
+    if (editor !== null) await this.repairNote(editor, path);
+  }
+
+  /** The copies of section `key`'s text kept on this device after a refusal (not shared). */
+  async #keptCopies(key: string): Promise<string[]> {
+    const { services } = this.env;
+    const journal = services.candidates();
+    if (journal === null) return [];
+    const ids: string[] = [];
+    for (const c of await journal.allCandidates()) {
+      const base = await services.bases()?.load(c.projectionId);
+      const section = base === undefined ? undefined : sectionKey(base.locator.section);
+      if (section === key || c.projectionId.includes(`#${key}#`)) ids.push(c.candidateId);
+    }
+    return ids;
+  }
+
+  /** Discards the kept copies of section `key`, after asking: the note and the section stay. */
+  async #discardKept(key: string, title: string): Promise<void> {
+    const { prompter, services } = this.env;
+    const ids = await this.#keptCopies(key);
+    if (ids.length === 0) return;
+    const one = ids.length === 1;
+    const ask = prompter.confirm({
+      title: `Local copies of "${title}"`,
+      message: `${one ? "One copy" : `${ids.length} copies`} of this section's text ${one ? "was" : "were"} kept on this device when the sync server refused ${one ? "it" : "them"}. ${one ? "It is" : "They are"} not shared. Discard ${one ? "it" : "them"}? Your note and the shared section are not changed.`,
+      action: "Discard",
+    });
+    if (!(await ask.result)) return;
+    for (const id of ids) await services.candidates()?.resolveCandidate(id);
+    prompter.notice(
+      `Shared Tasks: ${one ? "the local copy was" : `${ids.length} local copies were`} discarded.`,
+    );
+    services.scheduleStatus();
   }
 
   /** What became of a creation, in a notice (UX §3). */
