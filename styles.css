@@ -173,3 +173,180 @@
     outline-color: Highlight;
   }
 }
+
+/*
+ * OpenLFCP: the Shared Tasks pane (LFCP-03-007). Built for a narrow sidebar:
+ * everything wraps, nothing has a fixed width. Colours and spacing are
+ * Obsidian's variables, so light, dark and community themes apply; focus is
+ * always visible; no motion.
+ */
+.openlfcp-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+  padding: var(--size-4-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui-small);
+}
+
+.openlfcp-pane.is-narrow {
+  max-width: 280px;
+  border-inline-end: 1px dashed var(--background-modifier-border);
+}
+
+.openlfcp-pane-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.openlfcp-pane-title {
+  margin: 0;
+  font-size: var(--font-ui-medium);
+}
+
+.openlfcp-pane-heading {
+  margin: 0 0 var(--size-4-1);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+.openlfcp-pane-group {
+  margin: var(--size-4-2) 0 var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.openlfcp-pane-block,
+.openlfcp-pane-status {
+  margin: 0;
+}
+
+.openlfcp-pane-status {
+  padding-inline-start: var(--size-4-4);
+}
+
+.openlfcp-pane-fact.is-problem {
+  color: var(--text-error);
+}
+
+.openlfcp-pane-fact.is-ok {
+  color: var(--text-success);
+}
+
+.openlfcp-pane-steps {
+  margin: var(--size-4-1) 0;
+  padding-inline-start: var(--size-4-5);
+}
+
+.openlfcp-pane-step.is-done {
+  color: var(--text-muted);
+}
+
+.openlfcp-pane-step.is-current {
+  font-weight: var(--font-semibold);
+}
+
+.openlfcp-pane-step.is-todo {
+  color: var(--text-faint);
+}
+
+.openlfcp-pane-preview {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: var(--size-4-2);
+}
+
+.openlfcp-pane-primary button,
+.openlfcp-pane-actions button,
+.openlfcp-pane-menu button,
+.openlfcp-pane-header button {
+  max-width: 100%;
+  height: auto;
+  min-height: 24px;
+  white-space: normal;
+  text-align: start;
+}
+
+.openlfcp-pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.openlfcp-pane-action {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-1);
+  min-width: 0;
+}
+
+.openlfcp-pane button.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.openlfcp-pane button:focus-visible,
+.openlfcp-pane summary:focus-visible,
+.openlfcp-pane input:focus-visible,
+.openlfcp-pane-title:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.openlfcp-pane-reason,
+.openlfcp-pane-none,
+.openlfcp-pane-row-alias,
+.openlfcp-pane-row-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.openlfcp-pane-notice {
+  color: var(--text-accent);
+}
+
+.openlfcp-pane-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.openlfcp-pane-row {
+  padding: var(--size-4-1) 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.openlfcp-pane-join-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  align-items: center;
+}
+
+.openlfcp-pane-join-input {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+
+/* The developer prototype's own frame (LFCP-03-007): never shown to users. */
+.openlfcp-pane-prototype-banner {
+  padding: var(--size-4-2);
+  border: 1px solid var(--text-warning);
+  border-radius: var(--radius-s);
+  color: var(--text-warning);
+  font-size: var(--font-ui-smaller);
+}
+
+.openlfcp-pane-prototype-bar,
+.openlfcp-pane-prototype-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  align-items: center;
+  margin: var(--size-4-2) 0;
+}
