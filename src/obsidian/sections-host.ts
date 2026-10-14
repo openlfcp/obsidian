@@ -60,6 +60,7 @@ import {
   reappearedItems,
   recoveryItems,
 } from "../core/sections/recovery";
+import { SectionRegistryView } from "../core/sections/registry-view";
 import {
   adoptedBase,
   boundaryRepair,
@@ -160,6 +161,31 @@ export class SectionsHost {
   #bases: KeyValueSectionBaseStore | null = null;
   /** Notes that hold a copy of each section Resource, and whether every note was read (011). */
   readonly #placements = new PlacementIndex();
+  /**
+   * Pane-ready registry (LFCP-03-011): every section Resource on this
+   * device, where its copies are, and its status, read-only. It reads the
+   * runtime's registry, the models already open, the status views and the
+   * placement index; it opens no model or session and stores nothing.
+   */
+  readonly registry = new SectionRegistryView({
+    registry: () => {
+      const runtime = this.#runtime;
+      if (runtime === null) return Promise.reject(new Error("Shared Tasks is not running yet."));
+      return runtime.registry();
+    },
+    model: (R) => {
+      const replica = this.#runtime?.sectionProfile(R)?.replica;
+      const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
+        ?.id;
+      if (replica === undefined || typeof sectionId !== "string") return null;
+      return { sectionId, title: replica.snapshot().title.value ?? "" };
+    },
+    watched: (hex) => this.#watched.has(hex),
+    status: (key) => this.#statuses.get(key),
+    placements: this.#placements,
+  });
+  /** The registry is read again at the next status pass (a Resource came, went or changed). */
+  #registryDue = false;
   readonly editor: ReturnType<typeof sectionEditorExtension>;
   /** Section status badges (LFCP-02-058): in editors, and in Reading view. */
   readonly status = sectionStatusExtension(
@@ -561,6 +587,14 @@ export class SectionsHost {
       }
       // Re-applying waits for write access: anything on the Resource lets it try again.
       const rid = (e as { readonly resourceId?: ResourceId }).resourceId;
+      // LFCP-03-011: a Resource's registry state changed, or a section Resource not listed yet (joined).
+      if (
+        !DATA_EVENTS.has(e.type) ||
+        (rid !== undefined &&
+          runtime.sectionProfile(rid) !== undefined &&
+          this.registry.row(toBase64url(rid)) === undefined)
+      )
+        this.#registryDue = true;
       if (rid !== undefined && e.type !== "epoch-reconciled") this.#stale?.live(toBase64url(rid));
       this.scheduleStatus();
     });
@@ -617,6 +651,7 @@ export class SectionsHost {
     } finally {
       this.#heldChecks.end();
       this.#placements.end(indexFailure);
+      this.#registryDue = true;
       this.scheduleStatus();
     }
     // Creations a restart interrupted go on from their journal (SSP §12.2).
@@ -825,6 +860,8 @@ export class SectionsHost {
     const creation = this.#creation as SectionCreation;
     const result = await creation.run(entry, target === undefined ? undefined : () => target.path);
     if (result.kind === "stale") await creation.cancel(result.entry);
+    // LFCP-03-011: a Resource created, or discarded with its stale creation.
+    this.registryChanged();
     if (result.kind === "hosted" || result.kind === "local") {
       await this.#watch(fromKey(entry.resource));
       // Where the creation bound it: the renamed note's path, if it moved.
@@ -1384,6 +1421,23 @@ export class SectionsHost {
     return vaultSyncSummary(this.#statuses.values());
   }
 
+  /**
+   * A section Resource came or went outside the runtime's events (a join
+   * finished, a creation was discarded): the registry is read again soon.
+   */
+  registryChanged(): void {
+    this.#registryDue = true;
+    this.scheduleStatus();
+  }
+
+  /** The registry view follows the status pass: read again when due, else recomposed. */
+  #registryPass(): void {
+    if (this.#registryDue) {
+      this.#registryDue = false;
+      void this.registry.refresh();
+    } else this.registry.update();
+  }
+
   /** Recomputes the sections' statuses soon (several triggers make one pass). */
   scheduleStatus(): void {
     if (this.#statusDue !== null) return;
@@ -1473,8 +1527,12 @@ export class SectionsHost {
           [...old.pendingNodeIds].join() === [...v.pendingNodeIds].join()
         );
       });
-    if (same) return;
+    if (same) {
+      this.#registryPass();
+      return;
+    }
     this.#statuses = next;
+    this.#registryPass();
     for (const view of this.status.views) view.dispatch({ effects: setSectionStatuses.of(next) });
     const said = this.#announcer.next(next, (key) => {
       const at = key.indexOf("#");
@@ -1572,6 +1630,8 @@ export class SectionsHost {
       new Notice("Shared Tasks: the note changed meanwhile. Nothing was detached; try again.");
       return;
     }
+    // LFCP-03-011: the copy is no longer a placement of the section.
+    this.#index(path, found.markdown);
     const bases = this.#bases;
     if (bases !== null)
       for (const id of await bases.projectionsOf(path)) {
@@ -1959,6 +2019,22 @@ function bringForward(modal: Modal): void {
     el.setAttribute("tabindex", "-1");
   el.focus?.();
 }
+
+/**
+ * Runtime events about a Resource's data, not its registry row (LFCP-03-011):
+ * they do not make the registry view read the registry again.
+ */
+const DATA_EVENTS: ReadonlySet<string> = new Set([
+  "unit",
+  "status",
+  "ack",
+  "nack",
+  "snapshot-loaded",
+  "snapshot-published",
+  "replayed",
+  "epoch-reconciled",
+  "key-blocked",
+]);
 
 /** Local aliases of identities (Principal ID → label), in the plugin's local state. */
 const ALIASES = "identity-aliases";
