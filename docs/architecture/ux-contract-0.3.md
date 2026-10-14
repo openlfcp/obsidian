@@ -3,8 +3,8 @@
 **Task:** LFCP-03-006 (milestone M03-1; gates G03-A, G03-C, G03-E).
 **Status:** normative for the MVP 0.3 work in this repository. A change to
 this contract goes through a pull request that also updates the fixtures.
-**Base:** obsidian `main` at `c66a6f5` (Shared Tasks 0.4.0 `ce0660a` plus the
-F-05 fix), spec `mvp-0.2-baseline.12` (`bf1c78c`), `@openlfcp/*` 0.2.0.
+**Base:** obsidian `main` at `700caa1` (Shared Tasks 0.4.0 `ce0660a` plus the
+F-05 fix and the held-source facts of LFCP-03-003), spec `mvp-0.2-baseline.12` (`bf1c78c`), `@openlfcp/*` 0.2.0.
 **Machine-readable part:**
 [`test/fixtures/ux-0.3/states.json`](../../test/fixtures/ux-0.3/states.json),
 checked by `test/core/ux-contract-fixtures.test.ts`.
@@ -129,9 +129,12 @@ when all of these hold:
 1. **Starts at a heading.** Its first line is an ATX heading that
    `proposeRange` accepts. A section starts at its heading
    (MARKDOWN-SECTIONS-01 §3), so the heading line may be selected in part.
+   The preview always shows the whole heading line: it is the section's
+   title.
 2. **Whole lines at the end.** Its last line is selected through its last
-   non-blank character. Trailing blank lines are trimmed; this is not an
-   expansion.
+   non-blank character. A selection that ends at column 0 of a line ends on
+   the line before it: that is how an editor selects whole lines. Trailing
+   blank lines are trimmed. Neither is an expansion.
 3. **Inside the heading's scope.** It ends at or before the last line that
    `proposeRange` gives for that heading.
 4. **No preview problem.** `preflight` for the range reports no problem: no
@@ -176,26 +179,57 @@ Every other problem is listed below it, in the same order.
 
 **P1. Precedence.** The first matching row decides the primary action:
 
-| # | Condition (from the status facts) | Primary action |
+| # | Condition | Primary action |
 | --- | --- | --- |
-| 1 | Local save failed (`localPersistence: "failed"`, `LOCAL_SAVE_FAILED`) | `open-details`, which tells the user to keep the note open |
-| 2 | An open flow's result is unknown | `check-result` |
-| 3 | Access or refusal: `revoked`, `not-member`, `refused`, `unavailable-key`, server refusal, invalid profile | `review-local-changes` when edits are held, else `open-details` |
-| 4 | Rejected updates, or offline work cut off by an access change | `review-conflicts` for work to review, else `open-details` |
-| 5 | A copy's source: damaged boundary or binding, unknown base, divergence | `repair-sections` |
-| 6 | Unsupported content in a copy | `go-to-problem` |
-| 7 | Held edits for another cause (read-only and the like) | `review-local-changes` |
-| 8 | Structural conflict, then scalar conflict | `review-conflicts` |
-| 9 | Loading, access being checked, a note not checked for held edits | `open-details` (no "current" claim) |
-| 10 | An unfinished flow (not unknown) | `continue-flow` |
-| 11 | Ordinary context | §5.1 |
+| 1 | Local save failed: condition `save-failed` (`localPersistence: "failed"`, `LOCAL_SAVE_FAILED`) | `open-details`, which tells the user to keep the note open |
+| 2 | A running flow on this target (P2) | The flow's next step; none while a stage waits for the network (its progress shows) |
+| 3 | A flow whose result is unknown (P2) | `check-result` |
+| 4 | Conditions `access`, `server-refused`, `invalid-profile` | `review-local-changes` when edits are held, else `open-details` |
+| 5 | Conditions `rejected`, `stale-work` | `review-conflicts` when work waits for review, else `review-local-changes` |
+| 6 | The first `source` condition, mapped by that projection's facts (below) | By the table below |
+| 7 | Condition `held-unknown` (`heldCheck: "failed"`) | `open-details` |
+| 8 | Conditions `structural-conflict`, then `scalar-conflict` | `review-conflicts` |
+| 9 | Conditions `loading`, `access-checking` | `open-details` (no "current" claim) |
+| 10 | Conditions `catching-up`, `local-edit`, `offline`, `pending`, `control-pending`, `evidence-unavailable` | §5.1 (offline or queued with no other problem: `sync-details`) |
+| 11 | Condition `held-unchecked` (`heldCheck: "pending"`) | `open-details` (no "current" claim) |
+| 12 | An unfinished flow (P2) | `continue-flow` |
+| 13 | No condition: ordinary context | §5.1 |
 
-This order follows the status reducer that 0.4.0 ships (`statusView`). It
-differs from the package's order; see RC-03.
+Rows 1 and 4–11 are the conditions of `statusView` on `main` in the order
+it pushes them, so the card's first condition and the pane's primary
+action never disagree. Rows 2, 3 and 12 are flows, which the reducer does
+not see. The package's order differs; see RC-03.
 
-**P2. An open flow owns the current area.** While a flow runs, its progress
-and target take the current area and its next step is the primary action.
-Only row 1 overrides it.
+**Row 6 is matched by the projection's own facts.** The reducer reports a
+projection that holds edits with a clean source as `source: "diverged"`.
+That value is synthetic. Row 6 therefore reads the projection's
+`ProjectionFacts.source` and its `held.cause`, never the condition's
+`source` alone. It takes the first `source` condition, as the card does:
+
+| Projection's facts | Primary action |
+| --- | --- |
+| `source` `binding-error`, or `held.cause` `boundary` or `binding` | `repair-sections` |
+| `source` `base-unknown` or `diverged` (real), or `held.cause` `base-unknown` | `repair-sections` (compare versions) |
+| `source` `unsupported`, or `held.cause` `unsupported` | `go-to-problem` |
+| `held.cause` `read-only`, `revoked`, `refused` or `rejected`, with a clean source | `review-local-changes` |
+
+**P2. Flows.** A flow is one share, invite, join, insert or repair the user
+started. It is in exactly one of three states:
+
+- **Running.** It was started in this session and one of its steps is in
+  progress, or it is waiting for the user's input inside the flow (a
+  preview or a choice is open). It owns the current area: its target and
+  progress replace the context. Its next step is the primary action (row
+  2). Only a local save failure (row 1) comes first.
+- **Unknown result.** It stopped after a side effect started and before
+  its receipt or answer arrived: a lost claim response, a crash between
+  writing the note and registering the copy. The user checks the result
+  (row 3). It is never retried as a new operation.
+- **Unfinished.** It stopped at a known stage with no step in progress: the
+  pane was closed, the user chose "Continue later", or Obsidian restarted.
+  Every effect it started has its receipt. It is listed under
+  "Unfinished", and "Continue" resumes the same operation (row 12). Any
+  section problem comes first.
 
 **P3. Immediate invalidation.** A change to the source, the access or the
 target disables an action that is already shown at once. Safety checks are
@@ -230,10 +264,11 @@ unknown, never as zero.
 | `sync.queue.batches` with `counted` false | "Local updates waiting" | A number |
 | `sync.held.edits` a number | "N edits not sent: <cause>" | Adding held edits to the queue count |
 | `sync.held.edits` null | "Edits not sent: <cause>" | A number; "0 edits" |
-| `sync.held.projections` null | "Checking notes for edits not sent" | "No local changes waiting"; "Current" |
-| `sync.queue.batches` 0 and edits held | "No updates in the queue" next to the held edits | "No local changes waiting"; "Nothing to send" |
+| `heldCheck` "pending" (`sync.held.projections` null) | "Not current yet: not every note with this section was checked."; the label "Checking notes for edits not sent" when it is the first condition | "No local changes waiting"; "Current"; a number of held edits |
+| `heldCheck` "failed" (`sync.held.projections` null, condition `held-unknown`) | "Not current: whether a note with this section holds edits not sent is unknown." | "Checking notes" (nothing is in progress); "No local changes waiting"; "Current"; "0 edits" |
+| `sync.queue.batches` 0 and edits held | "No updates waiting in the sync queue: the edits held in your note are not in it." | "No local changes waiting"; "Nothing to send" |
 | `sync.sharedModel` "unknown" | Nothing about acceptance | "The server accepted your changes" |
-| `localPersistence` "unconfirmed" | "Local changes are being saved" | "Saved" |
+| `localPersistence` "unconfirmed" | "Local changes are being saved" | "Changes saved" |
 | Access `current` false | "Access as last verified <time>; it may have changed." | "Access verified with the server <time>." |
 | Access `refused` | "The sync server no longer accepts changes from this vault for this section." | "Offline"; "Your access was removed" |
 | Access `not-member` | "This vault is not a member of this section." | "Your access was removed" |
@@ -352,14 +387,14 @@ conforms to the spec, the code and the spec win.
 | --- | --- | --- | --- |
 | RC-01 | The old draft calls tables and fences unsupported | Raw nodes, shared verbatim (MARKDOWN-SECTIONS-01 §4.4, §5; MS16, MS33, MS34) | C1. No surface says tables or fences are unsupported |
 | RC-02 | Comment exclusions are shown "if the baseline provides them" | `local` by default, per sender; the preview sentence exists in `share.ts` (§4.5; MS38–MS41) | C3, with the exact sentence |
-| RC-03 | CTA order: save → boundary → access → unsupported → conflict → flow → ordinary | `statusView` orders save failure → access and refusal → rejection and stale work → source → conflicts → loading | P1 follows the reducer, so the card's first condition and the pane's primary action never disagree |
+| RC-03 | CTA order: save → boundary → access → unsupported → conflict → flow → ordinary | `statusView` on `main` orders save failure → access and refusal → rejection and stale work → source → held check failed → conflicts → loading and access check → catch-up, local edit, offline, pending → held check pending | P1 rows 1 and 4–11 take the reducer's conditions in that order, so the card's first condition and the pane's primary action never disagree. Flows (rows 2, 3, 12) are outside the reducer and placed by P2 |
 | RC-04 | With no heading, "show creating a title in the preview" | A section starts at an ATX heading with its marker on the next line (§3); `preflight` blocks `NOT_A_HEADING` | S3. 0.3 inserts no heading. Open for the owner (O-02) |
 | RC-05 | "Deleting the copy's text" is ambiguous | Body deletion is a shared delete; removing a whole copy is local only (§10; reproduced in LFCP-03-001) | C6 |
 | RC-06 | D-01 proposes a 7-day expiry and a cancel button | No expiry in the server, no cancel API; claim limit 1 (`DEFAULT_CLAIM_LIMIT`) | The owner's D-01 decision: I1 and §10. The join prompt's "It works once, and only for you" is wrong (anyone holding the link can claim it first). LFCP-03-015/020 replace it with I1 |
 | RC-07 | U03-11 lists "expired" among join errors | No server enforces expiry; LFCP-WIRE-01 allows it only as policy | I6: "expired" only from a server refusal that says so |
 | RC-08 | F-08 asks for a neutral shared mark | 0.4 design: ✓✓ means shared, turns green when current, progress has its own icon (`docs/guides/shared-sections.md`) | F1 keeps the 0.4 design. The pilot (§5 of the pilot protocol) asks what ✓✓ means. Open for the owner (O-03) |
 | RC-09 | The code map says no command has a lock | `InFlight` per note for share, import and insert; join and invite guards (`7070d5f`, beta.6) | A4 builds on them (LFCP-03-002, 010) |
-| RC-10 | Held edits are to be added as new facts | 0.4.0 has `HeldEdits`; LFCP-03-003 adds `StatusView.sync` and `vaultSyncSummary` | §6 reads only these; no second status path |
+| RC-10 | Held edits are to be added as new facts | 0.4.0 has `HeldEdits`; LFCP-03-003 (on `main`, `700caa1`) adds `StatusView.sync`, `heldCheck` and `vaultSyncSummary` | §6 reads only these; no second status path |
 | RC-11 | Russian labels | The plugin's interface is English; command IDs and names must not change (LFCP-03-008 AC2) | §3: English labels; palette names unchanged |
 | RC-12 | Pins: plugin 0.4.0-beta.8, spec baseline.10 | Released 0.4.0 (`ce0660a`), spec baseline.12 (`bf1c78c`), `main` `c66a6f5` | This contract is pinned to the second set |
 | RC-13 | Join stages include a required naming step (beta.8) | The palette join asks for a name (may be empty → "Shared collaboration") | N5. This is the intended 0.3 change for F-10, not a spec matter |
@@ -376,8 +411,9 @@ conforms to the spec, the code and the spec win.
 
 [`test/fixtures/ux-0.3/states.json`](../../test/fixtures/ux-0.3/states.json)
 holds the action catalogue of §3 and table-driven expected states: no
-editor, loading, unplaced, healthy, held, conflict and offline, access
-stale and unknown result, plus selection, refusal and read-only cases. Each
+editor, loading, unplaced, healthy, held (including a failed held check),
+conflict and offline, access stale and unknown result, plus running and
+unfinished flows, selection, content, refusal and read-only cases. Each
 state gives:
 
 - `facts`: the input, shaped like `StatusView.sync`, the access and
