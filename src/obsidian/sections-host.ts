@@ -285,8 +285,13 @@ export class SectionsHost {
     let changed = false;
     const passed = new Set<string>();
     const seen = new Map<string, number>();
-    // LFCP-03-003: held text is only in the note; whether that is saved to disk.
-    const persistence = await this.#persistence(path);
+    // LFCP-03-003: held text is only in the note; whether that is saved to
+    // disk, read once and only when something is held.
+    let persistence: HeldPersistence | undefined;
+    const persisted = async () => {
+      persistence ??= await this.#persistence(path);
+      return persistence;
+    };
     for (const r of pass.sections) {
       const key = sectionKey(r.section);
       // The k-th result of a section is its k-th copy in the note.
@@ -297,12 +302,17 @@ export class SectionsHost {
       passed.add(r.projectionId);
       const base = (await this.#bases?.load(r.projectionId))?.state;
       const found = heldEdits({ path, markdown: pass.source, scan, section, result: r, base });
-      const h = found === null ? null : { ...found, persistence };
+      const h = found === null ? null : { ...found, persistence: await persisted() };
       if (this.#projectionFacts.held(key, r.projectionId, h)) changed = true;
       this.#heldNotice(key, r.projectionId, section.heading.title, h);
     }
     if (this.#projectionFacts.heldPassed(path, passed)) changed = true;
-    if (this.#projectionFacts.persisted(path, persistence)) changed = true;
+    // A damaged copy's entry (damaged()) gets it too.
+    if (
+      this.#projectionFacts.holds(path) &&
+      this.#projectionFacts.persisted(path, await persisted())
+    )
+      changed = true;
     // Checked, but for a section whose model is not loaded yet (compared at its
     // next pass); a stale source passes again.
     if (
