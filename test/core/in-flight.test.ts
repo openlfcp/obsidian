@@ -1,9 +1,10 @@
-// One flow per key at a time (F-03, F-C04): a second start meanwhile is told
-// so and does nothing; the key is free again once the first settles, also
-// when it threw.
+// One flow per key at a time (F-03, F-C04): a second start meanwhile does
+// nothing and is handed the running flow, which reveals its open dialog or
+// says where it stands (LFCP-03-002); the key is free again once the first
+// settles, also when it threw.
 
 import { describe, expect, it } from "vitest";
-import { InFlight } from "../../src/core/in-flight";
+import { type Flow, InFlight } from "../../src/core/in-flight";
 
 describe("InFlight", () => {
   it("a second run under the same key meanwhile does nothing; another key runs", async () => {
@@ -57,5 +58,34 @@ describe("InFlight", () => {
       ),
     ).rejects.toThrow("boom");
     expect(f.busy("k")).toBe(false);
+  });
+
+  it("a second start is handed the running flow: its open dialog while shown, else its stage", async () => {
+    const f = new InFlight();
+    const seen: string[] = [];
+    const busy = (running: Flow) => {
+      if (!running.reveal()) seen.push(`stage: ${running.stage}`);
+    };
+    let step = () => {};
+    const first = f.run(
+      "note:1",
+      busy,
+      (flow) =>
+        new Promise<void>((done) => {
+          flow.showing(() => seen.push("preview brought forward"));
+          step = () => {
+            flow.showing(null);
+            flow.stage = "creating";
+            step = done;
+          };
+        }),
+      "starting",
+    );
+    await f.run("note:1", busy, async () => seen.push("second flow"));
+    step();
+    await f.run("note:1", busy, async () => seen.push("second flow"));
+    step();
+    await first;
+    expect(seen).toEqual(["preview brought forward", "stage: creating"]);
   });
 });
