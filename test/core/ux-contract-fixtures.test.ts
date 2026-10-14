@@ -47,6 +47,8 @@ const SELECTION_REASONS = new Set([
   "already-bound",
   "legacy-tasks",
   "broken-ref",
+  "damaged-boundary",
+  "multiple-selections",
 ]);
 
 const obj = (v: Json | undefined, where: string): Obj => {

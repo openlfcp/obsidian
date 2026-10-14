@@ -167,6 +167,8 @@ An ineligible selection blocks "Share section…" with one reason:
 | `already-bound` | Line N is already part of a shared section. | None |
 | `legacy-tasks` | Tasks in the selection are already shared in another collaboration. | The existing explicit import |
 | `broken-ref` | The shared task marker on line N is damaged. Repair it before sharing. | None |
+| `damaged-boundary` | The shared section from line N has a damaged boundary, so this text may belong to it. Repair shared sections in this note before sharing. | None |
+| `multiple-selections` | Several parts of the note are selected. Select one range of lines. | None |
 
 - **S1. No silent expansion.** The selection is never widened to the
   heading section, the next heading or the end of the note without the user's
@@ -178,7 +180,14 @@ An ineligible selection blocks "Share section…" with one reason:
   that has none. The user adds the heading and shares again (§11, RC-04).
 - **S4. Damaged EOF ranges stay diagnostic.** A fail-closed range up to the
   end of the file is a diagnostic region. It is never a share boundary,
-  preview or copy.
+  preview or copy. `preflight` reports a range in it as `DAMAGED_BOUNDARY`,
+  with or without a selection (`damaged-boundary`, LFCP-03-009).
+- **S5. One range.** Several selection ranges (multiple cursors) are not one
+  scope: `multiple-selections`, no fallback (LFCP-03-009).
+- **S6. Final text only.** While an input method is composing, no action
+  takes a scope or writes: the action says to finish typing first. A
+  section-changing action from Reading view asks to open the note for
+  editing (T4).
 
 ## 5. Primary call to action
 
