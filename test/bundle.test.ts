@@ -19,8 +19,10 @@ beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "openlfcp-bundle-"));
   const out = join(dir, "main.js");
   const meta = join(dir, "meta.json");
+  // The release build: without LFCP_DEV_PANE, whatever the environment of the test run.
   execFileSync("node", ["scripts/build.mjs", "--outfile", out, "--metafile", meta], {
     stdio: "pipe",
+    env: { ...process.env, LFCP_DEV_PANE: "" },
   });
   bundle = readFileSync(out, "utf8");
   // A plugin namespace's input is its absolute path, with backslashes on Windows.
@@ -45,6 +47,13 @@ describe("plugin bundle", () => {
         .map((i) => i.split(":")[0]),
     ).toEqual(["automerge-wasm-deflated"]);
     expect(bundle).toContain("WebAssembly.instantiate");
+  });
+
+  it("leaves the developer pane prototype and the UX fixtures out (D11)", () => {
+    const dev = /pane-prototype-view\.ts$|core\/pane\/prototype\.ts$|states\.json$/;
+    expect(inputs.filter((i) => dev.test(i))).toEqual([]);
+    expect(inputs).toContain("pane-prototype-stub:pane-prototype-view");
+    expect(bundle).not.toContain("shared-tasks-pane-prototype");
   });
 
   it("stays under the 5 MB Obsidian Sync limit: minified, the wasm deflated (0.3.1)", () => {
