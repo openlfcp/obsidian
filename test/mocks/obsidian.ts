@@ -20,17 +20,23 @@ export interface TAbstractFile {
   path: string;
 }
 
-export interface TFile extends TAbstractFile {}
+/** A file: a class, so the adapter's `instanceof TFile` holds (the sections host checks it). */
+export class TFile implements TAbstractFile {
+  readonly extension?: string;
+  constructor(public path: string) {
+    this.extension = /\.([^./]+)$/.exec(path)?.[1] ?? "";
+  }
+}
 
 /** The vault's files and event source: tests write files and trigger events by name. */
 export class Vault {
   readonly handlers: EventRef[] = [];
   readonly files = new Map<string, string>();
   getMarkdownFiles(): TFile[] {
-    return [...this.files.keys()].filter((p) => p.endsWith(".md")).map((path) => ({ path }));
+    return [...this.files.keys()].filter((p) => p.endsWith(".md")).map((path) => new TFile(path));
   }
   getFileByPath(path: string): TFile | null {
-    return this.files.has(path) ? { path } : null;
+    return this.files.has(path) ? new TFile(path) : null;
   }
   /** The paths read with read() and with cachedRead(), in order. */
   readonly reads: string[] = [];
