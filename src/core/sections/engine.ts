@@ -503,6 +503,9 @@ function localCommentsOf(markdown: string, ref: SectionRef, near: ParsedSection)
 /** The prefix of a provisional projection ID (a section occurrence without a base). */
 const PENDING = "pending:";
 
+/** How many refused predecessors one pass plans around (soak finding #12). */
+const MAX_REANCHOR = 4;
+
 export class SectionEngine {
   readonly #ledger = new SessionLedger();
 
@@ -1069,6 +1072,8 @@ export class SectionEngine {
       ...pasted,
       ...comp.restores,
     ]);
+    /** Nodes the SDK refused as a predecessor in this pass (below). */
+    const unanchorable = new Set<string>();
     const anchor = (parent: string | null, after: string | null): string | null => {
       if (after === null) return null;
       // A node the model shows in that parent's list: one whose placement is
@@ -1077,6 +1082,7 @@ export class SectionEngine {
       // peer-structure property test, seed 3365).
       const listed = new Set(snap.order[parent ?? ROOT] ?? []);
       const shown = (x: string) => {
+        if (unanchorable.has(x)) return false;
         const m = snap.nodes[x];
         return (
           placedHere.has(x) ||
@@ -1116,7 +1122,7 @@ export class SectionEngine {
         result: { projectionId, section: ref, lost: [], held: [], entries, stale: true },
         changes: [],
       };
-    const local = await commitPass(this.deps, {
+    const passArgs = (): Parameters<typeof commitPass>[1] => ({
       projectionId,
       resource,
       sectionId: ref.sectionId,
@@ -1158,6 +1164,28 @@ export class SectionEngine {
         }),
       ),
     });
+    let local = await commitPass(this.deps, passArgs());
+    // The SDK refuses a predecessor it does not hold eligible for reasons the
+    // snapshot does not show (a lifecycle or placement conflict, an invalid
+    // node, a slot missing from its list, §6, §4.3): the whole batch, on
+    // every pass, and every Task typed after it with it (the owner's new
+    // Tasks next to a conflict left open, soak finding #12 on 0.4.0-beta.18).
+    // The node it names is no anchor then: the batch is planned again after
+    // the nearest sibling before it the SDK may accept, or first, and the
+    // refused attempt's kept copy is dropped. A few times at most.
+    for (
+      let tries = 0;
+      tries < MAX_REANCHOR &&
+      local.kind === "kept" &&
+      local.code === "INVALID_PREDECESSOR" &&
+      local.nodeId !== undefined &&
+      !unanchorable.has(local.nodeId);
+      tries++
+    ) {
+      unanchorable.add(local.nodeId);
+      await this.deps.journal.resolveCandidate(local.candidate.candidateId);
+      local = await commitPass(this.deps, passArgs());
+    }
     // A Text edit refused as INVALID_INTENT at once: its base drifted (drifted()).
     if (local.kind === "kept" && local.code === "INVALID_INTENT") {
       const ids = [...new Set(plan.textEdits.map((e) => e.nodeId))];
