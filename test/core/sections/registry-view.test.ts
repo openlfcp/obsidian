@@ -268,6 +268,8 @@ describe("U03-02 registry view", () => {
     };
     const v = new SectionRegistryView(slow);
     const first = v.refresh();
+    // The first read is under way; the registry changes meanwhile.
+    while (calls === 0) await Promise.resolve();
     s.entries = [entry(1, "Sprint")];
     const second = v.refresh();
     const third = v.refresh();
@@ -275,6 +277,53 @@ describe("U03-02 registry view", () => {
     await Promise.all([first, second, third]);
     expect(calls).toBe(2);
     expect(v.snapshot().rows.length).toBe(1);
+  });
+
+  it("a refresh asked just as a read ends starts a new read; none is lost", async () => {
+    const { s, src } = sources();
+    let calls = 0;
+    const counted: RegistryViewSources = {
+      ...src,
+      registry: async () => {
+        calls++;
+        return s.entries;
+      },
+    };
+    const v = new SectionRegistryView(counted);
+    let asked: Promise<void> | null = null;
+    // The last change of the first read: a refresh asked a microtask later,
+    // after the read's last check and before anything else runs.
+    const stop = v.onChange(() => {
+      stop();
+      queueMicrotask(() => {
+        s.entries = [entry(1, "Joined")];
+        asked = v.refresh();
+      });
+    });
+    await v.refresh();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).not.toBeNull();
+    await asked;
+    expect(calls).toBe(2);
+    expect(v.snapshot().rows.map((r) => r.localAlias)).toEqual(["Joined"]);
+  });
+
+  it("a read that throws at once still ends; the next refresh reads again", async () => {
+    const { s, src } = sources();
+    let calls = 0;
+    const throwing: RegistryViewSources = {
+      ...src,
+      registry: () => {
+        calls++;
+        if (calls === 1) throw new Error("closed");
+        return Promise.resolve(s.entries);
+      },
+    };
+    const v = new SectionRegistryView(throwing);
+    await v.refresh();
+    expect(v.snapshot().status).toBe("error");
+    await v.refresh();
+    expect([calls, v.snapshot().status]).toEqual([2, "ready"]);
   });
 
   it("opens nothing: only the registry and already-open models are read", async () => {
