@@ -5,13 +5,10 @@
 // It redraws while open when the section's status changes.
 
 import { type App, Modal } from "obsidian";
+import type { CardAction, CardRowActions } from "../../core/sections/action-ports";
 import type { SectionCard } from "../../core/status/card";
 
-export interface CardAction {
-  readonly label: string;
-  /** Runs after the card closes; the host revalidates the section first. */
-  readonly run: () => void;
-}
+export type { CardAction };
 
 export class SectionCardModal extends Modal {
   #card: SectionCard;
@@ -23,11 +20,7 @@ export class SectionCardModal extends Modal {
     private readonly actions: readonly CardAction[],
     private readonly onClosed: () => void = () => undefined,
     /** Per identity: set its local alias (a label of this device only). */
-    private readonly rowActions: {
-      readonly alias?: (id: string, label: string) => void;
-      /** Remove this identity's access (060): the host confirms first. */
-      readonly remove?: (principal: string, label: string) => void;
-    } = {},
+    private readonly rowActions: CardRowActions = {},
   ) {
     super(app);
     this.#card = card;

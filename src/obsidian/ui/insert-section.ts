@@ -3,13 +3,10 @@
 // writes the note only; nothing is sent.
 
 import { type App, Modal, SuggestModal } from "obsidian";
+import type { SectionChoice } from "../../core/sections/action-ports";
 import type { InsertPreview } from "../../core/sections/insert";
 
-export interface SectionChoice {
-  readonly resource: Uint8Array;
-  readonly sectionId: string;
-  readonly title: string;
-}
+export type { SectionChoice };
 
 export class PickSectionModal extends SuggestModal<SectionChoice> {
   #done: (choice: SectionChoice | null) => void = () => undefined;

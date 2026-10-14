@@ -5,27 +5,10 @@
 // Only the section's own lines are shown. Text only.
 
 import { type App, Modal } from "obsidian";
-import type { ComparedLine, RepairItem } from "../../core/sections/repair";
+import type { LostBase, RepairActions } from "../../core/sections/action-ports";
+import type { RepairItem } from "../../core/sections/repair";
 
-export interface LostBase {
-  readonly key: string;
-  readonly title: string;
-  readonly lines: readonly ComparedLine[];
-}
-
-export interface RepairActions {
-  /** Places a missing marker after (end) or under (start) the chosen line. */
-  boundary(
-    item: Extract<RepairItem, { kind: "missing-end" | "missing-start" }>,
-    line: number,
-  ): Promise<void>;
-  /** Moves the cursor to a line. */
-  locate(line: number): void;
-  /** Keeps the note's version: its differences are sent as this vault's edits. */
-  shareMine(key: string): Promise<void>;
-  /** Takes the shared version; the note's text is kept as a recovery copy first. */
-  useShared(key: string): Promise<void>;
-}
+export type { LostBase, RepairActions };
 
 export class RepairModal extends Modal {
   constructor(
