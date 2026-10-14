@@ -23,6 +23,7 @@ import type {
   SectionServices,
 } from "./action-ports";
 import type { CreationEntry, CreationResult } from "./create";
+import { type InsertResult, insertRefusalMessage } from "./insert";
 import { type LegacySource, legacyPreflight } from "./legacy";
 import { preflight, proposeRange, revalidate, type SharePreview, type ShareRange } from "./share";
 
@@ -101,15 +102,6 @@ export class SectionActions {
     }
   }
 
-  /** The note's reservation for a flow still run by the host (insert, until it moves here). */
-  reserve(
-    path: string,
-    kind: "share" | "insert",
-    body: (target: NoteTarget, flow: Flow) => Promise<void>,
-  ): Promise<void> {
-    return this.#oneFlow(path, kind, body);
-  }
-
   /** A repeated start of a running flow: its open dialog brought forward, else where it stands. */
   #revealFlow(running: Flow): void {
     if (running.reveal()) return;
@@ -124,6 +116,73 @@ export class SectionActions {
       dialog.bringForward();
       this.env.prompter.announce(`Shared Tasks: ${what} is open. Finish or cancel it first.`);
     });
+  }
+
+  /**
+   * "Insert shared section…" (LFCP-02-052): a ready, fully loaded section
+   * of this vault, previewed, then written after the block at the cursor
+   * as one complete projection.
+   */
+  insertSection(editor: SectionEditor, path: string): Promise<void> {
+    return this.#oneFlow(path, "insert", (target, flow) =>
+      this.#insertSection(editor, target, flow),
+    );
+  }
+
+  async #insertSection(editor: SectionEditor, target: NoteTarget, flow: Flow): Promise<void> {
+    const { prompter, services } = this.env;
+    const insertion = services.insertion();
+    const choices = insertion === null ? null : await services.sectionChoices();
+    if (insertion === null || choices === null) {
+      prompter.notice("Shared Tasks: still starting. Try again in a moment.");
+      return;
+    }
+    if (choices.length === 0) {
+      prompter.notice("Shared Tasks: no shared section on this device yet.");
+      return;
+    }
+    const pick = prompter.pickSection(choices);
+    this.#showing(flow, pick, "the choice of a section to insert");
+    const choice = await pick.result;
+    flow.showing(null);
+    if (choice === null) return;
+    const preview = await insertion.preview(choice.resource as ResourceId, choice.sectionId);
+    if ("refused" in preview) {
+      prompter.notice(insertRefusalMessage(preview.refused));
+      return;
+    }
+    await services.watch(choice.resource as ResourceId);
+    const dialog = prompter.insertPreview(preview);
+    this.#showing(flow, dialog, "the insert preview");
+    const approved = await dialog.result;
+    flow.showing(null);
+    if (!approved) return;
+    const path = target.path;
+    if (path === null) {
+      prompter.notice(
+        "Shared Tasks: the note was deleted while the preview was open. Nothing was inserted.",
+      );
+      return;
+    }
+    const entry = await insertion.prepare(path, editor.text(), editor.cursorLine(), preview);
+    const result = await insertion.run(entry);
+    this.#notifyInsertion(result);
+    if (result.kind === "inserted") {
+      services.indexed(path, editor.text());
+      services.pass(path);
+    }
+  }
+
+  /** What became of an insertion, when there is something to say. */
+  #notifyInsertion(r: InsertResult): void {
+    if (r.kind === "stale")
+      this.env.prompter.notice(
+        "Shared Tasks: the note changed where the section would go. Insert it again.",
+      );
+    else if (r.kind === "inserted" && (r.entry.warnings ?? []).length > 0)
+      this.env.prompter.notice(
+        "Shared Tasks: section inserted. The private text after it, up to the next heading, stays private but moves with its heading.",
+      );
   }
 
   /**

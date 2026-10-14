@@ -22,7 +22,7 @@ import {
 } from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
-import { type App, type Editor, MarkdownView, type Modal, Notice, TFile } from "obsidian";
+import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
@@ -48,12 +48,7 @@ import {
   sharedState,
 } from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
-import {
-  type InsertResult,
-  insertRefusalMessage,
-  renderSection,
-  SectionInsertion,
-} from "../core/sections/insert";
+import { renderSection, SectionInsertion } from "../core/sections/insert";
 import { abandonOnce } from "../core/sections/journal";
 import type { LegacySource } from "../core/sections/legacy";
 import { type ParsedSection, parseSections, type SectionScan } from "../core/sections/parser";
@@ -126,11 +121,10 @@ import {
   sectionStatusExtension,
   setSectionStatuses,
 } from "./section-status";
-import { InsertSectionModal, PickSectionModal } from "./ui/insert-section";
 import { RecoveryModal } from "./ui/recovery";
 import { type LostBase, RepairModal } from "./ui/repair";
 import { AliasModal, ConfirmModal, SectionCardModal } from "./ui/section-card";
-import { bringForward, ObsidianSectionPrompter } from "./ui/section-prompter";
+import { ObsidianSectionPrompter } from "./ui/section-prompter";
 
 /** The text a note with a shared section always contains. */
 const SECTION_MARK = "lfcp-section:";
@@ -701,14 +695,6 @@ export class SectionsHost {
     return this.actions.share(asSectionEditor(editor), path);
   }
 
-  /** While `modal` is open, a repeated start of `flow` brings it forward and says so. */
-  #showing(flow: Flow | undefined, modal: Modal, what: string): void {
-    flow?.showing(() => {
-      bringForward(modal);
-      this.announce(`Shared Tasks: ${what} is open. Finish or cancel it first.`);
-    });
-  }
-
   /** The vault renamed a note (its event, as it happens): a flow on it follows it. */
   noteRenamed(oldPath: string, path: string): void {
     this.actions.noteRenamed(oldPath, path);
@@ -735,69 +721,7 @@ export class SectionsHost {
    * as one complete projection.
    */
   insertSection(editor: Editor, path: string): Promise<void> {
-    return this.actions.reserve(path, "insert", (target, flow) =>
-      this.#insertSection(editor, target, flow),
-    );
-  }
-
-  async #insertSection(editor: Editor, target: NoteTarget, flow: Flow): Promise<void> {
-    const runtime = this.#runtime;
-    const insertion = this.#insertion;
-    if (runtime === null || insertion === null) {
-      new Notice("Shared Tasks: still starting. Try again in a moment.");
-      return;
-    }
-    const choices: SectionChoice[] = [];
-    for (const entry of await runtime.registry()) {
-      if (entry.profile !== SECTIONS_PROFILE_ID) continue;
-      const replica = runtime.sectionProfile(entry.resourceId)?.replica;
-      const snap = replica?.snapshot();
-      const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
-        ?.id;
-      if (snap === undefined || typeof sectionId !== "string") continue;
-      choices.push({ resource: entry.resourceId, sectionId, title: snap.title.value ?? "" });
-    }
-    if (choices.length === 0) {
-      new Notice("Shared Tasks: no shared section on this device yet.");
-      return;
-    }
-    const pick = new PickSectionModal(this.app, choices);
-    pick.open();
-    this.#showing(flow, pick, "the choice of a section to insert");
-    const choice = await pick.result;
-    flow.showing(null);
-    if (choice === null) return;
-    const preview = await insertion.preview(choice.resource as ResourceId, choice.sectionId);
-    if ("refused" in preview) {
-      new Notice(insertRefusalMessage(preview.refused));
-      return;
-    }
-    await this.#watch(choice.resource as ResourceId);
-    const modal = new InsertSectionModal(this.app, preview);
-    modal.open();
-    this.#showing(flow, modal, "the insert preview");
-    const approved = await modal.result;
-    flow.showing(null);
-    if (!approved) return;
-    const path = target.path;
-    if (path === null) {
-      new Notice(
-        "Shared Tasks: the note was deleted while the preview was open. Nothing was inserted.",
-      );
-      return;
-    }
-    const entry = await insertion.prepare(
-      path,
-      editor.getValue(),
-      editor.getCursor().line,
-      preview,
-    );
-    const result = await insertion.run(entry);
-    notifyInsertion(result);
-    if (result.kind === "inserted") {
-      this.#index(path, editor.getValue());
-      this.editor.remoteChanged(path);
-    }
+    return this.actions.insertSection(asSectionEditor(editor), path);
   }
 
   async #watch(resource: ResourceId): Promise<void> {
@@ -1874,15 +1798,6 @@ export class SectionsHost {
       }
     }
   }
-}
-
-function notifyInsertion(r: InsertResult): void {
-  if (r.kind === "stale")
-    new Notice("Shared Tasks: the note changed where the section would go. Insert it again.");
-  else if (r.kind === "inserted" && (r.entry.warnings ?? []).length > 0)
-    new Notice(
-      "Shared Tasks: section inserted. The private text after it, up to the next heading, stays private but moves with its heading.",
-    );
 }
 
 const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
