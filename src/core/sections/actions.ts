@@ -8,7 +8,11 @@
 // reservation per note.
 //
 // Behaviour is that of 0.4.0's SectionsHost, moved: the texts, the order of
-// the dialogs and the checks are unchanged.
+// the dialogs and the checks are unchanged, except where LFCP-03-009 binds
+// an action to its captured target (target.ts) instead of a live editor:
+// a flow keeps its note when the user switches tabs or notes, reads the
+// note through the notes port before each effect, and shares an exact
+// eligible selection as it is (UX contract 0.3 §4).
 
 import { fromBase64url, type ResourceId, toBase64url } from "@openlfcp/core";
 import { type Flow, InFlight } from "../in-flight";
@@ -23,7 +27,6 @@ import type {
   LostBase,
   ResourceCommands,
   SectionDialog,
-  SectionEditor,
   SectionNotes,
   SectionPrompter,
   SectionServices,
@@ -39,7 +42,19 @@ import { type ParsedSection, parseSections } from "./parser";
 import type { SectionSnapshot } from "./port";
 import { adoptedBase, boundaryRepair, compare, repairItems, sharedVersionChange } from "./repair";
 import { detachAt } from "./rules";
-import { preflight, proposeRange, revalidate, type SharePreview, type ShareRange } from "./share";
+import { preflight, revalidate, type SharePreview, type ShareRange } from "./share";
+import {
+  type CapturedTarget,
+  captured,
+  captureRefusal,
+  invalidation,
+  invalidationText,
+  type NoteNow,
+  SHARE_WHOLE_SECTION,
+  selectionReasonText,
+  shareScope,
+  type TargetCapture,
+} from "./target";
 
 export interface SectionActionEnv {
   readonly prompter: SectionPrompter;
@@ -76,21 +91,54 @@ export class SectionActions {
    * or says where the running flow stands (LFCP-03-002). Every entry path
    * (palette, hotkey, and the menu, card and pane entries to come) calls
    * this method, so they share the one reservation.
+   *
+   * `at` is the note as the action found it (LFCP-03-009): its selection,
+   * when exact and eligible, is shared as it is; an ineligible one is
+   * refused with its reason, and offers "Share the whole section…" where
+   * the contract allows it.
    */
-  share(editor: SectionEditor, path: string): Promise<void> {
-    return this.#oneFlow(path, "share", async (target, flow) => {
-      const approved = await this.#shareSection(editor, path, flow, target);
+  share(at: TargetCapture): Promise<void> {
+    return this.#shareFlow(at, false);
+  }
+
+  /**
+   * "Share the whole section…" (UX contract §3, S2): the heading section
+   * that holds the selection, previewed anew; the explicit fallback for an
+   * ineligible selection, chosen on the pane or the menu (LFCP-03-010, 012).
+   */
+  shareWholeSection(at: TargetCapture): Promise<void> {
+    return this.#shareFlow(at, true);
+  }
+
+  #shareFlow(at: TargetCapture, whole: boolean): Promise<void> {
+    return this.#oneFlow(at.path, "share", async (target, flow) => {
+      const approved = await this.#shareSection(captured(at), target, flow, whole);
       if (approved === null) return;
-      // The note as it is now: renamed meanwhile, its new path; deleted, nothing.
-      if (target.path === null) {
-        this.env.prompter.notice(
-          "Shared Tasks: the note was deleted while the preview was open. Nothing was shared.",
-        );
-        return;
-      }
-      flow.stage = `section "${approved.title}" is being shared from this note. Its result shows when it is done.`;
-      await this.#createSection(target.path, editor.text(), approved, target);
+      flow.stage = `section "${approved.preview.title}" is being shared from this note. Its result shows when it is done.`;
+      await this.#createSection(approved.path, approved.text, approved.preview, target);
     });
+  }
+
+  /** The note at `path` now: its open editor's text, else its file's; null when no file is there. */
+  async #now(path: string): Promise<NoteNow | null> {
+    const open = this.env.notes.capture(path);
+    if (open !== null) return { text: open.text, open: true, composing: open.composing };
+    const text = await this.env.notes.read(path);
+    return text === null ? null : { text, open: false, composing: false };
+  }
+
+  /**
+   * Whether a captured target may start a flow (P3): not from Reading view
+   * or a composition, and still the note as it is (a surface may act on a
+   * capture taken earlier). Says why not, and returns false.
+   */
+  async #startable(at: CapturedTarget, target: NoteTarget, nothing: string): Promise<boolean> {
+    const why =
+      captureRefusal(at) ??
+      invalidation(at, target.path, target.path === null ? null : await this.#now(target.path));
+    if (why === null) return true;
+    this.env.prompter.notice(invalidationText(why, nothing));
+    return false;
   }
 
   /**
@@ -140,14 +188,22 @@ export class SectionActions {
    * of this vault, previewed, then written after the block at the cursor
    * as one complete projection.
    */
-  insertSection(editor: SectionEditor, path: string): Promise<void> {
-    return this.#oneFlow(path, "insert", (target, flow) =>
-      this.#insertSection(editor, target, flow),
+  insertSection(at: TargetCapture): Promise<void> {
+    return this.#oneFlow(at.path, "insert", (target, flow) =>
+      this.#insertSection(captured(at), target, flow),
     );
   }
 
-  async #insertSection(editor: SectionEditor, target: NoteTarget, flow: Flow): Promise<void> {
+  /**
+   * The insertion goes after the block at the captured cursor, in the
+   * captured text (LFCP-03-009): the insertion journal places it there when
+   * the note is unchanged, at the same anchor line when it changed, or not
+   * at all (stale). A note closed meanwhile is written through the file,
+   * with the same check, and the result names it.
+   */
+  async #insertSection(at: CapturedTarget, target: NoteTarget, flow: Flow): Promise<void> {
     const { prompter, services } = this.env;
+    if (!(await this.#startable(at, target, "inserted"))) return;
     const insertion = services.insertion();
     const choices = insertion === null ? null : await services.sectionChoices();
     if (insertion === null || choices === null) {
@@ -175,18 +231,34 @@ export class SectionActions {
     flow.showing(null);
     if (!approved) return;
     const path = target.path;
-    if (path === null) {
+    const now = path === null ? null : await this.#now(path);
+    if (path === null || now === null) {
       prompter.notice(
         "Shared Tasks: the note was deleted while the preview was open. Nothing was inserted.",
       );
       return;
     }
-    const entry = await insertion.prepare(path, editor.text(), editor.cursorLine(), preview);
+    // The note as checked here; the journal checks its revision again as it writes.
+    const why = invalidation(at, path, now, false);
+    if (why !== null) {
+      prompter.notice(invalidationText(why, "inserted"));
+      return;
+    }
+    const entry = await insertion.prepare(path, at.text, at.cursorLine, preview);
     const result = await insertion.run(entry);
     this.#notifyInsertion(result);
     if (result.kind === "inserted") {
-      services.indexed(path, editor.text());
-      services.pass(path);
+      const after = await this.#now(path);
+      if (after !== null) {
+        services.indexed(path, after.text);
+        if (after.open) services.pass(path);
+        else services.pass(path, after.text);
+      }
+      // U03-12: a note closed meanwhile was written as a file; the result names it.
+      if (!now.open)
+        prompter.notice(
+          `Shared Tasks: section "${preview.title}" was inserted into "${noteName(path)}", which is not open.`,
+        );
     }
   }
 
@@ -254,8 +326,8 @@ export class SectionActions {
       await services.watch(fromKey(entry.resource));
       // Where the creation bound it: the renamed note's path, if it moved.
       const path = result.entry.path;
-      const open = notes.openEditor(path);
-      const text = open?.text() ?? (await notes.read(path));
+      const open = notes.capture(path);
+      const text = open?.text ?? (await notes.read(path));
       if (text !== null) {
         services.indexed(path, text);
         if (open !== null) services.pass(path);
@@ -267,29 +339,63 @@ export class SectionActions {
 
   /**
    * "Share section…" (LFCP-02-049): the heading at or above the cursor
-   * proposes the range; the preview shows exactly what would be shared. An
-   * approved preview is revalidated against the note as it is then (UX02):
-   * a changed range is shown again. Returns the approved preview, or null.
+   * proposes the range, or an exact eligible selection is the range
+   * (LFCP-03-009); the preview shows exactly what would be shared. An
+   * approved preview is revalidated against the note as it is then, read
+   * through the notes port at the held note's path (UX02, T3): a changed
+   * heading range is shown again; a changed selection is not widened, it
+   * is refused. Returns the approved preview with the path and text it was
+   * checked on, or null.
    */
   async #shareSection(
-    editor: SectionEditor,
-    path: string,
-    flow?: Flow,
-    target?: NoteTarget,
-  ): Promise<SharePreview | null> {
+    at: CapturedTarget,
+    target: NoteTarget,
+    flow: Flow,
+    whole: boolean,
+  ): Promise<{ preview: SharePreview; path: string; text: string } | null> {
     const { prompter, services } = this.env;
     // V3: no new shared section from a device where sections are read-only.
     if (services.readOnly()) {
       prompter.notice(`Shared Tasks: ${SECTIONS_READ_ONLY}.`);
       return null;
     }
-    const md = editor.text();
-    let line = editor.cursorLine();
-    let range: ShareRange | null = null;
-    for (; line >= 0 && range === null; line--) range = proposeRange(md, line);
-    if (range === null) {
+    if (!(await this.#startable(at, target, "shared"))) return null;
+    const md = at.text;
+    const scope = shareScope(md, at.cursorLine, at.selections);
+    let range: ShareRange;
+    let exact = false;
+    if (scope.kind === "no-heading") {
       prompter.notice("Shared Tasks: put the cursor on or under a heading to share its section.");
       return null;
+    } else if (scope.kind === "ineligible") {
+      // The selection's Tasks are 0.1 shared ones: the explicit import of exactly that range (053).
+      if (scope.reason === "legacy-tasks" && scope.range !== null) {
+        await this.#importFlow(at, target, scope.range, preflight(md, scope.range).title, flow);
+        return null;
+      }
+      const reason = selectionReasonText(scope.reason, scope.line);
+      if (scope.fallback === null) {
+        prompter.notice(`Shared Tasks: ${reason}`);
+        prompter.announce(`Shared Tasks: ${reason}`);
+        return null;
+      }
+      // S1, S2: never widened by itself; the whole section is the user's explicit choice.
+      if (!whole) {
+        const ask = prompter.confirm({
+          title: "Share section",
+          message: `${reason} You can share the whole section under its heading instead; its preview opens first.`,
+          action: SHARE_WHOLE_SECTION,
+          destructive: false,
+        });
+        this.#showing(flow, ask, "the choice to share the whole section");
+        const chosen = await ask.result;
+        flow.showing(null);
+        if (!chosen) return null;
+      }
+      range = scope.fallback;
+    } else {
+      range = scope.range;
+      exact = scope.kind === "exact";
     }
     let preview = preflight(md, range);
     // 0.1 shared Tasks in the range, and nothing else in the way: the explicit import (053).
@@ -297,7 +403,7 @@ export class SectionActions {
       preview.problems.length > 0 &&
       preview.problems.every((p) => p.code === "LEGACY_SHARED_TASKS")
     ) {
-      await this.#importFlow(editor, target ?? { id: 0, path }, range, preview.title, flow);
+      await this.#importFlow(at, target, range, preview.title, flow);
       return null;
     }
     let note: string | undefined;
@@ -305,15 +411,35 @@ export class SectionActions {
       const dialog = prompter.sharePreview(preview, note);
       this.#showing(flow, dialog, `the share preview of "${preview.title}"`);
       const approved = await dialog.result;
-      flow?.showing(null);
+      flow.showing(null);
       if (!approved) return null;
-      const now = revalidate(editor.text(), preview);
-      if (now.kind !== "changed") return now.preview;
-      if (now.preview === null) {
+      // The held note, wherever it is now (renamed: its new path); never the active editor's.
+      const path = target.path;
+      const now = path === null ? null : await this.#now(path);
+      if (path === null || now === null) {
+        prompter.notice(
+          "Shared Tasks: the note was deleted while the preview was open. Nothing was shared.",
+        );
+        return null;
+      }
+      const why = invalidation(at, path, now, false);
+      if (why !== null) {
+        prompter.notice(invalidationText(why, "shared"));
+        return null;
+      }
+      const again = revalidate(now.text, preview);
+      if (again.kind !== "changed") return { preview: again.preview, path, text: now.text };
+      if (exact) {
+        prompter.notice(
+          "Shared Tasks: the note changed while the preview was open. Nothing was shared; select the lines and share again.",
+        );
+        return null;
+      }
+      if (again.preview === null) {
         prompter.notice("Shared Tasks: the section's heading is gone. Nothing was shared.");
         return null;
       }
-      preview = now.preview;
+      preview = again.preview;
       note = "The note changed while the preview was open. Review the section again.";
     }
   }
@@ -324,7 +450,7 @@ export class SectionActions {
    * creation; the note's refs are replaced only once the copy is durable.
    */
   async #importFlow(
-    editor: SectionEditor,
+    at: CapturedTarget,
     target: NoteTarget,
     range: ShareRange,
     title: string,
@@ -336,7 +462,7 @@ export class SectionActions {
       prompter.notice("Shared Tasks: still starting. Try again in a moment.");
       return;
     }
-    const md = editor.text();
+    const md = at.text;
     // The sources as this device holds them now (0.1 collaborations).
     const sources = new Map<string, LegacySource>();
     for (const p of scanRefs(md).projections) {
@@ -358,10 +484,17 @@ export class SectionActions {
     flow?.showing(null);
     if (chosen === null) return;
     const path = target.path;
-    if (path === null) {
+    const now = path === null ? null : await this.#now(path);
+    if (path === null || now === null) {
       prompter.notice(
         "Shared Tasks: the note was deleted while the preview was open. Nothing was imported.",
       );
+      return;
+    }
+    // The range's lines are the captured note's: a changed note is imported from a new preview.
+    const why = invalidation(at, path, now);
+    if (why !== null) {
+      prompter.notice(invalidationText(why, "imported"));
       return;
     }
     if (flow !== undefined) flow.stage = `section "${title}" is being imported from this note.`;
@@ -373,7 +506,7 @@ export class SectionActions {
     }
     let entry: CreationEntry;
     try {
-      entry = await creation.prepareImport(path, editor.text(), range, source, chosen);
+      entry = await creation.prepareImport(path, now.text, range, source, chosen);
     } catch (e) {
       prompter.notice(
         `Shared Tasks: the import cannot start (${e instanceof Error ? e.message : String(e)}). Nothing changed.`,
@@ -418,10 +551,25 @@ export class SectionActions {
    * is published: the shared section, other notes and collaborators are
    * unchanged.
    */
-  async detachSectionAt(editor: SectionEditor, path: string): Promise<void> {
+  async detachSectionAt(at: TargetCapture): Promise<void> {
+    const why = captureRefusal(at);
+    if (why !== null) {
+      this.env.prompter.notice(invalidationText(why, "detached"));
+      return;
+    }
+    // The note held while the confirmation is open: a rename is followed, a deletion writes nothing.
+    const held = this.#targets.hold(at.path);
+    try {
+      await this.#detach(at, held.target);
+    } finally {
+      held.release();
+    }
+  }
+
+  async #detach(at: TargetCapture, target: NoteTarget): Promise<void> {
     const { prompter, notes, services } = this.env;
-    const md = editor.text();
-    const found = detachAt(md, editor.cursorLine());
+    const md = at.text;
+    const found = detachAt(md, at.cursorLine);
     if (found === null) {
       prompter.notice("Shared Tasks: put the cursor in a shared section to detach it.");
       return;
@@ -433,6 +581,11 @@ export class SectionActions {
       action: "Detach",
     });
     if (!(await ask.result)) return;
+    const path = target.path;
+    if (path === null) {
+      prompter.notice("Shared Tasks: the note was deleted. Nothing was detached.");
+      return;
+    }
     let detached = false;
     await notes.edit(path, (current) => {
       // Only the note the confirmation was asked about.
@@ -477,8 +630,14 @@ export class SectionActions {
    * their candidate lines, problems to locate, and sections whose base is
    * lost, compared. Nothing changes without the user's choice.
    */
-  async repairNote(editor: SectionEditor, path: string): Promise<void> {
+  async repairNote(at: TargetCapture): Promise<void> {
     const { prompter, notes, services } = this.env;
+    const refused = captureRefusal(at);
+    if (refused !== null) {
+      prompter.notice(invalidationText(refused, "changed"));
+      return;
+    }
+    const path = at.path;
     const model = services.model();
     const bases = services.bases();
     const journal = services.candidates();
@@ -486,7 +645,7 @@ export class SectionActions {
       prompter.notice("Shared Tasks: still starting. Try again in a moment.");
       return;
     }
-    const md = editor.text();
+    const md = at.text;
     const items = repairItems(md);
     const known = new Set<string>();
     for (const id of await bases.projectionsOf(path)) {
@@ -532,7 +691,8 @@ export class SectionActions {
         });
         services.pass(path);
       },
-      locate: (line) => editor.setCursor(line),
+      // The repaired note, by its path: never whichever note the tab shows now.
+      locate: (line) => void notes.goToLine(path, line),
       shareMine: async (key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
@@ -707,8 +867,8 @@ export class SectionActions {
   }
 
   /** "Open shared section details" (064): the card of the section under the cursor. */
-  openCardAt(editor: SectionEditor): void {
-    const at = sectionAtLine(editor.text(), editor.cursorLine());
+  openCardAt(target: TargetCapture): void {
+    const at = sectionAtLine(target.text, target.cursorLine);
     if (at === null) {
       this.env.prompter.notice(
         "Shared Tasks: put the cursor in a shared section to see its details.",
@@ -753,8 +913,8 @@ export class SectionActions {
   /** "Repair shared sections in this note" from a card (F-04): the note opened first. */
   async #repairAt(path: string): Promise<void> {
     const { notes } = this.env;
-    const editor = await notes.goToLine(path, notes.openEditor(path)?.cursorLine() ?? 0);
-    if (editor !== null) await this.repairNote(editor, path);
+    const at = await notes.goToLine(path, notes.capture(path)?.cursorLine ?? 0);
+    if (at !== null) await this.repairNote(at);
   }
 
   /** The copies of section `key`'s text kept on this device after a refusal (not shared). */
@@ -817,3 +977,6 @@ export class SectionActions {
 }
 
 const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
+
+/** A note's name as the user sees it: its file name without ".md". */
+const noteName = (path: string): string => (path.split("/").pop() ?? path).replace(/\.md$/i, "");

@@ -10,7 +10,6 @@ import { SECTIONS_READ_ONLY } from "../../../src/core/lfcp/runtime";
 import type {
   CreationService,
   InsertionService,
-  SectionEditor,
   SectionNotes,
   SectionPrompter,
   SectionServices,
@@ -35,6 +34,7 @@ import type { PendingCandidate } from "../../../src/core/sections/journal";
 import type { SectionSnapshot } from "../../../src/core/sections/port";
 import type { RecoveryChoice, RecoveryItem } from "../../../src/core/sections/recovery";
 import type { SharePreview } from "../../../src/core/sections/share";
+import type { EditorMode, TargetCapture, TextSelection } from "../../../src/core/sections/target";
 import type { RevokeOutcome } from "../../../src/core/status/access";
 import type { SectionCard } from "../../../src/core/status/card";
 
@@ -119,26 +119,43 @@ class RecordingPrompter implements SectionPrompter {
   }
 }
 
+/** An editor on a note in memory: `at()` captures it as an action does when it starts. */
+class TestEditor {
+  selections: TextSelection[] = [];
+  composing = false;
+  mode: EditorMode = "source";
+  constructor(
+    private readonly files: Map<string, string>,
+    readonly path: string,
+    public line: number,
+  ) {}
+  at(): TargetCapture {
+    return {
+      path: this.path,
+      text: this.files.get(this.path) ?? "",
+      mode: this.mode,
+      cursorLine: this.line,
+      selections: this.selections,
+      composing: this.composing,
+    };
+  }
+}
+
 /** Notes in memory; `open` paths have an editor. Writes recorded. */
 class MemoryNotes implements SectionNotes {
   readonly files = new Map<string, string>();
   readonly open = new Set<string>();
+  /** Notes being composed in (IME), by path. */
+  readonly composing = new Set<string>();
   readonly writes: { path: string; changes: readonly TextChange[] }[] = [];
-  editorOf(path: string, line = 0): SectionEditor & { line: number } {
-    const files = this.files;
-    return {
-      line,
-      text: () => files.get(path) ?? "",
-      cursorLine() {
-        return this.line;
-      },
-      setCursor(l: number) {
-        this.line = l;
-      },
-    };
+  /** Lines revealed by goToLine. */
+  readonly located: [string, number][] = [];
+  editorOf(path: string, line = 0): TestEditor {
+    return new TestEditor(this.files, path, line);
   }
-  openEditor(path: string): SectionEditor | null {
-    return this.open.has(path) ? this.editorOf(path) : null;
+  capture(path: string): TargetCapture | null {
+    if (!this.open.has(path)) return null;
+    return { ...this.editorOf(path).at(), composing: this.composing.has(path) };
   }
   async read(path: string): Promise<string | null> {
     return this.files.get(path) ?? null;
@@ -151,8 +168,10 @@ class MemoryNotes implements SectionNotes {
     this.writes.push({ path, changes });
     this.files.set(path, applyChanges(current, changes));
   }
-  async goToLine(path: string): Promise<SectionEditor | null> {
-    return this.files.has(path) ? this.editorOf(path) : null;
+  async goToLine(path: string, line: number): Promise<TargetCapture | null> {
+    if (!this.files.has(path)) return null;
+    this.located.push([path, line]);
+    return this.editorOf(path, line).at();
   }
 }
 
@@ -266,7 +285,7 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
   it("an approved preview is created, watched, indexed and passed at the held note's path", async () => {
     const t = setup();
     t.prompter.script.share = [true];
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     expect(t.calls).toEqual([
       'prepare Plan.md "Plan"',
       "run op-1",
@@ -281,12 +300,12 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
 
   it("a second start while the preview is open reveals it: no second dialog, nothing created", async () => {
     const t = setup();
-    const first = t.actions.share(t.editor, "Plan.md");
+    const first = t.actions.share(t.editor.at());
     await flush();
     expect(t.prompter.open("share")).toHaveLength(1);
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     // The insert entry shares the note's reservation.
-    await t.actions.insertSection(t.editor, "Plan.md");
+    await t.actions.insertSection(t.editor.at());
     expect(t.prompter.dialogs).toHaveLength(1);
     expect(t.prompter.dialogs[0]?.forward).toBe(2);
     expect(t.prompter.announced).toEqual([
@@ -305,9 +324,9 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     t.prompter.script.share = [true];
     let finish: (r: CreationResult) => void = () => undefined;
     t.creation.result = () => new Promise((r) => (finish = r));
-    const first = t.actions.share(t.editor, "Plan.md");
+    const first = t.actions.share(t.editor.at());
     await flush();
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     const stage =
       'Shared Tasks: section "Plan" is being shared from this note. Its result shows when it is done.';
     expect(t.prompter.notices).toEqual([stage]);
@@ -322,7 +341,7 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
       'Shared Tasks: section "Plan" was created on this device; invitation is not ready yet. Offline.',
     );
     t.prompter.script.share = [false];
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     expect(t.prompter.dialogs.filter((d) => d.kind === "share")).toHaveLength(2);
   });
 
@@ -330,7 +349,7 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     const t = setup();
     t.prompter.script.share = [true];
     t.creation.result = (e) => Promise.resolve({ kind: "stale", entry: e });
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     expect(t.calls).toEqual([
       'prepare Plan.md "Plan"',
       "run op-1",
@@ -346,18 +365,18 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     const t = setup();
     t.prompter.script.share = [true, false];
     t.creation.result = () => Promise.reject(new Error("socket closed"));
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     expect(t.calls).toEqual(['prepare Plan.md "Plan"', "run op-1"]);
     expect(t.prompter.notices).toEqual([
       'Shared Tasks: creating section "Plan" stopped (socket closed). It goes on at the next start.',
     ]);
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     expect(t.prompter.dialogs.filter((d) => d.kind === "share")).toHaveLength(2);
   });
 
   it("stale preview: a note changed while the preview was open is shown again; a lost heading shares nothing", async () => {
     const t = setup();
-    const first = t.actions.share(t.editor, "Plan.md");
+    const first = t.actions.share(t.editor.at());
     await flush();
     t.notes.files.set("Plan.md", NOTE.replace("- [ ] Beta", "- [ ] Beta\n- [ ] Gamma"));
     t.prompter.open("share")[0]?.answer(true);
@@ -379,7 +398,7 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
 
   it("a note deleted while the preview was open is not shared; renamed, the share binds the new path", async () => {
     const t = setup();
-    const first = t.actions.share(t.editor, "Plan.md");
+    const first = t.actions.share(t.editor.at());
     await flush();
     t.actions.noteDeleted("Plan.md");
     t.prompter.open("share")[0]?.answer(true);
@@ -389,7 +408,7 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
       "Shared Tasks: the note was deleted while the preview was open. Nothing was shared.",
     ]);
 
-    const second = t.actions.share(t.editor, "Plan.md");
+    const second = t.actions.share(t.editor.at());
     await flush();
     t.actions.noteRenamed("Plan.md", "Renamed.md");
     t.notes.files.set("Renamed.md", NOTE);
@@ -401,27 +420,27 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
 
   it("refused before any dialog: read-only device, no heading, still starting, no server", async () => {
     const readOnly = setup(() => ({ readOnly: () => true }));
-    await readOnly.actions.share(readOnly.editor, "Plan.md");
+    await readOnly.actions.share(readOnly.editor.at());
     expect(readOnly.prompter.notices).toEqual([`Shared Tasks: ${SECTIONS_READ_ONLY}.`]);
 
     const noHeading = setup();
     noHeading.editor.line = 0;
     noHeading.notes.files.set("Plan.md", `intro\n${NOTE.replace(/^#.*$/gm, "text")}`);
-    await noHeading.actions.share(noHeading.editor, "Plan.md");
+    await noHeading.actions.share(noHeading.editor.at());
     expect(noHeading.prompter.notices).toEqual([
       "Shared Tasks: put the cursor on or under a heading to share its section.",
     ]);
 
     const starting = setup(() => ({ creation: () => null }));
     starting.prompter.script.share = [true];
-    await starting.actions.share(starting.editor, "Plan.md");
+    await starting.actions.share(starting.editor.at());
     expect(starting.prompter.notices).toEqual([
       "Shared Tasks: still starting. Share the section again in a moment.",
     ]);
 
     const noServer = setup(() => ({ server: () => " " }));
     noServer.prompter.script.share = [true];
-    await noServer.actions.share(noServer.editor, "Plan.md");
+    await noServer.actions.share(noServer.editor.at());
     expect(noServer.prompter.notices).toEqual([
       "Shared Tasks: set a default sync server in the settings to share a section.",
     ]);
@@ -448,7 +467,7 @@ describe("import of 0.1 shared Tasks (LFCP-03-008 over 053)", () => {
     t.notes.files.set("Plan.md", LEGACY);
     t.editor.line = 0;
     t.prompter.script.import = [{ values: {}, copies: [] }];
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.share(t.editor.at());
     const preview = t.prompter.dialogs.find((d) => d.kind === "import");
     expect(preview?.args[0]).toBe("Launch");
     expect(t.calls).toEqual(["legacySource", "prepareImport Plan.md"]);
@@ -517,7 +536,7 @@ describe("insert (LFCP-03-008 over 052)", () => {
     const t = insertSetup();
     t.prompter.script.pick = [choice];
     t.prompter.script.insert = [true];
-    await t.actions.insertSection(t.editor, "Plan.md");
+    await t.actions.insertSection(t.editor.at());
     expect(t.calls).toEqual([
       "preview",
       "watch",
@@ -534,7 +553,7 @@ describe("insert (LFCP-03-008 over 052)", () => {
     t.prompter.script.pick = [choice];
     t.prompter.script.insert = [true];
     t.insertion.result = (e) => Promise.resolve({ kind: "stale", entry: e });
-    await t.actions.insertSection(t.editor, "Plan.md");
+    await t.actions.insertSection(t.editor.at());
     expect(t.calls.at(-1)).toBe("run ins-1");
     expect(t.prompter.notices).toEqual([
       "Shared Tasks: the note changed where the section would go. Insert it again.",
@@ -545,19 +564,19 @@ describe("insert (LFCP-03-008 over 052)", () => {
     const refused = insertSetup();
     refused.insertion.refused = "importing";
     refused.prompter.script.pick = [choice];
-    await refused.actions.insertSection(refused.editor, "Plan.md");
+    await refused.actions.insertSection(refused.editor.at());
     expect(refused.calls).toEqual(["preview"]);
     expect(refused.prompter.notices).toHaveLength(1);
     expect(refused.prompter.open()).toEqual([]);
 
     const cancelled = insertSetup();
     cancelled.prompter.script.pick = [null];
-    await cancelled.actions.insertSection(cancelled.editor, "Plan.md");
+    await cancelled.actions.insertSection(cancelled.editor.at());
     expect(cancelled.calls).toEqual([]);
 
     const deleted = insertSetup();
     deleted.prompter.script.pick = [choice];
-    const flow = deleted.actions.insertSection(deleted.editor, "Plan.md");
+    const flow = deleted.actions.insertSection(deleted.editor.at());
     await flush(20);
     deleted.actions.noteDeleted("Plan.md");
     deleted.prompter.open("insert")[0]?.answer(true);
@@ -568,10 +587,10 @@ describe("insert (LFCP-03-008 over 052)", () => {
     ]);
 
     const none = insertSetup([]);
-    await none.actions.insertSection(none.editor, "Plan.md");
+    await none.actions.insertSection(none.editor.at());
     expect(none.prompter.notices).toEqual(["Shared Tasks: no shared section on this device yet."]);
     const starting = insertSetup(null);
-    await starting.actions.insertSection(starting.editor, "Plan.md");
+    await starting.actions.insertSection(starting.editor.at());
     expect(starting.prompter.notices).toEqual([
       "Shared Tasks: still starting. Try again in a moment.",
     ]);
@@ -580,10 +599,10 @@ describe("insert (LFCP-03-008 over 052)", () => {
   it("a second insert while the insert preview is open brings it forward", async () => {
     const t = insertSetup();
     t.prompter.script.pick = [choice];
-    const first = t.actions.insertSection(t.editor, "Plan.md");
+    const first = t.actions.insertSection(t.editor.at());
     await flush(20);
-    await t.actions.insertSection(t.editor, "Plan.md");
-    await t.actions.share(t.editor, "Plan.md");
+    await t.actions.insertSection(t.editor.at());
+    await t.actions.share(t.editor.at());
     const open = t.prompter.open("insert");
     expect(open).toHaveLength(1);
     expect(open[0]?.forward).toBe(2);
@@ -625,7 +644,7 @@ describe("detach (LFCP-03-008 over §10)", () => {
   it("confirmed: the bindings go, this note's base is dropped, nothing else is touched", async () => {
     const t = await detachSetup();
     t.prompter.script.confirm = [true];
-    await t.actions.detachSectionAt(t.editor, "Plan.md");
+    await t.actions.detachSectionAt(t.editor.at());
     expect(t.notes.files.get("Plan.md")).toBe(
       ["Private before.", "## Launch", "- [ ] Alpha", "Private after.", ""].join("\n"),
     );
@@ -639,7 +658,7 @@ describe("detach (LFCP-03-008 over §10)", () => {
 
   it("stale: a note changed during the confirmation is not detached", async () => {
     const t = await detachSetup();
-    const flow = t.actions.detachSectionAt(t.editor, "Plan.md");
+    const flow = t.actions.detachSectionAt(t.editor.at());
     await flush();
     t.notes.files.set("Plan.md", BOUND.replace("Alpha", "Alpha!"));
     t.prompter.open("confirm")[0]?.answer(true);
@@ -655,9 +674,9 @@ describe("detach (LFCP-03-008 over §10)", () => {
   it("cancelled, or the cursor outside a section: nothing written", async () => {
     const t = await detachSetup();
     t.prompter.script.confirm = [false];
-    await t.actions.detachSectionAt(t.editor, "Plan.md");
+    await t.actions.detachSectionAt(t.editor.at());
     t.editor.line = 0;
-    await t.actions.detachSectionAt(t.editor, "Plan.md");
+    await t.actions.detachSectionAt(t.editor.at());
     expect(t.notes.writes).toEqual([]);
     expect(t.calls).toEqual([]);
     expect(t.prompter.dialogs.map((d) => d.kind)).toEqual(["confirm"]);
@@ -709,7 +728,7 @@ describe("repair (LFCP-03-008 over 062)", () => {
 
   it("still starting: no dialog", async () => {
     const t = setup();
-    await t.actions.repairNote(t.editor, "Plan.md");
+    await t.actions.repairNote(t.editor.at());
     expect(t.prompter.dialogs).toEqual([]);
     expect(t.prompter.notices).toEqual(["Shared Tasks: still starting. Try again in a moment."]);
   });
@@ -719,7 +738,7 @@ describe("repair (LFCP-03-008 over 062)", () => {
       "\n",
     );
     const t = repairSetup(broken);
-    await t.actions.repairNote(t.editor, "Plan.md");
+    await t.actions.repairNote(t.editor.at());
     const [items, , actions] = opened(t);
     const item = items[0];
     if (item?.kind !== "missing-end") throw new Error(item?.kind);
@@ -731,12 +750,13 @@ describe("repair (LFCP-03-008 over 062)", () => {
     expect(t.notes.writes).toHaveLength(1);
     expect(t.notes.files.get("Plan.md")).toContain(formatBoundary("end", S));
     actions.locate(4);
-    expect(t.editor.cursorLine()).toBe(4);
+    await flush();
+    expect(t.notes.located).toEqual([["Plan.md", 4]]);
   });
 
   it("stale: taking the shared version of a changed note keeps the copy and replaces nothing", async () => {
     const t = repairSetup(LOST);
-    await t.actions.repairNote(t.editor, "Plan.md");
+    await t.actions.repairNote(t.editor.at());
     const [, lost, actions] = opened(t);
     expect(lost.map((l) => l.key)).toEqual([KEY]);
     t.notes.files.set("Plan.md", LOST.replace("Draft", "Edited"));
@@ -751,7 +771,7 @@ describe("repair (LFCP-03-008 over 062)", () => {
 
   it("taking the shared version keeps the copy first, then writes the model's version", async () => {
     const t = repairSetup(LOST);
-    await t.actions.repairNote(t.editor, "Plan.md");
+    await t.actions.repairNote(t.editor.at());
     const [, , actions] = opened(t);
     await actions.useShared(KEY);
     expect(t.kept).toHaveLength(1);
@@ -762,7 +782,7 @@ describe("repair (LFCP-03-008 over 062)", () => {
 
   it("keeping this note's version adopts a base for it, and says so", async () => {
     const t = repairSetup(LOST);
-    await t.actions.repairNote(t.editor, "Plan.md");
+    await t.actions.repairNote(t.editor.at());
     const [, , actions] = opened(t);
     await actions.shareMine(KEY);
     expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
@@ -988,13 +1008,251 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     const t = cardSetup();
     t.notes.files.set("Plan.md", BOUND);
     t.editor.line = 0;
-    t.actions.openCardAt(t.editor);
+    t.actions.openCardAt(t.editor.at());
     t.editor.line = 3;
-    t.actions.openCardAt(t.editor);
+    t.actions.openCardAt(t.editor.at());
     await flush(20);
     expect(t.prompter.notices).toEqual([
       "Shared Tasks: put the cursor in a shared section to see its details.",
     ]);
     expect(t.prompter.open("card")).toHaveLength(1);
+  });
+});
+
+describe("stable target and exact selection (LFCP-03-009, U03-03/04/05/12)", () => {
+  const TAIL = "PRIVATE_TAIL_c0ffee: stays on this device.";
+  const NEXT = "PRIVATE_NEXT_beef: another section.";
+  const SEL = ["## Plan", "- [ ] Alpha", "- [ ] Beta", "", TAIL, "", "## Later", NEXT, ""].join(
+    "\n",
+  );
+  const sel = (from: [number, number], to: [number, number]) => [
+    { anchor: { line: from[0], ch: from[1] }, head: { line: to[0], ch: to[1] } },
+  ];
+  /** The share setup on SEL, recording the previews prepare was given. */
+  function selSetup() {
+    const t = setup();
+    t.notes.files.set("Plan.md", SEL);
+    t.editor.line = 0;
+    const prepared: SharePreview[] = [];
+    const prepare = t.creation.prepare.bind(t.creation);
+    t.creation.prepare = async (path, md, preview) => {
+      prepared.push(preview);
+      return prepare(path, md, preview);
+    };
+    return { ...t, prepared };
+  }
+  const shown = (t: { prompter: RecordingPrompter }, i = 0) =>
+    t.prompter.dialogs.filter((d) => d.kind === "share")[i]?.args[0] as SharePreview | undefined;
+
+  it("U03-04: an exact selection is previewed and created as it is; the text after it stays out", async () => {
+    const t = selSetup();
+    // Heading through Beta; the selection ends at column 0 of the blank line (that ends it on Beta).
+    t.editor.selections = sel([0, 3], [3, 0]);
+    t.prompter.script.share = [true];
+    await t.actions.share(t.editor.at());
+    const preview = shown(t);
+    expect(preview?.range).toEqual({ headingLine: 0, lastLine: 2 });
+    expect(preview?.title).toBe("Plan");
+    expect(preview?.content).toBe("- [ ] Alpha\n- [ ] Beta");
+    expect(preview?.warnings).toContain("private-text-before-next-heading");
+    expect(t.prepared.map((p) => p.range)).toEqual([{ headingLine: 0, lastLine: 2 }]);
+    expect(JSON.stringify(t.prepared)).not.toContain("PRIVATE_NEXT");
+    expect(t.prepared[0]?.content).not.toContain("PRIVATE_TAIL");
+    expect(t.prompter.dialogs.map((d) => d.kind)).toEqual(["share"]);
+  });
+
+  it("S1/S2: an ineligible selection is never widened by itself; the fallback is chosen and previewed anew", async () => {
+    const declined = selSetup();
+    declined.editor.selections = sel([1, 0], [2, 10]);
+    declined.prompter.script.confirm = [false];
+    await declined.actions.share(declined.editor.at());
+    const ask = declined.prompter.dialogs[0];
+    expect(ask?.kind).toBe("confirm");
+    expect(ask?.args[0]).toMatchObject({
+      title: "Share section",
+      action: "Share the whole section…",
+    });
+    expect((ask?.args[0] as { message: string } | undefined)?.message).toContain(
+      "A shared section starts at its heading. Your selection does not.",
+    );
+    expect(declined.prompter.dialogs).toHaveLength(1);
+    expect(declined.calls).toEqual([]);
+
+    const chosen = selSetup();
+    chosen.editor.selections = sel([1, 0], [2, 10]);
+    chosen.prompter.script.confirm = [true];
+    chosen.prompter.script.share = [true];
+    await chosen.actions.share(chosen.editor.at());
+    expect(chosen.prompter.dialogs.map((d) => d.kind)).toEqual(["confirm", "share"]);
+    // The whole heading section, from proposeRange: a new preview, private tail included as shown.
+    expect(shown(chosen)?.range).toEqual({ headingLine: 0, lastLine: 4 });
+    expect(shown(chosen)?.content).toContain("PRIVATE_TAIL");
+    expect(chosen.prepared.map((p) => p.range)).toEqual([{ headingLine: 0, lastLine: 4 }]);
+  });
+
+  it("Share the whole section… from a surface opens the whole section's preview without asking", async () => {
+    const t = selSetup();
+    t.editor.selections = sel([1, 0], [2, 4]);
+    t.prompter.script.share = [false];
+    await t.actions.shareWholeSection(t.editor.at());
+    expect(t.prompter.dialogs.map((d) => d.kind)).toEqual(["share"]);
+    expect(shown(t)?.range).toEqual({ headingLine: 0, lastLine: 4 });
+  });
+
+  it("a selection with no fallback is refused with its reason, before any dialog", async () => {
+    const crossing = selSetup();
+    crossing.editor.selections = sel([0, 0], [7, 5]);
+    await crossing.actions.share(crossing.editor.at());
+    expect(crossing.prompter.dialogs).toEqual([]);
+    expect(crossing.prompter.notices).toEqual([
+      "Shared Tasks: The selection runs past the end of the heading's section.",
+    ]);
+    const two = selSetup();
+    two.editor.selections = [...sel([0, 0], [1, 11]), ...sel([6, 0], [7, 4])];
+    await two.actions.share(two.editor.at());
+    expect(two.prompter.dialogs).toEqual([]);
+    expect(two.prompter.notices).toEqual([
+      "Shared Tasks: Several parts of the note are selected. Select one range of lines.",
+    ]);
+    expect([...crossing.calls, ...two.calls]).toEqual([]);
+  });
+
+  it("U03-05: an exact selection whose note changed while the preview was open is refused, not widened", async () => {
+    const t = selSetup();
+    t.editor.selections = sel([0, 0], [2, 10]);
+    const flow = t.actions.share(t.editor.at());
+    await flush();
+    t.notes.files.set("Plan.md", SEL.replace("- [ ] Beta", "- [ ] Beta\n- [ ] Gamma"));
+    t.prompter.open("share")[0]?.answer(true);
+    await flow;
+    expect(t.prompter.dialogs.map((d) => d.kind)).toEqual(["share"]);
+    expect(t.calls).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: the note changed while the preview was open. Nothing was shared; select the lines and share again.",
+    ]);
+  });
+
+  it("U03-03: another note active and the flow's own note closed: the flow still shares its note", async () => {
+    const t = setup();
+    const flow = t.actions.share(t.editor.at());
+    await flush();
+    // The tab now shows Other.md; Plan.md is closed (its file unchanged).
+    t.notes.files.set("Other.md", "## Other\n- [ ] Elsewhere\n");
+    t.notes.open.clear();
+    t.notes.open.add("Other.md");
+    t.prompter.open("share")[0]?.answer(true);
+    await flow;
+    expect(t.calls.slice(0, 2)).toEqual(['prepare Plan.md "Plan"', "run op-1"]);
+    expect(t.prompter.notices).toEqual(['Shared Tasks: section "Plan" is shared.']);
+  });
+
+  it("IME, Reading view and a capture older than the note: refused before any dialog", async () => {
+    const composing = setup();
+    composing.editor.composing = true;
+    await composing.actions.share(composing.editor.at());
+    await composing.actions.insertSection(composing.editor.at());
+    expect(composing.prompter.notices).toEqual([
+      "Shared Tasks: finish typing first (text is still being composed). Nothing was shared.",
+      "Shared Tasks: finish typing first (text is still being composed). Nothing was inserted.",
+    ]);
+    const reading = setup();
+    reading.editor.mode = "reading";
+    await reading.actions.share(reading.editor.at());
+    expect(reading.prompter.notices).toEqual([
+      "Shared Tasks: open the note for editing first (it is in Reading view). Nothing was shared.",
+    ]);
+    const old = setup();
+    const at = old.editor.at();
+    old.notes.files.set("Plan.md", `${NOTE}more\n`);
+    await old.actions.share(at);
+    expect(old.prompter.notices).toEqual([
+      "Shared Tasks: the note changed since you started. Nothing was shared; try again.",
+    ]);
+    for (const t of [composing, reading, old]) {
+      expect(t.prompter.dialogs).toEqual([]);
+      expect(t.calls).toEqual([]);
+    }
+  });
+
+  it("an IME composition in the note when Share is approved: nothing created", async () => {
+    const t = setup();
+    const flow = t.actions.share(t.editor.at());
+    await flush();
+    t.notes.composing.add("Plan.md");
+    t.prompter.open("share")[0]?.answer(true);
+    await flow;
+    expect(t.calls).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: finish typing first (text is still being composed). Nothing was shared.",
+    ]);
+  });
+
+  describe("insert", () => {
+    const choice = { resource: new Uint8Array(32), sectionId: "s1", title: "Shared" };
+    function insertSetup() {
+      const calls: string[] = [];
+      const insertion = fakeInsertion(calls);
+      const t = setup(() => ({
+        insertion: () => insertion,
+        sectionChoices: async () => [choice],
+        watch: async () => undefined,
+        indexed: (path) => calls.push(`indexed ${path}`),
+        pass: (path, text) => calls.push(`pass ${path}${text === undefined ? "" : " (file)"}`),
+      }));
+      t.prompter.script.pick = [choice];
+      return { ...t, calls };
+    }
+
+    it("U03-12: a note closed and another opened meanwhile gets the block at the captured line; the result names it", async () => {
+      const t = insertSetup();
+      const flow = t.actions.insertSection(t.editor.at());
+      await flush(20);
+      t.notes.files.set("Other.md", "## Other\n");
+      t.notes.open.clear();
+      t.notes.open.add("Other.md");
+      t.prompter.open("insert")[0]?.answer(true);
+      await flow;
+      expect(t.calls).toEqual([
+        "preview",
+        `prepare Plan.md line ${PLAN} rev ${NOTE.length}`,
+        "run ins-1",
+        "indexed Plan.md",
+        "pass Plan.md (file)",
+      ]);
+      expect(t.prompter.notices).toEqual([
+        'Shared Tasks: section "Shared" was inserted into "Plan", which is not open.',
+      ]);
+    });
+
+    it("U03-12: renamed meanwhile, the block goes into the renamed note, never at the old path", async () => {
+      const t = insertSetup();
+      const flow = t.actions.insertSection(t.editor.at());
+      await flush(20);
+      t.actions.noteRenamed("Plan.md", "Projects/Plan 2.md");
+      t.notes.files.set("Projects/Plan 2.md", NOTE);
+      t.notes.files.delete("Plan.md");
+      t.notes.open.clear();
+      t.notes.open.add("Projects/Plan 2.md");
+      t.prompter.open("insert")[0]?.answer(true);
+      await flow;
+      expect(t.calls).toContain(`prepare Projects/Plan 2.md line ${PLAN} rev ${NOTE.length}`);
+      expect(t.calls.some((c) => c.includes(" Plan.md"))).toBe(false);
+      expect(t.prompter.notices).toEqual([]);
+    });
+  });
+
+  it("detach: a note deleted during the confirmation is not written", async () => {
+    const t = setup();
+    t.notes.files.set("Plan.md", BOUND);
+    t.editor.line = 3;
+    const flow = t.actions.detachSectionAt(t.editor.at());
+    await flush();
+    t.actions.noteDeleted("Plan.md");
+    t.prompter.open("confirm")[0]?.answer(true);
+    await flow;
+    expect(t.notes.writes).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: the note was deleted. Nothing was detached.",
+    ]);
   });
 });

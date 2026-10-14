@@ -163,6 +163,8 @@ export class ConfirmModal extends Modal {
     private readonly title: string,
     private readonly question: string,
     private readonly action: string,
+    /** A warning button; false for a plain choice that changes nothing by itself. */
+    private readonly destructive = true,
   ) {
     super(app);
   }
@@ -172,7 +174,7 @@ export class ConfirmModal extends Modal {
     this.contentEl.createEl("p", { text: this.question });
     const buttons = this.contentEl.createDiv({ cls: "modal-button-container" });
     buttons
-      .createEl("button", { text: this.action, cls: "mod-warning" })
+      .createEl("button", { text: this.action, cls: this.destructive ? "mod-warning" : "mod-cta" })
       .addEventListener("click", () => {
         this.#yes = true;
         this.close();
