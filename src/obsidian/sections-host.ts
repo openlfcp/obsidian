@@ -1484,22 +1484,8 @@ export class SectionsHost {
    * are kept beside it. The new section itself, and any invitation to it,
    * stay as they are.
    */
-  async restoreImport(path: string): Promise<void> {
-    const creation = this.#creation;
-    if (creation === null) return;
-    const last = (await creation.imports(path)).at(-1);
-    if (last === undefined) {
-      new Notice("Shared Tasks: no section import to restore in this note.");
-      return;
-    }
-    const out = await creation.rollback(last);
-    new Notice(
-      out.kind === "restored"
-        ? "Shared Tasks: the note shows its content from before the import again. The new shared section still exists; to stop sharing it, remove people's access."
-        : out.kind === "beside"
-          ? "Shared Tasks: the section was edited since the import, so the content from before is added after it for comparison. Nothing was removed."
-          : "Shared Tasks: this import cannot be restored here (its section is not in the note).",
-    );
+  restoreImport(path: string): Promise<void> {
+    return this.actions.restoreImport(path);
   }
 
   /** This host's running state, as the section actions need it (LFCP-03-008). */
