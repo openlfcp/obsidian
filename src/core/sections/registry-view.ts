@@ -161,22 +161,28 @@ export class SectionRegistryView {
       return this.#reading;
     }
     const run = async (): Promise<void> => {
-      do {
-        this.#again = false;
-        try {
-          this.#entries = (await this.#sources.registry()).filter(
-            (e) => e.profile === SECTIONS_PROFILE_ID,
-          );
-          this.#error = null;
-        } catch (e) {
-          this.#error = e instanceof Error ? e.message : String(e);
-        }
-        this.update();
-      } while (this.#again);
+      // The body runs only after #reading is set, even if a read throws at once.
+      await undefined;
+      try {
+        do {
+          this.#again = false;
+          try {
+            this.#entries = (await this.#sources.registry()).filter(
+              (e) => e.profile === SECTIONS_PROFILE_ID,
+            );
+            this.#error = null;
+          } catch (e) {
+            this.#error = e instanceof Error ? e.message : String(e);
+          }
+          this.update();
+        } while (this.#again);
+      } finally {
+        // In the same step as the last check of #again: a refresh asked
+        // after it starts a new read instead of joining this finished one.
+        this.#reading = null;
+      }
     };
-    this.#reading = run().finally(() => {
-      this.#reading = null;
-    });
+    this.#reading = run();
     return this.#reading;
   }
 
