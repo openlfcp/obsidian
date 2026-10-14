@@ -265,7 +265,7 @@ unknown, never as zero.
 | `sync.queue.batches` with `counted` false | "Local updates waiting" | A number |
 | `sync.held.edits` a number | "N edits not sent: <cause>" | Adding held edits to the queue count |
 | `sync.held.edits` null | "Edits not sent: <cause>" | A number; "0 edits" |
-| `heldCheck` "pending" (`sync.held.projections` null) | "Not current yet: not every note with this section was checked."; the label "Checking notes for edits not sent" when it is the first condition | "No local changes waiting"; "Current"; a number of held edits |
+| `heldCheck` "pending" (`sync.held.projections` null) | "Not current yet: not every note with this section was checked."; with an empty queue, the card's "No updates waiting in the sync queue. Notes with this section are still being checked for edits not sent."; the label "Checking notes for edits not sent" when it is the first condition | "No local changes waiting"; "Current"; a number of held edits |
 | `heldCheck` "failed" (`sync.held.projections` null, condition `held-unknown`) | "Not current: whether a note with this section holds edits not sent is unknown." | "Checking notes" (nothing is in progress); "No local changes waiting"; "Current"; "0 edits" |
 | `sync.queue.batches` 0 and edits held | "No updates waiting in the sync queue: the edits held in your note are not in it." | "No local changes waiting"; "Nothing to send" |
 | `sync.sharedModel` "unknown" | Nothing about acceptance | "The server accepted your changes" |
