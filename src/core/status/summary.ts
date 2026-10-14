@@ -20,8 +20,8 @@ export interface VaultSyncSummary {
   };
   /** Edits held in notes over all sections, apart from the queue. */
   readonly held: {
-    /** Sections with a copy holding edits. */
-    readonly sections: number;
+    /** Sections with a copy holding edits; null while some note was not checked. */
+    readonly sections: number | null;
     /** Copies holding edits; null while some note was not checked yet. */
     readonly projections: number | null;
     /** Edits held; null when some count is unknown. */
@@ -54,7 +54,7 @@ export function vaultSyncSummary(views: Iterable<StatusView>): VaultSyncSummary 
     counted &&= s.queue.counted;
     units += s.queue.units;
     if (s.held.projections === null) unchecked++;
-    if ((s.held.projections ?? 0) > 0) heldSections++;
+    if (s.held.projections !== null && s.held.projections > 0) heldSections++;
     projections =
       projections === null || s.held.projections === null ? null : projections + s.held.projections;
     edits = edits === null || s.held.edits === null ? null : edits + s.held.edits;
@@ -65,7 +65,12 @@ export function vaultSyncSummary(views: Iterable<StatusView>): VaultSyncSummary 
     current,
     attention,
     queue: { batches, counted, units },
-    held: { sections: heldSections, projections, edits, causes: [...causes] },
+    held: {
+      sections: unchecked > 0 ? null : heldSections,
+      projections,
+      edits,
+      causes: [...causes],
+    },
     unchecked,
   };
 }
