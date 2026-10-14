@@ -67,3 +67,4 @@
 
 The Markdown ref grammar is normative and lives in
 `spec: integration/MARKDOWN-REFS-01.md`.
+| [architecture/ux-contract-0.3.md](architecture/ux-contract-0.3.md) | developers | The MVP 0.3 UX contract (LFCP-03-006): actions and labels, target and exact selection with explicit fallback, call-to-action precedence, what status facts may claim, shared title and local alias, raw blocks and comments, invitation text, scope limits, resolved contradictions with the package; fixtures in test/fixtures/ux-0.3 |
