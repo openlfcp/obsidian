@@ -65,11 +65,12 @@ export interface DiagnosticInput {
   /** Kept local candidates (text that could not be shared): reasons and codes only. */
   readonly candidates: readonly KeptCandidate[];
   /**
-   * Section Resources of given-up shares kept on this device (their data
-   * may have been sent, so they are not deleted; LFCP-03-002). Not
-   * collaborations: never listed with them.
+   * Section Resources of given-up shares still stored on this device
+   * (LFCP-03-002), never listed as collaborations: `sent`, their data may
+   * have been sent, so they are kept; `deleting`, their deletion failed or
+   * has not run, and the next start tries it again.
    */
-  readonly keptShares?: number;
+  readonly keptShares?: { readonly sent: number; readonly deleting: number };
   readonly events: readonly DiagnosticEvent[];
 }
 
@@ -198,10 +199,15 @@ export function diagnosticReport(input: DiagnosticInput, detailed: boolean): str
     `Text kept on this device, not shared: ${input.candidates.length}${
       counted.length === 0 ? "" : ` (${counted.join(", ")})`
     }`,
-    ...(input.keptShares === undefined || input.keptShares === 0
+    ...(input.keptShares === undefined || input.keptShares.sent === 0
       ? []
       : [
-          `Given-up shares kept on this device: ${input.keptShares} (not hosted; not deleted, their data may have left this device)`,
+          `Given-up shares kept on this device: ${input.keptShares.sent} (not hosted; not deleted, their data may have left this device)`,
+        ]),
+    ...(input.keptShares === undefined || input.keptShares.deleting === 0
+      ? []
+      : [
+          `Given-up shares to be deleted at the next start: ${input.keptShares.deleting} (never sent; the deletion did not finish)`,
         ]),
     "",
     `Recent events: ${input.events.length}`,

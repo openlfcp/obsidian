@@ -71,7 +71,14 @@ export async function collectDiagnostics(src: DiagnosticSources): Promise<Diagno
     resources,
     sections: sections.sections,
     candidates: sections.candidates,
-    ...(kept === undefined ? {} : { keptShares: kept.length }),
+    ...(kept === undefined
+      ? {}
+      : {
+          keptShares: {
+            sent: kept.filter((k) => k.sent).length,
+            deleting: kept.filter((k) => !k.sent).length,
+          },
+        }),
     events: src.events,
   };
 }

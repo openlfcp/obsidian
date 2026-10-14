@@ -1298,8 +1298,10 @@ export class LfcpRuntime {
    * or opened. Marked as discarded in local state first, then, when it was
    * never sent, its rows and Data Epoch keys are deleted (#forget) and the
    * mark goes. One that may have been sent (RESOURCE_SENT), or whose
-   * deletion fails, keeps its rows, marked: never deleted automatically
-   * (LFCP-03-002), never listed or announced, counted by keptDiscarded.
+   * deletion fails, keeps its rows, marked with that reason: one maybe
+   * sent is never deleted automatically (LFCP-03-002); a failed deletion
+   * is tried again at the next start. Neither is listed or announced;
+   * keptDiscarded counts them.
    * A Resource not stored is a no-op ("absent").
    */
   discardUnhosted(resource: ResourceId): Promise<DiscardResult> {
@@ -1322,16 +1324,24 @@ export class LfcpRuntime {
   }
 
   /**
-   * Section Resources a creation gave up that stay on this device (their
-   * data may have been sent: RESOURCE_SENT): kept, marked discarded, for
-   * the diagnostics and a later recovery. Never listed as collaborations.
+   * Section Resources a creation gave up that are still stored on this
+   * device, for the diagnostics and a later recovery; never listed as
+   * collaborations. `sent`: its data may have been sent (RESOURCE_SENT),
+   * so it is kept for good; otherwise its deletion failed or has not run
+   * yet, and the next start tries it again.
    */
-  async keptDiscarded(): Promise<ResourceId[]> {
+  async keptDiscarded(): Promise<{ readonly resourceId: ResourceId; readonly sent: boolean }[]> {
     const storage = this.#install.storage;
     if (storage === null) return [];
-    const out: ResourceId[] = [];
-    for (const row of await storage.resources.list())
-      if (await this.#isDiscarded(row.resourceId)) out.push(row.resourceId);
+    const out: { resourceId: ResourceId; sent: boolean }[] = [];
+    for (const row of await storage.resources.list()) {
+      if (!(await this.#isDiscarded(row.resourceId))) continue;
+      const mark = await this.localState.get(discardedKey(row.resourceId));
+      out.push({
+        resourceId: row.resourceId,
+        sent: typeof mark === "string" && mark.startsWith("RESOURCE_SENT"),
+      });
+    }
     return out;
   }
 
@@ -1340,20 +1350,23 @@ export class LfcpRuntime {
    * never sent (deleteUnsentResource); its discarded mark is removed only
    * once the deletion has committed, so a crash in between leaves it
    * marked (and #forgetDiscarded tries again at the next start). Refused
-   * (RESOURCE_SENT) or failed: it stays, marked.
+   * (RESOURCE_SENT) or failed: it stays, its mark the reason.
    */
   async #forget(resource: ResourceId): Promise<DiscardResult> {
     const { storage, secrets } = this.#ready();
+    let reason: string;
     try {
       const result = await deleteUnsentResource(storage, secrets, resource);
-      if (!result.ok)
-        return {
-          kind: "kept",
-          reason:
-            result.reason === "RESOURCE_SENT" ? `RESOURCE_SENT:${result.detail}` : result.reason,
-        };
+      if (result.ok) reason = "";
+      else
+        reason =
+          result.reason === "RESOURCE_SENT" ? `RESOURCE_SENT:${result.detail}` : result.reason;
     } catch {
-      return { kind: "kept", reason: "DELETE_FAILED" };
+      reason = "DELETE_FAILED";
+    }
+    if (reason !== "") {
+      await this.localState.put(discardedKey(resource), reason);
+      return { kind: "kept", reason };
     }
     await this.localState.put(discardedKey(resource), undefined);
     return { kind: "deleted" };
@@ -1370,7 +1383,9 @@ export class LfcpRuntime {
   async #isDiscarded(resource: ResourceId): Promise<boolean> {
     const key = toHex(resource);
     if (this.#discarded.has(key)) return true;
-    if ((await this.localState.get(discardedKey(resource))) !== true) return false;
+    // true, or the reason it was kept (a string).
+    const mark = await this.localState.get(discardedKey(resource));
+    if (mark !== true && typeof mark !== "string") return false;
     this.#discarded.add(key);
     return true;
   }
