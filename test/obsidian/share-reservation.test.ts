@@ -147,8 +147,16 @@ describe("Share reserved per note (LFCP-03-002)", () => {
     await v.plugin.sections?.share(view.editor as never, "Plan.md");
     // And an insert on the same note: the same reservation.
     await v.plugin.sections?.insertSection(view.editor as never, "Plan.md");
+    // LFCP-03-010: the one dispatcher, as the pane and the menu call it, and the insert command.
+    const sections = v.plugin.sections;
+    if (sections === null) throw new Error("sections off");
+    const target = sections.capture(view.editor as never, "Plan.md");
+    await v.plugin.actions.run("share-section", { target }, "pane");
+    await v.plugin.actions.run("insert-into-note", { target }, "menu");
+    runCommand(v, "insert-section", view);
+    await v.settle();
     expect(v.mock.modals.length).toBe(opened);
-    expect(focused).toBe(3);
+    expect(focused).toBe(6);
     expect(rec.ops).toEqual([]);
     expect(await rec.stored()).toEqual([]);
     expect(noticesSince(v, notices)).toEqual([]);
