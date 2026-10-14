@@ -1,6 +1,8 @@
 // LFCP-03-007: the developer pane prototype in a real Obsidian, on mock
 // facts (no SDK operation, no server, synthetic content). Status: NOT_RUN
 // when it was written; its first run is in CI after LFCP-03-031.
+// Needs a developer build: LFCP_DEV_PANE=1 pnpm native (a release build
+// leaves the prototype out, D11, and this spec then fails on its first check).
 //
 // - The prototype exists only with the developer flag: no command without it.
 // - Every scenario (the four layouts of UX §3, the join start and every
@@ -76,6 +78,7 @@ describe("LFCP-03-007: pane prototype (mock facts)", () => {
     await prototypeFlag(false);
     expect(await commands()).not.toContain("shared-tasks:open-pane-prototype");
     await prototypeFlag(true);
+    // Absent here: main.js was built without LFCP_DEV_PANE=1.
     expect(await commands()).toContain("shared-tasks:open-pane-prototype");
     await browser.executeObsidianCommand("shared-tasks:open-pane-prototype");
     await $(".openlfcp-pane").waitForExist({ timeout: 10_000 });

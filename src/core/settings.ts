@@ -58,6 +58,8 @@ export interface Settings {
    * Developer only (data.json, not in the settings tab): registers the pane
    * prototype's view and its "Open pane prototype (developer)" command
    * (LFCP-03-007). Off: neither exists, so the palette does not list it.
+   * Only a build with LFCP_DEV_PANE=1 contains the prototype (D11): in a
+   * release build this flag does nothing.
    */
   developerPanePrototype: boolean;
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */
