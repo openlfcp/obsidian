@@ -104,6 +104,19 @@ describe("pane focus", () => {
     expect(root.contains(document.activeElement)).toBe(true);
   });
 
+  it("keeps the menu open and the focus in it across a redraw", () => {
+    const proto = new PanePrototype(doc.states, "healthy");
+    const draw = () => renderPane(root, proto.model(), { action: () => undefined });
+    draw();
+    const menu = root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu");
+    if (menu === null) throw new Error("no menu");
+    menu.open = true;
+    byText("Detach this section").focus();
+    draw();
+    expect(root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open).toBe(true);
+    expect(document.activeElement?.textContent).toBe("Detach this section");
+  });
+
   it("never takes focus from outside the pane on an update", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);
