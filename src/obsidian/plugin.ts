@@ -779,14 +779,18 @@ export default class OpenLfcpPlugin extends Plugin {
     const vault = this.app.vault;
     for (const kind of ["create", "modify", "delete"] as const)
       this.registerEvent(
-        vault.on(kind as "create", (file: TAbstractFile) =>
-          this.changes.record({ kind, path: file.path }),
-        ),
+        vault.on(kind as "create", (file: TAbstractFile) => {
+          // A share or insert flow on the note writes nothing (LFCP-03-002): at once, not batched.
+          if (kind === "delete") this.sections?.noteDeleted(file.path);
+          this.changes.record({ kind, path: file.path });
+        }),
       );
     this.registerEvent(
-      vault.on("rename", (file: TAbstractFile, oldPath: string) =>
-        this.changes.record({ kind: "rename", path: file.path, oldPath }),
-      ),
+      vault.on("rename", (file: TAbstractFile, oldPath: string) => {
+        // A share or insert flow on the note follows it (LFCP-03-002): at once, not batched.
+        this.sections?.noteRenamed(oldPath, file.path);
+        this.changes.record({ kind: "rename", path: file.path, oldPath });
+      }),
     );
   }
 

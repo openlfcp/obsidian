@@ -251,6 +251,12 @@ export class E2EVault {
   readonly prompter = new ScriptedPrompter();
   /** Commits that store a new Data Unit hang forever while set (a crash between apply and queue). */
   hangUnitCommits = false;
+  /**
+   * Called with each plugin start's mock module before the plugin loads: a
+   * restart loads fresh modules, so what a test patched into the mock (e.g.
+   * sections on) is patched again here.
+   */
+  static onModules: ((m: typeof import("../mocks/obsidian")) => void) | null = null;
   readonly #heldLocks = new Set<string>();
   #mods!: Modules;
   #instance = new Instance();
@@ -270,6 +276,7 @@ export class E2EVault {
 
   async #start(fresh: boolean): Promise<void> {
     this.#mods = await load(fresh);
+    E2EVault.onModules?.(this.#mods.mock);
     this.#instance = new Instance();
     const self = this;
     const instance = this.#instance;
@@ -372,6 +379,11 @@ export class E2EVault {
     this.#instance.intervals.clear();
     for (const release of [...this.#instance.locks]) release();
     this.network.dropAll();
+  }
+
+  /** The running instance's mock module (a restart loads a fresh one). */
+  get mock(): typeof import("../mocks/obsidian") {
+    return this.#mods.mock;
   }
 
   get plugin(): OpenLfcpPlugin {

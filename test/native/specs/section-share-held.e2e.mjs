@@ -1,9 +1,9 @@
 // The MVP 0.3 baseline review, F-03 and F-04, in real Obsidian with the
 // headless peer B and the reference server at LFCP_SERVER_BIN.
 //
-// F-03: "Share section…" run twice on one note opens one preview; one
-// Resource is made and hosted, and no "stopped syncing" / RESOURCE_NOT_HOSTED
-// notice comes.
+// F-03: "Share section…" run twice on one note opens one preview (the second
+// run brings it forward, LFCP-03-002); one Resource is made and hosted, and
+// no "stopped syncing" / RESOURCE_NOT_HOSTED notice comes.
 // F-04: held edits are never shown as synced. For each cause (a heading
 // inside the section, a damaged binding line, a read-only copy) the card
 // counts the edits not sent with their cause and line, never says "No local
@@ -133,12 +133,14 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
         );
       app.commands.executeCommandById("shared-tasks:share-section");
       for (let i = 0; i < 80 && shareModals().length === 0; i++) await new Promise((r) => setTimeout(r, 50));
-      // The second run while the first preview is open.
+      // The second run while the first preview is open: it is brought forward, nothing else opens.
       app.commands.executeCommandById("shared-tasks:share-section");
       await new Promise((r) => setTimeout(r, 1000));
       const n = shareModals().length;
+      const front = [...document.body.querySelectorAll(":scope > .modal-container")].at(-1);
+      const inFront = front?.contains(shareModals()[0] ?? null) ?? false;
       for (const m of shareModals()) [...m.querySelectorAll("button")].find((x) => x.textContent === "Share").click();
-      return n;
+      return { n, inFront };
     }, NOTE);
     await browser.waitUntil(
       () =>
@@ -160,11 +162,11 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
     const said = await notices();
     const md = (await stateA()).md;
     evidence("F-03", { previews, sections, said, bound: md.match(/<!-- lfcp-section: /g)?.length ?? 0 });
-    expect(previews).toBe(1);
+    expect(previews).toEqual({ n: 1, inFront: true });
     expect(sections).toBe(1);
     expect(md.match(/<!-- lfcp-section: /g)).toHaveLength(1);
     expect(said).toContain('Shared Tasks: section "Twice" is shared.');
-    expect(said.some((t) => t.includes("already has a section being shared"))).toBe(true);
+    expect(said.some((t) => t.includes("already has a section being shared"))).toBe(false);
     for (const t of said) expect(t).not.toMatch(/stopped syncing|RESOURCE_NOT_HOSTED|changed since the preview/);
     await badgeIs("CURRENT", "the shared section current");
   });
