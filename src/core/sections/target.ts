@@ -290,5 +290,9 @@ export function selectionReasonText(reason: SelectionReason, line: number | null
   }
 }
 
+/** T4: "Repair shared sections…" on a note shown only in Reading view (from the card). */
+export const REPAIR_OPEN_FOR_EDITING =
+  "Shared Tasks: open the note for editing to repair it (it is in Reading view).";
+
 /** The explicit fallback's label (UX contract §3, `share-whole-section`). */
 export const SHARE_WHOLE_SECTION = "Share the whole section…";

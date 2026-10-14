@@ -50,6 +50,7 @@ import {
   invalidation,
   invalidationText,
   type NoteNow,
+  REPAIR_OPEN_FOR_EDITING,
   SHARE_WHOLE_SECTION,
   selectionReasonText,
   shareScope,
@@ -915,6 +916,8 @@ export class SectionActions {
     const { notes } = this.env;
     const at = await notes.goToLine(path, notes.capture(path)?.cursorLine ?? 0);
     if (at !== null) await this.repairNote(at);
+    // Shown only in Reading view: not open for editing (T4). A note gone was said by goToLine.
+    else if ((await notes.read(path)) !== null) this.env.prompter.notice(REPAIR_OPEN_FOR_EDITING);
   }
 
   /** The copies of section `key`'s text kept on this device after a refusal (not shared). */

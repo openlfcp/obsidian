@@ -124,6 +124,9 @@ Rules:
   old path (U03-12, LFCP-03-009).
 - **T4.** Reading view: details are available. An action that changes source
   offers "Open for editing" and never writes through a hidden editor.
+  "Repair shared sections in this note" from the card, on a note shown only
+  in Reading view, says exactly: "Shared Tasks: open the note for editing
+  to repair it (it is in Reading view)." (LFCP-03-009).
 
 ### 4.2 Exact selection
 

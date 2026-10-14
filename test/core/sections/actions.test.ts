@@ -900,6 +900,26 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     expect(Object.keys(readOnly.opened()[3])).toEqual(["alias"]);
   });
 
+  it("T4 (LFCP-03-009): Repair from the card on a note only in Reading view says to open it for editing", async () => {
+    const t = cardSetup();
+    t.set(card({ held: [{ path: "Plan.md", line: 4, cause: "boundary" }] }));
+    // Reading view: the note opens, but no editor is open for editing.
+    t.notes.goToLine = async () => null;
+    await t.actions.openCard(KEY, "Launch");
+    t.press("Repair shared sections in this note");
+    await flush(20);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: open the note for editing to repair it (it is in Reading view).",
+    ]);
+    expect(t.prompter.dialogs.filter((d) => d.kind === "repair")).toEqual([]);
+    // A note gone: the host has said so; nothing more is said here.
+    t.notes.files.delete("Plan.md");
+    await t.actions.openCard(KEY, "Launch");
+    t.press("Repair shared sections in this note");
+    await flush(20);
+    expect(t.prompter.notices).toHaveLength(1);
+  });
+
   it("an action on a section no longer here runs nothing; one still here runs its command", async () => {
     let known = true;
     const t = cardSetup(() => ({ known: () => known }));
