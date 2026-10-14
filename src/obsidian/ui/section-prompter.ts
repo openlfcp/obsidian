@@ -63,8 +63,9 @@ export class ObsidianSectionPrompter implements SectionPrompter {
     readonly title: string;
     readonly message: string;
     readonly action: string;
+    readonly destructive?: boolean;
   }): SectionDialog<boolean> {
-    return opened(new ConfirmModal(this.app, o.title, o.message, o.action));
+    return opened(new ConfirmModal(this.app, o.title, o.message, o.action, o.destructive ?? true));
   }
 
   alias(current: string): Promise<string | null> {

@@ -29,12 +29,7 @@ import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collec
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { splitLines } from "../core/refs/lines";
-import type {
-  ReviewResult,
-  SectionChoice,
-  SectionEditor,
-  SectionServices,
-} from "../core/sections/action-ports";
+import type { ReviewResult, SectionChoice, SectionServices } from "../core/sections/action-ports";
 import { SectionActions } from "../core/sections/actions";
 import { newProjectionId } from "../core/sections/base";
 import { SectionCreation } from "../core/sections/create";
@@ -62,6 +57,7 @@ import {
   staleLabel,
 } from "../core/sections/stale-work";
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
+import type { TargetCapture } from "../core/sections/target";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
 import { Announcer } from "../core/status/a11y";
@@ -99,6 +95,7 @@ import {
   sectionStatusExtension,
   setSectionStatuses,
 } from "./section-status";
+import { captureEditor, editorMode } from "./section-target";
 import { ObsidianSectionPrompter } from "./ui/section-prompter";
 
 /** The text a note with a shared section always contains. */
@@ -221,13 +218,14 @@ export class SectionsHost {
     this.actions = new SectionActions({
       prompter: new ObsidianSectionPrompter(app, (text) => this.announce(text)),
       notes: {
-        openEditor: (path) => editorPort(this.#openEditor(path)),
+        capture: (path) => this.#captureOpen(path),
         read: async (path) => {
           const file = this.app.vault.getFileByPath(path);
           return file === null ? null : this.app.vault.read(file);
         },
         edit: (path, fn) => this.#edit(path, fn),
-        goToLine: async (path, line) => editorPort(await this.#goToLine(path, line)),
+        goToLine: async (path, line) =>
+          (await this.#goToLine(path, line)) === null ? null : this.#captureOpen(path),
       },
       services: this.#services(),
     });
@@ -664,7 +662,7 @@ export class SectionsHost {
 
   /** "Share section…" from the palette (and the share flow's other entries): the section actions' share. */
   share(editor: Editor, path: string): Promise<void> {
-    return this.actions.share(asSectionEditor(editor), path);
+    return this.actions.share(this.capture(editor, path));
   }
 
   /** The vault renamed a note (its event, as it happens): a flow on it follows it. */
@@ -683,7 +681,7 @@ export class SectionsHost {
    * as one complete projection.
    */
   insertSection(editor: Editor, path: string): Promise<void> {
-    return this.actions.insertSection(asSectionEditor(editor), path);
+    return this.actions.insertSection(this.capture(editor, path));
   }
 
   async #watch(resource: ResourceId): Promise<void> {
@@ -726,7 +724,7 @@ export class SectionsHost {
    * lost, compared. Nothing changes without the user's choice.
    */
   repairNote(editor: Editor, path: string): Promise<void> {
-    return this.actions.repairNote(asSectionEditor(editor), path);
+    return this.actions.repairNote(this.capture(editor, path));
   }
 
   readonly #soon = new Map<string, number>();
@@ -1137,12 +1135,12 @@ export class SectionsHost {
    * unchanged.
    */
   detachSectionAt(editor: Editor, path: string): Promise<void> {
-    return this.actions.detachSectionAt(asSectionEditor(editor), path);
+    return this.actions.detachSectionAt(this.capture(editor, path));
   }
 
   /** "Open shared section details" (064): the card of the section under the cursor. */
-  openCardAt(editor: Editor): void {
-    this.actions.openCardAt(asSectionEditor(editor));
+  openCardAt(editor: Editor, path: string): void {
+    this.actions.openCardAt(this.capture(editor, path));
   }
 
   /**
@@ -1190,6 +1188,24 @@ export class SectionsHost {
         break;
       }
     return editor;
+  }
+
+  /**
+   * The note in `editor` as an action starts on it (LFCP-03-009): read once,
+   * with its mode, selections and composition; the action never reads this
+   * editor again.
+   */
+  capture(editor: Editor, path: string): TargetCapture {
+    let view: MarkdownView | null = null;
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown"))
+      if (leaf.view instanceof MarkdownView && leaf.view.editor === editor) view = leaf.view;
+    return captureEditor(editor, path, editorMode(view, editor));
+  }
+
+  /** The note's open editor (Source or Live Preview) read now, else null. */
+  #captureOpen(path: string): TargetCapture | null {
+    const editor = this.#openEditor(path);
+    return editor === null ? null : captureEditor(editor, path, editorMode(null, editor));
   }
 
   #openEditor(path: string): Editor | null {
@@ -1405,18 +1421,6 @@ const DATA_EVENTS: ReadonlySet<string> = new Set([
   "epoch-reconciled",
   "key-blocked",
 ]);
-
-/** An Obsidian editor as the section actions read it (LFCP-03-008). */
-function asSectionEditor(editor: Editor): SectionEditor {
-  return {
-    text: () => editor.getValue(),
-    cursorLine: () => editor.getCursor().line,
-    setCursor: (line) => editor.setCursor({ line, ch: 0 }),
-  };
-}
-
-const editorPort = (editor: Editor | null): SectionEditor | null =>
-  editor === null ? null : asSectionEditor(editor);
 
 /** Local aliases of identities (Principal ID → label), in the plugin's local state. */
 const ALIASES = "identity-aliases";

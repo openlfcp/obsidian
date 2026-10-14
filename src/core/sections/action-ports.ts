@@ -24,6 +24,7 @@ import type { SectionSnapshot } from "./port";
 import type { RecoveryChoice, RecoveryItem } from "./recovery";
 import type { ComparedLine, RepairItem } from "./repair";
 import type { SharePreview, ShareRange } from "./share";
+import type { TargetCapture } from "./target";
 
 /** An open dialog: its answer, and a way to bring it in front again (a repeated start of its flow). */
 export interface SectionDialog<T> {
@@ -101,11 +102,16 @@ export interface SectionPrompter {
   pickSection(choices: readonly SectionChoice[]): SectionDialog<SectionChoice | null>;
   /** The insert preview (052). True when approved. */
   insertPreview(preview: InsertPreview): SectionDialog<boolean>;
-  /** A confirmation; `action` labels the confirming button. */
+  /**
+   * A confirmation; `action` labels the confirming button. It is styled as
+   * a warning unless `destructive` is false (a choice such as "Share the
+   * whole section…", which opens its own preview).
+   */
   confirm(options: {
     readonly title: string;
     readonly message: string;
     readonly action: string;
+    readonly destructive?: boolean;
   }): SectionDialog<boolean>;
   /** A local alias for an identity, or null when cancelled. */
   alias(current: string): Promise<string | null>;
@@ -126,19 +132,6 @@ export interface SectionPrompter {
   ): CardHandle;
 }
 
-/**
- * The editor an action was started from (Obsidian: Editor), read live as
- * 0.4.0 does. LFCP-03-009 replaces it with a target captured before the
- * preview.
- */
-export interface SectionEditor {
-  /** The note's text now, unsaved changes included. */
-  text(): string;
-  /** 0-based line of the cursor. */
-  cursorLine(): number;
-  setCursor(line: number): void;
-}
-
 /** One change of a note's text, in UTF-16 offsets. */
 export interface TextChange {
   readonly from: number;
@@ -146,10 +139,17 @@ export interface TextChange {
   readonly insert: string;
 }
 
-/** The notes of the vault, as the section actions need them. */
+/**
+ * The notes of the vault, as the section actions need them. An action gets
+ * its note as a TargetCapture taken when it starts (LFCP-03-009); it never
+ * holds a live editor, so switching notes in a tab cannot redirect it.
+ */
 export interface SectionNotes {
-  /** The note's editor when it is open for editing (Reading view is not), else null. */
-  openEditor(path: string): SectionEditor | null;
+  /**
+   * The note's open editor read now (Reading view is not open for editing),
+   * else null.
+   */
+  capture(path: string): TargetCapture | null;
   /** The note's file text, or null when no file is at `path`. */
   read(path: string): Promise<string | null>;
   /**
@@ -157,8 +157,8 @@ export interface SectionNotes {
    * file's, marked as the plugin's own edit. `fn` returns null to write nothing.
    */
   edit(path: string, fn: (current: string) => readonly TextChange[] | null): Promise<void>;
-  /** The note opened in an editor with `line` revealed; null (said) when it is gone. */
-  goToLine(path: string, line: number): Promise<SectionEditor | null>;
+  /** The note opened in an editor with `line` revealed, read then; null (said) when it is gone. */
+  goToLine(path: string, line: number): Promise<TargetCapture | null>;
 }
 
 /** The section creation journal, as the actions run it (SectionCreation). */
