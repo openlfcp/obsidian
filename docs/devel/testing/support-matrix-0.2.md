@@ -91,3 +91,95 @@ connections that close on `versionchange`.
   same reason.
 - **macOS and Windows.** These runs are Linux. Platform smoke covers the
   other platforms ([platform-smoke.md](platform-smoke.md)).
+
+## Themes and views
+
+**Spec:** `test/native/specs/section-matrix.e2e.mjs`. **Date:** 2026-10-14.
+**Build:** obsidian `rw/reading-view` (b1ad00f, on main b7178b0), SDK
+`@openlfcp/*` 0.2.0-beta.8.
+
+Vault A is real Obsidian with the real plugin; B is the headless peer. A
+section is shared from A and joined by B. In each case B renames a Task,
+and the spec waits for A.
+
+| Theme × view | B's edit shows | Badge | Binding lines shown | Reaches A's file |
+| --- | --- | --- | --- | --- |
+| Light (moonstone), Source | yes | CURRENT | yes (Source shows them as written) | yes |
+| Light, Live Preview | yes | CURRENT | no | yes |
+| Light, Reading view | yes | CURRENT | no | yes |
+| Dark (obsidian), Source | yes | CURRENT | yes | yes |
+| Dark, Live Preview | yes | CURRENT | no | yes |
+| Dark, Reading view | yes | CURRENT | no | yes |
+
+After each Reading view case the note is switched back to Live Preview:
+B's edit is still in the editor and in the file, and B still has it 5 s
+later (A sends nothing back).
+
+Colour contrast of the section status in both themes is measured by
+`section-a11y` (status from mocked facts, the plugin's own styles).
+
+Runs: 10/10 cases on 1.13.4 and on 1.14.4, and again after the rebase
+onto b7178b0; the full native suite with this build (before the rebase onto b7178b0): 66/66 spec runs, one of them (acceptance-sections C10/C11/C14 on 1.13.4, a known timing flake) green on its rerun.
+
+### Found and fixed: Reading view lost a collaborator's edit
+
+Before obsidian 547921c, a note open only in Reading view never got a
+collaborator's edit, on both versions and in both themes:
+
+- Obsidian keeps a note's editor behind its Reading view. Shared Tasks
+  counted that editor as open and wrote the edit into it.
+- Obsidian never saved it: the Reading view and the file kept the old
+  text, and the section's badge said CURRENT.
+- Switching back to editing reloaded the file: the edit was gone from the
+  note.
+
+In split view (Live Preview and Reading view on the same note) it worked:
+the Live Preview pane's editor saved the file.
+
+Now a note shown only in Reading view is synced through its file, which
+the Reading view renders. Back to editing, the editor takes the file as
+written before the note is synced again, and a sync that was under way
+when the note went into Reading view is dropped.
+
+## Split view and focus
+
+**Spec:** `section-matrix` (as above) and `section-two-panes`.
+
+| Case | Result |
+| --- | --- |
+| The same note in Live Preview and in Reading view, side by side: A types in the Live Preview pane, B renames a Task | Both panes show both edits; B gets A's edit; no binding text in either pane |
+| One shared note in Reading view next to another shared note in Live Preview | B's edits show in both panes and reach both files (each note synced by its own route) |
+| A types, then clicks into the other pane (no further key) | The edit reaches B |
+| `section-two-panes`: one section in two panes, typing in both, a cut in one pasted in the other, Move line while the other pane has focus, a pane closed with an edit or a cut not synced yet; two copies of a section in two notes | 11/11 on 1.13.4 and 1.14.4 |
+
+## Tasks plugin on and off
+
+**Spec:** `test/native/specs/tasks-plugin.e2e.mjs` (Tasks 8.4.0 enabled);
+every other spec runs with Tasks off.
+
+| Case | Result |
+| --- | --- |
+| Tasks on: its edits arrive as editor transactions; the Task lines it writes, an inline ref and a recurring Task | 1/1 on 1.13.4 and 1.14.4 |
+| Tasks off | Every other native spec (the full suite, both versions) |
+
+Not covered: Tasks versions other than 8.4.0, and Tasks' own commands on
+lines inside a shared section beyond the ones the spec runs.
+
+## Clipboard
+
+**Spec:** `section-matrix`, and C12–C13 of `acceptance-sections`.
+
+| Case | Result |
+| --- | --- |
+| Two Task lines copied in Live Preview and pasted into a plain note | The clipboard holds the lines with their ref lines; pasted outside any section, the refs are removed: no binding text in the plain note |
+| `acceptance-sections` C12–C13: "Copy readable" and "Copy shared section" | The readable copy has no binding text; the shared copy keeps the section's markers, and its notice says it gives nobody access. On 1.13.4 and 1.14.4 |
+
+## Not covered on the desktop
+
+- **macOS and Windows.** These runs are Linux. Platform smoke covers the
+  plugin's build and tests there ([platform-smoke.md](platform-smoke.md));
+  the views, themes and clipboard on those platforms are the owner's
+  manual checks.
+- **Community themes** other than Obsidian's default light and dark.
+- **Mobile.** Sections are read-only there (0.4.0 limits); not part of
+  this matrix.
