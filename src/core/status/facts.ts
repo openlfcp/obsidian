@@ -9,9 +9,15 @@
 // - Catch-up: a session that reached LIVE in this run is current as last
 //   checked; offline after that keeps that checkpoint (SI09).
 
+import { NO_TRANSPORT, type TransportFact } from "../lfcp/transport";
 import type { SectionProblem, WriteAccess } from "../sections/port";
 import type { HeldCheck } from "./held-checks";
-import type { ModelProblemFacts, ProjectionFacts, StatusFacts } from "./reducer";
+import type {
+  ConnectionQualifier,
+  ModelProblemFacts,
+  ProjectionFacts,
+  StatusFacts,
+} from "./reducer";
 import type { SdkStatus } from "./sdk-status";
 
 export interface ObservedSection {
@@ -45,6 +51,8 @@ export interface ObservedSection {
   readonly staleWork?: { readonly pending: number; readonly review: number };
   /** Whether every note with the section was checked for held edits (LFCP-03-003); absent: checked. */
   readonly heldCheck?: HeldCheck;
+  /** What the session's transport did last (LFCP-03-005); absent: no evidence. */
+  readonly transport?: TransportFact;
 }
 
 const SCALAR = /SCALAR|TITLE_CONFLICT|FIELD_CONFLICT/;
@@ -107,7 +115,7 @@ export function observedFacts(o: ObservedSection): StatusFacts {
     ...(sdk?.access === null || sdk?.access === undefined
       ? {}
       : { accessVerifiedAt: sdk.access.verifiedAt ?? null, accessCurrent: sdk.accessCurrent }),
-    connection: live || syncing ? "connected" : "offline",
+    ...connectionFact(live || syncing, o.transport ?? NO_TRANSPORT),
     ...(o.refusal === null || o.refusal === undefined ? {} : { refusal: o.refusal }),
     // The SDK's catch-up fact (028); a skipped revision or a held change keeps receiving.
     catchUp:
@@ -122,6 +130,38 @@ export function observedFacts(o: ObservedSection): StatusFacts {
     ...(o.staleWork === undefined ? {} : { staleWork: o.staleWork }),
     ...(o.heldCheck === undefined ? {} : { heldCheck: o.heldCheck }),
   };
+}
+
+/**
+ * The connection from the session's phase and its transport's transitions
+ * (LFCP-03-005, F-C06): connecting and failed only when the SDK said so;
+ * without evidence, offline and qualified as such.
+ */
+export function connectionFact(
+  open: boolean,
+  t: TransportFact,
+): Pick<StatusFacts, "connection" | "connectionQualifier"> {
+  const fact = (
+    connection: StatusFacts["connection"],
+    connectionQualifier: ConnectionQualifier | null,
+  ) => ({ connection, connectionQualifier });
+  // The Resource open in a session (OPENING to LIVE): its transport is READY.
+  if (open) return fact("connected", null);
+  switch (t.state) {
+    case "connecting":
+      return fact("connecting", null);
+    case "ready":
+      return fact("offline", "not-syncing");
+    case "none":
+      return fact("offline", "no-evidence");
+    case "failed":
+      // An attempt failing while the system says the network is gone is being offline, not a fault.
+      return t.cause === "network-offline"
+        ? fact("offline", "network-offline")
+        : fact("failed", t.cause);
+    case "lost":
+      return fact("offline", t.cause ?? "lost");
+  }
 }
 
 /** §6's answer as a status fact: who may write, read, or nothing (attention). */

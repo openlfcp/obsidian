@@ -93,6 +93,33 @@ function problemText(c: Condition): string | null {
   }
 }
 
+/** Why not connected, as far as the session said (LFCP-03-005): never "failed" without a failed attempt. */
+function offlineText(v: StatusView): string {
+  switch (v.connection) {
+    case "failed":
+      return v.connectionQualifier === "not-responding"
+        ? "The server stopped responding and connecting again failed; trying again. Local updates wait on this device."
+        : "Could not connect to the server; trying again. Local updates wait on this device.";
+    default:
+      return v.connectionQualifier === "network-offline"
+        ? "Offline (no network): local updates wait on this device."
+        : v.connectionQualifier === "not-responding"
+          ? "Offline: the server stopped responding, reconnecting. Local updates wait on this device."
+          : "Offline: local updates wait on this device.";
+  }
+}
+
+/**
+ * A removal or non-membership as this device last verified it (F-C05): when
+ * its Control view is not known current with the server's, it may have
+ * changed, and the card says so instead of asserting it.
+ */
+function accessAsOf(v: StatusView): string {
+  return v.access.current === true
+    ? ""
+    : " This is as this device last verified it; it may have changed.";
+}
+
 /** The moves a held copy keeps, named: " Moved, not sent: “Gamma”." (empty when none). */
 function movedNotSent(h: HeldEdits): string {
   const moved = h.moved ?? [];
@@ -178,8 +205,12 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push(
       "Not current: offline edits from before an access change are not in the shared version yet.",
     );
-  else if (kinds.has("offline")) facts.push("Offline: local updates wait on this device.");
+  else if (kinds.has("offline")) facts.push(offlineText(v));
   else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
+  else if (kinds.has("connecting"))
+    facts.push(
+      "Connecting to the server: not checked with it yet. Local updates wait on this device.",
+    );
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");
   else if (held.length > 0)
     facts.push(
@@ -217,7 +248,13 @@ export function sectionCard(input: CardInput): SectionCard {
   const problems = v.conditions
     .map((c) => {
       const h = c.kind === "source" ? heldBy.get(c.projectionId) : undefined;
-      return h === undefined ? problemText(c) : heldAdvice(h);
+      if (h !== undefined) return heldAdvice(h);
+      const text = problemText(c);
+      return text !== null &&
+        c.kind === "access" &&
+        (c.access === "revoked" || c.access === "not-member")
+        ? text + accessAsOf(v)
+        : text;
     })
     .filter((p): p is string => p !== null);
   // Held for a reason no source condition carries (read-only typing): said too.

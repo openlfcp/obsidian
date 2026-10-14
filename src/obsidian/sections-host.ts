@@ -101,7 +101,14 @@ import {
 } from "../core/status/held";
 import { HeldChecks } from "../core/status/held-checks";
 import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
-import { type StatusView, type SyncFacts, statusView } from "../core/status/reducer";
+import {
+  type AccessFacts,
+  type ConnectionQualifier,
+  type StatusFacts,
+  type StatusView,
+  type SyncFacts,
+  statusView,
+} from "../core/status/reducer";
 import { runtimeStatusSource, SdkStatusTracker } from "../core/status/sdk-tracker";
 import { type VaultSyncSummary, vaultSyncSummary } from "../core/status/summary";
 import type { VaultChange } from "../core/vault/changes";
@@ -1262,6 +1269,31 @@ export class SectionsHost {
     return this.#statuses.get(key)?.sync;
   }
 
+  /**
+   * Pane-ready access (LFCP-03-005): this vault's access to one section,
+   * each denial apart, with its as-of; undefined before its first status.
+   */
+  sectionAccess(key: string): AccessFacts | undefined {
+    return this.#statuses.get(key)?.access;
+  }
+
+  /**
+   * Pane-ready connection (LFCP-03-005): one section's connection, why it is
+   * not connected, and the server's refusal; undefined before its first status.
+   */
+  sectionConnection(key: string):
+    | {
+        readonly connection: StatusFacts["connection"];
+        readonly qualifier: ConnectionQualifier | null;
+        readonly refusal: string | null;
+      }
+    | undefined {
+    const v = this.#statuses.get(key);
+    return v === undefined
+      ? undefined
+      : { connection: v.connection, qualifier: v.connectionQualifier, refusal: v.refusal };
+  }
+
   /** Pane-ready: every watched section's sync, summed per fact, never across them. */
   syncSummary(): VaultSyncSummary {
     return vaultSyncSummary(this.#statuses.values());
@@ -1325,6 +1357,8 @@ export class SectionsHost {
             (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit")
               .length ?? 0,
           refusal: runtime.refusal(R)?.code ?? null,
+          // LFCP-03-005: connecting and failed only from the session's own transitions.
+          transport: runtime.transport(R),
           // LFCP-03-003: a note with the section not checked yet may hold edits.
           heldCheck: this.#heldChecks.state(hex),
           ...(this.#stale === null
@@ -1346,6 +1380,11 @@ export class SectionsHost {
           JSON.stringify(old.conditions) === JSON.stringify(v.conditions) &&
           JSON.stringify(old.held) === JSON.stringify(v.held) &&
           JSON.stringify(old.sync) === JSON.stringify(v.sync) &&
+          JSON.stringify(old.access) === JSON.stringify(v.access) &&
+          old.connection === v.connection &&
+          old.connectionQualifier === v.connectionQualifier &&
+          old.refusal === v.refusal &&
+          old.label === v.label &&
           [...old.pendingNodeIds].join() === [...v.pendingNodeIds].join()
         );
       });

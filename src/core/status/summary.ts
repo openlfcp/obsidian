@@ -4,7 +4,7 @@
 // never added up. An unknown count stays unknown (null). Pure.
 
 import type { HeldCause } from "./held";
-import type { StatusView } from "./reducer";
+import type { StatusFacts, StatusView } from "./reducer";
 
 export interface VaultSyncSummary {
   readonly sections: number;
@@ -30,6 +30,10 @@ export interface VaultSyncSummary {
   };
   /** Sections some of whose notes were not checked for held edits yet. */
   readonly unchecked: number;
+  /** Sections by their connection, each once (LFCP-03-005). */
+  readonly connection: Readonly<Record<StatusFacts["connection"], number>>;
+  /** Sections whose access is not verified current with the server (behind, or not known). */
+  readonly accessNotCurrent: number;
 }
 
 /** The summary of every section's view. */
@@ -45,7 +49,11 @@ export function vaultSyncSummary(views: Iterable<StatusView>): VaultSyncSummary 
   let edits: number | null = 0;
   let unchecked = 0;
   const causes = new Set<HeldCause>();
+  const connection = { connected: 0, connecting: 0, failed: 0, offline: 0 };
+  let accessNotCurrent = 0;
   for (const v of views) {
+    connection[v.connection]++;
+    if (v.access.current !== true) accessNotCurrent++;
     const s = v.sync;
     sections++;
     if (s.current) current++;
@@ -72,5 +80,7 @@ export function vaultSyncSummary(views: Iterable<StatusView>): VaultSyncSummary 
       causes: [...causes],
     },
     unchecked,
+    connection,
+    accessNotCurrent,
   };
 }
