@@ -26,14 +26,20 @@ import { type App, type Editor, MarkdownView, type Modal, Notice, TFile } from "
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
-import { type Flow, InFlight } from "../core/in-flight";
-import { type LfcpRuntime, SECTIONS_READ_ONLY } from "../core/lfcp/runtime";
+import type { Flow } from "../core/in-flight";
+import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
-import { type NoteTarget, NoteTargets } from "../core/note-targets";
-import { scanRefs } from "../core/refs";
+import type { NoteTarget } from "../core/note-targets";
 import { splitLines } from "../core/refs/lines";
+import type {
+  ReviewResult,
+  SectionChoice,
+  SectionEditor,
+  SectionServices,
+} from "../core/sections/action-ports";
+import { SectionActions } from "../core/sections/actions";
 import { markdownState, newProjectionId } from "../core/sections/base";
-import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
+import { SectionCreation } from "../core/sections/create";
 import {
   applyChanges,
   type NotePass,
@@ -49,13 +55,14 @@ import {
   SectionInsertion,
 } from "../core/sections/insert";
 import { abandonOnce } from "../core/sections/journal";
-import { type LegacySource, legacyPreflight } from "../core/sections/legacy";
+import type { LegacySource } from "../core/sections/legacy";
 import { type ParsedSection, parseSections, type SectionScan } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
 import { noteSections, PlacementIndex } from "../core/sections/placement-index";
 import { CommitRefused, type ModelNode, type SectionSnapshot } from "../core/sections/port";
 import {
   applyRecovery,
+  type RecoveryChoice,
   type RecoveryItem,
   reappearedItems,
   recoveryItems,
@@ -74,13 +81,7 @@ import {
   type PastedBinding,
   removeNodeLines,
 } from "../core/sections/rules";
-import {
-  preflight,
-  proposeRange,
-  revalidate,
-  type SharePreview,
-  type ShareRange,
-} from "../core/sections/share";
+import type { SharePreview } from "../core/sections/share";
 import {
   KeyValueStaleWorkStore,
   StaleWorkController,
@@ -125,13 +126,11 @@ import {
   sectionStatusExtension,
   setSectionStatuses,
 } from "./section-status";
-import { ImportSectionModal } from "./ui/import-section";
-import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
+import { InsertSectionModal, PickSectionModal } from "./ui/insert-section";
 import { RecoveryModal } from "./ui/recovery";
 import { type LostBase, RepairModal } from "./ui/repair";
 import { AliasModal, ConfirmModal, SectionCardModal } from "./ui/section-card";
-import { bringForward } from "./ui/section-prompter";
-import { ShareSectionModal } from "./ui/share-section";
+import { bringForward, ObsidianSectionPrompter } from "./ui/section-prompter";
 
 /** The text a note with a shared section always contains. */
 const SECTION_MARK = "lfcp-section:";
@@ -149,16 +148,18 @@ export class SectionsHost {
   #runtime: LfcpRuntime | null = null;
   /** Section Resources whose model changes start passes (hex of the ID). */
   readonly #watched = new Set<string>();
-  /** Share, import and insert flows, one per note at a time (F-03, F-C04), keyed by its held identity. */
-  readonly #flows = new InFlight();
   /**
    * Notes with sections not checked for held edits since the start
    * (LFCP-03-003): until a note is checked, its sections are never shown
    * as current; a failed pass leaves them unknown, not "being checked".
    */
   readonly #heldChecks = new HeldChecks();
-  /** The notes those flows act on, followed across renames (LFCP-03-002). */
-  readonly #targets = new NoteTargets();
+  /**
+   * The section actions (LFCP-03-008): share, import, insert, detach,
+   * repair and the card, on this host's dialogs, notes and state. Every
+   * entry (palette, card, and the menu and pane to come) calls them.
+   */
+  readonly actions: SectionActions;
   #bases: KeyValueSectionBaseStore | null = null;
   /** Notes that hold a copy of each section Resource, and whether every note was read (011). */
   readonly #placements = new PlacementIndex();
@@ -251,6 +252,19 @@ export class SectionsHost {
     /** Says a short text once through the plugin's live region (064). */
     private readonly announce: (text: string) => void = () => undefined,
   ) {
+    this.actions = new SectionActions({
+      prompter: new ObsidianSectionPrompter(app, (text) => this.announce(text)),
+      notes: {
+        openEditor: (path) => editorPort(this.#openEditor(path)),
+        read: async (path) => {
+          const file = this.app.vault.getFileByPath(path);
+          return file === null ? null : this.app.vault.read(file);
+        },
+        edit: (path, fn) => this.#edit(path, fn),
+        goToLine: async (path, line) => editorPort(await this.#goToLine(path, line)),
+      },
+      services: this.#services(),
+    });
     this.editor = sectionEditorExtension({
       engine: () => this.#engine,
       files: {
@@ -656,8 +670,7 @@ export class SectionsHost {
       this.scheduleStatus();
     }
     // Creations a restart interrupted go on from their journal (SSP §12.2).
-    for (const entry of await this.#creation.unfinished())
-      void this.#finish(entry).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+    for (const entry of await this.#creation.unfinished()) void this.actions.resumeCreation(entry);
   }
 
   /** The section Resources watched, their stale work scanned, and every note with a section passed. */
@@ -683,68 +696,9 @@ export class SectionsHost {
     }
   }
 
-  /**
-   * Creates the shared section of an approved preview (LFCP-02-050): the
-   * creation is journaled first, then runs; an interrupted one goes on
-   * at the next start.
-   */
-  /**
-   * "Share section…" as one flow per note (F-03): the preview, then the
-   * creation of what was approved. A second start on the same note while
-   * one runs (its preview open, or its section being created) opens no
-   * second preview and creates nothing: it brings the open preview forward,
-   * or says where the running flow stands (LFCP-03-002). Every entry path
-   * (palette, hotkey, and the menu, card and pane entries to come) calls
-   * this method, so they share the one reservation.
-   */
+  /** "Share section…" from the palette (and the share flow's other entries): the section actions' share. */
   share(editor: Editor, path: string): Promise<void> {
-    return this.#oneFlow(path, "share", async (target, flow) => {
-      const approved = await this.shareSection(editor, path, flow, target);
-      if (approved === null) return;
-      // The note as it is now: renamed meanwhile, its new path; deleted, nothing.
-      if (target.path === null) {
-        new Notice(
-          "Shared Tasks: the note was deleted while the preview was open. Nothing was shared.",
-        );
-        return;
-      }
-      flow.stage = `section "${approved.title}" is being shared from this note. Its result shows when it is done.`;
-      await this.createSection(target.path, editor.getValue(), approved, target);
-    });
-  }
-
-  /**
-   * One share, import or insert per note at a time (F-03, F-C04), reserved
-   * before any preview or allocation. The key is the note's held identity,
-   * so a rename meanwhile keeps the reservation (LFCP-03-002). A repeated
-   * start reveals the running flow: its open dialog, else where it stands.
-   */
-  async #oneFlow(
-    path: string,
-    kind: "share" | "insert",
-    body: (target: NoteTarget, flow: Flow) => Promise<void>,
-  ): Promise<void> {
-    const held = this.#targets.hold(path);
-    try {
-      await this.#flows.run(
-        `note:${held.target.id}`,
-        (running) => this.#revealFlow(running),
-        (flow) => body(held.target, flow),
-        kind === "share"
-          ? "a section of this note is being shared."
-          : "a section is being inserted into this note.",
-      );
-    } finally {
-      held.release();
-    }
-  }
-
-  /** A repeated start of a running flow: its open dialog brought forward, else where it stands. */
-  #revealFlow(running: Flow): void {
-    if (running.reveal()) return;
-    const text = `Shared Tasks: ${running.stage}`;
-    new Notice(text);
-    this.announce(text);
+    return this.actions.share(asSectionEditor(editor), path);
   }
 
   /** While `modal` is open, a repeated start of `flow` brings it forward and says so. */
@@ -757,32 +711,22 @@ export class SectionsHost {
 
   /** The vault renamed a note (its event, as it happens): a flow on it follows it. */
   noteRenamed(oldPath: string, path: string): void {
-    this.#targets.renamed(oldPath, path);
+    this.actions.noteRenamed(oldPath, path);
   }
 
   /** The vault deleted a note: a flow on it writes nothing. */
   noteDeleted(path: string): void {
-    this.#targets.deleted(path);
+    this.actions.noteDeleted(path);
   }
 
-  async createSection(
+  /** Creates the shared section of an approved preview (LFCP-02-050): the section actions'. */
+  createSection(
     path: string,
     markdown: string,
     preview: SharePreview,
-    /** The note held by the flow: a rename before the note is bound is followed (LFCP-03-002). */
     target?: NoteTarget,
   ): Promise<void> {
-    const creation = this.#creation;
-    if (creation === null) {
-      new Notice("Shared Tasks: still starting. Share the section again in a moment.");
-      return;
-    }
-    if (this.server().trim() === "") {
-      new Notice("Shared Tasks: set a default sync server in the settings to share a section.");
-      return;
-    }
-    const entry = await creation.prepare(path, markdown, preview);
-    await this.#finish(entry, target).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+    return this.actions.createSection(path, markdown, preview, target);
   }
 
   /**
@@ -791,7 +735,7 @@ export class SectionsHost {
    * as one complete projection.
    */
   insertSection(editor: Editor, path: string): Promise<void> {
-    return this.#oneFlow(path, "insert", (target, flow) =>
+    return this.actions.reserve(path, "insert", (target, flow) =>
       this.#insertSection(editor, target, flow),
     );
   }
@@ -854,29 +798,6 @@ export class SectionsHost {
       this.#index(path, editor.getValue());
       this.editor.remoteChanged(path);
     }
-  }
-
-  /** Runs a creation; with the flow's held note, at that note's path at each write. */
-  async #finish(entry: CreationEntry, target?: NoteTarget): Promise<CreationResult> {
-    const creation = this.#creation as SectionCreation;
-    const result = await creation.run(entry, target === undefined ? undefined : () => target.path);
-    if (result.kind === "stale") await creation.cancel(result.entry);
-    // LFCP-03-011: a Resource created, or discarded with its stale creation.
-    this.registryChanged();
-    if (result.kind === "hosted" || result.kind === "local") {
-      await this.#watch(fromKey(entry.resource));
-      // Where the creation bound it: the renamed note's path, if it moved.
-      const path = result.entry.path;
-      const file = this.app.vault.getFileByPath(path);
-      const open = this.#openEditor(path);
-      const text = open?.getValue() ?? (file === null ? null : await this.app.vault.read(file));
-      if (text !== null) {
-        this.#index(path, text);
-        if (open !== null) this.editor.remoteChanged(path);
-        else this.editor.remoteChanged(path, text);
-      }
-    }
-    return result;
   }
 
   async #watch(resource: ResourceId): Promise<void> {
@@ -1211,30 +1132,41 @@ export class SectionsHost {
   #openRecovery(key: string, title: string): void {
     const port = this.#port;
     if (port === null) return;
+    new RecoveryModal(this.app, title, this.#recoveryItems(key), (item, choice) =>
+      this.#resolveRecovery(key, item, choice),
+    ).open();
+  }
+
+  /** One review choice of section `key` applied, after re-reading the model (061). */
+  async #resolveRecovery(
+    key: string,
+    item: RecoveryItem,
+    choice: RecoveryChoice,
+  ): Promise<ReviewResult> {
+    if (item.kind === "stale-work") {
+      const note =
+        (await this.#stale?.resolve(
+          key.slice(0, key.indexOf("#")),
+          item.operationId,
+          "keep" in choice && choice.keep,
+        )) ?? "";
+      return { items: this.#recoveryItems(key), note };
+    }
+    if (item.kind === "reappeared") {
+      const note = await this.#resolveReappeared(key, item.nodeId, "restore" in choice);
+      this.scheduleStatus();
+      return { items: this.#recoveryItems(key).filter((i) => i.key !== item.key), note };
+    }
+    const port = this.#port;
+    if (port === null) throw new Error("the section models are not loaded");
     const b64 = key.slice(0, key.indexOf("#"));
     const sectionId = key.slice(key.indexOf("#") + 1);
-    new RecoveryModal(this.app, title, this.#recoveryItems(key), async (item, choice) => {
-      if (item.kind === "stale-work") {
-        const note =
-          (await this.#stale?.resolve(
-            key.slice(0, key.indexOf("#")),
-            item.operationId,
-            "keep" in choice && choice.keep,
-          )) ?? "";
-        return { items: this.#recoveryItems(key), note };
-      }
-      if (item.kind === "reappeared") {
-        const note = await this.#resolveReappeared(key, item.nodeId, "restore" in choice);
-        this.scheduleStatus();
-        return { items: this.#recoveryItems(key).filter((i) => i.key !== item.key), note };
-      }
-      // Alone, as a pass: no coalesced pass is committed in the middle of it.
-      const out = await port.exclusive(b64, () =>
-        applyRecovery(port, b64, sectionId, item, choice, crypto.randomUUID()),
-      );
-      if (out.applied) this.scheduleStatus();
-      return out;
-    }).open();
+    // Alone, as a pass: no coalesced pass is committed in the middle of it.
+    const out = await port.exclusive(b64, () =>
+      applyRecovery(port, b64, sectionId, item, choice, crypto.randomUUID()),
+    );
+    if (out.applied) this.scheduleStatus();
+    return out;
   }
 
   /** What the card of `key` says now, or null while its status is unknown. */
@@ -1772,125 +1704,14 @@ export class SectionsHost {
     });
   }
 
-  /**
-   * "Share section…" (LFCP-02-049): the heading at or above the cursor
-   * proposes the range; the preview shows exactly what would be shared. An
-   * approved preview is revalidated against the note as it is then (UX02):
-   * a changed range is shown again. Returns the approved preview, or null.
-   */
-  async shareSection(
+  /** The share preview (LFCP-02-049): the section actions'. Returns the approved preview, or null. */
+  shareSection(
     editor: Editor,
     path: string,
     flow?: Flow,
     target?: NoteTarget,
   ): Promise<SharePreview | null> {
-    // V3: no new shared section from a device where sections are read-only.
-    if (this.#runtime?.sectionsReadOnly === true) {
-      new Notice(`Shared Tasks: ${SECTIONS_READ_ONLY}.`);
-      return null;
-    }
-    const md = editor.getValue();
-    let line = editor.getCursor().line;
-    let range: ShareRange | null = null;
-    for (; line >= 0 && range === null; line--) range = proposeRange(md, line);
-    if (range === null) {
-      new Notice("Shared Tasks: put the cursor on or under a heading to share its section.");
-      return null;
-    }
-    let preview = preflight(md, range);
-    // 0.1 shared Tasks in the range, and nothing else in the way: the explicit import (053).
-    if (
-      preview.problems.length > 0 &&
-      preview.problems.every((p) => p.code === "LEGACY_SHARED_TASKS")
-    ) {
-      await this.#importFlow(editor, target ?? { id: 0, path }, range, preview.title, flow);
-      return null;
-    }
-    let note: string | undefined;
-    for (;;) {
-      const modal = new ShareSectionModal(this.app, preview, note);
-      modal.open();
-      this.#showing(flow, modal, `the share preview of "${preview.title}"`);
-      const approved = await modal.result;
-      flow?.showing(null);
-      if (!approved) return null;
-      const now = revalidate(editor.getValue(), preview);
-      if (now.kind !== "changed") return now.preview;
-      if (now.preview === null) {
-        new Notice("Shared Tasks: the section's heading is gone. Nothing was shared.");
-        return null;
-      }
-      preview = now.preview;
-      note = "The note changed while the preview was open. Review the section again.";
-    }
-  }
-
-  /**
-   * Imports a range with 0.1 shared Tasks into a new shared section (053,
-   * 054): the preview and the user's choices first, then the journaled
-   * creation; the note's refs are replaced only once the copy is durable.
-   */
-  async #importFlow(
-    editor: Editor,
-    target: NoteTarget,
-    range: ShareRange,
-    title: string,
-    flow?: Flow,
-  ): Promise<void> {
-    const runtime = this.#runtime;
-    const creation = this.#creation;
-    if (runtime === null || creation === null) {
-      new Notice("Shared Tasks: still starting. Try again in a moment.");
-      return;
-    }
-    const md = editor.getValue();
-    // The sources as this device holds them now (0.1 collaborations).
-    const sources = new Map<string, LegacySource>();
-    for (const p of scanRefs(md).projections) {
-      if (p.taskLine <= range.headingLine || p.taskLine > range.lastLine) continue;
-      const key = `${toBase64url(p.resourceId)}#${p.objectId}`;
-      if (sources.has(key)) continue;
-      try {
-        const R = p.resourceId as ResourceId;
-        const replica = (await runtime.profileOf(R)).replica;
-        const view = replica.task(p.objectId);
-        const pending = ((await runtime.storage?.outbound.list(R)) ?? []).length > 0;
-        if (view !== undefined)
-          sources.set(key, { view, revision: replica.heads().join(","), pending });
-      } catch {
-        // Not on this device, or another profile: the preflight blocks it.
-      }
-    }
-    const source = (resource: string, objectId: string) => sources.get(`${resource}#${objectId}`);
-    const preview = legacyPreflight(md, range, source);
-    const modal = new ImportSectionModal(this.app, title, preview);
-    modal.open();
-    this.#showing(flow, modal, `the import preview of "${title}"`);
-    const chosen = await modal.result;
-    flow?.showing(null);
-    if (chosen === null) return;
-    const path = target.path;
-    if (path === null) {
-      new Notice(
-        "Shared Tasks: the note was deleted while the preview was open. Nothing was imported.",
-      );
-      return;
-    }
-    if (flow !== undefined) flow.stage = `section "${title}" is being imported from this note.`;
-    if (this.server().trim() === "") {
-      new Notice("Shared Tasks: set a default sync server in the settings to share a section.");
-      return;
-    }
-    let entry: CreationEntry;
-    try {
-      entry = await creation.prepareImport(path, editor.getValue(), range, source, chosen);
-    } catch (e) {
-      new Notice(
-        `Shared Tasks: the import cannot start (${e instanceof Error ? e.message : String(e)}). Nothing changed.`,
-      );
-      return;
-    }
-    await this.#finish(entry, target).then((r) => notifyCreation(entry, r), notifyFailure(entry));
+    return this.actions.shareSection(asSectionEditor(editor), path, flow, target);
   }
 
   /**
@@ -1915,6 +1736,88 @@ export class SectionsHost {
           ? "Shared Tasks: the section was edited since the import, so the content from before is added after it for comparison. Nothing was removed."
           : "Shared Tasks: this import cannot be restored here (its section is not in the note).",
     );
+  }
+
+  /** This host's running state, as the section actions need it (LFCP-03-008). */
+  #services(): SectionServices {
+    return {
+      creation: () => this.#creation,
+      insertion: () => this.#insertion,
+      bases: () => this.#bases,
+      candidates: () => this.#journal,
+      model: () => this.#port,
+      readOnly: () => this.#runtime?.sectionsReadOnly === true,
+      server: () => this.server(),
+      refPlacement: () => this.refPlacement(),
+      sectionChoices: () => this.#sectionChoices(),
+      legacySource: (R, objectId) => this.#legacySource(R, objectId),
+      watch: (R) => this.#watch(R),
+      indexed: (path, text) => this.#index(path, text),
+      pass: (path, text) => this.editor.remoteChanged(path, text),
+      forget: (key, projectionId) => this.#projectionFacts.forget(key, projectionId),
+      registryChanged: () => this.registryChanged(),
+      scheduleStatus: () => this.scheduleStatus(),
+      unavailable: () => this.#unavailable,
+      known: (key) => this.#statuses.has(key),
+      cardContent: (key, title) => this.#cardContent(key, title),
+      recoveryItems: (key) => this.#recoveryItems(key),
+      resolveRecovery: (key, item, choice) => this.#resolveRecovery(key, item, choice),
+      commands: () => this.commands(),
+      aliases: async () =>
+        ((await this.#runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>,
+      setAlias: async (id, name) => {
+        if (this.#runtime === null) return false;
+        await this.#runtime.localState.update(ALIASES, (v) => {
+          const all = { ...((v ?? {}) as Record<string, string>) };
+          if (name.trim() === "") delete all[id];
+          else all[id] = name.trim();
+          return all;
+        });
+        return true;
+      },
+      revokeAccess: async (R, principal) => {
+        const runtime = this.#runtime;
+        if (runtime === null) return null;
+        const r = await runtime.revokeSectionAccess(R, fromHex(principal) as PrincipalId);
+        return r.kind === "refused"
+          ? { kind: "refused", reason: r.reason }
+          : {
+              kind: "queued",
+              rotated: r.epoch !== null,
+              remainingPaths: r.remainingPaths.map((p) => ({
+                issuer: toHex(p.issuer),
+                abilities: p.abilities,
+              })),
+            };
+      },
+    };
+  }
+
+  /** The sections of this vault "Insert shared section…" offers: those with a loaded model. */
+  async #sectionChoices(): Promise<SectionChoice[] | null> {
+    const runtime = this.#runtime;
+    if (runtime === null) return null;
+    const choices: SectionChoice[] = [];
+    for (const entry of await runtime.registry()) {
+      if (entry.profile !== SECTIONS_PROFILE_ID) continue;
+      const replica = runtime.sectionProfile(entry.resourceId)?.replica;
+      const snap = replica?.snapshot();
+      const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
+        ?.id;
+      if (snap === undefined || typeof sectionId !== "string") continue;
+      choices.push({ resource: entry.resourceId, sectionId, title: snap.title.value ?? "" });
+    }
+    return choices;
+  }
+
+  /** A 0.1 shared Task as this device holds it now (an import's source); throws when not here. */
+  async #legacySource(R: ResourceId, objectId: string): Promise<LegacySource | undefined> {
+    const runtime = this.#runtime;
+    if (runtime === null) return undefined;
+    const replica = (await runtime.profileOf(R)).replica;
+    const view = replica.task(objectId);
+    const pending = ((await runtime.storage?.outbound.list(R)) ?? []).length > 0;
+    return view === undefined ? undefined : { view, revision: replica.heads().join(","), pending };
   }
 
   /** The vault changed: notes with sections are indexed and reconciled when closed. */
@@ -1973,22 +1876,6 @@ export class SectionsHost {
   }
 }
 
-/** What became of a creation, in a notice (UX §3). */
-function notifyCreation(entry: CreationEntry, r: CreationResult): void {
-  const title = entry.preview.title;
-  if (r.kind === "hosted") new Notice(`Shared Tasks: section "${title}" is shared.`);
-  else if (r.kind === "local")
-    new Notice(
-      `Shared Tasks: section "${title}" was created on this device; invitation is not ready yet. ${r.reason}`,
-    );
-  else if (r.kind === "stale")
-    new Notice(
-      `Shared Tasks: section "${title}" changed since the preview. Nothing was bound; share it again.`,
-    );
-  else if (r.kind === "failed")
-    new Notice(`Shared Tasks: section "${title}" could not be created (${r.reason}).`);
-}
-
 function notifyInsertion(r: InsertResult): void {
   if (r.kind === "stale")
     new Notice("Shared Tasks: the note changed where the section would go. Insert it again.");
@@ -1997,12 +1884,6 @@ function notifyInsertion(r: InsertResult): void {
       "Shared Tasks: section inserted. The private text after it, up to the next heading, stays private but moves with its heading.",
     );
 }
-
-const notifyFailure = (entry: CreationEntry) => (e: unknown) => {
-  new Notice(
-    `Shared Tasks: creating section "${entry.preview.title}" stopped (${e instanceof Error ? e.message : String(e)}). It goes on at the next start.`,
-  );
-};
 
 const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
 
@@ -2021,6 +1902,18 @@ const DATA_EVENTS: ReadonlySet<string> = new Set([
   "epoch-reconciled",
   "key-blocked",
 ]);
+
+/** An Obsidian editor as the section actions read it (LFCP-03-008). */
+function asSectionEditor(editor: Editor): SectionEditor {
+  return {
+    text: () => editor.getValue(),
+    cursorLine: () => editor.getCursor().line,
+    setCursor: (line) => editor.setCursor({ line, ch: 0 }),
+  };
+}
+
+const editorPort = (editor: Editor | null): SectionEditor | null =>
+  editor === null ? null : asSectionEditor(editor);
 
 /** Local aliases of identities (Principal ID → label), in the plugin's local state. */
 const ALIASES = "identity-aliases";
