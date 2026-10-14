@@ -123,6 +123,8 @@ function checkSync(sync: Obj, state: string, heldCheck: string, where: string): 
     `${where}.sharedModel`,
   );
   expect(sync.current, `${where}.current`).toBeTypeOf("boolean");
+  // A note not checked may hold edits not known to be on disk (the reducer, LFCP-03-003).
+  if (!checked) expect(local, `${where}: local saving while unchecked`).not.toBe("confirmed");
 
   let heldSum: number | null = 0;
   for (const [i, p] of arr(sync.projections, `${where}.projections`).entries()) {

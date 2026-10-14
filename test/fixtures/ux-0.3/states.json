@@ -646,7 +646,7 @@
           "sync": {
             "queue": { "batches": 0, "counted": true, "units": 0 },
             "held": { "projections": null, "edits": null, "causes": [], "persistence": "unknown" },
-            "localPersistence": "confirmed",
+            "localPersistence": "unconfirmed",
             "projections": [],
             "sharedModel": "accepted",
             "current": false
@@ -763,7 +763,13 @@
           "flow": null
         },
         "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
-        "section": null
+        "section": null,
+        "preview": {
+          "sectionComments": "local",
+          "counts": { "tasks": 2, "paragraphs": 2, "items": 0, "raw": 0 },
+          "warnings": ["future-additions", "private-text-before-next-heading"],
+          "problems": []
+        }
       },
       "expected": {
         "primaryCta": "share-section",
