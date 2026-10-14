@@ -16,7 +16,10 @@
 // makes no Resource; a creation found stale or cancelled after its
 // Resource was made discards that Resource on this device (never hosted,
 // so the server never had it: no orphan, no "not hosted" refusal). The
-// note's text stays as it is either way.
+// note's text stays as it is either way. A discard is journaled before it
+// runs and finished at the next start when a crash cuts it. A Resource
+// whose data may have been sent is kept on this device, not deleted
+// (LFCP-03-002): the cancelled entry records that, and why.
 
 import { fromBase64url, type PrincipalId, type ResourceId, toBase64url } from "@openlfcp/core";
 import { contentHash } from "../projection/guard";
@@ -87,7 +90,23 @@ export interface CreationEntry {
   readonly reason?: string;
   /** Present for an import of 0.1 shared Tasks. */
   readonly legacy?: LegacyImport;
+  /**
+   * A cancelled creation's Resource: "pending" until its discard ran (a
+   * start finishes it), then what the discard did with it.
+   */
+  readonly discarded?: "pending" | DiscardResult["kind"];
+  /** Why a discarded Resource was kept on this device (a code, e.g. "RESOURCE_SENT:attempted"). */
+  readonly keptReason?: string;
 }
+
+/**
+ * What a discard did: deleted (never sent), kept on this device (maybe
+ * sent, or the deletion failed), or nothing (not stored).
+ */
+export type DiscardResult =
+  | { readonly kind: "deleted" }
+  | { readonly kind: "kept"; readonly reason: string }
+  | { readonly kind: "absent" };
 
 /** The hosting outcome of CollabService.host. */
 export type HostResult =
@@ -106,9 +125,10 @@ export interface CreationHost {
   host(resource: ResourceId): Promise<HostResult>;
   /**
    * Gives up a Resource this creation made and never hosted: closed and
-   * forgotten on this device, quietly (no refusal notice for it).
+   * forgotten on this device, quietly (no refusal notice for it); deleted
+   * only when it was never sent, else kept, marked.
    */
-  discard(resource: ResourceId): Promise<void>;
+  discard(resource: ResourceId): Promise<DiscardResult>;
 }
 
 export interface CreationDeps {
@@ -344,7 +364,10 @@ export class SectionCreation {
   async run(entry: CreationEntry): Promise<CreationResult> {
     let e = entry;
     const R = fromBase64url(e.resource) as ResourceId;
-    if (e.phase === "cancelled") return { kind: "cancelled", entry: e };
+    if (e.phase === "cancelled") {
+      if (e.discarded === "pending") e = await this.#discard(e);
+      return { kind: "cancelled", entry: e };
+    }
     if (e.phase === "failed") return { kind: "failed", entry: e, reason: e.reason ?? "" };
     if (e.phase === "prepared") {
       // A preview stale already (the note changed, or another creation bound
@@ -402,9 +425,28 @@ export class SectionCreation {
    */
   async cancel(entry: CreationEntry): Promise<CreationEntry> {
     if (entry.phase !== "prepared" && entry.phase !== "local") return entry;
-    const e: CreationEntry = { ...entry, phase: "cancelled" };
+    // Journaled first: a crash before the discard ran leaves it to the next start.
+    const e: CreationEntry = { ...entry, phase: "cancelled", discarded: "pending" };
     await this.#save(e);
-    await this.deps.host.discard(fromBase64url(e.resource) as ResourceId);
+    return this.#discard(e);
+  }
+
+  /** Cancelled creations whose discard a crash cut: finished now (before their Resources are opened). */
+  async settleCancelled(): Promise<CreationEntry[]> {
+    const out: CreationEntry[] = [];
+    for (const e of await this.unfinished())
+      if (e.phase === "cancelled" && e.discarded === "pending") out.push(await this.#discard(e));
+    return out;
+  }
+
+  async #discard(entry: CreationEntry): Promise<CreationEntry> {
+    const out = await this.deps.host.discard(fromBase64url(entry.resource) as ResourceId);
+    const { keptReason: _, ...rest } = entry;
+    const e: CreationEntry =
+      out.kind === "kept"
+        ? { ...rest, discarded: "kept", keptReason: out.reason }
+        : { ...rest, discarded: out.kind };
+    await this.#save(e);
     return e;
   }
 
@@ -464,7 +506,11 @@ export class SectionCreation {
         const rest = ids(v).filter((x) => x !== e.operationId);
         return e.phase === "projected" || e.phase === "hosted" ? [...rest, e.operationId] : rest;
       });
-    const open = e.phase === "prepared" || e.phase === "local" || e.phase === "projected";
+    const open =
+      e.phase === "prepared" ||
+      e.phase === "local" ||
+      e.phase === "projected" ||
+      (e.phase === "cancelled" && e.discarded === "pending");
     await this.deps.journal.update(OPEN, (v) => {
       const rest = ids(v).filter((x) => x !== e.operationId);
       return open ? [...rest, e.operationId] : rest;

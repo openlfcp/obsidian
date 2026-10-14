@@ -43,7 +43,7 @@ describe("a section Resource discarded before it was hosted", () => {
     expect(await storage.resources.get(R)).toBeDefined();
     expect(added).toHaveLength(1); // the epoch-0 DEK
     expect(await storage.control.epochs(R)).toHaveLength(1);
-    await r.discardUnhosted(R);
+    expect(await r.discardUnhosted(R)).toEqual({ kind: "deleted" });
     expect(await storage.resources.get(R)).toBeUndefined();
     expect((await storage.control.head(R)) ?? null).toBeNull();
     expect(await storage.control.epochs(R)).toEqual([]);
@@ -67,7 +67,7 @@ describe("a section Resource discarded before it was hosted", () => {
   });
 
   it("maybe sent (an outbound item attempted): refused, it stays, marked, not listed or opened", async () => {
-    const { device, r, R, added, storage } = await made();
+    const { device, local, r, R, added, storage } = await made();
     // Something of it was handed to a connection once (its first unit, say).
     await storage.commit([
       {
@@ -84,12 +84,23 @@ describe("a section Resource discarded before it was hosted", () => {
         },
       },
     ]);
-    await r.discardUnhosted(R);
+    expect(await r.discardUnhosted(R)).toEqual({
+      kind: "kept",
+      reason: "RESOURCE_SENT:attempted",
+    });
     expect(await storage.resources.get(R)).toBeDefined();
     for (const slot of added) expect(held(device, slot)).toBe(true);
     expect(await marked(r, R)).toBe(true);
+    // Kept and counted (LFCP-03-002), never deleted by a later start.
+    expect((await r.keptDiscarded()).map(toHex)).toEqual([toHex(R)]);
     expect((await r.registry()).map((e) => toHex(e.resourceId))).not.toContain(toHex(R));
     await expect(r.openSection(R)).rejects.toThrow("unknown Resource");
+    await r.stop();
+    const again = await start(device, local);
+    expect(await again.storage?.resources.get(R)).toBeDefined();
+    expect((await again.keptDiscarded()).map(toHex)).toEqual([toHex(R)]);
+    expect((await again.registry()).map((e) => toHex(e.resourceId))).not.toContain(toHex(R));
+    await expect(again.openSection(R)).rejects.toThrow("unknown Resource");
   });
 
   it("the deletion fails: it stays, marked; the next start deletes it", async () => {
@@ -99,7 +110,7 @@ describe("a section Resource discarded before it was hosted", () => {
       if (writes.some((w) => w.op === "delete-resource")) throw new Error("stopped");
       return commit(writes);
     };
-    await r.discardUnhosted(R);
+    expect(await r.discardUnhosted(R)).toEqual({ kind: "kept", reason: "DELETE_FAILED" });
     storage.commit = commit;
     expect(await storage.resources.get(R)).toBeDefined();
     expect(await marked(r, R)).toBe(true);
@@ -135,7 +146,8 @@ describe("a section Resource discarded before it was hosted", () => {
   it("a Resource not stored: a no-op", async () => {
     const { r, storage } = await made();
     const other = new Uint8Array(32).fill(9) as unknown as ResourceId;
-    await r.discardUnhosted(other);
+    expect(await r.discardUnhosted(other)).toEqual({ kind: "absent" });
     expect(await storage.resources.list()).toHaveLength(1);
+    expect(await r.keptDiscarded()).toEqual([]);
   });
 });

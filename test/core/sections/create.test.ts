@@ -383,4 +383,95 @@ describe("creating a shared section", () => {
     expect(out.kind).toBe("failed");
     expect(env.files.get("Launch.md")).toBe(NOTE);
   });
+
+  it("a crash between the cancel and its discard: the next start finishes the discard before opening anything", async () => {
+    const env = await setup();
+    const discarded: string[] = [];
+    let crash = true;
+    const deps: CreationDeps = {
+      ...env.deps,
+      host: {
+        ...env.deps.host,
+        discard: async (R) => {
+          if (crash) throw new Error("crash before the discard");
+          discarded.push(toBase64url(R));
+          return env.r.discardUnhosted(R);
+        },
+      },
+    };
+    const creation = new SectionCreation(deps);
+    const entry = await creation.prepare("Launch.md", NOTE, env.preview());
+    // The Resource and the import are stored (a durable effect), then the note changes.
+    const commit = env.deps.port.commit;
+    const port: SectionPort = {
+      ...env.deps.port,
+      commit: async (res, intents, o) => {
+        const receipt = await commit(res, intents, o);
+        env.files.set("Launch.md", NOTE.replace("Draft the plan.", "Draft the plan, edited."));
+        return receipt;
+      },
+    };
+    await expect(new SectionCreation({ ...deps, port }).run(entry)).rejects.toThrow(
+      "crash before the discard",
+    );
+    const R = fromBase64url(entry.resource) as ResourceId;
+    // Journaled as cancelled, its discard pending; the Resource is still stored and listed.
+    const [pending] = await creation.unfinished();
+    expect({ phase: pending?.phase, discarded: pending?.discarded }).toEqual({
+      phase: "cancelled",
+      discarded: "pending",
+    });
+    expect(await env.r.storage?.resources.get(R)).toBeDefined();
+    // The next start: settled first; nothing left open, nothing listed, the note as it was.
+    crash = false;
+    const settled = await new SectionCreation(deps).settleCancelled();
+    expect(settled.map((e) => [e.operationId, e.discarded])).toEqual([
+      [entry.operationId, "deleted"],
+    ]);
+    expect(discarded).toEqual([entry.resource]);
+    expect(await creation.unfinished()).toEqual([]);
+    expect(await env.r.storage?.resources.get(R)).toBeUndefined();
+    expect(await env.sectionResources()).toEqual([]);
+    expect(env.files.get("Launch.md")).not.toContain("lfcp-section");
+  });
+
+  it("given up after its data may have been sent: kept on this device, the reason journaled, never deleted", async () => {
+    const env = await setup();
+    const creation = new SectionCreation(env.deps);
+    const entry = await creation.prepare("Launch.md", NOTE, env.preview());
+    const R = fromBase64url(entry.resource) as ResourceId;
+    const storage = env.r.storage as LfcpStorage;
+    const port: SectionPort = {
+      ...env.deps.port,
+      commit: async (res, intents, o) => {
+        const receipt = await env.deps.port.commit(res, intents, o);
+        // Handed to a connection once: the SDK cannot prove it was never sent.
+        const [item] = await storage.outbound.list(R);
+        if (item === undefined) throw new Error("nothing queued");
+        await storage.commit([
+          {
+            op: "update-outbound",
+            itemId: item.itemId,
+            attempts: 1,
+            lastAttempt: new Date().toISOString(),
+          },
+        ]);
+        env.files.set("Launch.md", NOTE.replace("Draft the plan.", "Draft the plan, edited."));
+        return receipt;
+      },
+    };
+    const out = await new SectionCreation({ ...env.deps, port }).run(entry);
+    expect(out.kind).toBe("stale");
+    expect({ discarded: out.entry.discarded, keptReason: out.entry.keptReason }).toEqual({
+      discarded: "kept",
+      keptReason: "RESOURCE_SENT:attempted",
+    });
+    expect(await storage.resources.get(R)).toBeDefined();
+    expect(await env.sectionResources()).toEqual([]);
+    expect((await env.r.keptDiscarded()).map(toBase64url)).toEqual([entry.resource]);
+    expect(await creation.unfinished()).toEqual([]);
+    // Run again (a later start): still kept, nothing else happens.
+    expect((await creation.run(out.entry)).kind).toBe("cancelled");
+    expect(await storage.resources.get(R)).toBeDefined();
+  });
 });

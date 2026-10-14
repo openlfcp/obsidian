@@ -319,6 +319,16 @@ export type RegistryState =
   /** Another Data Profile than Shared Objects: never opened here (needs a newer plugin). */
   | "unsupported";
 
+/**
+ * What discardUnhosted did with a Resource a creation gave up: deleted
+ * (never sent), kept on this device (maybe sent, or the deletion failed;
+ * the reason as a code), or nothing (not stored).
+ */
+export type DiscardOutcome =
+  | { readonly kind: "deleted" }
+  | { readonly kind: "kept"; readonly reason: string }
+  | { readonly kind: "absent" };
+
 export interface RegistryEntry {
   readonly resourceId: ResourceId;
   /** Local display name (a label; never sent). */
@@ -1297,13 +1307,15 @@ export class LfcpRuntime {
    * or opened. Marked as discarded in local state first, then, when it was
    * never sent, its rows and Data Epoch keys are deleted (#forget) and the
    * mark goes. One that may have been sent (RESOURCE_SENT), or whose
-   * deletion fails, keeps its rows, marked: as before. A Resource not
-   * stored is a no-op.
+   * deletion fails, keeps its rows, marked: never deleted automatically
+   * (LFCP-03-002), never listed or announced, counted by keptDiscarded.
+   * A Resource not stored is a no-op ("absent").
    */
-  discardUnhosted(resource: ResourceId): Promise<void> {
-    return this.#engine(async () => {
+  discardUnhosted(resource: ResourceId): Promise<DiscardOutcome> {
+    return this.#engine(async (): Promise<DiscardOutcome> => {
       const key = toHex(resource);
-      if ((await this.#ready().storage.resources.get(resource)) === undefined) return;
+      if ((await this.#ready().storage.resources.get(resource)) === undefined)
+        return { kind: "absent" };
       this.#discarded.add(key);
       await this.localState.put(discardedKey(resource), true);
       const opened = this.#sections.get(key);
@@ -1314,8 +1326,22 @@ export class LfcpRuntime {
       this.#refusals.delete(key);
       this.#phases.delete(key);
       this.#errors.delete(key);
-      await this.#forget(resource);
+      return this.#forget(resource);
     });
+  }
+
+  /**
+   * Section Resources a creation gave up that stay on this device (their
+   * data may have been sent: RESOURCE_SENT): kept, marked discarded, for
+   * the diagnostics and a later recovery. Never listed as collaborations.
+   */
+  async keptDiscarded(): Promise<ResourceId[]> {
+    const storage = this.#install.storage;
+    if (storage === null) return [];
+    const out: ResourceId[] = [];
+    for (const row of await storage.resources.list())
+      if (await this.#isDiscarded(row.resourceId)) out.push(row.resourceId);
+    return out;
   }
 
   /**
@@ -1323,18 +1349,23 @@ export class LfcpRuntime {
    * never sent (deleteUnsentResource); its discarded mark is removed only
    * once the deletion has committed, so a crash in between leaves it
    * marked (and #forgetDiscarded tries again at the next start). Refused
-   * (RESOURCE_SENT) or failed: it stays, marked. Whether it was deleted.
+   * (RESOURCE_SENT) or failed: it stays, marked.
    */
-  async #forget(resource: ResourceId): Promise<boolean> {
+  async #forget(resource: ResourceId): Promise<DiscardOutcome> {
     const { storage, secrets } = this.#ready();
     try {
       const result = await deleteUnsentResource(storage, secrets, resource);
-      if (!result.ok) return false;
+      if (!result.ok)
+        return {
+          kind: "kept",
+          reason:
+            result.reason === "RESOURCE_SENT" ? `RESOURCE_SENT:${result.detail}` : result.reason,
+        };
     } catch {
-      return false;
+      return { kind: "kept", reason: "DELETE_FAILED" };
     }
     await this.localState.put(discardedKey(resource), undefined);
-    return true;
+    return { kind: "deleted" };
   }
 
   /** At start: discarded Resources a restart left stored are deleted now, if never sent. */
