@@ -57,6 +57,7 @@ export async function collectDiagnostics(src: DiagnosticSources): Promise<Diagno
   }
   const sections = (await src.sections?.diagnostics()) ?? { sections: [], candidates: [] };
   const local = await runtime?.localStateDiagnostics().catch(() => null);
+  const kept = await runtime?.keptDiscarded().catch(() => undefined);
   return {
     generatedAt: (src.now ?? Date.now)(),
     plugin: src.plugin,
@@ -70,6 +71,7 @@ export async function collectDiagnostics(src: DiagnosticSources): Promise<Diagno
     resources,
     sections: sections.sections,
     candidates: sections.candidates,
+    ...(kept === undefined ? {} : { keptShares: kept.length }),
     events: src.events,
   };
 }
