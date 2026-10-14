@@ -1253,7 +1253,6 @@ export class SectionsHost {
     await this.#port?.flushAll().catch(() => undefined);
   }
 
-  /** Recomputes the sections' statuses soon (several triggers make one pass). */
   /**
    * Pane-ready sync facts (LFCP-03-003): one section's (key: Resource
    * base64url # section ID), held edits, queue and shared model apart;
@@ -1268,6 +1267,7 @@ export class SectionsHost {
     return vaultSyncSummary(this.#statuses.values());
   }
 
+  /** Recomputes the sections' statuses soon (several triggers make one pass). */
   scheduleStatus(): void {
     if (this.#statusDue !== null) return;
     this.#statusDue = window.setTimeout(() => {
