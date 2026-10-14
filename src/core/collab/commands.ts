@@ -104,6 +104,11 @@ export interface CommandEnv {
    * which a quick edit can merge with (and hide) inside the change debounce.
    */
   readonly wrote?: (path: string, markdown: string) => void;
+  /**
+   * F-05: opens "Review conflicts…" of the shared section at the cursor of
+   * `note`. Absent while shared sections are off on this device.
+   */
+  readonly sectionConflicts?: (note: ActiveNote) => void;
 }
 
 const STAGE_TEXT: Readonly<Record<JoinStage, string>> = {
@@ -182,6 +187,27 @@ export class CollabCommands {
           ? "Shared Tasks: the selection crosses a shared section's boundary. Select lines on one side of it."
           : "Shared Tasks: a shared section's boundary here needs repair first. Nothing was changed.",
     );
+    return true;
+  }
+
+  /**
+   * F-05: a shared section's conflicts are resolved in the section, never by
+   * the 0.1 resolver (another Data Profile: it could only ask for a newer
+   * version). True, after opening the section's "Review conflicts…" or one
+   * notice, when the cursor is not outside every section. A damaged boundary
+   * names no section to open: no resolver is guessed for it.
+   */
+  #inSection(note: ActiveNote): boolean {
+    const ctx = sectionContext(note.text, { from: note.line, to: note.line });
+    if (ctx === "outside") return false;
+    const open = this.#env.sectionConflicts;
+    if (ctx === "inside" && open !== undefined) open(note);
+    else
+      this.#env.prompter.notice(
+        ctx === "inside"
+          ? "Shared Tasks: this is in a shared section, and shared sections are turned off on this device. Its conflicts cannot be reviewed here. Nothing was changed."
+          : "Shared Tasks: a shared section's boundary here needs repair first. Run \"Repair shared sections in this note\", then resolve the conflict from the section's details. Nothing was changed.",
+      );
     return true;
   }
 
@@ -741,10 +767,11 @@ export class CollabCommands {
    */
   resolveConflictUnderCursor(): Promise<void> {
     return this.#run("Resolving the conflict", async () => {
-      const collab = this.#collab();
-      if (collab === null) return;
       const p = this.#env.prompter;
       const note = this.#env.notes.active();
+      if (note !== null && this.#inSection(note)) return;
+      const collab = this.#collab();
+      if (collab === null) return;
       const at = note === null ? { kind: "none" as const } : taskAt(note.text, note.line);
       if (note === null || at.kind !== "bound") {
         p.notice("Shared Tasks: put the cursor on a shared task to resolve its conflicts.");

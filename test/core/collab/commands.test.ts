@@ -2,7 +2,7 @@
 // notes, over a real runtime on an offline device.
 
 import type { InvitationLink } from "@openlfcp/client";
-import { toHex } from "@openlfcp/core";
+import { fromBase64url, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { SharedObjectsReplica, setStatus } from "@openlfcp/shared-objects";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -638,5 +638,149 @@ describe("insertAtLine", () => {
     expect(s.prompter.notices).toEqual([
       "Shared Tasks: the selection crosses a shared section's boundary. Select lines on one side of it.",
     ]);
+  });
+});
+
+// F-05 (U03-24): "Resolve shared task conflict" picks its resolver by where
+// the cursor is: a shared section's own "Review conflicts…" inside one, the
+// 0.1 resolver outside, and none at a damaged boundary.
+describe("Resolve shared task conflict: section dispatch (F-05, U03-24)", () => {
+  const B64 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
+  const SEC = `lfcp1:${B64}#section:019a2f85-7b31-7c42-b85a-fc843e2f4001`;
+  const INSIDE = [
+    "## Shared",
+    `<!-- lfcp-section: ${SEC} -->`,
+    "- [ ] Inside",
+    `  <!-- lfcp-ref: lfcp1:${B64}#task:019a2f85-7b31-7c42-b85a-fc843e2f4002 -->`,
+    "A paragraph",
+    `<!-- /lfcp-section: ${SEC} -->`,
+  ];
+
+  /** setup() with the section's Resource stored and a recording section hook. */
+  async function sectionSetup(hook = true) {
+    const s = await setup("child-line", true);
+    await storeForeign(s.runtime, undefined, "Shared", fromBase64url(B64) as ResourceId);
+    const opened: ActiveNote[] = [];
+    const commands = new CollabCommands({
+      collab: () => s.collab,
+      prompter: s.prompter,
+      notes: s.notes,
+      guard: s.guard,
+      placement: () => "child-line",
+      defaultServer: () => SERVER,
+      sections: () => true,
+      ...(hook ? { sectionConflicts: (n: ActiveNote) => void opened.push(n) } : {}),
+    });
+    return { ...s, commands, opened };
+  }
+
+  /** A 0.1 shared Task at line `line` of `path` whose status is in conflict. */
+  async function conflicted(s: Awaited<ReturnType<typeof setup>>, path: string, line: number) {
+    const R = await created(s);
+    s.notes.open(path, line);
+    s.prompter.picks.push("Team");
+    await s.commands.shareTaskUnderCursor();
+    const text = s.notes.files.get(path) as string;
+    const objectId = scanRefs(text).projections.find((p) => toHex(p.resourceId) === toHex(R))
+      ?.objectId as string;
+    const profile = await s.runtime.profileOf(R);
+    const other = SharedObjectsReplica.fromChanges(profile.replica.changes(), {
+      resource: R,
+      principal: Uint8Array.from({ length: 32 }, () => 7) as never,
+    }).replica;
+    const task = other.task(objectId)?.task;
+    if (task === undefined) throw new Error("no task");
+    const theirs = other.apply(setStatus(task, "cancelled").intent);
+    await s.runtime.writeIntent(R, setStatus(task, "done").intent);
+    profile.replica.receiveChange(theirs?.change as Uint8Array);
+    expect(profile.replica.task(objectId)?.fields.status.conflicted).toBe(true);
+    return { R, objectId, profile };
+  }
+
+  it("inside a section: the section's Review conflicts opens, on any line of it; no dialog, no write, no update advice", async () => {
+    const s = await sectionSetup();
+    const note = `${INSIDE.join("\n")}\n`;
+    s.notes.files.set("n.md", note);
+    s.prompter.notices.length = 0;
+    for (const line of [2, 0, 4]) {
+      s.notes.open("n.md", line);
+      await s.commands.resolveConflictUnderCursor();
+    }
+    expect(s.opened.map((n) => [n.path, n.line])).toEqual([
+      ["n.md", 2],
+      ["n.md", 0],
+      ["n.md", 4],
+    ]);
+    expect(s.opened[0]?.text).toBe(note);
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.prompter.notices).toEqual([]);
+    expect(s.notes.files.get("n.md")).toBe(note);
+  });
+
+  it("inside a section with shared sections off: one plain notice, never the 0.1 resolver or update advice", async () => {
+    const s = await sectionSetup(false);
+    const note = `${INSIDE.join("\n")}\n`;
+    s.notes.files.set("n.md", note);
+    s.prompter.notices.length = 0;
+    s.notes.open("n.md", 2);
+    await s.commands.resolveConflictUnderCursor();
+    expect(s.prompter.notices).toEqual([
+      "Shared Tasks: this is in a shared section, and shared sections are turned off on this device. Its conflicts cannot be reviewed here. Nothing was changed.",
+    ]);
+    expect(s.prompter.notices.join()).not.toContain("newer version");
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.notes.files.get("n.md")).toBe(note);
+  });
+
+  it("a damaged boundary: no resolver is guessed; repair is named, not an update", async () => {
+    const s = await sectionSetup();
+    // The end marker is gone: the section runs to the end of the note.
+    const note = `${INSIDE.slice(0, -1).join("\n")}\n- [ ] After\n`;
+    s.notes.files.set("n.md", note);
+    s.prompter.notices.length = 0;
+    for (const line of [2, 5]) {
+      s.notes.open("n.md", line);
+      await s.commands.resolveConflictUnderCursor();
+    }
+    expect(s.opened).toEqual([]);
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.prompter.notices).toEqual(
+      Array(2).fill(
+        "Shared Tasks: a shared section's boundary here needs repair first. Run \"Repair shared sections in this note\", then resolve the conflict from the section's details. Nothing was changed.",
+      ),
+    );
+    expect(s.notes.files.get("n.md")).toBe(note);
+  });
+
+  it("outside a section, in a note that has one: the 0.1 resolver works as before", async () => {
+    const s = await sectionSetup();
+    s.notes.files.set("n.md", `- [ ] Ship it\n${INSIDE.join("\n")}\n`);
+    const { objectId, profile } = await conflicted(s, "n.md", 0);
+    s.prompter.notices.length = 0;
+    s.prompter.asked.length = 0;
+    s.notes.open("n.md", 0);
+    s.prompter.picks.push("status", "done");
+    await s.commands.resolveConflictUnderCursor();
+    expect(s.opened).toEqual([]);
+    expect(s.prompter.asked).toEqual(["Which field?", "Keep which status?"]);
+    expect(s.prompter.notices).toEqual(["Shared Tasks: status resolved."]);
+    expect(profile.replica.task(objectId)?.fields.status.values).toEqual(["done"]);
+  });
+
+  it("outside a section, a Task of a collaboration this version cannot read still asks for a newer version", async () => {
+    const s = await sectionSetup();
+    const R = await storeForeign(s.runtime, "org.example.unknown-profile.v9", "Future");
+    const ref = `lfcp1:${toBase64url(R)}#task:019a2f85-7b31-7c42-b85a-fc843e2f4003`;
+    const note = `- [ ] From the future\n  <!-- lfcp-ref: ${ref} -->\n${INSIDE.join("\n")}\n`;
+    s.notes.files.set("n.md", note);
+    s.prompter.notices.length = 0;
+    s.notes.open("n.md", 0);
+    await s.commands.resolveConflictUnderCursor();
+    expect(s.opened).toEqual([]);
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.prompter.notices).toEqual([
+      `Shared Tasks: Resolving the conflict failed. ${NEEDS_NEWER_VERSION}.`,
+    ]);
+    expect(s.notes.files.get("n.md")).toBe(note);
   });
 });

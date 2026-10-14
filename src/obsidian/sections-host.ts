@@ -1379,6 +1379,27 @@ export class SectionsHost {
   }
 
   /**
+   * "Resolve shared task conflict" with the cursor in a shared section
+   * (F-05): that section's "Review conflicts…", as its card opens it.
+   */
+  reviewConflictsAt(text: string, line: number): void {
+    if (this.#unavailable !== null) {
+      new Notice(this.#unavailable);
+      return;
+    }
+    const at = sectionAtLine(text, line);
+    if (at === null) {
+      new Notice("Shared Tasks: put the cursor in a shared section to review its conflicts.");
+      return;
+    }
+    if (this.#port === null || !this.#statuses.has(at.key)) {
+      new Notice("Shared Tasks: this section is still loading. Try again in a moment.");
+      return;
+    }
+    this.#openRecovery(at.key, at.title);
+  }
+
+  /**
    * "Go to next shared section problem" (064, UX09): the next row needing
    * attention after the cursor, unfolded if a fold hides it, said once.
    */
