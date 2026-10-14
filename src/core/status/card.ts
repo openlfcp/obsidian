@@ -94,7 +94,7 @@ function problemText(c: Condition): string | null {
 }
 
 /** Why not connected, as far as the session said (LFCP-03-005): never "failed" without a failed attempt. */
-function offlineText(v: StatusView): string {
+export function offlineText(v: StatusView): string {
   switch (v.connection) {
     case "failed":
       return v.connectionQualifier === "not-responding"
@@ -143,6 +143,42 @@ function keptIn(h: HeldEdits): string {
   }
 }
 
+/** The connecting sentence (LFCP-03-005): not checked with the server yet. */
+export const CONNECTING_TEXT =
+  "Connecting to the server: not checked with it yet. Local updates wait on this device.";
+
+/** One copy's held edits as a fact: "3 edits not sent: <cause> (Plan.md, line 15)." (F-04). */
+export function heldFact(h: HeldEdits): string {
+  return `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).${movedNotSent(h)}${keptIn(h)}`;
+}
+
+/**
+ * What needs attention, most important first: the card's problems, which
+ * the pane shows too (one wording on every surface). A held copy's problem
+ * says what, where and what to do; the generic text for the rest.
+ */
+export function sectionProblems(v: StatusView): string[] {
+  const held = [...v.held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1));
+  const heldBy = new Map(held.map((h) => [h.projectionId, h]));
+  const problems = v.conditions
+    .map((c) => {
+      const h = c.kind === "source" ? heldBy.get(c.projectionId) : undefined;
+      if (h !== undefined) return heldAdvice(h);
+      const text = problemText(c);
+      return text !== null &&
+        c.kind === "access" &&
+        (c.access === "revoked" || c.access === "not-member")
+        ? text + accessAsOf(v)
+        : text;
+    })
+    .filter((p): p is string => p !== null);
+  // Held for a reason no source condition carries (read-only typing): said too.
+  for (const h of held)
+    if (!v.conditions.some((c) => c.kind === "source" && c.projectionId === h.projectionId))
+      problems.push(heldAdvice(h));
+  return problems;
+}
+
 /** The card's content. */
 export function sectionCard(input: CardInput): SectionCard {
   const v = input.view;
@@ -157,10 +193,7 @@ export function sectionCard(input: CardInput): SectionCard {
       (c.access === "refused" || c.access === "revoked" || c.access === "not-member"),
   );
   // F-04: edits held back come first, counted, with their cause.
-  for (const h of held)
-    facts.push(
-      `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).${movedNotSent(h)}${keptIn(h)}`,
-    );
+  for (const h of held) facts.push(heldFact(h));
   if (kinds.has("save-failed")) facts.push("Not all local changes are saved for sync.");
   else if (kinds.has("local-edit")) facts.push("Local changes are being processed.");
   if (v.pendingBatches > 0)
@@ -207,10 +240,7 @@ export function sectionCard(input: CardInput): SectionCard {
     );
   else if (kinds.has("offline")) facts.push(offlineText(v));
   else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
-  else if (kinds.has("connecting"))
-    facts.push(
-      "Connecting to the server: not checked with it yet. Local updates wait on this device.",
-    );
+  else if (kinds.has("connecting")) facts.push(CONNECTING_TEXT);
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");
   else if (held.length > 0)
     facts.push(
@@ -243,24 +273,7 @@ export function sectionCard(input: CardInput): SectionCard {
   if (input.hosting === "pending")
     facts.push("Not on its server yet: nobody can join until it is hosted.");
 
-  // A held copy's problem says what, where and what to do; the generic text for the rest.
-  const heldBy = new Map(held.map((h) => [h.projectionId, h]));
-  const problems = v.conditions
-    .map((c) => {
-      const h = c.kind === "source" ? heldBy.get(c.projectionId) : undefined;
-      if (h !== undefined) return heldAdvice(h);
-      const text = problemText(c);
-      return text !== null &&
-        c.kind === "access" &&
-        (c.access === "revoked" || c.access === "not-member")
-        ? text + accessAsOf(v)
-        : text;
-    })
-    .filter((p): p is string => p !== null);
-  // Held for a reason no source condition carries (read-only typing): said too.
-  for (const h of held)
-    if (!v.conditions.some((c) => c.kind === "source" && c.projectionId === h.projectionId))
-      problems.push(heldAdvice(h));
+  const problems = sectionProblems(v);
 
   const shared = [
     "Everything between this section's start and end markers is shared, including future additions.",
