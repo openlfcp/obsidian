@@ -33,7 +33,10 @@ import type {
 } from "../../../src/core/sections/insert";
 import type { PendingCandidate } from "../../../src/core/sections/journal";
 import type { SectionSnapshot } from "../../../src/core/sections/port";
+import type { RecoveryChoice, RecoveryItem } from "../../../src/core/sections/recovery";
 import type { SharePreview } from "../../../src/core/sections/share";
+import type { RevokeOutcome } from "../../../src/core/status/access";
+import type { SectionCard } from "../../../src/core/status/card";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const NOTE = ["# Notes", "", "## Plan", "", "- [ ] Alpha", "- [ ] Beta", "", "## Later", ""].join(
@@ -789,5 +792,209 @@ describe("restore an import (LFCP-03-008 over 054)", () => {
       "Shared Tasks: the note shows its content from before the import again. The new shared section still exists; to stop sharing it, remove people's access.",
       "Shared Tasks: this import cannot be restored here (its section is not in the note).",
     ]);
+  });
+});
+
+describe("the section card (LFCP-03-008 over 059/060/061)", () => {
+  const card = (over: Record<string, unknown> = {}) =>
+    ({
+      heading: "Launch",
+      status: "Current",
+      facts: [],
+      problems: [],
+      shared: [],
+      technical: [],
+      held: [],
+      access: { canInvite: true },
+      ...over,
+    }) as unknown as SectionCard;
+  type CardArgs = Parameters<SectionPrompter["card"]>;
+
+  function cardSetup(over: (calls: string[]) => Partial<SectionServices> = () => ({})) {
+    let content: SectionCard | null = card();
+    const commandCalls: string[] = [];
+    const t = setup((calls) => ({
+      cardContent: async () => content,
+      known: () => true,
+      commands: () => ({
+        inviteTo: async () => {
+          commandCalls.push("inviteTo");
+        },
+        resourceStatusOf: async () => {
+          commandCalls.push("resourceStatusOf");
+        },
+      }),
+      ...over(calls),
+    }));
+    const opened = () => {
+      const all = t.prompter.dialogs.filter((d) => d.kind === "card");
+      return all.at(-1)?.args as CardArgs;
+    };
+    const press = (label: string) => {
+      const a = opened()[1].find((x) => x.label === label);
+      if (a === undefined) throw new Error(`no ${label}: ${opened()[1].map((x) => x.label)}`);
+      a.run();
+    };
+    return {
+      ...t,
+      commandCalls,
+      opened,
+      press,
+      set: (c: SectionCard | null) => {
+        content = c;
+      },
+    };
+  }
+
+  it("refused before the card: another instance holds the data; a section still loading", async () => {
+    const held = cardSetup(() => ({ unavailable: () => "Shared Tasks: another instance." }));
+    await held.actions.openCard(KEY, "Launch");
+    const loading = cardSetup();
+    loading.set(null);
+    await loading.actions.openCard(KEY, "Launch");
+    expect(held.prompter.notices).toEqual(["Shared Tasks: another instance."]);
+    expect(loading.prompter.notices).toEqual([
+      "Shared Tasks: this section is still loading. Try again in a moment.",
+    ]);
+    expect([...held.prompter.dialogs, ...loading.prompter.dialogs]).toEqual([]);
+  });
+
+  it("offers what the facts allow, in order; read-only offers no invite and no removal", async () => {
+    const t = cardSetup(() => ({
+      recoveryItems: () => [{ kind: "stale-work" } as unknown as RecoveryItem],
+    }));
+    t.set(card({ held: [{ path: "Plan.md", line: 4, cause: "boundary" }] }));
+    await t.actions.openCard(KEY, "Launch");
+    expect(t.opened()[1].map((a) => a.label)).toEqual([
+      "Review conflicts…",
+      "Invite collaborator…",
+      "Go to line 5",
+      "Repair shared sections in this note",
+      "Resource status",
+    ]);
+    expect(Object.keys(t.opened()[3])).toEqual(["alias", "remove"]);
+
+    const readOnly = cardSetup(() => ({ readOnly: () => true }));
+    await readOnly.actions.openCard(KEY, "Launch");
+    expect(readOnly.opened()[1].map((a) => a.label)).toEqual(["Resource status"]);
+    expect(Object.keys(readOnly.opened()[3])).toEqual(["alias"]);
+  });
+
+  it("an action on a section no longer here runs nothing; one still here runs its command", async () => {
+    let known = true;
+    const t = cardSetup(() => ({ known: () => known }));
+    await t.actions.openCard(KEY, "Launch");
+    t.press("Invite collaborator…");
+    known = false;
+    t.press("Resource status");
+    await flush();
+    expect(t.commandCalls).toEqual(["inviteTo"]);
+    expect(t.prompter.notices).toEqual(["Shared Tasks: this section is no longer on this device."]);
+  });
+
+  it("removing access: an unknown outcome says the access list decides; the open card is redrawn", async () => {
+    let outcome: () => Promise<RevokeOutcome | null> = () => Promise.reject(new Error("timeout"));
+    const t = cardSetup(() => ({ revokeAccess: () => outcome() }));
+    await t.actions.openCard(KEY, "Launch");
+    t.prompter.script.confirm = [true, true, false, true];
+    t.opened()[3].remove?.("ab".repeat(16), "Member abababab");
+    await flush(20);
+    outcome = async () => ({ kind: "refused", reason: "NOT_OWNER" });
+    t.opened()[3].remove?.("ab".repeat(16), "Member abababab");
+    await flush(20);
+    // Cancelled: nothing asked of the runtime.
+    outcome = () => Promise.reject(new Error("must not run"));
+    t.opened()[3].remove?.("ab".repeat(16), "Member abababab");
+    await flush(20);
+    // Not running: nothing said.
+    outcome = async () => null;
+    t.opened()[3].remove?.("ab".repeat(16), "Member abababab");
+    await flush(20);
+    expect(t.prompter.notices[0]).toBe(
+      "Shared Tasks: Removing access failed. The access list shows whether a change is pending.",
+    );
+    expect(t.prompter.notices).toHaveLength(2);
+    expect(t.prompter.cardUpdates).toHaveLength(2);
+  });
+
+  it("discards kept copies after asking; the status is recomputed", async () => {
+    const resolved: string[] = [];
+    const kept = [
+      { candidateId: "c1", projectionId: `x#${KEY}#y`, reason: "rejected", sourceText: "t" },
+      { candidateId: "c2", projectionId: "other", reason: "rejected", sourceText: "t" },
+    ] as PendingCandidate[];
+    const t = cardSetup(() => ({
+      bases: () => new MemorySectionBaseStore(),
+      candidates: () => ({
+        putCandidate: async () => undefined,
+        allCandidates: async () => kept,
+        resolveCandidate: async (id) => {
+          resolved.push(id);
+        },
+      }),
+    }));
+    await t.actions.openCard(KEY, "Launch");
+    t.prompter.script.confirm = [false, true];
+    t.press("Discard the local copy…");
+    await flush(20);
+    expect(resolved).toEqual([]);
+    t.press("Discard the local copy…");
+    await flush(20);
+    expect(resolved).toEqual(["c1"]);
+    expect(t.prompter.notices).toEqual(["Shared Tasks: the local copy was discarded."]);
+    expect(t.calls).toEqual(["scheduleStatus"]);
+  });
+
+  it("only the open card is redrawn; a new card closes the previous one", async () => {
+    const t = cardSetup();
+    await t.actions.refreshCard();
+    await t.actions.openCard(KEY, "Launch");
+    await t.actions.openCard(KEY, "Launch");
+    expect(t.prompter.open("card")).toHaveLength(1);
+    await t.actions.refreshCard();
+    expect(t.prompter.cardUpdates).toHaveLength(1);
+    t.opened()[2]();
+    await t.actions.refreshCard();
+    expect(t.prompter.cardUpdates).toHaveLength(1);
+  });
+
+  it("review conflicts at the cursor: refused outside a section or while loading; else the review", async () => {
+    const applied: string[] = [];
+    let known = false;
+    const t = cardSetup(() => ({
+      known: () => known,
+      model: () => ({ snapshot: () => undefined, task: () => undefined }),
+      resolveRecovery: async (key) => {
+        applied.push(key);
+        return { items: [], note: null };
+      },
+    }));
+    t.actions.reviewConflictsAt(BOUND, 0);
+    t.actions.reviewConflictsAt(BOUND, 3);
+    known = true;
+    t.actions.reviewConflictsAt(BOUND, 3);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: put the cursor in a shared section to review its conflicts.",
+      "Shared Tasks: this section is still loading. Try again in a moment.",
+    ]);
+    const review = t.prompter.dialogs.find((d) => d.kind === "review");
+    expect(review?.args[0]).toBe("Launch");
+    const apply = review?.args[2] as (i: RecoveryItem, c: RecoveryChoice) => Promise<unknown>;
+    await apply({} as RecoveryItem, {} as RecoveryChoice);
+    expect(applied).toEqual([KEY]);
+  });
+
+  it("details at the cursor open that section's card", async () => {
+    const t = cardSetup();
+    t.notes.files.set("Plan.md", BOUND);
+    t.editor.line = 0;
+    t.actions.openCardAt(t.editor);
+    t.editor.line = 3;
+    t.actions.openCardAt(t.editor);
+    await flush(20);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: put the cursor in a shared section to see its details.",
+    ]);
+    expect(t.prompter.open("card")).toHaveLength(1);
   });
 });

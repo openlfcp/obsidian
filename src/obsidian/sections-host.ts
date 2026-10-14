@@ -68,7 +68,7 @@ import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/s
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
 import { Announcer } from "../core/status/a11y";
-import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/access";
+import { accessView } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { collectStatuses } from "../core/status/collect";
 import { observedFacts } from "../core/status/facts";
@@ -98,13 +98,10 @@ import {
   goToNextProblem,
   ReadingBadges,
   revealLine,
-  sectionAtLine,
   sectionKey,
   sectionStatusExtension,
   setSectionStatuses,
 } from "./section-status";
-import { RecoveryModal } from "./ui/recovery";
-import { AliasModal, ConfirmModal, SectionCardModal } from "./ui/section-card";
 import { ObsidianSectionPrompter } from "./ui/section-prompter";
 
 /** The text a note with a shared section always contains. */
@@ -186,9 +183,6 @@ export class SectionsHost {
     (key) => this.#statuses.get(key),
     (key, title) => void this.openCard(key, title),
   );
-  /** The open details card, redrawn when its section's status changes. */
-  #card: { readonly key: string; readonly title: string; readonly modal: SectionCardModal } | null =
-    null;
   #statuses: ReadonlyMap<string, StatusView> = new Map();
   /** A new blocking condition is announced once (064). */
   readonly #announcer = new Announcer();
@@ -723,11 +717,6 @@ export class SectionsHost {
   }
 
   /**
-   * The details card of a section (LFCP-02-059), opened from its badge.
-   * Its actions run on the section's Resource after checking it is still
-   * here (stable ref, revalidated).
-   */
-  /**
    * The plugin cannot run here (another instance holds this vault's data):
    * the cards say so, and what to do, instead of "still loading".
    */
@@ -736,147 +725,12 @@ export class SectionsHost {
   }
   #unavailable: string | null = null;
 
-  async openCard(key: string, title: string): Promise<void> {
-    if (this.#unavailable !== null) {
-      new Notice(this.#unavailable);
-      return;
-    }
-    const content = await this.#cardContent(key, title);
-    if (content === null) {
-      new Notice("Shared Tasks: this section is still loading. Try again in a moment.");
-      return;
-    }
-    const R = fromBase64url(key.slice(0, key.indexOf("#"))) as ResourceId;
-    const still =
-      (run: (c: NonNullable<ReturnType<typeof this.commands>>) => Promise<void>) => () => {
-        const commands = this.commands();
-        if (!this.#statuses.has(key) || commands === null) {
-          new Notice("Shared Tasks: this section is no longer on this device.");
-          return;
-        }
-        void run(commands);
-      };
-    const conflicts = this.#recoveryItems(key);
-    const kept = await this.#keptCopies(key);
-    const actions = [
-      // Conflicts are resolved one by one, by the user (061).
-      ...(conflicts.length > 0
-        ? [{ label: "Review conflicts…", run: () => this.#openRecovery(key, title) }]
-        : []),
-      // Inviting is offered by the validated access (060), never by default.
-      ...(content.access?.canInvite === true && this.#runtime?.sectionsReadOnly !== true
-        ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
-        : []),
-      // F-04: where edits are held, and the repair of that note.
-      ...(content.held[0] === undefined
-        ? []
-        : [
-            {
-              label: `Go to line ${content.held[0].line + 1}`,
-              run: () =>
-                void this.#goToLine(content.held[0]?.path ?? "", content.held[0]?.line ?? 0),
-            },
-            ...(["unsupported", "binding", "boundary", "base-unknown"].includes(
-              content.held[0].cause,
-            )
-              ? [
-                  {
-                    label: "Repair shared sections in this note",
-                    run: () => void this.#repairAt(content.held[0]?.path ?? ""),
-                  },
-                ]
-              : []),
-          ]),
-      { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
-      // Text kept on this device after a refusal (a local copy, never applied by itself).
-      ...(kept.length > 0
-        ? [
-            {
-              label: `Discard ${kept.length === 1 ? "the local copy" : `${kept.length} local copies`}…`,
-              run: () => void this.#discardKept(key, title),
-            },
-          ]
-        : []),
-    ];
-    this.#card?.modal.close();
-    const modal = new SectionCardModal(
-      this.app,
-      content,
-      actions,
-      () => {
-        if (this.#card?.modal === modal) this.#card = null;
-      },
-      {
-        // A local alias: a label of this device for an identity, never sent.
-        alias: (id, label) => {
-          const ask = new AliasModal(this.app, label.startsWith("Member ") ? "" : label);
-          ask.open();
-          void ask.result.then(async (name) => {
-            if (name === null || this.#runtime === null) return;
-            await this.#runtime.localState.update(ALIASES, (v) => {
-              const all = { ...((v ?? {}) as Record<string, string>) };
-              if (name.trim() === "") delete all[id];
-              else all[id] = name.trim();
-              return all;
-            });
-            const fresh = await this.#cardContent(key, title);
-            if (fresh !== null) modal.update(fresh);
-          });
-        },
-        // 060: confirmed first; queued is pending until the server commits it.
-        // V3: no access change from a device where sections are read-only.
-        ...(this.#runtime?.sectionsReadOnly === true
-          ? {}
-          : {
-              remove: (principal: string, label: string) => {
-                const ask = new ConfirmModal(
-                  this.app,
-                  `Remove access: ${label}`,
-                  REMOVE_CONFIRMATION,
-                  "Remove access",
-                );
-                ask.open();
-                void ask.result.then(async (yes) => {
-                  const runtime = this.#runtime;
-                  if (!yes || runtime === null) return;
-                  const aliases = ((await runtime.localState.get(ALIASES)) ?? {}) as Record<
-                    string,
-                    string
-                  >;
-                  let message: string;
-                  try {
-                    const r = await runtime.revokeSectionAccess(
-                      R,
-                      fromHex(principal) as PrincipalId,
-                    );
-                    message = revokeMessage(
-                      r.kind === "refused"
-                        ? { kind: "refused", reason: r.reason }
-                        : {
-                            kind: "queued",
-                            rotated: r.epoch !== null,
-                            remainingPaths: r.remainingPaths.map((p) => ({
-                              issuer: toHex(p.issuer),
-                              abilities: p.abilities,
-                            })),
-                          },
-                      (hex) => aliases[hex.slice(0, 8)] ?? `Member ${hex.slice(0, 8)}`,
-                    );
-                  } catch {
-                    // Outcome unknown: the access list says whether a change is pending.
-                    message =
-                      "Removing access failed. The access list shows whether a change is pending.";
-                  }
-                  new Notice(`Shared Tasks: ${message}`);
-                  const fresh = await this.#cardContent(key, title);
-                  if (fresh !== null && this.#card?.modal === modal) modal.update(fresh);
-                });
-              },
-            }),
-      },
-    );
-    this.#card = { key, title, modal };
-    modal.open();
+  /**
+   * The details card of a section (LFCP-02-059), opened from its badge:
+   * the section actions'. Its actions revalidate the section first.
+   */
+  openCard(key: string, title: string): Promise<void> {
+    return this.actions.openCard(key, title);
   }
 
   /**
@@ -886,38 +740,6 @@ export class SectionsHost {
    */
   repairNote(editor: Editor, path: string): Promise<void> {
     return this.actions.repairNote(asSectionEditor(editor), path);
-  }
-
-  /** The copies of section `key`'s text kept on this device after a refusal (not shared). */
-  async #keptCopies(key: string): Promise<string[]> {
-    const journal = this.#journal;
-    if (journal === null) return [];
-    const ids: string[] = [];
-    for (const c of await journal.allCandidates()) {
-      const base = await this.#bases?.load(c.projectionId);
-      const section = base === undefined ? undefined : sectionKey(base.locator.section);
-      if (section === key || c.projectionId.includes(`#${key}#`)) ids.push(c.candidateId);
-    }
-    return ids;
-  }
-
-  /** Discards the kept copies of section `key`, after asking: the note and the section stay. */
-  async #discardKept(key: string, title: string): Promise<void> {
-    const ids = await this.#keptCopies(key);
-    if (ids.length === 0) return;
-    const ask = new ConfirmModal(
-      this.app,
-      `Local copies of "${title}"`,
-      `${ids.length === 1 ? "One copy" : `${ids.length} copies`} of this section's text ${ids.length === 1 ? "was" : "were"} kept on this device when the sync server refused ${ids.length === 1 ? "it" : "them"}. ${ids.length === 1 ? "It is" : "They are"} not shared. Discard ${ids.length === 1 ? "it" : "them"}? Your note and the shared section are not changed.`,
-      "Discard",
-    );
-    ask.open();
-    if (!(await ask.result)) return;
-    for (const id of ids) await this.#journal?.resolveCandidate(id);
-    new Notice(
-      `Shared Tasks: ${ids.length === 1 ? "the local copy was" : `${ids.length} local copies were`} discarded.`,
-    );
-    this.scheduleStatus();
   }
 
   readonly #soon = new Map<string, number>();
@@ -940,15 +762,6 @@ export class SectionsHost {
   #bookkeepingFailed(error: unknown): void {
     if (this.#passErrors.shouldShow("", error instanceof Error ? error.message : String(error)))
       this.onError("a note", error);
-  }
-
-  /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
-  #openRecovery(key: string, title: string): void {
-    const port = this.#port;
-    if (port === null) return;
-    new RecoveryModal(this.app, title, this.#recoveryItems(key), (item, choice) =>
-      this.#resolveRecovery(key, item, choice),
-    ).open();
   }
 
   /** One review choice of section `key` applied, after re-reading the model (061). */
@@ -1287,11 +1100,7 @@ export class SectionsHost {
     });
     if (said.length > 0) this.announce(said.join(" "));
     this.reading.update();
-    const card = this.#card;
-    if (card !== null) {
-      const content = await this.#cardContent(card.key, card.title);
-      if (content !== null) card.modal.update(content);
-    }
+    await this.actions.refreshCard();
   }
 
   /**
@@ -1346,12 +1155,7 @@ export class SectionsHost {
 
   /** "Open shared section details" (064): the card of the section under the cursor. */
   openCardAt(editor: Editor): void {
-    const at = sectionAtLine(editor.getValue(), editor.getCursor().line);
-    if (at === null) {
-      new Notice("Shared Tasks: put the cursor in a shared section to see its details.");
-      return;
-    }
-    void this.openCard(at.key, at.title);
+    this.actions.openCardAt(asSectionEditor(editor));
   }
 
   /**
@@ -1359,20 +1163,7 @@ export class SectionsHost {
    * (F-05): that section's "Review conflicts…", as its card opens it.
    */
   reviewConflictsAt(text: string, line: number): void {
-    if (this.#unavailable !== null) {
-      new Notice(this.#unavailable);
-      return;
-    }
-    const at = sectionAtLine(text, line);
-    if (at === null) {
-      new Notice("Shared Tasks: put the cursor in a shared section to review its conflicts.");
-      return;
-    }
-    if (this.#port === null || !this.#statuses.has(at.key)) {
-      new Notice("Shared Tasks: this section is still loading. Try again in a moment.");
-      return;
-    }
-    this.#openRecovery(at.key, at.title);
+    this.actions.reviewConflictsAt(text, line);
   }
 
   /**
@@ -1412,12 +1203,6 @@ export class SectionsHost {
         break;
       }
     return editor;
-  }
-
-  /** "Repair shared sections in this note" from a card (F-04): the note opened first. */
-  async #repairAt(path: string): Promise<void> {
-    const editor = await this.#goToLine(path, this.#openEditor(path)?.getCursor().line ?? 0);
-    if (editor !== null) await this.repairNote(editor, path);
   }
 
   #openEditor(path: string): Editor | null {
