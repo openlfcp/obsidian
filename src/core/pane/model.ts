@@ -8,10 +8,12 @@
 // The section's status is the one status path: its StatusView (LFCP-03-003,
 // 005), never re-derived here. The primary call to action follows P1 by
 // the view's first condition, so the card's first problem and the pane's
-// primary action never disagree. Every disabled action states its reason;
+// primary action never disagree. Which actions apply, and why one is
+// disabled, is the action descriptors' (actions/descriptors.ts, LFCP-03-010);
 // a disabled button is never the only guard (the executor checks again).
 
 import { ACTIONS, type ActionId, SOURCE_CHANGING } from "../actions/catalog";
+import { ACCESS_HELD, type ActionFacts, availabilities, REPAIR_HELD } from "../actions/descriptors";
 import { rowLabel } from "../sections/registry-view";
 import { SHARE_SCOPE, type ShareWarning, shareCounts, shareWarningText } from "../sections/share";
 import {
@@ -19,7 +21,6 @@ import {
   type SelectionReason as TargetSelectionReason,
 } from "../sections/target";
 import { CONNECTING_TEXT, heldFact, offlineText, sectionProblems } from "../status/card";
-import type { HeldCause } from "../status/held";
 import { type Condition, STATE_LABEL, type StatusState, type StatusView } from "../status/reducer";
 import {
   FLOW_STAGES,
@@ -114,15 +115,9 @@ export interface PanePreview {
   readonly problems: readonly string[];
 }
 
-export interface PaneFacts {
-  readonly context: PaneContext;
-  readonly registry: PaneRegistry;
-  readonly section: PaneSection | null;
+/** What the pane shows: the action facts its descriptors read (ActionFacts), and its own. */
+export interface PaneFacts extends ActionFacts {
   readonly preview?: PanePreview;
-  /** Setup incomplete (no server, sections off), with the exact reason; null or absent: complete. */
-  readonly setup?: { readonly reason: string } | null;
-  /** Other unfinished flows, besides the context's (P2). */
-  readonly unfinished?: readonly PaneFlow[];
   /** A short confirmation of the last step, e.g. "Link copied" (I3). */
   readonly notice?: string | null;
 }
@@ -233,14 +228,6 @@ export function paneFocus(keys: {
   return keys.underCursor ?? keys.chosen ?? keys.justJoined;
 }
 
-/** Held edits kept because this vault may not send them: reviewed, not repaired. */
-const ACCESS_HELD: ReadonlySet<HeldCause> = new Set([
-  "read-only",
-  "revoked",
-  "refused",
-  "rejected",
-]);
-const REPAIR_HELD: ReadonlySet<HeldCause> = new Set(["boundary", "binding", "base-unknown"]);
 const DENIED = new Set(["refused", "revoked", "not-member"]);
 
 /** Row 6 of P1: the first source condition, mapped by that projection's own facts. */
@@ -453,132 +440,20 @@ function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGrou
 
 type Avail = { readonly enabled: boolean; readonly reason: string | null };
 
-/** Which actions apply, enabled or with their reason. */
+/**
+ * Which actions apply, enabled or with their reason: the action
+ * descriptors' availability (LFCP-03-010), the one predicate every surface
+ * reads; the pane keeps no copy of it.
+ */
 function availability(f: PaneFacts): Map<ActionId, Avail> {
   const a = new Map<ActionId, Avail>();
-  const on = (id: ActionId) => a.set(id, { enabled: true, reason: null });
-  const off = (id: ActionId, reason: string) => a.set(id, { enabled: false, reason });
-  const ctx = f.context;
-  const s = f.section;
-  const v = s?.view;
-  const flow = ctx.flow;
-  const running = flow?.outcome === "running" ? flow : null;
-  const next =
-    running !== null && stageOf(running.kind, running.stage).waits === "user"
-      ? flowAction(running.kind, running.stage)
-      : null;
-  const noteOpen = ctx.editor !== "none";
-  const reading = ctx.editor === "reading";
-  const busy = "A flow is open; finish or cancel it first.";
-
-  // A2: join stays in the header; a join already under way is revealed, never started twice (A4).
-  if (next === "join-with-link") on("join-with-link");
-  else if (flow?.kind === "join" && flow.outcome !== "unfinished")
-    off("join-with-link", "A join is in progress. Finish it first.");
-  else if (flow?.kind === "join") off("join-with-link", "A join is unfinished: continue it.");
-  else on("join-with-link");
-
-  const sel = ctx.selection;
-  if (next === "share-section") on("share-section");
-  else if (flow?.kind === "share" && flow.outcome !== "unfinished")
-    off("share-section", "A share is in progress. Finish it first.");
-  else if (running !== null) off("share-section", busy);
-  else if (!noteOpen) off("share-section", "Open a note to share a section from it.");
-  else if (sel?.eligibility === "ineligible") off("share-section", selectionReasonText(sel));
-  else if (ctx.cursor === "inside-section")
-    off("share-section", "The cursor is inside a shared section.");
-  else if (f.setup) off("share-section", f.setup.reason);
-  else if (reading) off("share-section", "Open the note for editing to share from it.");
-  else on("share-section");
-
-  if (sel?.eligibility === "ineligible") {
-    if (sel.fallback === null)
-      off("share-whole-section", "No single heading's section contains the selection.");
-    else if (running !== null) off("share-whole-section", busy);
-    else if (reading) off("share-whole-section", "Open the note for editing to share from it.");
-    else on("share-whole-section");
-  }
-
-  if (next === "insert-into-note") on("insert-into-note");
-  else if (flow?.kind === "insert" && flow.outcome === "unknown")
-    off("insert-into-note", "This note already has a section being inserted. Finish that first.");
-  else if (flow?.kind === "insert" && flow.outcome === "unfinished")
-    off("insert-into-note", "An insert into this note is unfinished: continue it.");
-  else if (running !== null) off("insert-into-note", busy);
-  else if (s !== null || (f.registry.sections ?? 0) > 0) on("insert-into-note");
-
-  if (flow?.outcome === "unknown") on("check-result");
-  if (flow?.outcome === "unfinished" || (f.unfinished?.length ?? 0) > 0) on("continue-flow");
-  if (reading) on("open-for-editing");
-  if (f.setup) on("open-settings");
-
-  // D10: an action that does not apply here is hidden, not disabled.
-  if (noteOpen && ctx.cursor === "inside-section" && s !== null) on("copy-readable");
-
-  if (s === null || v === undefined) {
-    if (next === "invite") on("invite");
-    return a;
-  }
-
-  // I4: ready means hosted, with access current; inviting comes from the access list.
-  if (next === "invite") on("invite");
-  else if (running !== null) off("invite", busy);
-  else if (s.canInvite === false) off("invite", "You can't invite others to this section.");
-  else if (s.hosting === "pending")
-    off("invite", "Not on its server yet: nobody can join until it is hosted.");
-  else if (s.canInvite === null || v.access.current !== true || v.access.checking)
-    off("invite", "Inviting waits until this device has checked access with the server.");
-  else on("invite");
-
-  on("open-details");
-  const kinds = new Set(v.conditions.map((c) => c.kind));
-  if (v.sync.queue.batches > 0 || kinds.has("offline")) on("sync-details");
-  if (v.held.some((h) => ACCESS_HELD.has(h.cause))) on("review-local-changes");
-  if (
-    kinds.has("structural-conflict") ||
-    kinds.has("scalar-conflict") ||
-    v.conditions.some((c) => c.kind === "stale-work" && c.review > 0)
-  )
-    on("review-conflicts");
-  const repair =
-    v.held.some((h) => REPAIR_HELD.has(h.cause)) ||
-    v.conditions.some(
-      (c) =>
-        c.kind === "source" &&
-        (c.source === "binding-error" ||
-          c.source === "base-unknown" ||
-          (c.source === "diverged" && !v.held.some((h) => h.projectionId === c.projectionId))),
+  for (const [id, x] of availabilities(f))
+    a.set(
+      id,
+      x.kind === "disabled"
+        ? { enabled: false, reason: x.reason }
+        : { enabled: true, reason: null },
     );
-  if (repair) {
-    if (next === "repair-sections" || (running === null && !reading)) on("repair-sections");
-    else if (running !== null) off("repair-sections", busy);
-    else off("repair-sections", "Open the note for editing to repair it.");
-  }
-  if (
-    v.held.some((h) => h.cause === "unsupported" || REPAIR_HELD.has(h.cause)) ||
-    v.conditions.some((c) => c.kind === "source" && c.source === "unsupported")
-  )
-    on("go-to-problem");
-
-  // Destructive: secondary, each with its existing confirmation (A1).
-  // Applicable unless this vault surely may not manage access; enabled only when it surely may.
-  if (s.canInvite !== false) {
-    if (v.connection !== "connected")
-      off("remove-access", "Removing access needs a connection to the section's server.");
-    else if (s.canInvite !== true || v.access.current !== true || v.access.checking)
-      off(
-        "remove-access",
-        "Removing access waits until this device has checked access with the server.",
-      );
-    else on("remove-access");
-  }
-  if (v.held.some((h) => ACCESS_HELD.has(h.cause))) on("discard-local-copy");
-  if (ctx.cursor === "inside-section") {
-    if (reading) off("detach-section", "Open the note for editing to detach it.");
-    else if (kinds.has("loading"))
-      off("detach-section", "Detaching waits until this section has loaded on this device.");
-    else on("detach-section");
-  }
   return a;
 }
 
