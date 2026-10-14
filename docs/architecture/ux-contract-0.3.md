@@ -100,6 +100,9 @@ Rules:
   shared state.
 - **A4.** A second invocation of a running action reveals the running flow; it
   does not start another one (LFCP-03-002, 010).
+- **A5.** An action that does not apply to the context is hidden. One that
+  applies but is blocked is shown disabled with its reason, for example
+  "Detach this section" while the section is loading (owner decision D10).
 
 ## 4. Target and selection
 
@@ -107,6 +110,9 @@ Rules:
 
 - **T1.** An idle pane follows the last active Markdown note. Focus in the
   pane does not change the target.
+- **T1a.** The pane is about the section under the cursor, else the one the
+  user chose in the section list, else the one just joined. It never picks
+  another one from the list on its own (owner decision D9).
 - **T2.** An open flow captures its target before the preview: the note
   (a host handle and its current path), the source revision, the range and
   the editor mode. Switching tab or note does not move the flow to the new
@@ -237,6 +243,14 @@ started. It is in exactly one of three states:
 **P3. Immediate invalidation.** A change to the source, the access or the
 target disables an action that is already shown at once. Safety checks are
 never debounced.
+
+**P4. No primary action.** When no row gives a primary action, the pane
+says why in one sentence for the user, never in the contract's terms:
+"Open a note to share from it, or join with a link." (no note);
+"Select the lines of one section, from its heading, to share it." (a
+selection with no fallback); "Put the cursor on a heading, or select a
+section, to share it." (private text, no section). A running step says
+what is in progress. The fixtures' `primaryCtaNone` holds these sentences.
 
 ### 5.1 Ordinary context
 

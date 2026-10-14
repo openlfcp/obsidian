@@ -11,11 +11,19 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ACTION_IDS, ACTIONS } from "../../../src/core/pane/actions";
 import { type FixtureFacts, paneFactsOf, statusFactsOf } from "../../../src/core/pane/mock-facts";
-import { type PaneAction, paneModel, paneTexts } from "../../../src/core/pane/model";
+import {
+  type PaneAction,
+  type PaneFacts,
+  paneFocus,
+  paneModel,
+  paneTexts,
+} from "../../../src/core/pane/model";
+import { sectionCard } from "../../../src/core/status/card";
 import { statusView } from "../../../src/core/status/reducer";
 
 interface Expected {
   primaryCta: string | null;
+  primaryCtaNone?: string;
   enabled: { action: string; reason: string }[];
   disabled: { action: string; reason: string }[];
   requiredClaims: string[];
@@ -78,7 +86,7 @@ describe("pane view model on the UX 0.3 fixtures", () => {
         if (model.primary !== null) {
           expect(model.primary.enabled).toBe(true);
           expect(model.primary.destructive).toBe(false);
-        } else expect(model.primaryNone).not.toBeNull();
+        } else expect(model.primaryNone).toBe(s.expected.primaryCtaNone);
       });
 
       it("enables the expected actions", () => {
@@ -104,6 +112,21 @@ describe("pane view model on the UX 0.3 fixtures", () => {
         expect(new Set(actions.map((a) => a.id)).size).toBe(actions.length);
       });
 
+      it("says each problem in the card's words", () => {
+        const section = facts.section;
+        if (section === null) return;
+        const card = sectionCard({
+          title: section.sharedTitle ?? "",
+          view: section.view,
+          resource: "R",
+          sectionId: "S",
+        });
+        const problems = model.status.filter((l) => l.tone === "problem").map((l) => l.text);
+        expect(problems.slice(0, card.problems.length)).toEqual(card.problems);
+        // The held facts after them are the card's facts too.
+        for (const p of problems.slice(card.problems.length)) expect(card.facts).toContain(p);
+      });
+
       it("makes the required claims", () => {
         const all = texts.join("\n");
         for (const claim of s.expected.requiredClaims) expect(all, claim).toContain(claim);
@@ -116,4 +139,47 @@ describe("pane view model on the UX 0.3 fixtures", () => {
       });
     });
   }
+});
+
+describe("pane view model rules beyond the fixtures", () => {
+  const state = (id: string) => {
+    const s = doc.states.find((x) => x.id === id);
+    if (s === undefined) throw new Error(id);
+    return paneFactsOf(s.facts);
+  };
+  const find = (f: PaneFacts, id: string) => {
+    const m = paneModel(f, { time });
+    return [m.join, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu].find(
+      (a) => a.id === id,
+    );
+  };
+
+  it("enables Remove access only when this vault surely may manage access", () => {
+    const healthy = state("healthy-can-invite");
+    const section = healthy.section;
+    if (section === null) throw new Error("no section");
+    expect(find(healthy, "remove-access")?.enabled).toBe(true);
+    const unknown = find({ ...healthy, section: { ...section, canInvite: null } }, "remove-access");
+    expect(unknown?.enabled).toBe(false);
+    expect(unknown?.reason).toBe(
+      "Removing access waits until this device has checked access with the server.",
+    );
+    expect(find({ ...healthy, section: { ...section, canInvite: false } }, "remove-access")).toBe(
+      undefined,
+    );
+  });
+
+  it("D10: hides what does not apply, disables with a reason what applies but is blocked", () => {
+    expect(find(state("no-editor"), "copy-readable")).toBeUndefined();
+    const detach = find(state("loading"), "detach-section");
+    expect(detach?.enabled).toBe(false);
+    expect(detach?.reason).toBe("Detaching waits until this section has loaded on this device.");
+  });
+
+  it("D9: the section under the cursor, else the one chosen, else the one just joined", () => {
+    expect(paneFocus({ underCursor: "a", chosen: "b", justJoined: "c" })).toBe("a");
+    expect(paneFocus({ underCursor: null, chosen: "b", justJoined: "c" })).toBe("b");
+    expect(paneFocus({ underCursor: null, chosen: null, justJoined: "c" })).toBe("c");
+    expect(paneFocus({ underCursor: null, chosen: null, justJoined: null })).toBeNull();
+  });
 });
