@@ -17,6 +17,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { get } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -103,6 +104,16 @@ function files(dir: string): string[] {
   });
 }
 
+/** GET /health by node:http: a happy-dom test's fetch is the DOM's, not Node's. */
+const healthy = (port: number) =>
+  new Promise<boolean>((ok) => {
+    const req = get({ host: "127.0.0.1", port, path: "/health" }, (res) => {
+      res.resume();
+      ok(res.statusCode === 200);
+    });
+    req.on("error", () => ok(false));
+  });
+
 export async function startServer(bin: string): Promise<E2EServer> {
   const port = await freePort();
   const dir = mkdtempSync(join(tmpdir(), "lfcp-obsidian-e2e-"));
@@ -137,7 +148,7 @@ export async function startServer(bin: string): Promise<E2EServer> {
       throw new Error(`the server exited:\n${log}`);
     }
     try {
-      if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) break;
+      if (await healthy(port)) break;
     } catch {
       // not listening yet
     }

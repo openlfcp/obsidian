@@ -69,6 +69,8 @@ import "../support/idb-prune";
   P.setAttr ??= function (this: El, k: string, v: unknown) {
     this.setAttribute(k, String(v));
   };
+  // Obsidian's document of the active window.
+  (globalThis as { activeDocument?: Document }).activeDocument ??= document;
 }
 
 // What the mock Obsidian lacks for the sections host (its tests run with sections off).
@@ -860,6 +862,36 @@ export class SoakPeer {
       conditions: s.conditions,
       pending: s.pendingBatches,
     }));
+  }
+
+  /** Deletes the Task titled `title` (its block) in the editor, as a cut nobody pastes. */
+  deleteTask(title: string): void {
+    const L = lines(this.#doc);
+    const at = L.findIndex((l) => TASK.exec(l)?.[3] === title);
+    if (at < 0) throw new Error(`no Task "${title}"`);
+    const [from, to] = blockAt(L, at);
+    this.#dispatch({ from: this.#at(from), to: this.#at(to) }, "delete.cut", this.#at(from));
+  }
+
+  /** Whether the section's card offers "Review conflicts…" (and closes the card). */
+  async reviewConflicts(): Promise<boolean> {
+    const sections = this.vault.plugin.sections;
+    const key = (await sections?.diagnostics())?.sections[0]?.key;
+    if (sections === null || key === undefined) throw new Error("no section");
+    // The card's actions as the host passes them (the mock cannot render the card).
+    const { SectionCardModal } = await import("../../src/obsidian/ui/section-card");
+    const P = SectionCardModal.prototype as unknown as { open: () => void };
+    const open = P.open;
+    let actions: readonly { label: string }[] = [];
+    P.open = function (this: { actions: readonly { label: string }[] }) {
+      actions = this.actions;
+    };
+    try {
+      await sections.openCard(key, "Soak");
+    } finally {
+      P.open = open;
+    }
+    return actions.some((x) => x.label === "Review conflicts…");
   }
 
   /** The metrics of a sample; pass times since the last one. */

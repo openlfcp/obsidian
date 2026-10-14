@@ -1364,6 +1364,16 @@ export class SectionEngine {
         if (stale.length > 0) diverged = [...new Set([...diverged, ...stale])].sort();
       }
     }
+    // Shown again while deleted in the model, as the note is written: a node
+    // this pass's remote patch removes (a collaborator's deletion arriving)
+    // is gone from the note, not back in it (soak #5: the badge said
+    // "differs" after every remote deletion, until a later pass).
+    const shownAgain =
+      projected && remote?.kind === "patch"
+        ? comp.unexplained.filter(
+            (id) => localBase.nodes[id] === undefined || remote.base.nodes[id] !== undefined,
+          )
+        : comp.unexplained;
     const affected = new Set(local.kind === "committed" ? local.receipt.affectedNodeIds : []);
     const nodeRevisions: Record<string, string | null> = {};
     for (const [id, n] of Object.entries(base.nodes)) {
@@ -1391,7 +1401,7 @@ export class SectionEngine {
         ...(restored.length === 0 ? {} : { restored }),
         ...(remote === undefined ? {} : { remote }),
         lost,
-        ...(comp.unexplained.length > 0 ? { reappeared: comp.unexplained } : {}),
+        ...(shownAgain.length > 0 ? { reappeared: shownAgain } : {}),
         ...(diverged.length > 0 ? { diverged } : {}),
         held,
         entries,
