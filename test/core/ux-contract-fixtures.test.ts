@@ -49,6 +49,7 @@ const SELECTION_REASONS = new Set([
   "broken-ref",
   "damaged-boundary",
   "multiple-selections",
+  "heading-only",
 ]);
 
 const obj = (v: Json | undefined, where: string): Obj => {

@@ -52,8 +52,8 @@ describe("pane action catalogue", () => {
 });
 
 describe("pane view model on the UX 0.3 fixtures", () => {
-  it("covers all 20 states", () => {
-    expect(doc.states.length).toBe(20);
+  it("covers all 21 states", () => {
+    expect(doc.states.length).toBe(21);
   });
 
   for (const s of doc.states) {
