@@ -16,17 +16,23 @@ import { SECTIONS_READ_ONLY } from "../lfcp/runtime";
 import { type NoteTarget, NoteTargets } from "../note-targets";
 import { scanRefs } from "../refs";
 import type {
+  LostBase,
   SectionDialog,
   SectionEditor,
   SectionNotes,
   SectionPrompter,
   SectionServices,
 } from "./action-ports";
+import { markdownState, newProjectionId } from "./base";
 import { sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
+import { sameState, sharedState } from "./engine";
 import { sameSection } from "./grammar";
-import { type InsertResult, insertRefusalMessage } from "./insert";
+import { type InsertResult, insertRefusalMessage, renderSection } from "./insert";
 import { type LegacySource, legacyPreflight } from "./legacy";
+import { type ParsedSection, parseSections } from "./parser";
+import type { SectionSnapshot } from "./port";
+import { adoptedBase, boundaryRepair, compare, repairItems, sharedVersionChange } from "./repair";
 import { detachAt } from "./rules";
 import { preflight, proposeRange, revalidate, type SharePreview, type ShareRange } from "./share";
 
@@ -431,6 +437,107 @@ export class SectionActions {
     prompter.notice(
       `Shared Tasks: "${found.title}" is no longer shared in this note. The shared section itself is unchanged.`,
     );
+  }
+
+  /**
+   * "Repair shared sections in this note" (062): broken boundaries with
+   * their candidate lines, problems to locate, and sections whose base is
+   * lost, compared. Nothing changes without the user's choice.
+   */
+  async repairNote(editor: SectionEditor, path: string): Promise<void> {
+    const { prompter, notes, services } = this.env;
+    const model = services.model();
+    const bases = services.bases();
+    const journal = services.candidates();
+    if (model === null || bases === null || journal === null) {
+      prompter.notice("Shared Tasks: still starting. Try again in a moment.");
+      return;
+    }
+    const md = editor.text();
+    const items = repairItems(md);
+    const known = new Set<string>();
+    for (const id of await bases.projectionsOf(path)) {
+      const b = await bases.load(id);
+      if (b !== undefined) known.add(sectionKey(b.locator.section));
+    }
+    const lost: (LostBase & { section: ParsedSection; snap: SectionSnapshot; block: string })[] =
+      [];
+    const lines = md.split(/\r?\n/);
+    for (const s of parseSections(md).sections) {
+      const key = sectionKey(s.ref);
+      if (known.has(key)) continue;
+      const b64 = toBase64url(s.ref.resourceId);
+      const snap = model.snapshot(b64, s.ref.sectionId);
+      if (snap === undefined || !snap.ready) continue;
+      if (sameState(markdownState(md, s).state, sharedState(snap))) continue;
+      const block = renderSection(snap, s.ref, s.heading.level, {
+        task: (id) => model.task(b64, id),
+        placement: services.refPlacement(),
+      });
+      if (block === null) continue;
+      const local = lines.slice(s.startLine + 1, s.endLine).join("\n");
+      const shared = block
+        .replace(/\r?\n$/, "")
+        .split("\n")
+        .slice(2, -1)
+        .join("\n");
+      lost.push({
+        key,
+        title: s.heading.title,
+        lines: compare(local, shared),
+        section: s,
+        snap,
+        block,
+      });
+    }
+    prompter.repair(items, lost, {
+      boundary: async (item, line) => {
+        await notes.edit(path, (current) => {
+          // Only on the note the candidates were computed for.
+          if (current !== md) return null;
+          return [boundaryRepair(current, item, line)];
+        });
+        services.pass(path);
+      },
+      locate: (line) => editor.setCursor(line),
+      shareMine: async (key) => {
+        const l = lost.find((x) => x.key === key);
+        if (l === undefined) return;
+        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
+        services.pass(path);
+        prompter.notice("Shared Tasks: your version of this section is being shared.");
+      },
+      useShared: async (key) => {
+        const l = lost.find((x) => x.key === key);
+        if (l === undefined) return;
+        // The note's text first, as a recovery copy kept on this device.
+        await journal.putCandidate({
+          candidateId: `repair:${crypto.randomUUID()}`,
+          projectionId: `repair:${path}`,
+          reason: "base-unknown",
+          sourceText: lines.slice(l.section.heading.line, l.section.endLine + 1).join("\n"),
+        });
+        let replaced = false;
+        await notes.edit(path, (current) => {
+          if (current !== md) return null;
+          replaced = true;
+          return [sharedVersionChange(current, l.section, l.block)];
+        });
+        if (!replaced) {
+          prompter.notice(
+            "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
+          );
+          return;
+        }
+        // No base is stored here: the next pass seeds one once the note shows
+        // the model (CM11). A base saved now could meet the editor's old text
+        // and send the very edit the user chose to drop.
+        services.pass(path);
+        prompter.notice(
+          "Shared Tasks: this section shows the shared version now. Your previous text is kept as a recovery copy on this device.",
+        );
+      },
+    });
   }
 
   /** What became of a creation, in a notice (UX §3). */
