@@ -39,6 +39,7 @@ import {
   indentWithNode,
   moveNodeLines,
   pasteOnOwnLines,
+  withBindingLines,
 } from "../core/sections/line-moves";
 import { parseSections, type SectionNode } from "../core/sections/parser";
 import {
@@ -834,6 +835,52 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       scrollIntoView: true,
     };
   });
+  // A cut or a delete of a bound Task's whole line takes its binding lines
+  // along (line-moves.ts withBindingLines): the cut's selection is widened
+  // before the editor copies it, so the clipboard holds the whole Task and a
+  // paste restores it; a delete removes the Task, not only its text.
+  const wholeTaskCut = EditorView.domEventHandlers({
+    cut: (_event, view) => {
+      const sel = view.state.selection;
+      if (sel.ranges.length !== 1 || sel.main.empty) return false;
+      const r = sel.main;
+      const wider = withBindingLines(view.state.doc.toString(), r.from, r.to);
+      if (wider === null) return false;
+      const forward = r.anchor <= r.head;
+      view.dispatch({
+        selection: forward
+          ? EditorSelection.range(wider.from, wider.to)
+          : EditorSelection.range(wider.to, wider.from),
+      });
+      return false;
+    },
+  });
+  const wholeTaskDelete = EditorState.transactionFilter.of((tr) => {
+    if (!tr.docChanged || tr.annotation(sectionWrite) !== undefined || !tr.isUserEvent("delete"))
+      return tr;
+    const sel = tr.startState.selection;
+    if (sel.ranges.length !== 1 || sel.main.empty) return tr;
+    const changes: { from: number; to: number; insert: string }[] = [];
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      changes.push({ from: fromA, to: toA, insert: inserted.toString() });
+    });
+    const only = changes.length === 1 ? changes[0] : undefined;
+    if (
+      only === undefined ||
+      only.insert !== "" ||
+      only.from !== sel.main.from ||
+      only.to !== sel.main.to
+    )
+      return tr;
+    const wider = withBindingLines(tr.startState.doc.toString(), only.from, only.to);
+    if (wider === null) return tr;
+    return {
+      changes: { from: wider.from, to: wider.to, insert: "" },
+      selection: { anchor: wider.from },
+      userEvent: tr.annotation(Transaction.userEvent) ?? "delete.selection",
+      scrollIntoView: true,
+    };
+  });
   // A cut that ends inside the next line's indentation leaves it to that
   // line (line-moves.ts cutKeepsIndent).
   const cutLines = EditorState.transactionFilter.of((tr) => {
@@ -967,7 +1014,18 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   });
 
   return {
-    extension: [plugin, events, enter, pasted, cutLines, lineMoves, wholeBindings, bindingJoins],
+    extension: [
+      plugin,
+      events,
+      enter,
+      pasted,
+      wholeTaskCut,
+      wholeTaskDelete,
+      cutLines,
+      lineMoves,
+      wholeBindings,
+      bindingJoins,
+    ],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
     refresh: () => {
       for (const s of syncs) s.follow();

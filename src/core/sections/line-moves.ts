@@ -284,3 +284,50 @@ export function pasteWithoutTrailingIndent(before: string, change: TextChange): 
   if (!insideSection(before, a, a)) return null;
   return { ...change, insert: change.insert.slice(0, -(tail[1] as string).length) };
 }
+
+/**
+ * A range of whole lines in a section that ends with a bound Task's line
+ * (its text, with or without the line break) but leaves out that Task's
+ * own binding lines after it, hidden in Live Preview: a cut or a delete of
+ * it would leave the binding line behind, alone and damaged (the owner's
+ * check of 0.4.0-beta.19: "- [ ] Gamma" selected with the mouse from the
+ * line's end to its start, Cmd+X). The range is extended over those
+ * binding lines, so a cut holds the whole Task and a paste restores it.
+ * Lines under the Task (its children) are not taken. Null when the range
+ * stands as it is.
+ */
+export function withBindingLines(
+  before: string,
+  from: number,
+  to: number,
+): { from: number; to: number } | null {
+  if (to <= from) return null;
+  const lines = splitLines(before);
+  const starts = lineStarts(lines);
+  let a = 0;
+  while (a + 1 < starts.length && (starts[a + 1] as number) <= from) a++;
+  if (from !== starts[a]) return null;
+  // The last line the range covers, and whether it takes its line break.
+  let last = 0;
+  while (last + 1 < starts.length && (starts[last + 1] as number) <= to) last++;
+  let withBreak = false;
+  if (to === starts[last] && last > a) {
+    last--;
+    withBreak = true;
+  } else if (to !== (starts[last] as number) + (lines[last]?.text.length ?? 0)) return null;
+  const task = /^([ \t]*)[-*+] \[.\] /.exec(lines[last]?.text ?? "");
+  if (task === null) return null;
+  const depth = (task[1] as string).length + 2;
+  let end = last;
+  while (end + 1 < lines.length) {
+    const next = lines[end + 1]?.text ?? "";
+    const m = /^([ \t]*)<!--[ \t]+lfcp-ref:/.exec(next);
+    if (m === null || (m[1] as string).length !== depth || !BINDING_LINE.test(next)) break;
+    end++;
+  }
+  if (end === last) return null;
+  if (!insideSection(before, a, end)) return null;
+  const endText = (starts[end] as number) + (lines[end]?.text.length ?? 0);
+  const newTo = withBreak ? endText + (lines[end]?.eol.length ?? 0) : endText;
+  return newTo === to ? null : { from, to: newTo };
+}

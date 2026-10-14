@@ -13,6 +13,7 @@ import {
   indentWithNode,
   moveNodeLines,
   pasteOnOwnLines,
+  withBindingLines,
 } from "../../../src/core/sections/line-moves";
 import { parseSections } from "../../../src/core/sections/parser";
 import {
@@ -380,5 +381,77 @@ describe("a cut that ends inside the next line's indentation", () => {
     expect(
       cutKeepsIndent(md, { from: 8, to: md.indexOf("  - [ ] two") + 2, insert: "" }),
     ).toBeNull();
+  });
+});
+
+// The owner's check of 0.4.0-beta.19: "- [ ] Gamma" selected with the mouse
+// from the line's end to its start (or start to end), Cmd+X or Backspace:
+// only the Task's text went, its hidden ref line stayed behind, alone and
+// damaged. The range now takes the Task's own binding lines, never the
+// lines under it.
+describe("a cut or delete of a bound Task's whole line", () => {
+  const NOTE = [
+    "## Plan",
+    "<!-- lfcp-section: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#section:019a2f85-7b31-7c42-b85a-fc843e2f4001 -->",
+    "- [ ] Alpha",
+    "  <!-- lfcp-ref: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#task:019a2f85-7b31-7c42-b85a-fc843e2f4064 -->",
+    "- [ ] Gamma",
+    "  <!-- lfcp-ref: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#task:019a2f85-7b31-7c42-b85a-fc843e2f4065 -->",
+    "  - [ ] Delta",
+    "    <!-- lfcp-ref: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#task:019a2f85-7b31-7c42-b85a-fc843e2f4066 -->",
+    "- [ ] Omega",
+    "  <!-- lfcp-ref: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#task:019a2f85-7b31-7c42-b85a-fc843e2f4067 -->",
+    "<!-- /lfcp-section: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#section:019a2f85-7b31-7c42-b85a-fc843e2f4001 -->",
+    "",
+  ].join("\n");
+  const lineOf = (title: string) => {
+    const from = NOTE.indexOf(`- [ ] ${title}`);
+    const start = NOTE.lastIndexOf("\n", from) + 1;
+    return { start, end: NOTE.indexOf("\n", from) };
+  };
+  const refEnd = (title: string) => {
+    const { end } = lineOf(title);
+    return NOTE.indexOf("\n", end + 1);
+  };
+
+  it("the line's text (a selection either way): its ref line too", () => {
+    const g = lineOf("Gamma");
+    expect(withBindingLines(NOTE, g.start, g.end)).toEqual({ from: g.start, to: refEnd("Gamma") });
+  });
+
+  it("with its line break: the ref line with its own", () => {
+    const g = lineOf("Gamma");
+    expect(withBindingLines(NOTE, g.start, g.end + 1)).toEqual({
+      from: g.start,
+      to: refEnd("Gamma") + 1,
+    });
+  });
+
+  it("a nested child: its own ref, at its depth", () => {
+    const d = lineOf("Delta");
+    expect(withBindingLines(NOTE, d.start, d.end)).toEqual({ from: d.start, to: refEnd("Delta") });
+  });
+
+  it("a parent: only its own ref, never the child under it", () => {
+    const g = lineOf("Gamma");
+    const wider = withBindingLines(NOTE, g.start, g.end);
+    expect(NOTE.slice(wider?.from, wider?.to)).toBe(
+      "- [ ] Gamma\n  <!-- lfcp-ref: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#task:019a2f85-7b31-7c42-b85a-fc843e2f4065 -->",
+    );
+  });
+
+  it("several lines ending with a Task's line: the last one's ref", () => {
+    const a = lineOf("Alpha");
+    const o = lineOf("Omega");
+    expect(withBindingLines(NOTE, a.start, o.end)).toEqual({ from: a.start, to: refEnd("Omega") });
+  });
+
+  it("stands: with its ref already, not from a line start, outside a section", () => {
+    const g = lineOf("Gamma");
+    expect(withBindingLines(NOTE, g.start, refEnd("Gamma"))).toBeNull();
+    expect(withBindingLines(NOTE, g.start + 2, g.end)).toBeNull();
+    const plain =
+      "- [ ] Gamma\n  <!-- lfcp-ref: lfcp1:BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc#task:019a2f85-7b31-7c42-b85a-fc843e2f4065 -->\n";
+    expect(withBindingLines(plain, 0, 11)).toBeNull();
   });
 });
