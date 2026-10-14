@@ -9,7 +9,8 @@ export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
     // The performance runs are opt-in (pnpm perf, vitest.perf.config.ts): no skip in the ordinary run.
-    exclude: [...configDefaults.exclude, "test/perf/**"],
+    // The soak peer runs only under its controller (vitest.soak.config.ts).
+    exclude: [...configDefaults.exclude, "test/perf/**", "test/soak/**"],
     setupFiles: ["test/setup/window.ts"],
   },
 });
