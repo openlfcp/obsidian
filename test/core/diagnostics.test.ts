@@ -131,6 +131,16 @@ describe("diagnostics (LFCP-02-065)", () => {
     expect(detailed).not.toContain("SECRET_INVITE");
   });
 
+  it("given-up shares kept on this device: counted when any, never listed as collaborations (LFCP-03-002)", () => {
+    const none = diagnosticReport(input(log()), false);
+    expect(none).not.toContain("Given-up shares");
+    const text = diagnosticReport({ ...input(log()), keptShares: 2 }, false);
+    expect(text).toContain(
+      "Given-up shares kept on this device: 2 (not hosted; not deleted, their data may have left this device)",
+    );
+    expect(text).toContain("Collaborations: 1");
+  });
+
   it("keeps a bounded log", () => {
     const l = new DiagnosticLog(3);
     for (let i = 0; i < 10; i++) l.add(safeEvent(i, "tick", {}));

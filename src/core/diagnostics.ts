@@ -64,6 +64,12 @@ export interface DiagnosticInput {
   readonly sections: readonly SectionFacts[];
   /** Kept local candidates (text that could not be shared): reasons and codes only. */
   readonly candidates: readonly KeptCandidate[];
+  /**
+   * Section Resources of given-up shares kept on this device (their data
+   * may have been sent, so they are not deleted; LFCP-03-002). Not
+   * collaborations: never listed with them.
+   */
+  readonly keptShares?: number;
   readonly events: readonly DiagnosticEvent[];
 }
 
@@ -192,6 +198,11 @@ export function diagnosticReport(input: DiagnosticInput, detailed: boolean): str
     `Text kept on this device, not shared: ${input.candidates.length}${
       counted.length === 0 ? "" : ` (${counted.join(", ")})`
     }`,
+    ...(input.keptShares === undefined || input.keptShares === 0
+      ? []
+      : [
+          `Given-up shares kept on this device: ${input.keptShares} (not hosted; not deleted, their data may have left this device)`,
+        ]),
     "",
     `Recent events: ${input.events.length}`,
   );
