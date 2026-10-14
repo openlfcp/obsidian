@@ -20,13 +20,13 @@
     "format": "biome check --write ."
   },
   "dependencies": {
-    "@openlfcp/client": "0.2.0-beta.9",
-    "@openlfcp/core": "0.2.0-beta.9",
-    "@openlfcp/crypto": "0.2.0-beta.9",
-    "@openlfcp/shared-objects": "0.2.0-beta.9",
-    "@openlfcp/storage": "0.2.0-beta.9",
-    "@openlfcp/storage-idb": "0.2.0-beta.9",
-    "@openlfcp/wire": "0.2.0-beta.9"
+    "@openlfcp/client": "0.2.0-beta.10",
+    "@openlfcp/core": "0.2.0-beta.10",
+    "@openlfcp/crypto": "0.2.0-beta.10",
+    "@openlfcp/shared-objects": "0.2.0-beta.10",
+    "@openlfcp/storage": "0.2.0-beta.10",
+    "@openlfcp/storage-idb": "0.2.0-beta.10",
+    "@openlfcp/wire": "0.2.0-beta.10"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
