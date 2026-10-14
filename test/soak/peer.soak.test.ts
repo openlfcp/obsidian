@@ -51,6 +51,9 @@ describe.skipIf(NAME === undefined)("soak peer", () => {
         case "offline":
           p.offline(a.value as boolean);
           return null;
+        case "onlineEvent":
+          p.onlineEvent();
+          return null;
         case "reconnect":
           return p.reconnect(a.since as number, a.ms as number | undefined);
         case "outbound":

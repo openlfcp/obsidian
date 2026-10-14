@@ -648,6 +648,16 @@ export class SoakPeer {
 
   // ---- network ----
 
+  /** What the window's "online" does in Obsidian: the plugin's handler runs. */
+  onlineEvent(): void {
+    for (const d of (
+      this.vault.host as unknown as {
+        domEvents: { type: string; callback: (e: unknown) => unknown }[];
+      }
+    ).domEvents)
+      if (d.type === "online") d.callback({});
+  }
+
   offline(value: boolean): void {
     this.vault.network.offline = value;
   }
@@ -877,6 +887,16 @@ export class SoakPeer {
     return {
       rssMiB: +(mem.rss / 2 ** 20).toFixed(1),
       heapMiB: +(mem.heapUsed / 2 ** 20).toFixed(1),
+      // WASM linear memory (Automerge's above all): it only grows (wasm memory never shrinks).
+      wasmMiB: +(
+        (
+          (globalThis as { __soakWasm?: { exports: { memory?: WebAssembly.Memory } }[] })
+            .__soakWasm ?? []
+        )
+          .map((i) => i.exports.memory?.buffer.byteLength ?? 0)
+          .reduce((a, b) => a + b, 0) /
+        2 ** 20
+      ).toFixed(1),
       outbound: await this.outbound(),
       passes: passes.length,
       passP50: percentile(passes, 50),

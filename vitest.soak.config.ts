@@ -9,6 +9,10 @@ export default defineConfig({
   test: {
     ...base.test,
     include: ["test/soak/**/*.soak.test.ts"],
+    setupFiles: [
+      ...((base.test?.setupFiles as string[] | undefined) ?? []),
+      "test/soak/wasm-probe.ts",
+    ],
     exclude: [...configDefaults.exclude],
   },
 });

@@ -28,6 +28,8 @@ const CHECK_MIN = Number(arg("check", "10"));
 const OUT = resolve(arg("out", `soak-${Date.now()}`));
 // One event kind at a time, to isolate a finding: --no offline,restart,removal.
 const OFF = new Set(String(arg("no", "")).split(",").filter(Boolean));
+// The window's "online" when a peer's network comes back, as the OS gives it (the plugin connects at once).
+const ONLINE_EVENT = process.argv.includes("--online-event");
 const BIN = process.env.LFCP_SERVER_BIN;
 const ROOT = resolve(import.meta.dirname, "../..");
 if (BIN === undefined) throw new Error("LFCP_SERVER_BIN is required");
@@ -481,6 +483,7 @@ while (Date.now() < end) {
     await sleep(ms);
     const since = Date.now();
     await p.call("offline", { value: false });
+    if (ONLINE_EVENT) await p.call("onlineEvent");
     await reconnect([p], since, `${p.name} offline ${(ms / 60_000).toFixed(1)} min`);
     nextOffline = Date.now() + (15 + rnd() * 15) * 60_000 * Math.min(1, MINUTES / 240);
   } else await sleep(1000);
