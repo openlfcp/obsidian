@@ -15,21 +15,16 @@
 // harness cache (releases/<version>/); a case without them is skipped.
 // The reference server at LFCP_SERVER_BIN.
 import { existsSync, readFileSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { peer, restartableServer } from "../peer.bundle.mjs";
+import { cacheDir } from "../wdio.conf.mjs";
 import { evidence, inA, markerProblems, sectionOf, shareAndJoin, titles } from "./support/section-checks.mjs";
 
 const here = import.meta.dirname;
 const ROOT = path.resolve(here, "../../..");
 const VAULT = path.resolve(here, "../vaults/basic");
-const CACHE = path.join(
-  process.platform === "darwin"
-    ? path.join(os.homedir(), "Library", "Caches")
-    : (process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache")),
-  "openlfcp-obsidian-cache",
-  "releases",
-);
+// The harness cache as the harness resolves it (OPENLFCP_OBSIDIAN_CACHE included).
+const CACHE = path.join(cacheDir, "releases");
 
 /** A version's three release files ("main": this checkout's build), or null when not cached. */
 function releaseFiles(version) {
