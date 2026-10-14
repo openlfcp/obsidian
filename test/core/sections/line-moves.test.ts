@@ -9,10 +9,12 @@
 import { describe, expect, it } from "vitest";
 import { applyChanges } from "../../../src/core/sections/engine";
 import {
+  cutKeepsIndent,
   indentWithNode,
   moveNodeLines,
   pasteOnOwnLines,
 } from "../../../src/core/sections/line-moves";
+import { parseSections } from "../../../src/core/sections/parser";
 import {
   block,
   lines,
@@ -322,5 +324,61 @@ describe("a paste that runs into the next line", () => {
     const at = offset(md, lineOf(md, "Beta"));
     expect(pasteOnOwnLines(md, { from: at, to: at, insert: `${text}\n` })).toBeNull();
     expect(pasteOnOwnLines(md, { from: 0, to: 0, insert: text })).toBeNull();
+  });
+});
+
+// The owner's check of 0.4.0-beta.19, step 4: A nests Delta under Gamma;
+// B, with that in its note, selects Gamma from its line start with
+// Shift+Down (Live Preview lands after Delta's indentation), cuts, and
+// pastes at the start of Alpha's line. The cut took Delta's indentation
+// (Delta out of Gamma, its ref left at the old depth) and the paste gave it
+// to Alpha (Alpha under Gamma, its ref at the old depth): "binding line
+// damaged". The cut now ends at Delta's line start and the paste leaves the
+// trailing indentation out: every binding still matches.
+describe("a cut that ends inside the next line's indentation", () => {
+  it("keeps that line's indentation, and its paste does not indent the line it lands on", async () => {
+    const { a, b } = await twoVaults([
+      "- [ ] Alpha 4",
+      "- [x] Beta",
+      "- [ ] Gamma",
+      "- [ ] Delta",
+      "",
+      "A paragraph.",
+    ]);
+    // A: Delta under Gamma (Tab), and B receives it.
+    const nested = a
+      .note()
+      .replace(/\n- \[ \] Delta\n {2}(<!--[^\n]*)\n/, "\n  - [ ] Delta\n    $1\n");
+    await a.pass(nested);
+    await reconnect(a, b);
+    const md = b.note();
+    expect(md).toMatch(/\n {2}- \[ \] Delta\n/);
+    // B: from Gamma's line start to just after Delta's indentation.
+    const from = md.indexOf("- [ ] Gamma");
+    const to = md.indexOf("  - [ ] Delta") + 2;
+    const clipboard = md.slice(from, to);
+    expect(clipboard.endsWith("\n  ")).toBe(true);
+    const cut = cutKeepsIndent(md, { from, to, insert: "" });
+    expect(cut).toEqual({ from, to: to - 2, insert: "" });
+    const afterCut = applyChanges(md, [cut as never]);
+    expect(afterCut).toMatch(/\n {2}- \[ \] Delta\n/);
+    const at = afterCut.indexOf("- [ ] Alpha 4");
+    const paste = pasteOnOwnLines(afterCut, { from: at, to: at, insert: clipboard });
+    expect(paste?.insert.endsWith("\n")).toBe(true);
+    const out = applyChanges(afterCut, [paste as never]);
+    expect(out).toMatch(/\n- \[ \] Alpha 4\n {2}<!--/);
+    expect(out).toMatch(/\n- \[ \] Gamma\n {2}<!--[^\n]*\n- \[ \] Alpha 4/);
+    // Every binding still matches its line: nothing lost, nothing damaged.
+    expect(parseSections(out).diagnostics.filter((d) => d.severity !== "info")).toEqual([]);
+    const ids = new Set([taskId(md, "Gamma")]);
+    const r = await b.pass(out, { cut: ids, inserted: ids });
+    expect(r?.lost ?? []).toEqual([]);
+  });
+
+  it("a cut that ends at a line start, or outside a section, stands as it is", () => {
+    const md = "# Notes\n\n- [ ] one\n  - [ ] two\n";
+    expect(
+      cutKeepsIndent(md, { from: 8, to: md.indexOf("  - [ ] two") + 2, insert: "" }),
+    ).toBeNull();
   });
 });

@@ -34,7 +34,12 @@ import {
 } from "../core/sections/engine";
 import type { SectionRef } from "../core/sections/grammar";
 import { ReconcileScheduler, type Timer } from "../core/sections/input";
-import { indentWithNode, moveNodeLines, pasteOnOwnLines } from "../core/sections/line-moves";
+import {
+  cutKeepsIndent,
+  indentWithNode,
+  moveNodeLines,
+  pasteOnOwnLines,
+} from "../core/sections/line-moves";
 import { parseSections, type SectionNode } from "../core/sections/parser";
 import {
   classifyRemoval,
@@ -829,6 +834,30 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       scrollIntoView: true,
     };
   });
+  // A cut that ends inside the next line's indentation leaves it to that
+  // line (line-moves.ts cutKeepsIndent).
+  const cutLines = EditorState.transactionFilter.of((tr) => {
+    if (
+      !tr.docChanged ||
+      tr.annotation(sectionWrite) !== undefined ||
+      !tr.isUserEvent("delete.cut")
+    )
+      return tr;
+    const changes: { from: number; to: number; insert: string }[] = [];
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      changes.push({ from: fromA, to: toA, insert: inserted.toString() });
+    });
+    const only = changes.length === 1 ? changes[0] : undefined;
+    if (only === undefined) return tr;
+    const kept = cutKeepsIndent(tr.startState.doc.toString(), only);
+    if (kept === null) return tr;
+    return {
+      changes: kept,
+      selection: { anchor: kept.from },
+      userEvent: "delete.cut",
+      scrollIntoView: true,
+    };
+  });
   // Move line up/down in a section moves whole nodes, each Task with its ref
   // line and subtree, past the sibling before or after them; Tab and
   // Shift+Tab take a node's other lines along (line-moves.ts).
@@ -938,7 +967,7 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
   });
 
   return {
-    extension: [plugin, events, enter, pasted, lineMoves, wholeBindings, bindingJoins],
+    extension: [plugin, events, enter, pasted, cutLines, lineMoves, wholeBindings, bindingJoins],
     remoteChanged: (path, content) => coordinator.remoteChanged(path, content),
     refresh: () => {
       for (const s of syncs) s.follow();

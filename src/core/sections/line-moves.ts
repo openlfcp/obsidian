@@ -197,6 +197,8 @@ const LIST_LINE = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]/;
  * Null when the paste stands as it is.
  */
 export function pasteOnOwnLines(before: string, change: TextChange): TextChange | null {
+  const trimmed = pasteWithoutTrailingIndent(before, change);
+  if (trimmed !== null) return pasteOnOwnLines(before, trimmed) ?? trimmed;
   if (!change.insert.includes("\n")) return null;
   const lines = splitLines(before);
   const starts = lineStarts(lines);
@@ -233,4 +235,52 @@ export function pasteOnOwnLines(before: string, change: TextChange): TextChange 
     to: change.to,
     insert: `${before_ ? eol : ""}${change.insert}${after ? eol : ""}`,
   };
+}
+
+/** Whether lines `a`..`b` of `before` are inside a section (its markers excluded). */
+function insideSection(before: string, a: number, b: number): boolean {
+  return parseSections(before).sections.some((s) => s.startLine < a && b < s.endLine);
+}
+
+/**
+ * A cut of whole lines in a section that ends inside the next line's
+ * indentation (Live Preview's Shift+Down from a line's start lands after a
+ * nested line's indentation): the cut takes that indentation along, and the
+ * next node moves out of its parent, its binding line left at the old
+ * depth (the owner's check of 0.4.0-beta.19, step 4: "binding line
+ * damaged"). The cut ends at that line's start instead, so the line keeps
+ * its indentation. Null when the cut stands as it is.
+ */
+export function cutKeepsIndent(before: string, change: TextChange): TextChange | null {
+  if (change.insert !== "" || change.to <= change.from) return null;
+  const lines = splitLines(before);
+  const starts = lineStarts(lines);
+  let b = 0;
+  while (b + 1 < starts.length && (starts[b + 1] as number) <= change.to) b++;
+  const lineStart = starts[b] as number;
+  if (change.from >= lineStart || change.to === lineStart) return null;
+  if (!/^[ \t]+$/.test(before.slice(lineStart, change.to))) return null;
+  let a = 0;
+  while (a + 1 < starts.length && (starts[a + 1] as number) <= change.from) a++;
+  if (!insideSection(before, a, b)) return null;
+  return { from: change.from, to: lineStart, insert: "" };
+}
+
+/**
+ * The paste of such a cut: whole lines followed by the indentation of the
+ * line after them, pasted at the start of a line in a section, would
+ * indent that line, and its Task would move under the pasted one with its
+ * binding line at the old depth. The trailing indentation is left out.
+ * Null when the paste stands as it is.
+ */
+export function pasteWithoutTrailingIndent(before: string, change: TextChange): TextChange | null {
+  const tail = /\r?\n([ \t]+)$/.exec(change.insert);
+  if (tail === null) return null;
+  const lines = splitLines(before);
+  const starts = lineStarts(lines);
+  let a = 0;
+  while (a + 1 < starts.length && (starts[a + 1] as number) <= change.from) a++;
+  if (change.from !== starts[a] || change.to !== change.from) return null;
+  if (!insideSection(before, a, a)) return null;
+  return { ...change, insert: change.insert.slice(0, -(tail[1] as string).length) };
 }
