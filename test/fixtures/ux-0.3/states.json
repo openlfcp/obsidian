@@ -1,0 +1,765 @@
+{
+  "schema": "lfcp-ux-states/0.3",
+  "contract": "docs/architecture/ux-contract-0.3.md",
+  "requiredCategories": [
+    "no-editor",
+    "loading",
+    "unplaced",
+    "healthy",
+    "held",
+    "conflict-offline",
+    "access-stale",
+    "unknown-result"
+  ],
+  "actions": [
+    { "id": "share-section", "label": "Share section…", "destructive": false },
+    { "id": "share-whole-section", "label": "Share the whole section…", "destructive": false },
+    { "id": "invite", "label": "Invite collaborator…", "destructive": false },
+    { "id": "join-with-link", "label": "Join with a link…", "destructive": false },
+    { "id": "insert-into-note", "label": "Insert into a note…", "destructive": false },
+    { "id": "open-details", "label": "Open details", "destructive": false },
+    { "id": "sync-details", "label": "Sync details", "destructive": false },
+    { "id": "review-local-changes", "label": "Review local changes", "destructive": false },
+    { "id": "review-conflicts", "label": "Review conflicts…", "destructive": false },
+    { "id": "repair-sections", "label": "Repair shared sections…", "destructive": false },
+    { "id": "go-to-problem", "label": "Go to the problem", "destructive": false },
+    { "id": "check-result", "label": "Check the result", "destructive": false },
+    { "id": "continue-flow", "label": "Continue", "destructive": false },
+    { "id": "open-for-editing", "label": "Open for editing", "destructive": false },
+    { "id": "open-settings", "label": "Open settings", "destructive": false },
+    { "id": "copy-readable", "label": "Copy readable text", "destructive": false },
+    { "id": "remove-access", "label": "Remove access…", "destructive": true },
+    { "id": "discard-local-copy", "label": "Discard the local copy…", "destructive": true },
+    { "id": "detach-section", "label": "Detach this section", "destructive": true }
+  ],
+  "globalForbiddenClaims": [
+    "delivered",
+    "seen by",
+    "read by",
+    "received by",
+    "invitation sent",
+    "valid until",
+    "expires on",
+    "cancel invitation",
+    "you were invited",
+    "only for you",
+    "tables are not supported",
+    "code blocks are not supported"
+  ],
+  "states": [
+    {
+      "id": "no-editor",
+      "category": "no-editor",
+      "cases": ["U03-01", "U03-03"],
+      "findings": [],
+      "description": "No Markdown note is open; two sections are known on this device.",
+      "facts": {
+        "context": { "editor": "none", "note": null, "cursor": "none", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 2, "unplaced": 0 },
+        "section": null
+      },
+      "expected": {
+        "primaryCta": null,
+        "primaryCtaNone": "No note: the context area has no action. Join and the section list stay available.",
+        "enabled": [
+          { "action": "join-with-link", "reason": "Joining needs no note." },
+          { "action": "insert-into-note", "reason": "From the section list: the user chooses or creates the note." }
+        ],
+        "disabled": [
+          { "action": "share-section", "reason": "Open a note to share a section from it." },
+          { "action": "copy-readable", "reason": "No note is open." }
+        ],
+        "requiredClaims": [],
+        "forbiddenClaims": ["Not inserted yet", "No shared sections", "Create collaboration"]
+      }
+    },
+    {
+      "id": "loading",
+      "category": "loading",
+      "cases": ["U03-02", "U03-06"],
+      "findings": ["F-04"],
+      "description": "Plugin just started: the section is opening, access not checked, the placement index still building.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "building", "sections": 1, "unplaced": null },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": null,
+          "localAlias": "Launch",
+          "state": "LOADING",
+          "placements": null,
+          "access": { "access": "unknown", "verifiedAt": null, "current": null, "checking": false, "canInvite": null },
+          "connection": "connecting",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": null, "edits": null, "causes": [], "persistence": "unknown" },
+            "localPersistence": "unconfirmed",
+            "projections": [
+              { "id": "p1", "state": "LOADING", "held": null, "checked": false, "current": false }
+            ],
+            "sharedModel": "unknown",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "open-details",
+        "enabled": [
+          { "action": "open-details", "reason": "Details are always available." },
+          { "action": "join-with-link", "reason": "Joining needs no loaded section." }
+        ],
+        "disabled": [
+          { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
+          { "action": "share-section", "reason": "The cursor is inside a shared section." }
+        ],
+        "requiredClaims": ["Launch (name on this device)", "Looking for copies in your notes…"],
+        "forbiddenClaims": [
+          "Not inserted yet",
+          "Never used",
+          "Current as last checked",
+          "No local changes waiting",
+          "0 edits",
+          "Offline"
+        ]
+      }
+    },
+    {
+      "id": "unplaced",
+      "category": "unplaced",
+      "cases": ["U03-02"],
+      "findings": ["F-02", "F-10"],
+      "description": "Joined section, loaded, not inserted in any note; the placement index is complete. The local alias differs from the shared title.",
+      "facts": {
+        "context": { "editor": "source", "note": "Notes.md", "cursor": "private-text", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 1 },
+        "section": {
+          "key": "S-sprint",
+          "sharedTitle": "Sprint",
+          "localAlias": "Sprint (from B)",
+          "state": "CURRENT",
+          "placements": 0,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
+            "localPersistence": "confirmed",
+            "projections": [],
+            "sharedModel": "accepted",
+            "current": true
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "insert-into-note",
+        "enabled": [
+          { "action": "insert-into-note", "reason": "Loaded and not inserted anywhere." },
+          { "action": "open-details", "reason": "Details are always available." }
+        ],
+        "disabled": [
+          { "action": "invite", "reason": "You can't invite others to this section." }
+        ],
+        "requiredClaims": ["Sprint", "On this device: Sprint (from B)", "Not inserted yet"],
+        "forbiddenClaims": ["Never used", "Name this collaboration", "Inserted into"]
+      }
+    },
+    {
+      "id": "healthy-can-invite",
+      "category": "healthy",
+      "cases": ["U03-06", "U03-08"],
+      "findings": ["F-08"],
+      "description": "Writer, connected, nothing held or queued, access current, two copies.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "CURRENT",
+          "placements": 2,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": true },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
+            "localPersistence": "confirmed",
+            "projections": [
+              { "id": "p1", "state": "CURRENT", "held": null, "checked": true, "current": true },
+              { "id": "p2", "state": "CURRENT", "held": null, "checked": true, "current": true }
+            ],
+            "sharedModel": "accepted",
+            "current": true
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "invite",
+        "enabled": [
+          { "action": "invite", "reason": "Hosted, access current, this vault may invite." },
+          { "action": "open-details", "reason": "Details are always available." },
+          { "action": "copy-readable", "reason": "The cursor is in a section." },
+          { "action": "detach-section", "reason": "Secondary, with its confirmation." }
+        ],
+        "disabled": [
+          { "action": "share-section", "reason": "The cursor is inside a shared section." }
+        ],
+        "requiredClaims": [
+          "Current as last checked with the server. This does not mean others have seen it.",
+          "In 2 notes"
+        ],
+        "forbiddenClaims": ["On this device:", "everyone has it", "synced with everyone"]
+      }
+    },
+    {
+      "id": "healthy-read-only",
+      "category": "healthy",
+      "cases": ["U03-17"],
+      "findings": [],
+      "description": "Reader, current: invitation not allowed.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "READ_ONLY_CURRENT",
+          "placements": 1,
+          "access": { "access": "reader", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
+            "localPersistence": "confirmed",
+            "projections": [
+              { "id": "p1", "state": "READ_ONLY_CURRENT", "held": null, "checked": true, "current": true }
+            ],
+            "sharedModel": "accepted",
+            "current": true
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "open-details",
+        "enabled": [{ "action": "open-details", "reason": "Details are always available." }],
+        "disabled": [{ "action": "invite", "reason": "You can't invite others to this section." }],
+        "requiredClaims": ["You can read this section, not edit it."],
+        "forbiddenClaims": ["You can edit this section.", "access was removed", "not a member"]
+      }
+    },
+    {
+      "id": "held-boundary-queue-empty",
+      "category": "held",
+      "cases": ["U03-06", "U03-25"],
+      "findings": ["F-04"],
+      "description": "Server ACKed everything earlier; one copy has a damaged end marker and holds 3 edits; the queue is empty.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "ATTENTION",
+          "placements": 1,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": true },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": 1, "edits": 3, "causes": ["boundary"], "persistence": "saved" },
+            "localPersistence": "confirmed",
+            "projections": [
+              {
+                "id": "p1",
+                "state": "ATTENTION",
+                "held": {
+                  "path": "Plan.md",
+                  "projectionId": "p1",
+                  "cause": "boundary",
+                  "count": 3,
+                  "line": 14,
+                  "code": "SECTION_BOUNDARY_MISSING",
+                  "nodeIds": ["n1", "n2", "n3"],
+                  "persistence": "saved"
+                },
+                "checked": true,
+                "current": false
+              }
+            ],
+            "sharedModel": "accepted",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "repair-sections",
+        "enabled": [
+          { "action": "repair-sections", "reason": "A damaged boundary holds edits." },
+          { "action": "go-to-problem", "reason": "The held edits have a line." },
+          { "action": "open-details", "reason": "Details are always available." },
+          { "action": "invite", "reason": "Secondary: access is current; held edits do not change access." }
+        ],
+        "disabled": [],
+        "requiredClaims": ["3 edits not sent", "No updates in the queue"],
+        "forbiddenClaims": [
+          "No local changes waiting",
+          "Current as last checked",
+          "Nothing to send",
+          "3 local updates waiting",
+          "will be sent after the repair"
+        ]
+      }
+    },
+    {
+      "id": "held-count-unknown",
+      "category": "held",
+      "cases": ["U03-25"],
+      "findings": ["F-04"],
+      "description": "A copy without a base: its edits cannot be counted. One update is queued from another copy.",
+      "facts": {
+        "context": { "editor": "source", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "ATTENTION",
+          "placements": 2,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": true },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 1, "counted": true, "units": 1 },
+            "held": { "projections": 1, "edits": null, "causes": ["base-unknown"], "persistence": "unknown" },
+            "localPersistence": "unconfirmed",
+            "projections": [
+              {
+                "id": "p1",
+                "state": "ATTENTION",
+                "held": {
+                  "path": "Plan.md",
+                  "projectionId": "p1",
+                  "cause": "base-unknown",
+                  "count": null,
+                  "line": 3,
+                  "nodeIds": [],
+                  "persistence": "unknown"
+                },
+                "checked": true,
+                "current": false
+              },
+              { "id": "p2", "state": "SENDING", "held": null, "checked": true, "current": false }
+            ],
+            "sharedModel": "accepted",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "repair-sections",
+        "enabled": [
+          { "action": "repair-sections", "reason": "The copy has to be compared with the shared version." },
+          { "action": "open-details", "reason": "Details are always available." },
+          { "action": "sync-details", "reason": "Secondary: one update is queued." }
+        ],
+        "disabled": [],
+        "requiredClaims": ["Edits not sent", "1 local update waiting"],
+        "forbiddenClaims": ["0 edits", "2 local updates waiting", "Current as last checked", "Saved"]
+      }
+    },
+    {
+      "id": "offline-queued",
+      "category": "conflict-offline",
+      "cases": ["U03-06"],
+      "findings": [],
+      "description": "Offline, two durable updates queued, nothing else wrong.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "OFFLINE",
+          "placements": 1,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T08:00:00Z", "current": false, "checking": false, "canInvite": true },
+          "connection": "offline",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 2, "counted": true, "units": 2 },
+            "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
+            "localPersistence": "confirmed",
+            "projections": [
+              { "id": "p1", "state": "OFFLINE", "held": null, "checked": true, "current": false }
+            ],
+            "sharedModel": "unknown",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "sync-details",
+        "enabled": [
+          { "action": "sync-details", "reason": "Updates wait for the connection." },
+          { "action": "open-details", "reason": "Details are always available." }
+        ],
+        "disabled": [
+          { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
+          { "action": "remove-access", "reason": "Removing access needs a connection to the section's server." }
+        ],
+        "requiredClaims": ["Offline: local updates wait on this device.", "2 local updates waiting"],
+        "forbiddenClaims": ["Current as last checked", "failed", "The server accepted your changes", "Sending"]
+      }
+    },
+    {
+      "id": "offline-conflict",
+      "category": "conflict-offline",
+      "cases": ["U03-06", "U03-16"],
+      "findings": [],
+      "description": "Offline with a scalar conflict on one Task and one update queued.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "ATTENTION",
+          "placements": 1,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T08:00:00Z", "current": false, "checking": false, "canInvite": true },
+          "connection": "offline",
+          "refusal": null,
+          "problems": [{ "kind": "scalar", "code": "SCALAR_CONFLICT", "nodeIds": ["t7"] }],
+          "sync": {
+            "queue": { "batches": 1, "counted": true, "units": 1 },
+            "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
+            "localPersistence": "confirmed",
+            "projections": [
+              { "id": "p1", "state": "ATTENTION", "held": null, "checked": true, "current": false }
+            ],
+            "sharedModel": "unknown",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "review-conflicts",
+        "enabled": [
+          { "action": "review-conflicts", "reason": "A choice is open; it is saved locally and sent later." },
+          { "action": "sync-details", "reason": "Secondary: one update is queued." },
+          { "action": "open-details", "reason": "Details are always available." }
+        ],
+        "disabled": [
+          { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." }
+        ],
+        "requiredClaims": ["Conflicting edits on 1 item", "Offline: local updates wait on this device."],
+        "forbiddenClaims": ["Current as last checked", "No local changes waiting", "resolved"]
+      }
+    },
+    {
+      "id": "access-stale",
+      "category": "access-stale",
+      "cases": ["U03-17", "U03-28"],
+      "findings": ["F-C05"],
+      "description": "Connected, the Control view is behind the server's: access as last verified is not current.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "LOADING",
+          "placements": 1,
+          "access": { "access": "writer", "verifiedAt": "2026-10-14T17:30:00Z", "current": false, "checking": true, "canInvite": null },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
+            "localPersistence": "confirmed",
+            "projections": [
+              { "id": "p1", "state": "LOADING", "held": null, "checked": true, "current": false }
+            ],
+            "sharedModel": "catching-up",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "open-details",
+        "enabled": [{ "action": "open-details", "reason": "Details are always available." }],
+        "disabled": [
+          { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
+          { "action": "remove-access", "reason": "Removing access waits until this device has checked access with the server." }
+        ],
+        "requiredClaims": ["Access as last verified", "it may have changed"],
+        "forbiddenClaims": ["Access verified with the server", "Current as last checked", "access was removed"]
+      }
+    },
+    {
+      "id": "unknown-result-join",
+      "category": "unknown-result",
+      "cases": ["U03-10", "U03-11", "U03-14"],
+      "findings": [],
+      "description": "A join flow sent the claim; the server's answer was lost. The claim is kept on this device.",
+      "facts": {
+        "context": {
+          "editor": "none",
+          "note": null,
+          "cursor": "none",
+          "selection": null,
+          "flow": { "kind": "join", "stage": "claiming capability", "outcome": "unknown" }
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
+        "section": null
+      },
+      "expected": {
+        "primaryCta": "check-result",
+        "enabled": [{ "action": "check-result", "reason": "Resumes the same claim with the same link." }],
+        "disabled": [
+          { "action": "join-with-link", "reason": "A join is in progress. Finish it first." }
+        ],
+        "requiredClaims": ["The server did not confirm the claim"],
+        "forbiddenClaims": ["Joined", "could not join", "The invitation was not used", "Ask for a new link"]
+      }
+    },
+    {
+      "id": "unknown-result-insert",
+      "category": "unknown-result",
+      "cases": ["U03-13", "U03-14"],
+      "findings": [],
+      "description": "An insert stopped after the note was written and before the copy was registered.",
+      "facts": {
+        "context": {
+          "editor": "live-preview",
+          "note": "Sprint notes.md",
+          "cursor": "private-text",
+          "selection": null,
+          "flow": { "kind": "insert", "stage": "projected", "outcome": "unknown" }
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": null },
+        "section": {
+          "key": "S-sprint",
+          "sharedTitle": "Sprint",
+          "localAlias": "Sprint",
+          "state": "LOADING",
+          "placements": null,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": null, "edits": null, "causes": [], "persistence": "unknown" },
+            "localPersistence": "confirmed",
+            "projections": [],
+            "sharedModel": "accepted",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "check-result",
+        "enabled": [{ "action": "check-result", "reason": "Resumes the same insert operation." }],
+        "disabled": [
+          { "action": "insert-into-note", "reason": "This note already has a section being inserted. Finish that first." }
+        ],
+        "requiredClaims": [],
+        "forbiddenClaims": ["Inserted into", "Not inserted yet", "Insert again"]
+      }
+    },
+    {
+      "id": "selection-exact",
+      "category": "selection",
+      "cases": ["U03-04"],
+      "findings": ["F-07"],
+      "description": "Selection from the heading through the end of the second paragraph; a private paragraph follows under the same heading.",
+      "facts": {
+        "context": {
+          "editor": "source",
+          "note": "Plan.md",
+          "cursor": "private-heading",
+          "selection": { "fromLine": 4, "toLine": 9, "eligibility": "exact", "reason": null, "fallback": null },
+          "flow": null
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
+        "section": null
+      },
+      "expected": {
+        "primaryCta": "share-section",
+        "enabled": [{ "action": "share-section", "reason": "Exact eligible selection." }],
+        "disabled": [],
+        "requiredClaims": [
+          "The text after the section, under the same heading, stays private, but Obsidian folds, drags and embeds it with the heading."
+        ],
+        "forbiddenClaims": ["your selection is not used", "Share the whole section"]
+      }
+    },
+    {
+      "id": "selection-no-heading",
+      "category": "selection",
+      "cases": ["U03-04"],
+      "findings": ["F-07"],
+      "description": "Two Task lines selected under the heading Launch; the selection does not start at the heading.",
+      "facts": {
+        "context": {
+          "editor": "source",
+          "note": "Plan.md",
+          "cursor": "private-text",
+          "selection": { "fromLine": 6, "toLine": 7, "eligibility": "ineligible", "reason": "no-heading-start", "fallback": "share-whole-section" },
+          "flow": null
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
+        "section": null
+      },
+      "expected": {
+        "primaryCta": "share-whole-section",
+        "enabled": [
+          { "action": "share-whole-section", "reason": "Explicit fallback: opens a new preview of the heading's section." }
+        ],
+        "disabled": [
+          { "action": "share-section", "reason": "A shared section starts at its heading. Your selection does not." }
+        ],
+        "requiredClaims": ["A shared section starts at its heading. Your selection does not."],
+        "forbiddenClaims": [
+          "Everything inside this section, including future additions, will be shared.",
+          "Share section \"Launch\""
+        ]
+      }
+    },
+    {
+      "id": "selection-crossing",
+      "category": "selection",
+      "cases": ["U03-04"],
+      "findings": ["F-07"],
+      "description": "Selection from a heading past the next heading of the same level.",
+      "facts": {
+        "context": {
+          "editor": "source",
+          "note": "Plan.md",
+          "cursor": "private-heading",
+          "selection": { "fromLine": 4, "toLine": 20, "eligibility": "ineligible", "reason": "crossing", "fallback": null },
+          "flow": null
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
+        "section": null
+      },
+      "expected": {
+        "primaryCta": null,
+        "primaryCtaNone": "No fallback: the selection crosses into another section; only the reason is shown.",
+        "enabled": [{ "action": "join-with-link", "reason": "Joining needs no selection." }],
+        "disabled": [
+          { "action": "share-section", "reason": "The selection runs past the end of the heading's section." },
+          { "action": "share-whole-section", "reason": "No single heading's section contains the selection." }
+        ],
+        "requiredClaims": ["The selection runs past the end of the heading's section."],
+        "forbiddenClaims": ["Everything inside this section, including future additions, will be shared."]
+      }
+    },
+    {
+      "id": "content-comments-and-table",
+      "category": "content",
+      "cases": ["U03-26"],
+      "findings": [],
+      "description": "Preview of a heading with a table, a fence, a %% comment and a paragraph under a Task; section comments = local.",
+      "facts": {
+        "context": { "editor": "source", "note": "Plan.md", "cursor": "private-heading", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
+        "section": null,
+        "preview": {
+          "sectionComments": "local",
+          "counts": { "tasks": 2, "paragraphs": 1, "items": 0, "raw": 2 },
+          "warnings": ["future-additions", "local-comments"],
+          "problems": []
+        }
+      },
+      "expected": {
+        "primaryCta": "share-section",
+        "enabled": [{ "action": "share-section", "reason": "Private heading, preview has no problem." }],
+        "disabled": [],
+        "requiredClaims": [
+          "Comments (%% … %% and <!-- … -->) in this section stay on this device.",
+          "2 other blocks"
+        ],
+        "forbiddenClaims": ["unsupported", "will not be shared: table", "comments are shared"]
+      }
+    },
+    {
+      "id": "access-refused-held",
+      "category": "access",
+      "cases": ["U03-17", "U03-28"],
+      "findings": ["F-C05"],
+      "description": "Connected; the server refuses this vault the section; edits typed since are held in the note.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "ATTENTION",
+          "placements": 1,
+          "access": { "access": "refused", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
+          "connection": "connected",
+          "refusal": "RESOURCE_REFUSED",
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": 1, "edits": 2, "causes": ["refused"], "persistence": "saved" },
+            "localPersistence": "confirmed",
+            "projections": [
+              {
+                "id": "p1",
+                "state": "ATTENTION",
+                "held": {
+                  "path": "Plan.md",
+                  "projectionId": "p1",
+                  "cause": "refused",
+                  "count": 2,
+                  "line": 6,
+                  "nodeIds": ["t2", "t3"],
+                  "persistence": "saved"
+                },
+                "checked": true,
+                "current": false
+              }
+            ],
+            "sharedModel": "unknown",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "review-local-changes",
+        "enabled": [
+          { "action": "review-local-changes", "reason": "Edits are held because the server refuses them." },
+          { "action": "open-details", "reason": "Details are always available." },
+          { "action": "discard-local-copy", "reason": "Secondary, with its confirmation." }
+        ],
+        "disabled": [
+          { "action": "invite", "reason": "You can't invite others to this section." }
+        ],
+        "requiredClaims": [
+          "The sync server no longer accepts changes from this vault for this section.",
+          "2 edits not sent"
+        ],
+        "forbiddenClaims": ["Offline", "Your access to this section was removed", "not a member", "Current as last checked"]
+      }
+    }
+  ]
+}
