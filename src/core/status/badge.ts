@@ -49,6 +49,8 @@ export interface HeadingBadge {
 /** The badge after a section's heading. */
 export function headingBadge(title: string, view: StatusView): HeadingBadge {
   const facts: string[] = [];
+  // Held edits first, apart from the queue (LFCP-03-003): never added to its count.
+  if (view.held.length > 0) facts.push("edits not sent");
   if (view.pendingBatches > 0)
     facts.push(
       !view.pendingCounted
