@@ -71,6 +71,9 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
   const active = doc.activeElement;
   const hadFocus = active !== null && active !== doc.body && root.contains(active);
   const focusKey = hadFocus ? (active as HTMLElement).closest(`[${KEY}]`)?.getAttribute(KEY) : null;
+  // The menu stays as the user left it: a redraw does not close it under them.
+  const menuOpen =
+    root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open === true;
   const joinDraft =
     root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input")?.value ?? "";
 
@@ -149,6 +152,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
 
   if (model.menu.length > 0) {
     const d = el(root, "details", "openlfcp-pane-menu");
+    d.open = menuOpen;
     const summary = el(d, "summary", undefined, "More actions");
     summary.setAttribute(KEY, "menu");
     for (const a of model.menu) button(d, a, h, "openlfcp-pane-secondary");
