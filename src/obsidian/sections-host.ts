@@ -130,6 +130,7 @@ import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/i
 import { RecoveryModal } from "./ui/recovery";
 import { type LostBase, RepairModal } from "./ui/repair";
 import { AliasModal, ConfirmModal, SectionCardModal } from "./ui/section-card";
+import { bringForward } from "./ui/section-prompter";
 import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
@@ -2004,21 +2005,6 @@ const notifyFailure = (entry: CreationEntry) => (e: unknown) => {
 };
 
 const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
-
-/**
- * An open dialog brought in front of any other and focused (a repeated
- * start of its flow). The dialog itself takes the focus, never its Share
- * or Insert button: a repeated hotkey followed by Enter must not confirm.
- */
-function bringForward(modal: Modal): void {
-  const box = (modal as { containerEl?: HTMLElement }).containerEl;
-  box?.parentElement?.appendChild(box);
-  const el = modal.modalEl;
-  // Focusable without entering the Tab order (the test mock's elements have no attributes).
-  if (typeof el.setAttribute === "function" && !el.hasAttribute("tabindex"))
-    el.setAttribute("tabindex", "-1");
-  el.focus?.();
-}
 
 /**
  * Runtime events about a Resource's data, not its registry row (LFCP-03-011):
