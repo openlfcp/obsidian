@@ -1665,7 +1665,9 @@ export class LfcpRuntime {
     let disconnectedAt: number | null = null;
     const transport = new TransportTracker();
     const unsubscribe = client.on((e) => {
-      // Before anyone hears of it: a status pass the event starts sees the transition.
+      // Before anyone hears of it, so the next status pass sees the transition:
+      // the one the host schedules on any session event, and at the latest the
+      // periodic scheduleStatus every 2 s (plugin.ts).
       if (e.type === "connection") transport.connection(e.state);
       if (e.type === "connection" && e.state === "DISCONNECTED")
         disconnectedAt = this.#env.timers.now();
