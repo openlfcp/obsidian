@@ -111,6 +111,46 @@ describe("LfcpRuntime session pool", () => {
       expect(options).toMatchObject({ requestTimeout: { baseMs: 4000, maxMs: 60_000 } });
   });
 
+  it("a Resource's transport is what its session reported, never guessed (LFCP-03-005)", async () => {
+    listeners.length = 0;
+    const device = new Device();
+    const r = await LfcpRuntime.start(device.env(new FakeLocal()));
+    running.push(r);
+    const storage = r.storage as LfcpStorage;
+    const a = await storeResource(storage, "wss://a.example.invalid/v1/ws");
+    const local = await storeResource(storage, "wss://b.example.invalid/v1/ws");
+    // Not opened: no session, no evidence.
+    expect(r.transport(local)).toEqual({ state: "none", cause: null });
+    // Each attempt on the offline socket errors before READY: the SDK reports it DISCONNECTED.
+    const failed = async () => {
+      for (let i = 0; i < 50 && r.transport(a).state !== "failed"; i++)
+        await new Promise((d) => setTimeout(d, 10));
+      return r.transport(a);
+    };
+    await r.openResource(a);
+    expect(await failed()).toEqual({ state: "failed", cause: null });
+    // The window's "offline": a failing attempt is being offline, not a fault.
+    r.networkLost();
+    expect(r.transport(a)).toEqual({ state: "failed", cause: "network-offline" });
+    // Focus is a reason to try again, not evidence of a network; "online" is.
+    r.networkBack();
+    expect(await failed()).toEqual({ state: "failed", cause: "network-offline" });
+    r.networkBack(true);
+    expect(await failed()).toEqual({ state: "failed", cause: null });
+    // The session's own transitions, as it reports them.
+    const say = (state: string) => {
+      for (const l of listeners[0] ?? []) l({ type: "connection", state });
+    };
+    // A retry after the failure reads as the failure until it ends.
+    say("CONNECTING");
+    expect(r.transport(a).state).toBe("failed");
+    say("READY");
+    expect(r.transport(a).state).toBe("ready");
+    say("DISCONNECTED");
+    expect(r.transport(a)).toEqual({ state: "lost", cause: null });
+    expect(r.transport(local).state).toBe("none");
+  });
+
   it("a session's ENGINE_TRAP blocks the runtime once (needs-restart)", async () => {
     queues.length = 0;
     listeners.length = 0;

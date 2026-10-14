@@ -91,6 +91,7 @@ import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "
 import { type RestartableReconnect, restartableReconnect } from "./reconnect";
 import { lossNoise, sdkErrorClass } from "./sdk-errors";
 import { isInstallId, SlotSecretStore } from "./secrets";
+import { NO_TRANSPORT, type TransportFact, TransportTracker } from "./transport";
 
 export interface Timers {
   setInterval(fn: () => void, ms: number): unknown;
@@ -363,6 +364,8 @@ interface Pooled {
   readonly stopDriver: () => void;
   readonly unsubscribe: () => void;
   readonly reconnect: RestartableReconnect;
+  /** What its transport did last (transport.ts, LFCP-03-005). */
+  readonly transport: TransportTracker;
 }
 
 interface Opened {
@@ -1595,8 +1598,10 @@ export class LfcpRuntime {
    * its backoff (up to 15 s), and later attempts wait as from the start. A live or
    * connecting session is left alone.
    */
-  networkBack(): void {
+  networkBack(online = false): void {
     for (const p of this.#pool.values()) {
+      // Only the window's "online" says the network is back; focus is a reason to try.
+      if (online) p.transport.networkBack();
       p.reconnect.restart();
       if (p.client.connectionState === "DISCONNECTED") p.client.start();
     }
@@ -1609,12 +1614,14 @@ export class LfcpRuntime {
    * message (LFCP-WIRE-01 §38), minutes in which the sections show as synced.
    */
   networkLost(): void {
-    for (const p of this.#pool.values())
+    for (const p of this.#pool.values()) {
+      p.transport.networkLost();
       if (p.client.connectionState !== "DISCONNECTED")
         void p.client
           .stop()
           .then(() => p.client.start())
           .catch(() => undefined);
+    }
   }
 
   #session(url: string): Pooled {
@@ -1656,7 +1663,10 @@ export class LfcpRuntime {
     });
     // When this session's connection last went down (sdk-errors.ts).
     let disconnectedAt: number | null = null;
+    const transport = new TransportTracker();
     const unsubscribe = client.on((e) => {
+      // Before anyone hears of it: a status pass the event starts sees the transition.
+      if (e.type === "connection") transport.connection(e.state);
       if (e.type === "connection" && e.state === "DISCONNECTED")
         disconnectedAt = this.#env.timers.now();
       // The end of an ordinary connection loss is not an error event (beta.9 check).
@@ -1691,11 +1701,13 @@ export class LfcpRuntime {
     // A connection that answers nothing is dropped and reconnected, as on the
     // window's "offline": the probe runs on the sync driver's own timer.
     const probing = () => {
-      if (!probe.tick(this.#env.timers.now(), client.connectionState === "READY"))
+      if (!probe.tick(this.#env.timers.now(), client.connectionState === "READY")) {
+        transport.unresponsive();
         void client
           .stop()
           .then(() => client.start())
           .catch(() => undefined);
+      }
     };
     const stopDriver = startSyncDriver(
       client,
@@ -1711,7 +1723,7 @@ export class LfcpRuntime {
       },
       this.#env.tickMs ?? 250,
     );
-    const created: Pooled = { client, stopDriver, unsubscribe, reconnect };
+    const created: Pooled = { client, stopDriver, unsubscribe, reconnect, transport };
     this.#pool.set(url, created);
     return created;
   }
@@ -1766,6 +1778,17 @@ export class LfcpRuntime {
   /** The session phase of an opened Resource ("CLOSED" when not open). */
   phase(resource: ResourceId): ResourcePhase {
     return this.#phases.get(toHex(resource)) ?? "CLOSED";
+  }
+
+  /**
+   * What the transport of a Resource's session did last (LFCP-03-005): from
+   * the SDK's connection transitions only. "none" when the Resource has no
+   * session (local only, not opened) or its session reported nothing yet.
+   */
+  transport(resource: ResourceId): TransportFact {
+    const key = toHex(resource);
+    const url = this.#sections.get(key)?.url ?? this.#opened.get(key)?.url ?? null;
+    return (url === null ? undefined : this.#pool.get(url))?.transport.fact ?? NO_TRANSPORT;
   }
 
   /** The server's refusal of a Resource for good (POST-017), until it opens again; null when none. */
