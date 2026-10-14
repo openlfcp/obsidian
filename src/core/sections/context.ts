@@ -3,7 +3,29 @@
 // 0.1 commands act only outside sections and refuse inside them, before any
 // dialog or write. A damaged boundary counts as inside (fail closed).
 
+import { toBase64url } from "@openlfcp/core";
+import type { SectionRef } from "./grammar";
 import { type LineRange, parseSections } from "./parser";
+
+/** A section's key: its Resource (base64url) and section ID. */
+export const sectionKey = (ref: SectionRef): string =>
+  `${toBase64url(ref.resourceId)}#${ref.sectionId}`;
+
+/**
+ * The shared section a line is in (heading to end marker): its key and
+ * title. A copy with a damaged boundary runs from its heading (or start
+ * marker) to the end of the note, as the parser claims it (C17, 064).
+ */
+export function sectionAtLine(
+  text: string,
+  line: number,
+): { readonly key: string; readonly title: string } | null {
+  const scan = parseSections(text);
+  const s = scan.sections.find((x) => line >= x.heading.line && line <= x.endLine);
+  if (s !== undefined) return { key: sectionKey(s.ref), title: s.heading.title };
+  const d = [...scan.damaged].reverse().find((x) => line >= (x.heading?.line ?? x.startLine));
+  return d === undefined ? null : { key: sectionKey(d.ref), title: d.heading?.title ?? "" };
+}
 
 export type SectionContext = "outside" | "inside" | "crossing" | "damaged";
 

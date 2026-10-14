@@ -23,9 +23,8 @@ import {
   ViewPlugin,
   WidgetType,
 } from "@codemirror/view";
-import { toBase64url } from "@openlfcp/core";
 import { displayTooltip, editorInfoField, type MarkdownPostProcessorContext } from "obsidian";
-import type { SectionRef } from "../core/sections/grammar";
+import { sectionAtLine, sectionKey } from "../core/sections/context";
 import {
   type ParsedSection,
   parseSections,
@@ -45,9 +44,7 @@ import {
 import { blockingDiagnostics } from "../core/status/held";
 import type { StatusView } from "../core/status/reducer";
 
-/** A section's key: its Resource (base64url) and section ID. */
-export const sectionKey = (ref: SectionRef): string =>
-  `${toBase64url(ref.resourceId)}#${ref.sectionId}`;
+export { sectionAtLine, sectionKey };
 
 /** The statuses of every known section, by key (replaces the previous ones). */
 export const setSectionStatuses = StateEffect.define<ReadonlyMap<string, StatusView>>();
@@ -457,22 +454,6 @@ export class ReadingBadges {
         renderBadge(badge, badgeOf(badge.dataset.title ?? "", this.status(key)));
       }
   }
-}
-
-/**
- * The shared section a line is in (heading to end marker): its key and
- * title. A copy with a damaged boundary runs from its heading (or start
- * marker) to the end of the note, as the parser claims it (C17, 064).
- */
-export function sectionAtLine(
-  text: string,
-  line: number,
-): { readonly key: string; readonly title: string } | null {
-  const scan = parseSections(text);
-  const s = scan.sections.find((x) => line >= x.heading.line && line <= x.endLine);
-  if (s !== undefined) return { key: sectionKey(s.ref), title: s.heading.title };
-  const d = [...scan.damaged].reverse().find((x) => line >= (x.heading?.line ?? x.startLine));
-  return d === undefined ? null : { key: sectionKey(d.ref), title: d.heading?.title ?? "" };
 }
 
 /**
