@@ -77,7 +77,8 @@ const globalForbidden = arr(doc.globalForbiddenClaims, "globalForbiddenClaims").
 );
 
 /** StatusView.sync (LFCP-03-003): the shape and the invariants of `current`. */
-function checkSync(sync: Obj, state: string, where: string): void {
+function checkSync(sync: Obj, state: string, heldCheck: string, where: string): void {
+  const checked = heldCheck === "checked";
   const queue = obj(sync.queue, `${where}.queue`);
   const batches = count(queue.batches, `${where}.queue.batches`);
   expect(batches, `${where}.queue.batches`).not.toBeNull();
@@ -93,6 +94,12 @@ function checkSync(sync: Obj, state: string, where: string): void {
     oneOf(held.persistence, new Set(["saved", "unsaved", "unknown"]), `${where}.held.persistence`);
   // An unchecked note makes every held count unknown.
   if (projections === null) expect(edits, `${where}: edits unknown while unchecked`).toBeNull();
+  // Held counts are unknown exactly while some note is not checked (heldCheck, LFCP-03-003).
+  expect(
+    projections === null,
+    `${where}: held.projections null iff heldCheck is not "checked"`,
+  ).toBe(!checked);
+  if (!checked) expect(held.persistence, `${where}: persistence while unchecked`).toBe("unknown");
   if (projections === 0) {
     expect(edits, `${where}: nothing held`).toBe(0);
     expect(held.persistence, `${where}: nothing held`).toBeNull();
@@ -116,7 +123,7 @@ function checkSync(sync: Obj, state: string, where: string): void {
     const ps = obj(p, at);
     str(ps.id, `${at}.id`);
     oneOf(ps.state, STATES, `${at}.state`);
-    expect(ps.checked, `${at}.checked`).toBeTypeOf("boolean");
+    expect(ps.checked, `${at}.checked follows heldCheck`).toBe(checked);
     expect(ps.current, `${at}.current`).toBeTypeOf("boolean");
     if (ps.held !== null) {
       const h = obj(ps.held, `${at}.held`);
@@ -146,6 +153,15 @@ function checkSection(section: Obj, where: string): void {
   if (section.sharedTitle !== null) str(section.sharedTitle, `${where}.sharedTitle`);
   str(section.localAlias, `${where}.localAlias`);
   const state = oneOf(section.state, STATES, `${where}.state`);
+  const heldCheck = oneOf(
+    section.heldCheck,
+    new Set(["checked", "pending", "failed"]),
+    `${where}.heldCheck`,
+  );
+  // pending → LOADING (held-unchecked, last); failed → ATTENTION (held-unknown).
+  if (heldCheck === "failed") expect(state, `${where}: a failed check`).toBe("ATTENTION");
+  if (heldCheck === "pending")
+    expect(["CURRENT", "READ_ONLY_CURRENT"], `${where}: a pending check`).not.toContain(state);
   count(section.placements, `${where}.placements`);
   const access = obj(section.access, `${where}.access`);
   oneOf(access.access, ACCESS, `${where}.access.access`);
@@ -164,7 +180,7 @@ function checkSection(section: Obj, where: string): void {
     str(pr.code, `${where}.problems[${i}].code`);
     arr(pr.nodeIds, `${where}.problems[${i}].nodeIds`);
   }
-  checkSync(obj(section.sync, `${where}.sync`), state, `${where}.sync`);
+  checkSync(obj(section.sync, `${where}.sync`), state, heldCheck, `${where}.sync`);
 }
 
 function checkContext(context: Obj, where: string): void {
@@ -190,6 +206,7 @@ function checkContext(context: Obj, where: string): void {
     const f = obj(context.flow, `${where}.flow`);
     oneOf(f.kind, new Set(["share", "invite", "join", "insert", "repair"]), `${where}.flow.kind`);
     str(f.stage, `${where}.flow.stage`);
+    if (f.target !== undefined) str(f.target, `${where}.flow.target`);
     oneOf(f.outcome, new Set(["running", "unknown", "unfinished"]), `${where}.flow.outcome`);
   }
 }

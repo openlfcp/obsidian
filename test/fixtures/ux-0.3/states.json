@@ -87,6 +87,7 @@
           "sharedTitle": null,
           "localAlias": "Launch",
           "state": "LOADING",
+          "heldCheck": "pending",
           "placements": null,
           "access": { "access": "unknown", "verifiedAt": null, "current": null, "checking": false, "canInvite": null },
           "connection": "connecting",
@@ -114,7 +115,11 @@
           { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
           { "action": "share-section", "reason": "The cursor is inside a shared section." }
         ],
-        "requiredClaims": ["Launch (name on this device)", "Looking for copies in your notes…"],
+        "requiredClaims": [
+          "Launch (name on this device)",
+          "Looking for copies in your notes…",
+          "Notes with this section are still being checked for edits not sent."
+        ],
         "forbiddenClaims": [
           "Not inserted yet",
           "Never used",
@@ -139,6 +144,7 @@
           "sharedTitle": "Sprint",
           "localAlias": "Sprint (from B)",
           "state": "CURRENT",
+          "heldCheck": "checked",
           "placements": 0,
           "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
           "connection": "connected",
@@ -181,6 +187,7 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "CURRENT",
+          "heldCheck": "checked",
           "placements": 2,
           "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": true },
           "connection": "connected",
@@ -210,10 +217,7 @@
         "disabled": [
           { "action": "share-section", "reason": "The cursor is inside a shared section." }
         ],
-        "requiredClaims": [
-          "Current as last checked with the server. This does not mean others have seen it.",
-          "In 2 notes"
-        ],
+        "requiredClaims": ["Current as last checked with the server. This does not mean others have seen it.", "In 2 notes"],
         "forbiddenClaims": ["On this device:", "everyone has it", "synced with everyone"]
       }
     },
@@ -231,6 +235,7 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "READ_ONLY_CURRENT",
+          "heldCheck": "checked",
           "placements": 1,
           "access": { "access": "reader", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
           "connection": "connected",
@@ -250,8 +255,12 @@
       },
       "expected": {
         "primaryCta": "open-details",
-        "enabled": [{ "action": "open-details", "reason": "Details are always available." }],
-        "disabled": [{ "action": "invite", "reason": "You can't invite others to this section." }],
+        "enabled": [
+          { "action": "open-details", "reason": "Details are always available." }
+        ],
+        "disabled": [
+          { "action": "invite", "reason": "You can't invite others to this section." }
+        ],
         "requiredClaims": ["You can read this section, not edit it."],
         "forbiddenClaims": ["You can edit this section.", "access was removed", "not a member"]
       }
@@ -270,6 +279,7 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "ATTENTION",
+          "heldCheck": "checked",
           "placements": 1,
           "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": true },
           "connection": "connected",
@@ -311,7 +321,10 @@
           { "action": "invite", "reason": "Secondary: access is current; held edits do not change access." }
         ],
         "disabled": [],
-        "requiredClaims": ["3 edits not sent", "No updates in the queue"],
+        "requiredClaims": [
+          "3 edits not sent",
+          "No updates waiting in the sync queue: the edits held in your note are not in it."
+        ],
         "forbiddenClaims": [
           "No local changes waiting",
           "Current as last checked",
@@ -335,6 +348,7 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "ATTENTION",
+          "heldCheck": "checked",
           "placements": 2,
           "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": true },
           "connection": "connected",
@@ -348,15 +362,7 @@
               {
                 "id": "p1",
                 "state": "ATTENTION",
-                "held": {
-                  "path": "Plan.md",
-                  "projectionId": "p1",
-                  "cause": "base-unknown",
-                  "count": null,
-                  "line": 3,
-                  "nodeIds": [],
-                  "persistence": "unknown"
-                },
+                "held": { "path": "Plan.md", "projectionId": "p1", "cause": "base-unknown", "count": null, "line": 3, "nodeIds": [], "persistence": "unknown" },
                 "checked": true,
                 "current": false
               },
@@ -376,7 +382,49 @@
         ],
         "disabled": [],
         "requiredClaims": ["Edits not sent", "1 local update waiting"],
-        "forbiddenClaims": ["0 edits", "2 local updates waiting", "Current as last checked", "Saved"]
+        "forbiddenClaims": ["0 edits", "2 local updates waiting", "Current as last checked", "Changes saved"]
+      }
+    },
+    {
+      "id": "held-unknown",
+      "category": "held",
+      "cases": ["U03-06", "U03-25"],
+      "findings": ["F-04"],
+      "description": "The pass that checks a note with this section for held edits failed: whether it holds edits is unknown. The queue is empty.",
+      "facts": {
+        "context": { "editor": "live-preview", "note": "Plan.md", "cursor": "inside-section", "selection": null, "flow": null },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 0 },
+        "section": {
+          "key": "S-launch",
+          "sharedTitle": "Launch",
+          "localAlias": "Launch",
+          "state": "ATTENTION",
+          "heldCheck": "failed",
+          "placements": 1,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": true },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": null, "edits": null, "causes": [], "persistence": "unknown" },
+            "localPersistence": "unconfirmed",
+            "projections": [
+              { "id": "p1", "state": "ATTENTION", "held": null, "checked": false, "current": false }
+            ],
+            "sharedModel": "accepted",
+            "current": false
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "open-details",
+        "enabled": [
+          { "action": "open-details", "reason": "The card says which note could not be checked." }
+        ],
+        "disabled": [],
+        "requiredClaims": ["Not current: whether a note with this section holds edits not sent is unknown."],
+        "forbiddenClaims": ["Checking notes", "No local changes waiting", "Current as last checked", "0 edits"]
       }
     },
     {
@@ -393,6 +441,7 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "OFFLINE",
+          "heldCheck": "checked",
           "placements": 1,
           "access": { "access": "writer", "verifiedAt": "2026-10-15T08:00:00Z", "current": false, "checking": false, "canInvite": true },
           "connection": "offline",
@@ -438,11 +487,14 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "ATTENTION",
+          "heldCheck": "checked",
           "placements": 1,
           "access": { "access": "writer", "verifiedAt": "2026-10-15T08:00:00Z", "current": false, "checking": false, "canInvite": true },
           "connection": "offline",
           "refusal": null,
-          "problems": [{ "kind": "scalar", "code": "SCALAR_CONFLICT", "nodeIds": ["t7"] }],
+          "problems": [
+            { "kind": "scalar", "code": "SCALAR_CONFLICT", "nodeIds": ["t7"] }
+          ],
           "sync": {
             "queue": { "batches": 1, "counted": true, "units": 1 },
             "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
@@ -483,6 +535,7 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "LOADING",
+          "heldCheck": "checked",
           "placements": 1,
           "access": { "access": "writer", "verifiedAt": "2026-10-14T17:30:00Z", "current": false, "checking": true, "canInvite": null },
           "connection": "connected",
@@ -502,7 +555,9 @@
       },
       "expected": {
         "primaryCta": "open-details",
-        "enabled": [{ "action": "open-details", "reason": "Details are always available." }],
+        "enabled": [
+          { "action": "open-details", "reason": "Details are always available." }
+        ],
         "disabled": [
           { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
           { "action": "remove-access", "reason": "Removing access waits until this device has checked access with the server." }
@@ -530,7 +585,9 @@
       },
       "expected": {
         "primaryCta": "check-result",
-        "enabled": [{ "action": "check-result", "reason": "Resumes the same claim with the same link." }],
+        "enabled": [
+          { "action": "check-result", "reason": "Resumes the same claim with the same link." }
+        ],
         "disabled": [
           { "action": "join-with-link", "reason": "A join is in progress. Finish it first." }
         ],
@@ -558,6 +615,7 @@
           "sharedTitle": "Sprint",
           "localAlias": "Sprint",
           "state": "LOADING",
+          "heldCheck": "pending",
           "placements": null,
           "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
           "connection": "connected",
@@ -575,12 +633,95 @@
       },
       "expected": {
         "primaryCta": "check-result",
-        "enabled": [{ "action": "check-result", "reason": "Resumes the same insert operation." }],
+        "enabled": [
+          { "action": "check-result", "reason": "Resumes the same insert operation." }
+        ],
         "disabled": [
           { "action": "insert-into-note", "reason": "This note already has a section being inserted. Finish that first." }
         ],
         "requiredClaims": [],
         "forbiddenClaims": ["Inserted into", "Not inserted yet", "Insert again"]
+      }
+    },
+    {
+      "id": "running-share",
+      "category": "flow",
+      "cases": ["U03-03", "U03-05"],
+      "findings": ["F-06"],
+      "description": "A share preview for Launch in Plan.md is open; the user switched the active note to Other.md. The flow keeps its target.",
+      "facts": {
+        "context": {
+          "editor": "live-preview",
+          "note": "Other.md",
+          "cursor": "private-text",
+          "selection": null,
+          "flow": { "kind": "share", "stage": "preview", "outcome": "running", "target": "Plan.md" }
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 0, "unplaced": 0 },
+        "section": null
+      },
+      "expected": {
+        "primaryCta": "share-section",
+        "enabled": [
+          {
+            "action": "share-section",
+            "reason": "The preview's Share, for Plan.md; the note's revision and range are checked again before anything is created."
+          }
+        ],
+        "disabled": [
+          { "action": "insert-into-note", "reason": "A flow is open; finish or cancel it first." }
+        ],
+        "requiredClaims": ["Plan.md"],
+        "forbiddenClaims": ["Share section \"Other\"", "the section's heading is gone", "Nothing was shared"]
+      }
+    },
+    {
+      "id": "unfinished-insert",
+      "category": "flow",
+      "cases": ["U03-13", "U03-14"],
+      "findings": ["F-02"],
+      "description": "An insert into Sprint notes.md was left at its target choice with \"Continue later\"; no note was written. The section is healthy.",
+      "facts": {
+        "context": {
+          "editor": "live-preview",
+          "note": "Sprint notes.md",
+          "cursor": "private-text",
+          "selection": null,
+          "flow": { "kind": "insert", "stage": "captured", "outcome": "unfinished", "target": "Sprint notes.md" }
+        },
+        "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 1 },
+        "section": {
+          "key": "S-sprint",
+          "sharedTitle": "Sprint",
+          "localAlias": "Sprint",
+          "state": "CURRENT",
+          "heldCheck": "checked",
+          "placements": 0,
+          "access": { "access": "writer", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
+          "connection": "connected",
+          "refusal": null,
+          "problems": [],
+          "sync": {
+            "queue": { "batches": 0, "counted": true, "units": 0 },
+            "held": { "projections": 0, "edits": 0, "causes": [], "persistence": null },
+            "localPersistence": "confirmed",
+            "projections": [],
+            "sharedModel": "accepted",
+            "current": true
+          }
+        }
+      },
+      "expected": {
+        "primaryCta": "continue-flow",
+        "enabled": [
+          { "action": "continue-flow", "reason": "Resumes the same insert operation." },
+          { "action": "open-details", "reason": "Details are always available." }
+        ],
+        "disabled": [
+          { "action": "insert-into-note", "reason": "An insert into this note is unfinished: continue it." }
+        ],
+        "requiredClaims": ["Not inserted yet"],
+        "forbiddenClaims": ["Inserted into", "Insert again", "Never used"]
       }
     },
     {
@@ -602,7 +743,9 @@
       },
       "expected": {
         "primaryCta": "share-section",
-        "enabled": [{ "action": "share-section", "reason": "Exact eligible selection." }],
+        "enabled": [
+          { "action": "share-section", "reason": "Exact eligible selection." }
+        ],
         "disabled": [],
         "requiredClaims": [
           "The text after the section, under the same heading, stays private, but Obsidian folds, drags and embeds it with the heading."
@@ -662,7 +805,9 @@
       "expected": {
         "primaryCta": null,
         "primaryCtaNone": "No fallback: the selection crosses into another section; only the reason is shown.",
-        "enabled": [{ "action": "join-with-link", "reason": "Joining needs no selection." }],
+        "enabled": [
+          { "action": "join-with-link", "reason": "Joining needs no selection." }
+        ],
         "disabled": [
           { "action": "share-section", "reason": "The selection runs past the end of the heading's section." },
           { "action": "share-whole-section", "reason": "No single heading's section contains the selection." }
@@ -690,12 +835,11 @@
       },
       "expected": {
         "primaryCta": "share-section",
-        "enabled": [{ "action": "share-section", "reason": "Private heading, preview has no problem." }],
-        "disabled": [],
-        "requiredClaims": [
-          "Comments (%% … %% and <!-- … -->) in this section stay on this device.",
-          "2 other blocks"
+        "enabled": [
+          { "action": "share-section", "reason": "Private heading, preview has no problem." }
         ],
+        "disabled": [],
+        "requiredClaims": ["Comments (%% … %% and <!-- … -->) in this section stay on this device.", "2 other blocks"],
         "forbiddenClaims": ["unsupported", "will not be shared: table", "comments are shared"]
       }
     },
@@ -713,6 +857,7 @@
           "sharedTitle": "Launch",
           "localAlias": "Launch",
           "state": "ATTENTION",
+          "heldCheck": "checked",
           "placements": 1,
           "access": { "access": "refused", "verifiedAt": "2026-10-15T09:00:00Z", "current": true, "checking": false, "canInvite": false },
           "connection": "connected",
@@ -726,15 +871,7 @@
               {
                 "id": "p1",
                 "state": "ATTENTION",
-                "held": {
-                  "path": "Plan.md",
-                  "projectionId": "p1",
-                  "cause": "refused",
-                  "count": 2,
-                  "line": 6,
-                  "nodeIds": ["t2", "t3"],
-                  "persistence": "saved"
-                },
+                "held": { "path": "Plan.md", "projectionId": "p1", "cause": "refused", "count": 2, "line": 6, "nodeIds": ["t2", "t3"], "persistence": "saved" },
                 "checked": true,
                 "current": false
               }
@@ -754,10 +891,7 @@
         "disabled": [
           { "action": "invite", "reason": "You can't invite others to this section." }
         ],
-        "requiredClaims": [
-          "The sync server no longer accepts changes from this vault for this section.",
-          "2 edits not sent"
-        ],
+        "requiredClaims": ["The sync server no longer accepts changes from this vault for this section.", "2 edits not sent"],
         "forbiddenClaims": ["Offline", "Your access to this section was removed", "not a member", "Current as last checked"]
       }
     }
