@@ -138,7 +138,11 @@ function percentile(xs: readonly number[], p: number): number | null {
 }
 
 /** Answers the newest open dialog: clicks its button, or picks a suggestion. */
-async function answer(what: string, act: (m: mock.Modal) => boolean, ms = 30_000): Promise<void> {
+export async function answer(
+  what: string,
+  act: (m: mock.Modal) => boolean,
+  ms = 30_000,
+): Promise<void> {
   await until(
     what,
     () => {
@@ -148,7 +152,7 @@ async function answer(what: string, act: (m: mock.Modal) => boolean, ms = 30_000
     ms,
   );
 }
-const click = (text: string) => (m: mock.Modal) => {
+export const click = (text: string) => (m: mock.Modal) => {
   const b = m.contentEl.findAll("button").find((x) => x.text === text);
   if (b === undefined || (b as { disabled?: boolean }).disabled === true) return false;
   b.click();
