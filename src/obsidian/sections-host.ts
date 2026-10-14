@@ -38,23 +38,17 @@ import type {
   SectionServices,
 } from "../core/sections/action-ports";
 import { SectionActions } from "../core/sections/actions";
-import { markdownState, newProjectionId } from "../core/sections/base";
+import { newProjectionId } from "../core/sections/base";
 import { SectionCreation } from "../core/sections/create";
-import {
-  applyChanges,
-  type NotePass,
-  SectionEngine,
-  sameState,
-  sharedState,
-} from "../core/sections/engine";
+import { applyChanges, type NotePass, SectionEngine } from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
-import { renderSection, SectionInsertion } from "../core/sections/insert";
+import { SectionInsertion } from "../core/sections/insert";
 import { abandonOnce } from "../core/sections/journal";
 import type { LegacySource } from "../core/sections/legacy";
-import { type ParsedSection, parseSections, type SectionScan } from "../core/sections/parser";
+import { parseSections, type SectionScan } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
 import { noteSections, PlacementIndex } from "../core/sections/placement-index";
-import { CommitRefused, type ModelNode, type SectionSnapshot } from "../core/sections/port";
+import { CommitRefused, type ModelNode } from "../core/sections/port";
 import {
   applyRecovery,
   type RecoveryChoice,
@@ -63,13 +57,6 @@ import {
   recoveryItems,
 } from "../core/sections/recovery";
 import { SectionRegistryView } from "../core/sections/registry-view";
-import {
-  adoptedBase,
-  boundaryRepair,
-  compare,
-  repairItems,
-  sharedVersionChange,
-} from "../core/sections/repair";
 import { bindsOwnNode, type PastedBinding, removeNodeLines } from "../core/sections/rules";
 import type { SharePreview } from "../core/sections/share";
 import {
@@ -117,7 +104,6 @@ import {
   setSectionStatuses,
 } from "./section-status";
 import { RecoveryModal } from "./ui/recovery";
-import { type LostBase, RepairModal } from "./ui/repair";
 import { AliasModal, ConfirmModal, SectionCardModal } from "./ui/section-card";
 import { ObsidianSectionPrompter } from "./ui/section-prompter";
 
@@ -898,99 +884,8 @@ export class SectionsHost {
    * their candidate lines, problems to locate, and sections whose base is
    * lost, compared. Nothing changes without the user's choice.
    */
-  async repairNote(editor: Editor, path: string): Promise<void> {
-    const port = this.#port;
-    const bases = this.#bases;
-    const journal = this.#journal;
-    if (port === null || bases === null || journal === null) {
-      new Notice("Shared Tasks: still starting. Try again in a moment.");
-      return;
-    }
-    const md = editor.getValue();
-    const items = repairItems(md);
-    const known = new Set<string>();
-    for (const id of await bases.projectionsOf(path)) {
-      const b = await bases.load(id);
-      if (b !== undefined) known.add(sectionKey(b.locator.section));
-    }
-    const lost: (LostBase & { section: ParsedSection; snap: SectionSnapshot; block: string })[] =
-      [];
-    const lines = md.split(/\r?\n/);
-    for (const s of parseSections(md).sections) {
-      const key = sectionKey(s.ref);
-      if (known.has(key)) continue;
-      const b64 = toBase64url(s.ref.resourceId);
-      const snap = port.snapshot(b64, s.ref.sectionId);
-      if (snap === undefined || !snap.ready) continue;
-      if (sameState(markdownState(md, s).state, sharedState(snap))) continue;
-      const block = renderSection(snap, s.ref, s.heading.level, {
-        task: (id) => port.task(b64, id),
-        placement: this.refPlacement(),
-      });
-      if (block === null) continue;
-      const local = lines.slice(s.startLine + 1, s.endLine).join("\n");
-      const shared = block
-        .replace(/\r?\n$/, "")
-        .split("\n")
-        .slice(2, -1)
-        .join("\n");
-      lost.push({
-        key,
-        title: s.heading.title,
-        lines: compare(local, shared),
-        section: s,
-        snap,
-        block,
-      });
-    }
-    new RepairModal(this.app, items, lost, {
-      boundary: async (item, line) => {
-        await this.#edit(path, (current) => {
-          // Only on the note the candidates were computed for.
-          if (current !== md) return null;
-          return [boundaryRepair(current, item, line)];
-        });
-        this.editor.remoteChanged(path);
-      },
-      locate: (line) => editor.setCursor({ line, ch: 0 }),
-      shareMine: async (key) => {
-        const l = lost.find((x) => x.key === key);
-        if (l === undefined) return;
-        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
-        this.editor.remoteChanged(path);
-        new Notice("Shared Tasks: your version of this section is being shared.");
-      },
-      useShared: async (key) => {
-        const l = lost.find((x) => x.key === key);
-        if (l === undefined) return;
-        // The note's text first, as a recovery copy kept on this device.
-        await journal.putCandidate({
-          candidateId: `repair:${crypto.randomUUID()}`,
-          projectionId: `repair:${path}`,
-          reason: "base-unknown",
-          sourceText: lines.slice(l.section.heading.line, l.section.endLine + 1).join("\n"),
-        });
-        let replaced = false;
-        await this.#edit(path, (current) => {
-          if (current !== md) return null;
-          replaced = true;
-          return [sharedVersionChange(current, l.section, l.block)];
-        });
-        if (!replaced) {
-          new Notice(
-            "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
-          );
-          return;
-        }
-        // No base is stored here: the next pass seeds one once the note shows
-        // the model (CM11). A base saved now could meet the editor's old text
-        // and send the very edit the user chose to drop.
-        this.editor.remoteChanged(path);
-        new Notice(
-          "Shared Tasks: this section shows the shared version now. Your previous text is kept as a recovery copy on this device.",
-        );
-      },
-    }).open();
+  repairNote(editor: Editor, path: string): Promise<void> {
+    return this.actions.repairNote(asSectionEditor(editor), path);
   }
 
   /** The copies of section `key`'s text kept on this device after a refusal (not shared). */

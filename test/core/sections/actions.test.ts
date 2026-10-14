@@ -31,6 +31,8 @@ import type {
   InsertRefusal,
   InsertResult,
 } from "../../../src/core/sections/insert";
+import type { PendingCandidate } from "../../../src/core/sections/journal";
+import type { SectionSnapshot } from "../../../src/core/sections/port";
 import type { SharePreview } from "../../../src/core/sections/share";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -658,6 +660,112 @@ describe("detach (LFCP-03-008 over §10)", () => {
     expect(t.prompter.dialogs.map((d) => d.kind)).toEqual(["confirm"]);
     expect(t.prompter.notices).toEqual([
       "Shared Tasks: put the cursor in a shared section to detach it.",
+    ]);
+  });
+});
+
+describe("repair (LFCP-03-008 over 062)", () => {
+  /** A section whose base is lost: bound, but no base for it in this note. */
+  const LOST = [
+    "## Launch",
+    formatBoundary("start", S),
+    "Draft only here",
+    formatBoundary("end", S),
+    "",
+  ].join("\n");
+  const MODEL: SectionSnapshot = {
+    revision: "r1",
+    // Another title in the model: the note's copy differs from it.
+    title: "Launch (renamed)",
+    ready: true,
+    nodes: {},
+    order: { "": [] },
+    problems: [],
+  };
+
+  function repairSetup(text: string) {
+    const bases = new MemorySectionBaseStore();
+    const kept: PendingCandidate[] = [];
+    const t = setup(() => ({
+      bases: () => bases,
+      model: () => ({ snapshot: () => MODEL, task: () => undefined }),
+      candidates: () => ({
+        putCandidate: async (c) => {
+          kept.push(c);
+        },
+        allCandidates: async () => kept,
+        resolveCandidate: async () => undefined,
+      }),
+    }));
+    t.notes.files.set("Plan.md", text);
+    return { ...t, bases, kept };
+  }
+  type Repair = Parameters<SectionPrompter["repair"]>;
+  const opened = (t: { prompter: RecordingPrompter }) =>
+    t.prompter.dialogs.find((d) => d.kind === "repair")?.args as Repair;
+
+  it("still starting: no dialog", async () => {
+    const t = setup();
+    await t.actions.repairNote(t.editor, "Plan.md");
+    expect(t.prompter.dialogs).toEqual([]);
+    expect(t.prompter.notices).toEqual(["Shared Tasks: still starting. Try again in a moment."]);
+  });
+
+  it("a boundary is placed only on the note it was computed for", async () => {
+    const broken = ["## Launch", formatBoundary("start", S), "- [ ] One", "", "## Other", ""].join(
+      "\n",
+    );
+    const t = repairSetup(broken);
+    await t.actions.repairNote(t.editor, "Plan.md");
+    const [items, , actions] = opened(t);
+    const item = items[0];
+    if (item?.kind !== "missing-end") throw new Error(item?.kind);
+    t.notes.files.set("Plan.md", `${broken}changed\n`);
+    await actions.boundary(item, 2);
+    expect(t.notes.writes).toEqual([]);
+    t.notes.files.set("Plan.md", broken);
+    await actions.boundary(item, 2);
+    expect(t.notes.writes).toHaveLength(1);
+    expect(t.notes.files.get("Plan.md")).toContain(formatBoundary("end", S));
+    actions.locate(4);
+    expect(t.editor.cursorLine()).toBe(4);
+  });
+
+  it("stale: taking the shared version of a changed note keeps the copy and replaces nothing", async () => {
+    const t = repairSetup(LOST);
+    await t.actions.repairNote(t.editor, "Plan.md");
+    const [, lost, actions] = opened(t);
+    expect(lost.map((l) => l.key)).toEqual([KEY]);
+    t.notes.files.set("Plan.md", LOST.replace("Draft", "Edited"));
+    await actions.useShared(KEY);
+    expect(t.kept.map((c) => c.sourceText)).toEqual([LOST.split("\n").slice(0, 4).join("\n")]);
+    expect(t.notes.writes).toEqual([]);
+    expect(t.calls).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
+    ]);
+  });
+
+  it("taking the shared version keeps the copy first, then writes the model's version", async () => {
+    const t = repairSetup(LOST);
+    await t.actions.repairNote(t.editor, "Plan.md");
+    const [, , actions] = opened(t);
+    await actions.useShared(KEY);
+    expect(t.kept).toHaveLength(1);
+    expect(t.notes.files.get("Plan.md")).not.toContain("Draft only here");
+    expect(t.calls).toEqual(["pass Plan.md"]);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+  });
+
+  it("keeping this note's version adopts a base for it, and says so", async () => {
+    const t = repairSetup(LOST);
+    await t.actions.repairNote(t.editor, "Plan.md");
+    const [, , actions] = opened(t);
+    await actions.shareMine(KEY);
+    expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
+    expect(t.notes.writes).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: your version of this section is being shared.",
     ]);
   });
 });
