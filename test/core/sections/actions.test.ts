@@ -769,3 +769,25 @@ describe("repair (LFCP-03-008 over 062)", () => {
     ]);
   });
 });
+
+describe("restore an import (LFCP-03-008 over 054)", () => {
+  it("rolls back the latest import of the note; none, or one not in the note, is said", async () => {
+    const t = setup();
+    await t.actions.restoreImport("Plan.md");
+    const imported = entry("op-9", "Plan.md", { title: "Plan" } as SharePreview);
+    const rolled: string[] = [];
+    t.creation.imports = async () => [entry("op-8", "Plan.md", {} as SharePreview), imported];
+    t.creation.rollback = async (e) => {
+      rolled.push(e.operationId);
+      return { kind: rolled.length === 1 ? "restored" : "none", entry: e };
+    };
+    await t.actions.restoreImport("Plan.md");
+    await t.actions.restoreImport("Plan.md");
+    expect(rolled).toEqual(["op-9", "op-9"]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: no section import to restore in this note.",
+      "Shared Tasks: the note shows its content from before the import again. The new shared section still exists; to stop sharing it, remove people's access.",
+      "Shared Tasks: this import cannot be restored here (its section is not in the note).",
+    ]);
+  });
+});

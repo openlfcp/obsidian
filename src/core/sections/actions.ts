@@ -379,6 +379,31 @@ export class SectionActions {
   }
 
   /**
+   * "Restore note before section import" (054): the latest import in this
+   * note gets its original view back; edits made on the new section since
+   * are kept beside it. The new section itself, and any invitation to it,
+   * stay as they are.
+   */
+  async restoreImport(path: string): Promise<void> {
+    const { prompter, services } = this.env;
+    const creation = services.creation();
+    if (creation === null) return;
+    const last = (await creation.imports(path)).at(-1);
+    if (last === undefined) {
+      prompter.notice("Shared Tasks: no section import to restore in this note.");
+      return;
+    }
+    const out = await creation.rollback(last);
+    prompter.notice(
+      out.kind === "restored"
+        ? "Shared Tasks: the note shows its content from before the import again. The new shared section still exists; to stop sharing it, remove people's access."
+        : out.kind === "beside"
+          ? "Shared Tasks: the section was edited since the import, so the content from before is added after it for comparison. Nothing was removed."
+          : "Shared Tasks: this import cannot be restored here (its section is not in the note).",
+    );
+  }
+
+  /**
    * "Detach this section" (§10, MS10-detach): after a confirmation, the
    * section under the cursor loses every binding in this note and keeps its
    * text as private text; this note's projection base is dropped. Nothing
