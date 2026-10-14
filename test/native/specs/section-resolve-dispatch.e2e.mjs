@@ -47,47 +47,46 @@ describe("Resolve shared task conflict in and out of a shared section (F-05)", (
           body: modal?.textContent.slice(0, 300) ?? null,
           notices: [...document.querySelectorAll(".notice")].map((n) => n.textContent),
         };
-        for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
         return seen;
       }, line);
-    // Every modal closed before the next case, so that it never sees this
-    // one's: the close buttons clicked (Escape as well, once that was not
-    // enough) until none is left. What was open is kept as evidence.
-    const closeAll = async (label) => {
-      const seen = [];
+    // Obsidian's close button (1.13 and 1.14): the modal's first child,
+    // `.modal-header-button` with the "x" icon (`.mod-cta` and `.mod-start`
+    // are phone-only form-sheet buttons). It is clicked and the modal must be
+    // gone, so the next case never sees it. Escape is only the fallback, so
+    // that a broken button fails this check and not the next case; whether
+    // it was needed is in the evidence.
+    const closeByButton = async (label) => {
+      const before = await inA(() =>
+        [...document.querySelectorAll(".modal-container > .modal")].map((m) => {
+          const button = m.querySelector(":scope > .modal-header-button:not(.mod-cta):not(.mod-start)");
+          button?.click();
+          return { title: m.querySelector(".modal-title")?.textContent ?? null, button: button !== null };
+        }),
+      );
+      const gone = () => inA(() => document.querySelector(".modal-container") === null);
+      let closedBy = before.length === 0 ? "none open" : "button";
       try {
-        await browser.waitUntil(
-          async () => {
-            const open = await inA(() => {
-              const modals = [...document.querySelectorAll(".modal-container .modal")].map((m) => ({
-                title: m.querySelector(".modal-title")?.textContent ?? null,
-                closeButton: m.querySelector(".modal-close-button") !== null,
-                html: m.outerHTML.slice(0, 300),
-              }));
-              for (const x of document.querySelectorAll(".modal-container .modal-close-button")) x.click();
-              return modals;
-            });
-            if (open.length === 0) return true;
-            seen.push(open);
-            if (seen.length > 1) await browser.keys("Escape");
-            return false;
-          },
-          { timeout: 10_000, interval: 250, timeoutMsg: `the modals after ${label} closed` },
-        );
-      } finally {
-        evidence(`F-05 modals after ${label}`, { polls: seen.length, first: seen[0] ?? [], last: seen.at(-1) ?? [] });
+        await browser.waitUntil(gone, { timeout: 5_000, interval: 100 });
+      } catch {
+        closedBy = "Escape";
+        await browser.keys("Escape");
+        await browser.waitUntil(gone, { timeout: 5_000, interval: 100, timeoutMsg: `the modals after ${label} closed` });
       }
+      evidence(`F-05 modals after ${label}`, { before, closedBy });
+      return closedBy;
     };
     const out = {};
     out.inside = await run(lines.findIndex((l) => l.startsWith("- [ ] Alpha")));
-    await closeAll("inside");
+    out.insideClosedBy = await closeByButton("inside");
     out.outside = await run(lines.findIndex((l) => l.startsWith("- [ ] Outside")));
-    await closeAll("outside");
+    out.outsideClosedBy = await closeByButton("outside");
     evidence("F-05 dispatch", out);
     expect(out.inside.title).toBe('Conflicts in "Dispatch"');
     expect(out.inside.body).toContain("Nothing needs a choice now.");
+    expect(out.insideClosedBy).toBe("button");
     expect(out.inside.notices.join(" ")).not.toContain("newer version");
     expect(out.outside.title).toBe(null);
+    expect(out.outsideClosedBy).toBe("none open");
     expect(out.outside.notices).toEqual(["Shared Tasks: put the cursor on a shared task to resolve its conflicts."]);
   });
 });
