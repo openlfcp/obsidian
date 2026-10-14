@@ -7,7 +7,7 @@
 // session. (An index rebuild is covered on the core: this harness restarts
 // a plugin with sections off.)
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { RegistrySnapshot } from "../../src/core/sections/registry-view";
 import * as mock from "../mocks/obsidian";
 import { answer, click, SoakPeer } from "../soak/peer";
@@ -109,13 +109,26 @@ describe("U03-02: the registry view on the real plugin", () => {
     expect(snap().sections).toBe(2);
   });
 
-  it("reading the view opens no session", async () => {
-    const before = A.runtime.sessions;
-    for (let i = 0; i < 5; i++) {
-      sections().registryChanged();
-      await sections().registry.refresh();
-      snap();
+  it("reading the view opens no model and no session", async () => {
+    const runtime = A.runtime;
+    const opened = vi.spyOn(runtime, "openSection");
+    const reopened = vi.spyOn(runtime, "reopenSection");
+    const before = runtime.sessions;
+    try {
+      for (let i = 0; i < 5; i++) {
+        sections().registryChanged();
+        await sections().registry.refresh();
+        sections().registry.update();
+        snap();
+      }
+      // The view read the registry and the open models each time, nothing more.
+      expect(snap().sections).toBe(2);
+      expect(opened).not.toHaveBeenCalled();
+      expect(reopened).not.toHaveBeenCalled();
+      expect(runtime.sessions).toBe(before);
+    } finally {
+      opened.mockRestore();
+      reopened.mockRestore();
     }
-    expect(A.runtime.sessions).toBe(before);
   });
 });
