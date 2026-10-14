@@ -472,7 +472,13 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
    * ("differs from the shared version"), never a loop.
    */
   const retried = new Map<string, string>();
+  /**
+   * Notes whose next pass is the safety net's (below): that pass never asks
+   * for another.
+   */
+  const checking = new Set<string>();
   const again = (path: string, pass: NotePass) => {
+    const checked = checking.delete(path);
     const ids = pass.sections
       .flatMap((s) => s.diverged ?? [])
       .sort()
@@ -480,6 +486,23 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     if (ids === "") retried.delete(path);
     else if (retried.get(path) !== ids) {
       retried.set(path, ids);
+      coordinator.remoteChanged(path);
+      return;
+    }
+    // A pass that wrote a collaborator's change and reported the note as
+    // not the model's (shown again, diverged, held) may have judged the text
+    // it read, not the text it wrote (soak #5). One more pass on the written
+    // note: its result replaces this one's. Once per write, never a loop.
+    if (
+      !checked &&
+      pass.sections.some(
+        (s) =>
+          s.remote?.kind === "patch" &&
+          s.remote.changes.length > 0 &&
+          ((s.reappeared?.length ?? 0) > 0 || (s.diverged?.length ?? 0) > 0 || s.held.length > 0),
+      )
+    ) {
+      checking.add(path);
       coordinator.remoteChanged(path);
     }
   };
