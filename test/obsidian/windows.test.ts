@@ -33,11 +33,15 @@ describe("popout windows (LFCP-03-022)", () => {
     ws.leaves.push(leaf);
     const refs: unknown[] = [];
     const docs: Document[] = [];
-    inEveryWindow(
+    const given: Document[] = [];
+    const off = inEveryWindow(
       ws as never,
       document,
       (r) => refs.push(r),
-      (d) => docs.push(d),
+      (d) => {
+        docs.push(d);
+        return () => given.push(d);
+      },
     );
     expect(docs).toEqual([document, early]);
     const later = popout().doc;
@@ -46,9 +50,49 @@ describe("popout windows (LFCP-03-022)", () => {
     ws.trigger("window-open", {}, { document: later });
     ws.trigger("window-open", {}, { document });
     expect(docs).toEqual([document, early, later]);
-    // The one workspace subscription is the caller's to give back.
-    expect(refs.length).toBe(1);
+    // The workspace subscriptions (open, close) are the caller's to give back.
+    expect(refs.length).toBe(2);
     expect(ws.listeners("window-open")).toBe(1);
+    expect(ws.listeners("window-close")).toBe(1);
+    // A popout closed: its registration is given back, once; the main one never.
+    ws.trigger("window-close", {}, { document: later });
+    ws.trigger("window-close", {}, { document: later });
+    ws.trigger("window-close", {}, { document });
+    expect(given).toEqual([later]);
+    // Opened again later: registered anew.
+    ws.trigger("window-open", {}, { document: later });
+    expect(docs).toEqual([document, early, later, later]);
+    // The plugin unloaded: every window still open gives its registration back.
+    off();
+    expect(new Set(given)).toEqual(new Set([document, early, later]));
+    expect(given.length).toBe(4);
+  });
+
+  it("a popout's copy listener goes with its window", () => {
+    const ws = new mock.Workspace();
+    const p = popout();
+    const counts = new Map<Document, number>();
+    const off = inEveryWindow(
+      ws as never,
+      document,
+      () => undefined,
+      (doc) => {
+        const copy = () => counts.set(doc, (counts.get(doc) ?? 0) + 1);
+        doc.addEventListener("copy", copy);
+        return () => doc.removeEventListener("copy", copy);
+      },
+    );
+    ws.trigger("window-open", {}, { document: p.doc });
+    p.doc.dispatchEvent(new Event("copy"));
+    expect(counts.get(p.doc)).toBe(1);
+    ws.trigger("window-close", {}, { document: p.doc });
+    p.doc.dispatchEvent(new Event("copy"));
+    expect(counts.get(p.doc)).toBe(1);
+    document.dispatchEvent(new Event("copy"));
+    expect(counts.get(document)).toBe(1);
+    off();
+    document.dispatchEvent(new Event("copy"));
+    expect(counts.get(document)).toBe(1);
   });
 
   it("the live region speaks in the window in use, and goes away with the plugin", () => {
