@@ -155,6 +155,15 @@ export function insertionFits(markdown: string, line: number, preview: InsertPre
   return occurrences(after, ref) > occurrences(markdown, ref);
 }
 
+/**
+ * Whether `markdown` holds the block of insertion `entry`: one projection
+ * of its section more than the note had when it was chosen. A restart
+ * then finishes the insertion without writing again (LFCP-03-017).
+ */
+export function insertionWritten(entry: InsertionEntry, markdown: string): boolean {
+  return occurrences(markdown, refOf(entry.preview)) > entry.target.before;
+}
+
 export class SectionInsertion {
   constructor(private readonly deps: InsertionDeps) {}
 
@@ -217,7 +226,7 @@ export class SectionInsertion {
     let written: string | null = null;
     await this.deps.edit(entry.path, (current) => {
       // Written before a crash: the note has one projection more than it had.
-      if (occurrences(current, ref) > entry.target.before) {
+      if (insertionWritten(entry, current)) {
         written = current;
         return null;
       }

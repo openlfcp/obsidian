@@ -85,11 +85,13 @@ export class InsertSectionModal extends Modal {
     const line = el.createEl("p", { text: `These lines go ${where}. Nothing is sent.` });
     const place = this.place;
     if (place !== undefined) {
-      line.createEl("button", { text: "Choose another note…" }).addEventListener("click", () => {
-        void place.change().then(() => {
-          if (!this.#closed) this.#draw();
+      const change = place.change?.bind(place);
+      if (change !== undefined)
+        line.createEl("button", { text: "Choose another note…" }).addEventListener("click", () => {
+          void change().then(() => {
+            if (!this.#closed) this.#draw();
+          });
         });
-      });
       el.createEl("p", { text: placementsText(place.placements), cls: "setting-item-description" });
     }
     if (this.preview.readOnly)

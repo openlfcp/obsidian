@@ -654,6 +654,9 @@ export class SectionsHost {
     }
     // Creations a restart interrupted go on from their journal (SSP §12.2).
     for (const entry of await this.#creation.unfinished()) void this.actions.resumeCreation(entry);
+    // Insertions too, by what their note holds (LFCP-03-017): finished, or listed as unfinished.
+    for (const entry of await this.#insertion.unfinished())
+      void this.actions.resumeInsertion(entry).catch((error) => this.#bookkeepingFailed(error));
   }
 
   /** The section Resources watched, their stale work scanned, and every note with a section passed. */

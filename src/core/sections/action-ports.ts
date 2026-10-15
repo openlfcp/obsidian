@@ -51,8 +51,11 @@ export interface InsertPlace {
   readonly where: string;
   /** The notes that already hold a copy of the section; null while the notes are still being read. */
   readonly placements: readonly string[] | null;
-  /** Opens the choice of another destination; settles once it is chosen or cancelled. */
-  change(): Promise<void>;
+  /**
+   * Opens the choice of another destination; settles once it is chosen or
+   * cancelled. Absent: the place is fixed (an insertion resumed after a restart).
+   */
+  change?(): Promise<void>;
 }
 
 /** What the destination choice offers. */
@@ -263,6 +266,8 @@ export interface InsertionService {
   run(entry: InsertionEntry): Promise<InsertResult>;
   /** The insertion as its journal holds it now (a reconcile resumes from there), if journaled. */
   current(insertionId: string): Promise<InsertionEntry | undefined>;
+  /** Ends an insertion that wrote nothing (it is no longer resumed). */
+  cancel(entry: InsertionEntry): Promise<InsertionEntry>;
 }
 
 /** The projection bases of notes (SectionBaseStore). */

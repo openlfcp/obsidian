@@ -16,6 +16,13 @@
 // so; it never allocates a new operation. Once the result is known, a
 // later explicit share or insert is a new operation.
 //
+// After a restart (LFCP-03-017) the journals are read again: a creation
+// goes on (resumeCreation); an insertion whose block is in its note
+// finishes its registration, and one that wrote nothing is listed as
+// unfinished on its note until "Continue" shows its preview again and
+// runs the same insertion, or the preview is cancelled. Nothing is ever
+// deleted, revoked or detached on the way.
+//
 // Behaviour is that of 0.4.0's SectionsHost, moved: the texts, the order of
 // the dialogs and the checks are unchanged, except where LFCP-03-009 binds
 // an action to its captured target (target.ts) instead of a live editor:
@@ -67,6 +74,7 @@ import {
   type InsertPreview,
   type InsertResult,
   insertionFits,
+  insertionWritten,
   insertRefusalMessage,
   renderSection,
 } from "./insert";
@@ -119,8 +127,12 @@ export interface ActiveFlow {
    * "preview" or "writing".
    */
   readonly step: string;
-  /** "unknown": its last effect's result is not known; the note stays reserved until it is. */
-  readonly outcome: "running" | "unknown";
+  /**
+   * "unknown": its last effect's result is not known; the note stays
+   * reserved until it is. "unfinished": a restart stopped it before its
+   * next step, which "Continue" resumes (LFCP-03-017); the note stays reserved.
+   */
+  readonly outcome: "running" | "unknown" | "unfinished";
   /** A check of the unknown result runs now. */
   readonly checking: boolean;
 }
@@ -337,11 +349,37 @@ export class SectionActions {
    * (the same operation, from its journal), never started anew (D12).
    */
   #revealFlow(running: Flow): void {
-    if (running.reveal()) return;
-    const text = `Shared Tasks: ${running.stage}`;
+    void this.#reveal(running);
+  }
+
+  /**
+   * A flow brought forward: its open dialog, else where it stands; one
+   * whose result is unknown is checked, an unfinished one resumed (the
+   * same operation, D12).
+   */
+  async #reveal(flow: Flow): Promise<void> {
+    if (flow.reveal()) return;
+    const text = `Shared Tasks: ${flow.stage}`;
     this.env.prompter.notice(text);
     this.env.prompter.announce(text);
-    if (running.unknown) void running.check().then(() => this.#changed());
+    if (flow.held) await this.#check(flow);
+  }
+
+  /**
+   * Checks a flow's unknown result, or resumes an unfinished one (the same
+   * operation). A check that gets no answer in its time says so; the
+   * result stays unknown and nothing new is started (LFCP-03-017).
+   */
+  async #check(flow: Flow): Promise<void> {
+    this.#changed();
+    await flow.check(() => {
+      const text =
+        "Shared Tasks: the result is still not known. Nothing new was started: check it again later; it is also checked at the next start.";
+      this.env.prompter.notice(text);
+      this.env.prompter.announce(text);
+      this.#changed();
+    });
+    this.#changed();
   }
 
   /** The share, import and insert flows running now, or whose result is being reconciled. */
@@ -356,7 +394,8 @@ export class SectionActions {
         path: a.target.path,
         stage: f.stage,
         step: a.step,
-        outcome: f.unknown ? "unknown" : "running",
+        // An unfinished flow being continued (its preview open) runs again.
+        outcome: f.unfinished && !f.checking ? "unfinished" : f.unknown ? "unknown" : "running",
         checking: f.checking,
       });
     }
@@ -372,10 +411,7 @@ export class SectionActions {
   async checkResult(generation: number): Promise<boolean> {
     const flow = this.#flows.byGeneration(generation);
     if (flow === undefined || !flow.unknown) return false;
-    this.#revealFlow(flow);
-    this.#changed();
-    await flow.check();
-    this.#changed();
+    await this.#reveal(flow);
     return true;
   }
 
@@ -627,10 +663,23 @@ export class SectionActions {
     flow: Flow,
     preview: InsertPreview,
   ): Promise<void> {
-    const { prompter, services } = this.env;
+    const { services } = this.env;
     const insertion = services.insertion();
     if (this.#refused({}, insertion === null) || insertion === null) return;
     const entry = await insertion.prepare(path, markdown, line, preview);
+    await this.#run(entry, flow);
+  }
+
+  /**
+   * Writes a journaled insertion once, said with its result. One that
+   * throws keeps its flow's note reserved (D12) until a reconcile of the
+   * same insertion ID settles it. `again`: a restart interrupted it.
+   */
+  async #run(entry: InsertionEntry, flow: Flow, again = false): Promise<void> {
+    const { prompter, services } = this.env;
+    const insertion = services.insertion();
+    if (insertion === null) return;
+    const preview = entry.preview;
     flow.stage = `section "${preview.title}" is being inserted into this note.`;
     this.#step(flow, "writing");
     let result: InsertResult;
@@ -648,7 +697,92 @@ export class SectionActions {
       );
       return;
     }
-    await this.#inserted(result, entry, preview);
+    await this.#inserted(result, entry, preview, again);
+  }
+
+  /**
+   * An insertion a restart interrupted (LFCP-03-017, U03-13), from its
+   * journal: the same insertion ID, its note reserved as a running insert
+   * holds it. Its note gone: nothing is written, the insertion ends. Its
+   * block already in the note: the insertion finishes (the copy is
+   * registered), and no second block is written. Nothing written: the
+   * flow is listed as unfinished; "Continue" shows the same preview again
+   * and, approved, writes it once; cancelled, it ends and nothing is
+   * written. A note already held by a resumed creation keeps the
+   * insertion in its journal for the next start.
+   */
+  resumeInsertion(entry: InsertionEntry): Promise<void> {
+    if (entry.phase !== "prepared") return Promise.resolve();
+    return this.#oneFlow(
+      entry.path,
+      "insert",
+      async (_target, flow) => {
+        const insertion = this.env.services.insertion();
+        if (insertion === null) return;
+        const now = await this.#now(entry.path);
+        const title = entry.preview.title;
+        if (now === null) {
+          await insertion.cancel(entry);
+          this.env.prompter.notice(
+            `Shared Tasks: inserting section "${title}" into "${noteName(entry.path)}" had not finished, and the note is no longer there. Nothing was inserted.`,
+          );
+          return;
+        }
+        if (insertionWritten(entry, now.text)) {
+          await this.#run(entry, flow, true);
+          return;
+        }
+        this.#step(flow, "writing");
+        flow.unresolved(
+          `inserting section "${title}" into this note did not finish before Obsidian closed; nothing was written yet. Continue shows its preview again.`,
+          () => this.#continueInsertion(entry, flow),
+          "unfinished",
+        );
+        this.#unresolvedSoon();
+      },
+      () => undefined,
+    );
+  }
+
+  /**
+   * "Continue" of an unfinished insertion: its preview again, at the place
+   * chosen before; approved, the same insertion runs; cancelled, it ends
+   * and writes nothing.
+   */
+  async #continueInsertion(entry: InsertionEntry, flow: Flow): Promise<Reconciled> {
+    const { prompter, services } = this.env;
+    const insertion = services.insertion();
+    if (insertion === null) return "unknown";
+    const current = (await insertion.current(entry.insertionId)) ?? entry;
+    if (current.phase !== "prepared") return "settled";
+    const title = current.preview.title;
+    const dialog = prompter.insertPreview(current.preview, {
+      where: `into "${noteName(current.path)}", where it was chosen before`,
+      placements: services.placements?.(fromBase64url(current.preview.resource)) ?? null,
+    });
+    this.#showing(flow, dialog, "the insert preview");
+    const approved = await dialog.result;
+    flow.showing(null);
+    if (!approved) {
+      await insertion.cancel(current);
+      prompter.notice(`Shared Tasks: section "${title}" was not inserted. Nothing was written.`);
+      return "settled";
+    }
+    const now = await this.#now(current.path);
+    if (now === null) {
+      await insertion.cancel(current);
+      prompter.notice(
+        "Shared Tasks: the note was deleted while the preview was open. Nothing was inserted.",
+      );
+      return "settled";
+    }
+    if (now.composing) {
+      prompter.notice(invalidationText("composing", "inserted"));
+      this.#step(flow, "writing");
+      return "unknown";
+    }
+    await this.#run(current, flow);
+    return flow.unknown ? "unknown" : "settled";
   }
 
   /**
@@ -661,9 +795,12 @@ export class SectionActions {
     result: InsertResult,
     entry: InsertionEntry,
     preview: InsertPreview,
+    again = false,
   ): Promise<void> {
     const { notes, prompter, services } = this.env;
     this.#notifyInsertion(result);
+    // Nothing was written: the insertion ends (a later insert is a new one).
+    if (result.kind === "stale") await services.insertion()?.cancel(result.entry);
     if (result.kind !== "inserted") return;
     const path = entry.path;
     const after = await this.#now(path);
@@ -674,7 +811,7 @@ export class SectionActions {
       else services.pass(path, after.text);
       line = headingAfter(after.text, entry, line);
     }
-    const text = `Shared Tasks: section "${preview.title}" inserted into "${noteName(path)}".`;
+    const text = `Shared Tasks: section "${preview.title}" inserted into "${noteName(path)}".${again ? " Inserting had not finished before." : ""}`;
     prompter.notice(text, { label: "Open", run: () => void notes.goToLine(path, line) });
     prompter.announce(text);
   }
@@ -1497,12 +1634,7 @@ export class SectionActions {
   async continueFlow(generation: number): Promise<boolean> {
     const flow = this.#flows.byGeneration(generation);
     if (flow === undefined) return false;
-    this.#revealFlow(flow);
-    if (flow.unknown) {
-      this.#changed();
-      await flow.check();
-      this.#changed();
-    }
+    await this.#reveal(flow);
     return true;
   }
 
