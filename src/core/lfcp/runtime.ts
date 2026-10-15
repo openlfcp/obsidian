@@ -15,7 +15,6 @@ import {
   createQueuedDataUnit,
   DataUnitApplier,
   dekResolver,
-  intentsHash,
   isEngineTrap,
   loadControlChain,
   OutboundQueue,
@@ -24,7 +23,6 @@ import {
   type ResourcePhase,
   type ResourceRefusal,
   type RevokeAccessResult,
-  receiptOf,
   type Receipt as SectionReceipt,
   type SnapshotBinding,
   type StatusSnapshot,
@@ -77,7 +75,6 @@ import {
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import type { DiscardResult } from "../sections/create";
-import { keepDurable } from "./durable-commit";
 import { historyRows } from "./history";
 import {
   createInstall,
@@ -1491,8 +1488,8 @@ export class LfcpRuntime {
       resourceId: resource,
       applier,
       checkpointer,
-      // LFCP-03-033: a batch stored durably is never reverted in the model.
-      commit: keepDurable(profile.commitBinding(principal.id) as CommitBinding<unknown>),
+      // LFCP-03-033: SDK 0.2.1 never reverts a batch it has stored (LFCP-03-034).
+      commit: profile.commitBinding(principal.id) as CommitBinding<unknown>,
       // LFCP-02-097: a joiner loads the section's Snapshot and fetches only the tail.
       snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
     };
@@ -1530,19 +1527,10 @@ export class LfcpRuntime {
     if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
-      try {
-        return await this.#session(opened.url).client.commit(resource, intents, options);
-      } catch (e) {
-        // An engine trap is never a commit's answer: #engine blocks the runtime.
-        if (isEngineTrap(e)) throw e;
-        // LFCP-03-033: stored, then a later step threw (durable-commit.ts):
-        // the batch is committed and goes out with the next connection.
-        const receipt = await receiptOf(this.#ready().storage, resource, options.operationId).catch(
-          () => undefined,
-        );
-        if (receipt === undefined || receipt.intentsHash !== intentsHash(intents)) throw e;
-        return receipt;
-      }
+      // LFCP-03-033: once stored, SDK 0.2.1 answers the receipt even when a
+      // later step fails (LFCP-03-034); only an engine trap rejects then, and
+      // #engine blocks the runtime on it.
+      return await this.#session(opened.url).client.commit(resource, intents, options);
     });
   }
 
