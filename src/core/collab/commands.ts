@@ -27,6 +27,7 @@ import {
   planBatchShare,
   tasksToInsert,
 } from "./batch";
+import { JoinFlow } from "./join-flow";
 import { attachToTask, detachExact, taskAt, unitPlacement } from "./markdown";
 import { plainError, REMOVED_REJOIN } from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
@@ -177,16 +178,25 @@ export class CollabCommands {
   readonly #env: CommandEnv;
   /** An invitation being created: a second "Invite collaborator" meanwhile makes no second one. */
   #inviting = false;
-  /** A join running (F-C04): a second "Join collaboration" meanwhile claims no second link. */
-  #joining = false;
   /** The invitation being made, as the pane shows it; null when none is. */
   #invitation: InvitationState | null = null;
   /** The Resources (hex) whose last invitation's link was copied in this session (I3). */
   readonly #copied = new Set<string>();
   readonly #invitationListeners = new Set<() => void>();
+  /**
+   * The one join (F-C04, LFCP-03-015): the palette's dialogs and the pane's
+   * field hold the same lock, so a second join meanwhile claims no second
+   * link; the pane follows its stages.
+   */
+  readonly joins: JoinFlow;
 
   constructor(env: CommandEnv) {
     this.#env = env;
+    this.joins = new JoinFlow({
+      collab: () => env.collab(),
+      notice: (text) => env.prompter.notice(text),
+      ...(env.joined === undefined ? {} : { joined: env.joined }),
+    });
   }
 
   #collab(): Collaboration | null {
@@ -346,14 +356,27 @@ export class CollabCommands {
   }
 
   joinCollaboration(): Promise<void> {
-    if (this.#joining) {
+    const release = this.joins.hold();
+    if (release === null) {
       this.#env.prompter.notice("Shared Tasks: a join is in progress. Finish it first.");
       return Promise.resolve();
     }
-    this.#joining = true;
-    return this.#join().finally(() => {
-      this.#joining = false;
-    });
+    return this.#join().finally(release);
+  }
+
+  /** The pane's "Join with a link…": its field for a pasted link, no dialog (I5). */
+  openJoin(): void {
+    this.joins.open();
+  }
+
+  /** "Check the result" of the join `generation` whose claim's answer was lost (I7). */
+  checkJoin(generation: number): Promise<void> {
+    return this.joins.checkResult(generation);
+  }
+
+  /** The joined section's next step was taken (an insert started): the join flow ends. */
+  joinPlaced(): void {
+    this.joins.placed();
   }
 
   #join(): Promise<void> {
@@ -377,12 +400,12 @@ export class CollabCommands {
       if (name === null) return;
       const progress = p.progress("Joining collaboration");
       try {
-        const outcome = await collab.join(link, {
+        // The pane follows the same join (its stages, the section joined: D9).
+        const outcome = await this.joins.run(link, {
           name,
+          from: "palette",
           onStage: (s) => progress.update(STAGE_TEXT[s]),
         });
-        if (outcome.kind === "joined" && outcome.section !== undefined)
-          this.#env.joined?.(outcome.resourceId);
         p.notice(
           outcome.kind === "joined"
             ? outcome.section !== undefined
