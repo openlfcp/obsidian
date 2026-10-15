@@ -53,9 +53,13 @@ the settings to share a section."
    heading under the cursor or an exact selection.
 3. Click **Share**. The notice says `section "Launch plan" is shared.`
 
-The section always runs from its heading to the next heading of the same or
-a higher level. A selection does not change that. A smaller heading inside
-it blocks sharing: "Line N is a heading inside the section. Share each part
+Without a selection, the section runs from its heading to the next heading
+of the same or a higher level. A selection that starts at the heading and
+ends on whole lines, inside that heading's section, is shared exactly as
+selected; the text after it under the same heading stays private. Any other
+selection is refused with its reason, and "Share the whole section…" is
+offered where it applies; it is never widened by itself. A smaller heading
+inside it blocks sharing: "Line N is a heading inside the section. Share each part
 as its own section, or end the section before it."
 
 After sharing, the heading carries a **double tick ✓✓**. Your note also
@@ -97,7 +101,8 @@ exists; to stop sharing it, remove people's access.
 
 Send the link to Bob privately. One-time link, does not expire; whoever
 opens it first joins. Treat it like a password. After **Copy link** the pane
-says "Link copied": the link is not sent for you.
+says "Link copied": the link is not sent for you. "Ready to invite" and
+"Link copied" are shown only until Obsidian restarts.
 
 You can only invite once the section is on its server. Until then, the
 dialog says "This section is still being created. Invite once it is ready."

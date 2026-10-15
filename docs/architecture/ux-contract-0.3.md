@@ -455,7 +455,9 @@ preview (MARKDOWN-SECTIONS-01 §8).
   in its dialog." (A4: one invitation at a time). "Link copied" follows
   "Copy link" (I3). A range with 0.1 shared Tasks is shared only through
   the existing explicit import, which makes new Tasks with new identities;
-  the pane says so before it opens.
+  the pane says so before it opens. "Ready to invite" and "Link copied"
+  are kept only for the current session: after a restart the pane says
+  only what the hosting and access facts say.
 
 ## 10. Scope boundaries
 
