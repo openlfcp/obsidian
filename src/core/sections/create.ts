@@ -499,12 +499,12 @@ export class SectionCreation {
     return bindings === null ? null : composeChanges(strip, bindings);
   }
 
-  /** The creations not finished yet, to resume or to show. */
   /** The entry as the journal holds it now (a reconcile of an unknown outcome resumes it), if any. */
   async current(operationId: string): Promise<CreationEntry | undefined> {
     return (await this.deps.journal.get(entryKey(operationId))) as CreationEntry | undefined;
   }
 
+  /** The creations not finished yet, to resume or to show. */
   async unfinished(): Promise<CreationEntry[]> {
     const out: CreationEntry[] = [];
     for (const id of ids(await this.deps.journal.get(OPEN))) {
