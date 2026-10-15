@@ -387,6 +387,43 @@ Rules:
   sends the note's differences as this vault's edits; it says that the
   pane and the card show whether they were sent, and promises nothing more.
 
+### 5.3 First use and tips (LFCP-03-021)
+
+The pane explains what an action does when it offers it, in one short tip
+(`src/core/pane/hints.ts`). The words are in the code and checked by
+`test/core/pane/hints.test.ts` and the vocabulary scan.
+
+| Tip ID | Shown when (the first that applies) | Says |
+| --- | --- | --- |
+| `share-preview` | A share preview is shown and the primary action is `share-section` | Sharing makes this part of the note a shared section; people invited insert it into a note of their own; each note keeps a copy, synced through the sync server shown |
+| `insert-copies` | The primary action is `insert-into-note` | It adds a copy to the chosen note; the rest of that note stays private; more notes later |
+| `invite-link` | The primary action is `invite` | It makes a one-time link; Shared Tasks does not send it |
+| `section-copy` | The cursor is inside a section | Inside is shared, outside stays in this note; ✓✓ means shared, not seen |
+| `first-use` | The section list is read and empty | Where to start: Share section… from a heading (the heading, every line under it and lines added later; comments local by default, C3), or Join with a link… |
+
+- **G1. First use leads to share and join.** With the list read and empty,
+  its summary says "No shared sections on this device yet. Share one from
+  a note, or join one with a link." This sentence is not a tip and always
+  shows. While the list is read, nothing says it is empty (U03-02).
+- **G2. One tip, never over a problem.** At most one tip shows. None shows
+  while a problem line, a problem row, a preview problem or held edits are
+  shown, or while a running flow or one with an unknown result holds the
+  current area. A tip states no status and claims no delivery or reading
+  (§10).
+- **G3. Hide and bring back.** "Hide tip" hides that tip in this vault:
+  its ID goes to the plugin's settings (`dismissedHints` in `data.json`),
+  and the next tip that applies may show. "Show tips again", in the pane's
+  Help area and in the settings tab, empties the list. Problems, held edits,
+  the effects of a change (C6), the one-time-link sentence (I1) and every
+  disabled action's reason are not tips and cannot be hidden.
+- **G4. Local and migrated.** `normalizeSettings` reads an absent list
+  (0.4 and earlier) as none hidden, keeps well-formed IDs of other
+  versions, and drops anything else; no other setting, key, journal or
+  stored note changes. A tip whose meaning changes gets a new ID.
+- **G5. No tour, no telemetry, no wizard.** Installing or upgrading opens
+  no pane, dialog or tour; nothing about tips is sent; the sync server is
+  chosen in the settings as before.
+
 ## 6. Status facts and what may be said
 
 The pane, the card and the badge read one status path: `StatusView` and its
