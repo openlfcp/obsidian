@@ -1013,7 +1013,13 @@ export class SectionsHost {
       const { access, hosting } = await this.#accessList(
         fromBase64url(key.slice(0, key.indexOf("#"))) as ResourceId,
       );
-      return { canInvite: access.invite, hosting: hosting ?? "unknown" };
+      return {
+        canInvite: access.invite,
+        hosting: hosting ?? "unknown",
+        canRemove: access.remove,
+        removeNote: access.removeNote,
+        freshness: access.freshness,
+      };
     },
     readable: (key) => key.includes("#") && this.#statuses.has(key),
     changed: () => {

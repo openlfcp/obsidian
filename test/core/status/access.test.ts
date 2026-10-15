@@ -170,6 +170,19 @@ describe("the access list (060)", () => {
     expect(v.invite).toBe(false);
     expect(v.inviteNote).toBe("You can't invite others to this section.");
     expect(v.rows.every((r) => !r.removable)).toBe(true);
+    // LFCP-03-019: what the pane reads: this vault removes nobody.
+    expect(v.remove).toBe(false);
+  });
+
+  it("LFCP-03-019: removing as the pane reads it: by the rows, unknown while the view is", () => {
+    expect(accessView(input()).remove).toBe(true);
+    // Removing waits (offline): still a vault that may remove; the reason is removeNote.
+    const offline = accessView(input({ connected: false }));
+    expect(offline.remove).toBe(true);
+    expect(offline.removeNote).not.toBeNull();
+    expect(accessView(input({ mine: null })).remove).toBeNull();
+    // The owner alone: nobody to remove.
+    expect(accessView(input({ participants: [] })).remove).toBe(false);
   });
 
   it("removing waits for a connected, current view with no access change pending (UX §7)", () => {

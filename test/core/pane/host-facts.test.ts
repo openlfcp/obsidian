@@ -26,7 +26,7 @@ import {
 import type { RegistrySnapshot } from "../../../src/core/sections/registry-view";
 import type { TargetCapture } from "../../../src/core/sections/target";
 import { headingBadge } from "../../../src/core/status/badge";
-import { sectionCard } from "../../../src/core/status/card";
+import { rightsFact, sectionCard } from "../../../src/core/status/card";
 import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -182,6 +182,54 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(
       all(invite({ canInvite: true, hosting: "hosted" }, refused)).find((a) => a.id === "invite"),
     ).toMatchObject({ enabled: false });
+  });
+
+  it("LFCP-03-019: access freshness, rights and Remove access are the card's, from the access list", () => {
+    const facts = (access?: PaneAccess, view = current) =>
+      hostPaneFacts({
+        note: note(4),
+        registry: registry(),
+        status: () => view,
+        ...(access === undefined ? {} : { access: () => access }),
+      });
+    const freshness = "Access verified with the server at 14:02:00.";
+    const read = facts({
+      canInvite: true,
+      hosting: "hosted",
+      canRemove: true,
+      removeNote: null,
+      freshness,
+    });
+    const m = paneModel(read);
+    const texts = m.status.map((l) => l.text);
+    const card = sectionCard({ title: "Launch", view: current, resource: "R", sectionId: "S" });
+    // The rights sentence is the card's, and so is the freshness of the list once read.
+    expect(texts).toContain(rightsFact(current));
+    expect(card.facts).toContain(rightsFact(current));
+    expect(texts).toContain(freshness);
+    expect(m.menu.find((a) => a.id === "remove-access")).toMatchObject({ enabled: true });
+    // Removing waits as the card says it; nobody to remove: not offered at all.
+    const waits =
+      "Removing access waits until this device's earlier access change is recorded by the server.";
+    const pending = paneModel(
+      facts({ canInvite: true, hosting: "hosted", canRemove: true, removeNote: waits }),
+    );
+    expect(pending.menu.find((a) => a.id === "remove-access")).toMatchObject({
+      enabled: false,
+      reason: waits,
+    });
+    const nobody = paneModel(facts({ canInvite: true, hosting: "hosted", canRemove: false }));
+    expect(nobody.menu.find((a) => a.id === "remove-access")).toBeUndefined();
+    // Not read yet: neither offered as done nor hidden as denied.
+    expect(paneModel(facts()).menu.find((a) => a.id === "remove-access")).toMatchObject({
+      enabled: false,
+      reason: "Removing access waits until this device has checked access with the server.",
+    });
+    // A reader is told so on both surfaces, in the same words.
+    const reader = statusView({ ...currentFacts, access: "reader" });
+    expect(paneModel(facts(undefined, reader)).status.map((l) => l.text)).toContain(
+      "You can read this section, not edit it.",
+    );
   });
 
   it("N3: before its shared title loads a section is named by its alias, with the qualifier", () => {

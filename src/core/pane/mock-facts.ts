@@ -45,7 +45,11 @@ export interface FixtureSection {
   readonly heldCheck: HeldCheck;
   readonly placements: number | null;
   readonly access: StatusView["access"];
-  readonly accessView: { readonly canInvite: boolean | null };
+  readonly accessView: {
+    readonly canInvite: boolean | null;
+    /** Whether this vault may remove someone's access (AccessView.remove); absent: not known. */
+    readonly canRemove?: boolean | null;
+  };
   readonly connection: StatusFacts["connection"];
   readonly connectionQualifier: ConnectionQualifier | null;
   readonly refusal: string | null;
@@ -173,6 +177,7 @@ export function paneSectionOf(s: FixtureSection): PaneSection {
     placements: s.placements,
     view: statusView(statusFactsOf(s)),
     canInvite: s.accessView.canInvite,
+    ...(s.accessView.canRemove === undefined ? {} : { canRemove: s.accessView.canRemove }),
     ...(s.hosting === undefined ? {} : { hosting: s.hosting }),
   };
 }

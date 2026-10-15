@@ -1434,6 +1434,10 @@ export class SectionActions {
         placements: null,
         view: content.view,
         canInvite: content.access?.invite ?? null,
+        // Removing access: the access list's guard, as the pane reads it (LFCP-03-019).
+        ...(content.access === undefined
+          ? {}
+          : { canRemove: content.access.remove, removeNote: content.access.removeNote }),
         ...(content.hosting === undefined ? {} : { hosting: content.hosting }),
       },
       {

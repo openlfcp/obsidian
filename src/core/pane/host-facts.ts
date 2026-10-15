@@ -54,6 +54,12 @@ import { type NoteRepairs, type PaneProblem, paneProblems } from "./problems";
 export interface PaneAccess {
   readonly canInvite: boolean | null;
   readonly hosting: "hosted" | "pending" | "unknown";
+  /** Whether this vault may remove someone's access (AccessView.remove); null: not known. */
+  readonly canRemove?: boolean | null;
+  /** Why removing waits now (AccessView.removeNote), the card's words; null: it does not wait. */
+  readonly removeNote?: string | null;
+  /** How fresh the access list is (AccessView.freshness), the card's sentence. */
+  readonly freshness?: string;
 }
 
 /**
@@ -236,6 +242,10 @@ function sectionOf(
     // The access list's (AccessView, the card's): unknown until read, never a default.
     canInvite: access?.canInvite ?? null,
     ...(access === undefined ? {} : { hosting: access.hosting }),
+    // Removing and the access list's freshness: the card's facts, from the same reading.
+    ...(access?.canRemove === undefined ? {} : { canRemove: access.canRemove }),
+    ...(access?.removeNote === undefined ? {} : { removeNote: access.removeNote }),
+    ...(access?.freshness === undefined ? {} : { accessFreshness: access.freshness }),
     ...(journey?.shared === undefined ? {} : { shared: journey.shared }),
     ...(journey?.linkCopied === true ? { linkCopied: true } : {}),
   };

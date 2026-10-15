@@ -154,18 +154,29 @@ describe("pane view model rules beyond the fixtures", () => {
     );
   };
 
-  it("enables Remove access only when this vault surely may manage access", () => {
+  it("LFCP-03-019: Remove access by the access list's own guards, not by inviting", () => {
     const healthy = state("healthy-can-invite");
     const section = healthy.section;
     if (section === null) throw new Error("no section");
+    const remove = (over: Partial<NonNullable<PaneFacts["section"]>>) =>
+      find({ ...healthy, section: { ...section, ...over } }, "remove-access");
     expect(find(healthy, "remove-access")?.enabled).toBe(true);
-    const unknown = find({ ...healthy, section: { ...section, canInvite: null } }, "remove-access");
+    // Removing needs capability/revoke, inviting capability/grant: one does not stand for the other.
+    expect(remove({ canInvite: false })?.enabled).toBe(true);
+    expect(remove({ canInvite: true, canRemove: false })).toBeUndefined();
+    const unknown = remove({ canRemove: null });
     expect(unknown?.enabled).toBe(false);
     expect(unknown?.reason).toBe(
       "Removing access waits until this device has checked access with the server.",
     );
-    expect(find({ ...healthy, section: { ...section, canInvite: false } }, "remove-access")).toBe(
-      undefined,
+    // The card's reason when it waits (an earlier access change not recorded yet), word for word.
+    const pending = remove({
+      removeNote:
+        "Removing access waits until this device's earlier access change is recorded by the server.",
+    });
+    expect(pending?.enabled).toBe(false);
+    expect(pending?.reason).toBe(
+      "Removing access waits until this device's earlier access change is recorded by the server.",
     );
   });
 

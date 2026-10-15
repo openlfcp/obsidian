@@ -36,7 +36,13 @@ import {
   selectionReasonText as reasonText,
   type SelectionReason as TargetSelectionReason,
 } from "../sections/target";
-import { CONNECTING_TEXT, heldFact, offlineText, sectionProblems } from "../status/card";
+import {
+  CONNECTING_TEXT,
+  heldFact,
+  offlineText,
+  rightsFact,
+  sectionProblems,
+} from "../status/card";
 import { type Condition, STATE_LABEL, type StatusState, type StatusView } from "../status/reducer";
 import {
   FLOW_STAGES,
@@ -129,6 +135,15 @@ export interface PaneSection {
   readonly view: StatusView;
   /** From the access list (AccessView), not the status facts; null: not known. */
   readonly canInvite: boolean | null;
+  /**
+   * Whether this vault may remove someone's access, from the access list
+   * (AccessView.remove, LFCP-03-019); null or absent: not known.
+   */
+  readonly canRemove?: boolean | null;
+  /** Why removing access waits now, in the card's words (AccessView.removeNote); null: it does not. */
+  readonly removeNote?: string | null;
+  /** The access list's freshness sentence, as the card says it (AccessView.freshness). */
+  readonly accessFreshness?: string;
   /** On its server ("pending": a local-only share, not an invitation that is ready, I4). */
   readonly hosting?: "hosted" | "pending" | "unknown";
   /**
@@ -374,11 +389,14 @@ function statusLines(s: PaneSection, o: PaneOptions, invitable: boolean): PaneLi
       text: "Current as last checked with the server. This does not mean others have seen it.",
       tone: "ok",
     });
-  if (v.access.access === "reader")
-    info.push({ text: "You can read this section, not edit it.", tone: "info" });
+  // LFCP-03-019: this vault's rights in the card's words (one sentence on both surfaces).
+  if (v.access.access !== "unknown") info.push({ text: rightsFact(v), tone: "info" });
   if (kinds.has("access-checking"))
     info.push({ text: "Access is being checked with the server.", tone: "info" });
-  if (v.access.current === false && v.access.verifiedAt !== null && !denied) {
+  // The access list's freshness, as the card says it, once read; before, the status's as-of.
+  if (s.accessFreshness !== undefined && !denied)
+    info.push({ text: s.accessFreshness, tone: "info" });
+  else if (v.access.current === false && v.access.verifiedAt !== null && !denied) {
     const time = (o.time ?? ((ms: number) => new Date(ms).toLocaleString()))(v.access.verifiedAt);
     info.push({ text: `Access as last verified ${time}; it may have changed.`, tone: "info" });
   }
