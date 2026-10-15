@@ -197,6 +197,8 @@ describe("prototype flows, walked with the pane's buttons only", () => {
     expect(primary()).toBeNull();
     expect(text()).toContain("Claim the invitation with the server…");
     control(/finish/);
+    expect(text()).toContain("Open the section with the access granted…");
+    control(/finish/);
     control(/finish/);
     expect(text()).toContain("Sprint");
     expect(text()).toContain("Not inserted yet");
@@ -216,6 +218,7 @@ describe("prototype flows, walked with the pane's buttons only", () => {
     draw();
     proto.act("join-with-link");
     proto.join("lfcp://join/synthetic-link");
+    proto.control("finish-step");
     proto.control("finish-step");
     proto.control("finish-step");
     control(/Continue later/);

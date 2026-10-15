@@ -9,6 +9,8 @@
 //     its access list's facts (canInvite, hosting), unknown until read;
 //   - the share and insert flows (SectionActions.flows()): the one the pane
 //     holds (pinned) owns the current area, the others are listed;
+//   - the join flow (CollabCommands.joins, LFCP-03-015): while it is open it
+//     owns the current area, unless the pane holds a running share or insert;
 //   - the section chosen in the list and the one just joined (D9);
 //   - the host's running state (HostFacts, the descriptors' guard).
 //
@@ -20,6 +22,7 @@
 import type { ActionId } from "../actions/catalog";
 import { type HostFacts, RUNNING } from "../actions/descriptors";
 import type { ActionRequest } from "../actions/dispatcher";
+import type { JoinFlowState } from "../collab/join-flow";
 import { contentHash } from "../projection/guard";
 import type { ActiveFlow } from "../sections/actions";
 import { sectionAtLine } from "../sections/context";
@@ -72,8 +75,38 @@ export interface PaneJourney {
   readonly linkCopied?: boolean;
 }
 
+/**
+ * The join flow (collab/join-flow.ts JoinFlowState, LFCP-03-015) as the
+ * pane reads it: its stage, the facts confirmed so far and the problem it
+ * stopped at. Never the link.
+ */
+export interface PaneJoin {
+  readonly generation: number;
+  readonly stage: string;
+  readonly outcome: "running" | "unknown";
+  readonly facts: readonly string[];
+  readonly problem: string | null;
+  readonly checking: boolean;
+}
+
+/** The join flow's state as the pane reads it; null when no join is open. */
+export function paneJoinOf(s: JoinFlowState | null): PaneJoin | null {
+  return s === null
+    ? null
+    : {
+        generation: s.generation,
+        stage: s.stage,
+        outcome: s.outcome,
+        facts: s.facts,
+        problem: s.problem,
+        checking: s.checking,
+      };
+}
+
 /** What the pane host reads, each time the pane redraws. */
 export interface PaneHostSources {
+  /** The join flow open now, or none. */
+  readonly join?: PaneJoin | null;
   /** The share and insert flows running, or whose result is being reconciled (SectionActions.flows()). */
   readonly flows?: readonly ActiveFlow[];
   /** The flow the pane holds (its generation): it keeps the current area until it ends (P2, T2). */
@@ -284,6 +317,16 @@ function pickFlow(
 const confirmedOf = (i: PaneInvitation): { confirmed?: boolean } =>
   i.confirmed === null ? {} : { confirmed: i.confirmed };
 
+const joinFlow = (j: PaneJoin): PaneFlow => ({
+  kind: "join",
+  stage: j.stage,
+  outcome: j.outcome,
+  generation: j.generation,
+  facts: j.facts,
+  problem: j.problem,
+  checking: j.checking,
+});
+
 const paneFlow = (f: ActiveFlow): PaneFlow => ({
   kind: f.kind,
   stage: f.step,
@@ -315,13 +358,16 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     (chosen === null ? null : rowFocus(rows, (r) => (r.key ?? r.resource) === chosen)) ??
     (joined === null ? null : rowFocus(rows, (r) => r.resource === joined));
   const flows = src.flows ?? [];
-  const flow = pickFlow(flows, src.pinned ?? null, note?.path ?? null);
-  // An invitation under way owns the current area (its dialog is open), unless the
-  // pane holds a running share or insert (P5): it is not one of SectionActions' flows.
+  const picked = pickFlow(flows, src.pinned ?? null, note?.path ?? null);
+  // The order of the current area (P5): a running share or insert the pane holds; else an
+  // invitation under way (its dialog is open); else an open join (LFCP-03-015). Neither of
+  // the last two is one of SectionActions' flows; the one that does not own the area is listed.
+  const held = picked !== null && picked.generation === src.pinned && picked.outcome === "running";
   const invitation = src.invitation ?? null;
-  const inviting =
-    invitation !== null &&
-    (flow === null || flow.generation !== src.pinned || flow.outcome !== "running");
+  const inviting = invitation !== null && !held;
+  const join = src.join ?? null;
+  const joining = join !== null && !held && !inviting;
+  const flow = joining ? null : picked;
   const others = flows.filter((f) => f !== flow);
   const context: PaneContext = {
     editor: note === null ? "none" : note.mode,
@@ -343,9 +389,11 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
           dialog: true,
           ...confirmedOf(invitation),
         }
-      : flow === null
-        ? null
-        : paneFlow(flow),
+      : joining
+        ? joinFlow(join)
+        : flow === null
+          ? null
+          : paneFlow(flow),
   };
   // The share preview, while the context offers a share and no flow owns the area (LFCP-03-014).
   const preview =
@@ -355,7 +403,11 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     (context.selection === null && context.cursor !== "private-heading")
       ? undefined
       : previewOf(note, shareScope(note.text, note.cursorLine, note.selections), src.policy);
-  const unfinished = inviting && flow !== null ? [flow, ...others] : others;
+  // A join that does not own the area (an invitation or a held flow does) is listed with them.
+  const unfinished = [
+    ...(inviting && flow !== null ? [flow, ...others] : others).map(paneFlow),
+    ...(join !== null && !joining ? [joinFlow(join)] : []),
+  ];
   const section = at === null ? null : sectionOf(at, rows, src);
   const problems = paneProblems({
     // A section whose status is not computed yet has no problems to claim.
@@ -367,10 +419,11 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     context,
     registry: registryOf(src.registry),
     section,
-    ...(unfinished.length === 0 ? {} : { unfinished: unfinished.map(paneFlow) }),
+    ...(unfinished.length === 0 ? {} : { unfinished }),
     host: src.host ?? RUNNING,
     ...(preview === undefined ? {} : { preview }),
     ...(problems.length === 0 ? {} : { problems }),
+    insertIntoNoteInView: true,
   };
   const base: ActionRequest = {
     ...(note === null ? {} : { target: note }),
@@ -385,6 +438,8 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
       flowAction(flow.kind, flow.step) === id
     )
       return { flow: flow.generation };
+    if (id === "check-result" && joining && join.outcome === "unknown")
+      return { join: join.generation };
     if (id === "check-result" && flow?.outcome === "unknown") return { flow: flow.generation };
     if (id === "continue-flow") {
       const next = others[0] ?? flow;
@@ -397,7 +452,12 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     request,
     identity: (id) => {
       const r = request(id);
-      return JSON.stringify([r.target?.path ?? null, r.section?.key ?? null, r.flow ?? null]);
+      return JSON.stringify([
+        r.target?.path ?? null,
+        r.section?.key ?? null,
+        r.flow ?? null,
+        r.join ?? null,
+      ]);
     },
     problemRequest: (problemId) => {
       const p = problems.find((x) => x.id === problemId);

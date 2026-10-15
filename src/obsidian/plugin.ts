@@ -32,6 +32,7 @@ import type { ActionId } from "../core/actions/catalog";
 import type { HostFacts } from "../core/actions/descriptors";
 import { ActionDispatcher, coreHandlers, type HostEntry } from "../core/actions/dispatcher";
 import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
+import type { JoinFlow } from "../core/collab/join-flow";
 import { Collaboration } from "../core/collab/service";
 import { rehostNotice } from "../core/collab/view";
 import { COMMANDS } from "../core/commands";
@@ -44,7 +45,7 @@ import {
 import { collectDiagnostics } from "../core/diagnostics-collect";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
-import { hostPane, wiredModel } from "../core/pane/host-facts";
+import { hostPane, paneJoinOf, wiredModel } from "../core/pane/host-facts";
 import { paneModel } from "../core/pane/model";
 import { ConflictRegistry } from "../core/projection/conflicts";
 import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
@@ -179,6 +180,7 @@ export default class OpenLfcpPlugin extends Plugin {
           }),
     });
     this.#commands = ui;
+    this.#joins = ui.joins;
     this.actions = new ActionDispatcher(
       coreHandlers({
         sections: () => this.sections?.actions ?? null,
@@ -360,6 +362,10 @@ export default class OpenLfcpPlugin extends Plugin {
     const port: PaneHostPort = {
       snapshot: (view, ui) => this.#pane(this.#paneNote(view), ui),
       run: (id, request) => this.actions.run(id, request, "pane"),
+      join: {
+        submit: (link, name) => void this.#joins?.submit(link, name),
+        dismiss: (generation) => void this.#joins?.dismiss(generation),
+      },
       sources: [
         (changed) => {
           const off = this.sections?.registry.onChange(() => changed());
@@ -377,6 +383,11 @@ export default class OpenLfcpPlugin extends Plugin {
         // An invitation started, moved to its link, was copied or ended (LFCP-03-014).
         (changed) => {
           const off = this.#commands?.onInvitationChange(() => changed(true));
+          return () => void off?.();
+        },
+        // The join moved to another stage, stopped or ended (LFCP-03-015): drawn at once.
+        (changed) => {
+          const off = this.#joins?.onChange(() => changed(true));
           return () => void off?.();
         },
         (changed) => {
@@ -450,10 +461,14 @@ export default class OpenLfcpPlugin extends Plugin {
 
   /** The collaboration commands (the invitation the pane follows, LFCP-03-014); null before onload. */
   #commands: CollabCommands | null = null;
+  /** The one join flow (CollabCommands.joins): the pane shows it (LFCP-03-015). */
+  #joins: JoinFlow | null = null;
 
   /** A shared section was joined on this device (its Resource): the pane is about it now (D9). */
   sectionJoined(R: ResourceId): void {
     this.#justJoined = toBase64url(R);
+    // Listed at once, as not inserted yet, without waiting for another registry event.
+    this.sections?.registryChanged?.();
     this.#nudgePane();
   }
 
@@ -508,18 +523,21 @@ export default class OpenLfcpPlugin extends Plugin {
       pinned: ui.pinned,
       chosen: ui.chosen,
       justJoined: this.#justJoined,
+      join: paneJoinOf(this.#joins?.state() ?? null),
     });
     // With shared sections off on this device, only joining runs from the pane.
     const model = wiredModel(
       paneModel(drawing.facts),
       (id) => this.actions.handles(id) && (s !== null || id === "join-with-link"),
     );
+    const flow = drawing.facts.context.flow;
     return {
       model,
       request: drawing.request,
       identity: drawing.identity,
       problemRequest: drawing.problemRequest,
       pinned: drawing.pinned,
+      join: flow?.kind === "join" ? (flow.generation ?? null) : null,
     };
   }
 

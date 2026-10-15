@@ -118,6 +118,11 @@ export interface ActionFacts {
   readonly unfinished?: readonly PaneFlow[];
   /** The host's running state; absent: running, not read-only, with a server. */
   readonly host?: HostFacts;
+  /**
+   * "Insert into a note…" goes into the note in view (the plugin today); absent: the
+   * insert chooses its note itself (the prototype; task 016).
+   */
+  readonly insertIntoNoteInView?: boolean;
 }
 
 /**
@@ -226,9 +231,11 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
   // A2: join stays in the header; a join already under way is revealed, never started twice (A4).
   "join-with-link": (d) => {
     if (d.next === "join-with-link") return ENABLED;
-    if (d.flow?.kind === "join" && d.flow.outcome !== "unfinished")
+    // Joined, waiting only for a place: another link may be joined; the section stays listed.
+    const placing = d.running?.kind === "join" && d.running.stage === "choose-place";
+    if (d.flow?.kind === "join" && d.flow.outcome !== "unfinished" && !placing)
       return disabled("A join is in progress. Finish it first.");
-    if (d.flow?.kind === "join") return disabled("A join is unfinished: continue it.");
+    if (d.flow?.kind === "join" && !placing) return disabled("A join is unfinished: continue it.");
     return guarded({}, () => ENABLED)(d);
   },
   "share-section": (d) => {
@@ -259,7 +266,11 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
     return guarded(shareNeeds, () => ENABLED)(d);
   },
   "insert-into-note": (d) => {
-    if (d.next === "insert-into-note") return ENABLED;
+    // A joined section's next step goes into the note in view (LFCP-03-015): there must be one.
+    if (d.next === "insert-into-note")
+      return d.running?.kind === "join" && !d.noteOpen && d.f.insertIntoNoteInView === true
+        ? disabled("Open a note to insert the section into.")
+        : ENABLED;
     if (d.flow?.kind === "insert" && d.flow.outcome === "unknown")
       return disabled("This note already has a section being inserted. Finish that first.");
     if (d.flow?.kind === "insert" && d.flow.outcome === "unfinished")

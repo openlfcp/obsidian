@@ -13,8 +13,9 @@
 // Reservations (OBSIDIAN-UX-ARCHITECTURE-03 §4), held by the handlers:
 //   share, import   the note (SectionActions, one flow per note identity)
 //   insert          the target note (the same reservation)
-//   join            one join flow per workspace (CollabCommands#joining):
-//                   the Resource is known only once the link is parsed
+//   join            one join flow per workspace (CollabCommands.joins, the
+//                   palette's dialogs and the pane's field alike): the
+//                   Resource is known only once the link is parsed
 //   invite          the existing invitation lock (CollabCommands#oneInvitation)
 // A repeated start of a running flow reveals it; one whose result is
 // unknown is checked again, never started as a new operation (D12).
@@ -49,6 +50,8 @@ export interface ActionRequest {
   readonly section?: { readonly key: string; readonly title: string };
   /** The flow a "Check the result" or "Continue" was drawn for (ActiveFlow.generation). */
   readonly flow?: number;
+  /** The join flow a "Check the result" was drawn for (JoinFlowState.generation, LFCP-03-015). */
+  readonly join?: number;
   /** A place the surface points at (the card's held copy): a note and its 0-based line. */
   readonly at?: { readonly path: string; readonly line: number };
   /**
@@ -61,11 +64,23 @@ export interface ActionRequest {
 /** A surface an action is run from; it changes nothing about the handler (U03-07). */
 export type Surface = "palette" | "card" | "menu" | "pane";
 
-export type ActionHandler = (request: ActionRequest) => Promise<void>;
+/**
+ * One action's handler. `surface` changes nothing about its guards or its
+ * reservation; it only says where the user is (join: the pane's own field,
+ * the palette's dialog).
+ */
+export type ActionHandler = (request: ActionRequest, surface: Surface) => Promise<void>;
 
 /** The collaboration commands the dispatcher reaches (CollabCommands). */
 export interface CollabEntry {
+  /** "Join collaboration" through its masked dialog (the palette). */
   joinCollaboration(): Promise<void>;
+  /** The pane's field for a pasted link (I5): the same join lock as the dialog. */
+  openJoin?(): void;
+  /** "Check the result" of join flow `generation`: the same claim, from its journal (I7). */
+  checkJoin?(generation: number): Promise<void>;
+  /** A joined section's next step was taken (an insert started): the join flow ends. */
+  joinPlaced?(): void;
   /** "Invite collaborator" with a choice of Resource (the palette). */
   inviteCollaborator(): Promise<void>;
   /** "Invite collaborator" for one Resource (the card, the pane). */
@@ -101,9 +116,9 @@ export class ActionDispatcher {
    * action without a handler here does nothing. The handler checks its
    * guards again before any effect.
    */
-  run(id: ActionId, request: ActionRequest = {}, _surface: Surface = "palette"): Promise<void> {
+  run(id: ActionId, request: ActionRequest = {}, surface: Surface = "palette"): Promise<void> {
     const handler = this.handlers[id];
-    return handler === undefined ? Promise.resolve() : handler(request);
+    return handler === undefined ? Promise.resolve() : handler(request, surface);
   }
 }
 
@@ -154,7 +169,11 @@ export function coreHandlers(env: {
   return {
     "share-section": withTarget((a, at) => a.share(at)),
     "share-whole-section": withTarget((a, at) => a.shareWholeSection(at)),
-    "insert-into-note": withTarget((a, at) => a.insertSection(at)),
+    "insert-into-note": withTarget((a, at) => {
+      // A joined section's next step (LFCP-03-015): the join flow hands over to the insert.
+      env.collab.joinPlaced?.();
+      return a.insertSection(at);
+    }),
     // On the note captured, else on the note a surface names (the card's held copy).
     "repair-sections": async (r) => {
       const a = env.sections();
@@ -216,10 +235,19 @@ export function coreHandlers(env: {
       else if (r.target !== undefined) a.reviewConflictsAt(r.target.text, r.target.cursorLine);
     },
     "check-result": async (r) => {
+      if (r.join !== undefined) {
+        await env.collab.checkJoin?.(r.join);
+        return;
+      }
       const a = env.sections();
       if (a !== null && r.flow !== undefined) await a.checkResult(r.flow);
     },
-    "join-with-link": () => env.collab.joinCollaboration(),
+    // The pane joins in its own field (I5); the palette and the menu through the masked dialog.
+    "join-with-link": async (_r, surface) => {
+      const open = env.collab.openJoin;
+      if (surface === "pane" && open !== undefined) open.call(env.collab);
+      else await env.collab.joinCollaboration();
+    },
     invite: (r) =>
       r.section === undefined
         ? env.collab.inviteCollaborator()
