@@ -51,7 +51,7 @@ export function insertRefusalMessage(refused: InsertRefusal): string {
     case "not-loaded":
       return "Shared Tasks: this section has not fully arrived yet. Try again in a moment.";
     case "not-renderable":
-      return 'Shared Tasks: this section has a conflict to resolve before it can be inserted. Ask a member who already has it in a note to open its details and choose "Review conflicts…", then run "Insert shared section…" again.';
+      return 'Shared Tasks: this section has a conflict to resolve before it can be inserted. Ask a member who already has it in a note to open its details and choose "Review conflicts…", then insert it again.';
   }
 }
 

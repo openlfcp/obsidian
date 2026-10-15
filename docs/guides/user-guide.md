@@ -216,7 +216,7 @@ shared task ref"** to put the marker back under its task.
 | You see | What to do |
 | --- | --- |
 | *not ready yet (starting, or writing is paused on this device)* | Wait a few seconds after starting Obsidian. If it persists, check Settings → Shared Tasks → "Identity on this device" and restart Obsidian. |
-| *no collaboration yet* | Run "Create collaboration" or "Join collaboration" first. |
+| *nothing is shared on this device yet* | Share a section ("Share section…") or tasks ("Create collaboration"), or join with a link ("Join collaboration"), first. |
 | *put the cursor on a task line (- [ ] …) to share it* | The cursor is not on a task. Put it on a line that starts with `- [ ]`. |
 | *this task's lfcp-ref is malformed or duplicated* | The marker was edited or copied. Undo the edit (`Ctrl/Cmd + Z`). If you copied a task line, delete the copied marker and use "Insert shared object" instead. |
 | *could not join* | The reason follows in the notice. Most often the link was already used, since each link works once. Ask for a new one. |

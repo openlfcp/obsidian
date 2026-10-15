@@ -705,7 +705,7 @@ describe("insert (LFCP-03-008 over 052)", () => {
     t.insertion.result = () => Promise.reject(new Error("disk full"));
     await t.actions.insertSection(t.editor.at());
     expect(t.prompter.notices).toEqual([
-      'Shared Tasks: inserting section "Shared" stopped (disk full); whether it was written is not known yet. Insert shared section… on this note checks it again and inserts nothing new.',
+      'Shared Tasks: inserting section "Shared" stopped (disk full); whether it was written is not known yet. Inserting it into this note again checks it and inserts nothing new.',
     ]);
     expect(t.actions.flows()).toMatchObject([{ kind: "insert", outcome: "unknown" }]);
 

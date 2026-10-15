@@ -296,7 +296,7 @@ export class CollabCommands {
       choices.push({ label: "Create a new collaboration…", value: "new" });
     if (choices.length === 0) {
       this.#env.prompter.notice(
-        'Shared Tasks: no collaboration yet. Use "Create collaboration" or "Join collaboration" first.',
+        'Shared Tasks: nothing is shared on this device yet. Share a section with "Share section…", or join with a link ("Join collaboration"), first.',
       );
       return null;
     }
