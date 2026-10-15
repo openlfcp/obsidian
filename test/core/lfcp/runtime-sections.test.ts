@@ -71,6 +71,32 @@ describe("shared-sections Resources in the runtime", () => {
     expect(await receiptOf(again.storage as LfcpStorage, R, "create")).toEqual(receipt);
   });
 
+  it("opens a section once when asked twice at once after a start, so commits reach the model read (LFCP-03-033)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createSectionResource({
+      name: "Launch",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    await r.commitSection(
+      R,
+      [{ intent: "section.create", sectionId: SECTION, title: "Launch", createdBy: me(r) }],
+      { operationId: "create" },
+    );
+    await r.stop();
+    const again = await start(device, local);
+    // The host, a status read and a pass, right after the start.
+    const [a, b] = await Promise.all([again.openSection(R), again.openSection(R)]);
+    expect(b).toBe(a);
+    expect(again.sectionProfile(R)).toBe(a);
+    await again.commitSection(R, [{ intent: "section.set_title", title: "Launch v2" }], {
+      operationId: "rename",
+    });
+    expect(again.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch v2");
+  });
+
   it("a checkpoint that does not load: rebuilt from the stored units, never reusing a sequence (SPEC-PATCH-10)", async () => {
     const device = new Device();
     const local = new FakeLocal();
