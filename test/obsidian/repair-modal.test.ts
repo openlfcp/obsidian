@@ -36,6 +36,8 @@ describe("repair dialog, a section without a base", () => {
   it("only Keep my version when it cannot, and says why", () => {
     const { el, labels } = buttons({ key: "k", title: "Launch", lines, sharedUnavailable: true });
     expect(labels).toEqual(["Keep my version"]);
-    expect(el.textContent).toContain("The shared version cannot be shown here yet.");
+    expect(el.textContent).toContain(
+      "Keep my version keeps this text as it is, and the section asks again once the shared version has loaded.",
+    );
   });
 });

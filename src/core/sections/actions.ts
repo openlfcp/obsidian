@@ -107,6 +107,7 @@ import {
   shareScope,
   type TargetCapture,
 } from "./target";
+import { comparableView } from "./task-fields";
 
 export interface SectionActionEnv {
   readonly prompter: SectionPrompter;
@@ -1315,6 +1316,8 @@ export class SectionActions {
       snap: SectionSnapshot;
       block: string | null;
       taskLines: Record<string, string>;
+      /** A Task the model cannot be drawn for here yet: no base is guessed for it. */
+      waiting: boolean;
     })[] = [];
     const lines = md.split(/\r?\n/);
     for (const s of parseSections(md).sections) {
@@ -1337,11 +1340,16 @@ export class SectionActions {
         .slice(2, -1)
         .join("\n");
       const taskLines: Record<string, string> = {};
+      let waiting = false;
       const walk = (nodes: ParsedSection["nodes"]): void => {
         for (const n of nodes) {
           if (n.kind === "task" && n.id !== null) {
-            const line = modelTaskLine(md, n.lines.from, n.id, tasks);
+            // The renderer leaves a line as it is for an object not here: no model line then.
+            const line = comparableView(model.taskView(b64, n.id))
+              ? modelTaskLine(md, n.lines.from, n.id, tasks)
+              : undefined;
             if (line !== undefined) taskLines[n.id] = line;
+            else waiting = true;
           }
           walk(n.children);
         }
@@ -1356,6 +1364,7 @@ export class SectionActions {
         snap,
         block,
         taskLines,
+        waiting,
       });
     }
     const running = new Set<Promise<void>>();
@@ -1392,6 +1401,18 @@ export class SectionActions {
       shareMine: onNote(async (path, key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
+        if (l.waiting) {
+          // A Task whose shared version is not here yet: a base without its
+          // line would let the model's fields replace the note's once it
+          // arrives (review round 2). The note's text stays as it is, kept
+          // by the engine; the comparison is offered again once it can be made.
+          services.pass(path);
+          prompter.notice(
+            "Shared Tasks: this note's version is kept as it is. A Task in it is still loading; once it has, the section asks again if the two versions differ.",
+          );
+          this.#changed();
+          return;
+        }
         await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap, l.taskLines));
         services.pass(path);
         // F2: no promise that the held edits go out; the pane and the card show what the next pass did.
