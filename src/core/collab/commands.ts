@@ -387,14 +387,16 @@ export class CollabCommands {
       const link = await p.text({
         title: "Join collaboration",
         description:
-          "Paste the invitation link (lfcp://join/…). It works once, and only for you: treat it like a password.",
+          "Paste the invitation link (lfcp://join/…). One-time link, does not expire; whoever opens it first joins. Treat it like a password.",
         placeholder: "lfcp://join/…",
         masked: true,
       });
       if (link === null || link.trim() === "") return;
+      // N5: optional; empty, a shared section shows its own title.
       const name = await p.text({
         title: "Name this collaboration",
-        description: "A name for it on this device. Only you see it.",
+        description:
+          "Optional: a name for it on this device. Only you see it. Leave it empty to use the shared section's own title.",
         placeholder: "Shared tasks",
       });
       if (name === null) return;
@@ -409,7 +411,7 @@ export class CollabCommands {
         p.notice(
           outcome.kind === "joined"
             ? outcome.section !== undefined
-              ? `Shared Tasks: joined the shared section "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}). ${outcome.section.loaded ? 'Use "Insert shared section…" to place it in a note.' : 'It is still arriving: use "Insert shared section…" once it has loaded.'}`
+              ? `Shared Tasks: joined the shared section${name.trim() === "" ? "" : ` "${name.trim()}"`} (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}). ${outcome.section.loaded ? 'Use "Insert shared section…" to place it in a note.' : 'It is still arriving: use "Insert shared section…" once it has loaded.'}`
               : `Shared Tasks: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
             : outcome.kind === "already-member"
               ? "Shared Tasks: this device is already in that collaboration."

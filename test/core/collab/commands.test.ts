@@ -43,12 +43,16 @@ class ScriptedPrompter implements Prompter {
   notice(message: string): void {
     this.notices.push(message);
   }
+  /** The text prompts' descriptions, in order. */
+  readonly described: string[] = [];
   async text(o: {
     title: string;
+    description?: string;
     masked?: boolean;
     hint?: (value: string) => unknown;
   }): Promise<string | null> {
     this.asked.push(o.title);
+    this.described.push(o.description ?? "");
     if (o.hint !== undefined) this.hints.set(o.title, o.hint);
     this.masked.push(o.masked === true);
     return this.texts.shift() ?? null;
@@ -427,6 +431,12 @@ describe("LFCP-065 commands", () => {
       });
     await s.commands.joinCollaboration();
     expect(s.prompter.masked).toEqual([true, false]);
+    // D2 (UX I1): the one-time link rule, never "only for you"; the name is optional (N5).
+    expect(s.prompter.described[0]).toContain(
+      "One-time link, does not expire; whoever opens it first joins.",
+    );
+    expect(s.prompter.described.join(" ")).not.toContain("only for you");
+    expect(s.prompter.described[1]).toMatch(/^Optional:/);
     expect(s.prompter.progressLines).toEqual([
       "Joining collaboration",
       "Connecting to the collaboration's server…",
