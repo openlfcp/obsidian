@@ -1,7 +1,7 @@
 // The plugin's LFCP runtime (LFCP-059): lifecycle, offline startup,
 // durable pending state, the Resource registry.
 
-import { saveControlChain } from "@openlfcp/client";
+import { SyncClient, saveControlChain } from "@openlfcp/client";
 import {
   actorSequence,
   controlRecordId,
@@ -245,6 +245,32 @@ describe("LfcpRuntime (LFCP-059)", () => {
     const again = await start(device, local);
     expect((await again.storage?.outbound.list(R))?.length).toBe(2);
     expect((await again.profileOf(R)).replica.task(TASK)?.task?.title).toBe("Draft");
+  });
+
+  it("restores and opens a 0.1 Resource once when asked at once after a start (LFCP-03-033)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    await r.stop();
+    const again = await start(device, local);
+    const open = vi.spyOn(SyncClient.prototype, "open");
+    try {
+      // Opens at start, a command and a read of the model, all at once.
+      const [a, b, p] = await Promise.all([
+        again.openResource(R),
+        again.openResource(R),
+        again.profileOf(R),
+      ]);
+      expect(b.profile).toBe(a.profile);
+      expect(p).toBe(a.profile);
+      expect((await again.profileOf(R)) === a.profile).toBe(true);
+      // One binding on the session: the one of the profile read.
+      const bindings = open.mock.calls.filter(([x]) => toHex(x.resourceId) === toHex(R));
+      expect(bindings).toHaveLength(1);
+    } finally {
+      open.mockRestore();
+    }
   });
 
   it("keeps own units remembered while a Key Epoch cut is being collected (no lost update)", async () => {
