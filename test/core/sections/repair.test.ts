@@ -11,6 +11,8 @@ import { parseSections } from "../../../src/core/sections/parser";
 import {
   boundaryRepair,
   compare,
+  findRepair,
+  keyedRepairs,
   repairItems,
   sharedVersionChange,
 } from "../../../src/core/sections/repair";
@@ -134,5 +136,37 @@ describe("a lost base: the comparison (MS11)", () => {
     expect(applyChanges(md, [sharedVersionChange(md, s, block)])).toBe(
       md.replace("Local text", "Shared text"),
     );
+  });
+});
+
+describe("line keys of repair items (LFCP-03-018)", () => {
+  const broken = [
+    "## Launch",
+    formatBoundary("start", ref),
+    "- [ ] One",
+    "### Inside",
+    "",
+    "## Other",
+    "",
+  ].join("\n");
+
+  it("a key names the item by what it is and its line's text, never by its line number", () => {
+    const keyed = keyedRepairs(broken);
+    expect(keyed.map((k) => k.item.kind)).toEqual(repairItems(broken).map((i) => i.kind));
+    const moved = keyedRepairs(`Intro\nMore\n${broken}`);
+    // Two lines above: the same keys, two lines further down.
+    expect(moved.map((k) => k.key)).toEqual(keyed.map((k) => k.key));
+    expect(moved.map((k) => k.item.line)).toEqual(keyed.map((k) => k.item.line + 2));
+  });
+
+  it("findRepair takes the item with that key nearest the old line; none when it is gone", () => {
+    const [end] = keyedRepairs(broken).filter((k) => k.item.kind === "missing-end");
+    if (end === undefined) throw new Error("no missing end");
+    const at = (line: number) => ({ key: "k", item: { ...end.item, line } });
+    const keyed = [at(1), at(9), end];
+    expect(findRepair(keyed, "k", 0)?.item.line).toBe(1);
+    expect(findRepair(keyed, "k", 7)?.item.line).toBe(9);
+    expect(findRepair(keyed, end.key, 40)).toBe(end);
+    expect(findRepair(keyed, "missing-end:nothing", 1)).toBeUndefined();
   });
 });

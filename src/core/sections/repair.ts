@@ -9,6 +9,7 @@
 
 import { splitLines } from "../refs/lines";
 import type { StoredBase } from "./base";
+import { sectionKey } from "./context";
 import { sharedState } from "./engine";
 import { formatBoundary, parseBoundary, type SectionRef } from "./grammar";
 import { type ParsedSection, parseSections, type SectionDiagnostic } from "./parser";
@@ -98,6 +99,47 @@ export function repairItems(markdown: string): RepairItem[] {
     if (message !== undefined) out.push({ kind: "locate", line: d.line, message });
   }
   return out;
+}
+
+/** A repair item of a note with its line key (LFCP-03-018). */
+export interface KeyedRepair {
+  readonly key: string;
+  readonly item: RepairItem;
+}
+
+/**
+ * Each repair item of `markdown` with its line key (LFCP-03-018, UX §7):
+ * for a boundary, its kind and section; for a problem to locate, its
+ * message and the text of its line. A line number does not survive an edit
+ * above it, the key does: a surface keeps the key with the note's revision,
+ * and before acting the note is parsed again and the item found by its key
+ * (findRepair), never by the old line number alone.
+ */
+export function keyedRepairs(markdown: string): KeyedRepair[] {
+  const lines = splitLines(markdown);
+  return repairItems(markdown).map((item) => ({
+    key:
+      item.kind === "locate"
+        ? `locate:${item.message}:${(lines[item.line]?.text ?? "").trim()}`
+        : `${item.kind}:${sectionKey(item.ref)}`,
+    item,
+  }));
+}
+
+/** The item with line key `key`, the one nearest `line` when several have it; undefined when none is left. */
+export function findRepair(
+  keyed: readonly KeyedRepair[],
+  key: string,
+  line: number,
+): KeyedRepair | undefined {
+  let best: KeyedRepair | undefined;
+  for (const k of keyed)
+    if (
+      k.key === key &&
+      (best === undefined || Math.abs(k.item.line - line) < Math.abs(best.item.line - line))
+    )
+      best = k;
+  return best;
 }
 
 /** The note change that places the missing marker where the user chose. */
