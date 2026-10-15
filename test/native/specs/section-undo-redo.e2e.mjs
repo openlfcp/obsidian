@@ -20,6 +20,9 @@ async function moveLine(title, dir) {
   await browser.pause(500);
   if ((await editorA((e) => e.getValue())) === before) {
     evidence(`Alt+${dir} not bound`, { title });
+    // Unbound, the keys still move the caret (macOS: Option+Up/Down go to the
+    // paragraph's start or end): the command must act on the title's line.
+    await caret(await lineOf(title), 3);
     await browser.executeObsidianCommand(dir === "up" ? "editor:swap-line-up" : "editor:swap-line-down");
   }
 }
