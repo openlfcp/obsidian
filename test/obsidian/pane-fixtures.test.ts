@@ -12,13 +12,13 @@
 // call to action, its enabled and disabled actions with their reasons word
 // for word, its claims and none of the forbidden ones.
 //
-// Coverage: 20 states in full, the share previews of selection-exact and
-// content-comments-and-table included (LFCP-03-014: the pane's preview is
-// the share dialog's preflight on the note in view, its counts and warnings
-// the fixture's), and the join flow's (LFCP-03-015: the plugin's join flow,
-// CollabCommands.joins, at the fixture's stage); 1 todo, needing a flow the
-// host cannot produce yet: an unfinished flow read from the journals
-// (LFCP-03-017).
+// Coverage: all 21 states in full, the share previews of selection-exact
+// and content-comments-and-table included (LFCP-03-014: the pane's preview
+// is the share dialog's preflight on the note in view, its counts and
+// warnings the fixture's), the join flow's (LFCP-03-015: the plugin's join
+// flow, CollabCommands.joins, at the fixture's stage), and the unfinished
+// insert a restart leaves (LFCP-03-017: SectionActions.flows() lists it from the
+// insertion journal, at "writing").
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -74,9 +74,7 @@ const HOST_STEPS = new Set([
   "choose-place",
 ]);
 
-const NOT_YET: Readonly<Record<string, string>> = {
-  "unfinished-insert": "an unfinished flow read from the journals (LFCP-03-017)",
-};
+const NOT_YET: Readonly<Record<string, string>> = {};
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
@@ -232,9 +230,7 @@ function hostOf(st: State) {
         };
   const flow = f.context.flow;
   const flows: ActiveFlow[] =
-    flow === null ||
-    (flow.kind !== "share" && flow.kind !== "insert") ||
-    flow.outcome === "unfinished"
+    flow === null || (flow.kind !== "share" && flow.kind !== "insert")
       ? []
       : [
           {

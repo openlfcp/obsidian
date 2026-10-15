@@ -314,14 +314,18 @@ function pickFlow(
   pinned: number | null,
   note: string | null,
 ): ActiveFlow | null {
-  const held = flows.find((f) => f.generation === pinned);
+  const held = flows.find((f) => f.generation === pinned && f.outcome !== "unfinished");
   if (held !== undefined) return held;
   const latest = (xs: readonly ActiveFlow[]) =>
     xs.reduce<ActiveFlow | null>(
       (a, f) => (a === null || f.generation > a.generation ? f : a),
       null,
     );
-  return latest(flows.filter((f) => f.path !== null && f.path === note)) ?? latest(flows);
+  // An unfinished flow (a restart stopped it, LFCP-03-017) owns only its own note's area.
+  return (
+    latest(flows.filter((f) => f.path !== null && f.path === note)) ??
+    latest(flows.filter((f) => f.outcome !== "unfinished"))
+  );
 }
 
 const confirmedOf = (i: PaneInvitation): { confirmed?: boolean } =>
@@ -452,7 +456,12 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
       return { join: join.generation };
     if (id === "check-result" && flow?.outcome === "unknown") return { flow: flow.generation };
     if (id === "continue-flow") {
-      const next = others[0] ?? flow;
+      // The unfinished flow in view first, else the first listed one that waits to go on.
+      const next =
+        (flow?.outcome === "unfinished" ? flow : null) ??
+        others.find((o) => o.outcome !== "running") ??
+        others[0] ??
+        flow;
       return next === null ? {} : { flow: next.generation };
     }
     return base;

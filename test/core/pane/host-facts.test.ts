@@ -285,6 +285,46 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(d.identity("insert-into-note")).not.toBe(d.identity("open-details"));
   });
 
+  it("P6: an insert a restart left unfinished owns only its own note's area (LFCP-03-017)", () => {
+    const unfinished = {
+      generation: 4,
+      kind: "insert" as const,
+      path: "Other.md",
+      stage: "",
+      step: "writing",
+      outcome: "unfinished" as const,
+      checking: false,
+    };
+    // On another note, even pinned: listed, not in the current area; Continue resumes it.
+    const elsewhere = hostPane({
+      note: note(1),
+      registry: registry(),
+      status: () => current,
+      flows: [unfinished],
+      pinned: 4,
+    });
+    expect(elsewhere.facts.context.flow).toBeNull();
+    expect(paneModel(elsewhere.facts).unfinished).toEqual([
+      {
+        title: "Inserting a shared section",
+        detail: "Other.md: stopped before write the section into the note",
+      },
+    ]);
+    expect(elsewhere.request("continue-flow")).toEqual({ flow: 4 });
+    // On its own note: the current area's flow, and Continue is about it.
+    const own = hostPane({
+      note: { ...note(1), path: "Other.md" },
+      registry: registry(),
+      status: () => current,
+      flows: [
+        { ...unfinished, generation: 6, path: "Plan.md", outcome: "running" as const },
+        unfinished,
+      ],
+    });
+    expect(own.facts.context.flow).toMatchObject({ kind: "insert", outcome: "unfinished" });
+    expect(own.request("continue-flow")).toEqual({ flow: 4 });
+  });
+
   it("a section with no status yet is the reducer's no-evidence view: never healthy or denied", () => {
     const f = hostPaneFacts({
       note: note(4),
