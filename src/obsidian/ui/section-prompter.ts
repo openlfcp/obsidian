@@ -25,6 +25,7 @@ import type { RecoveryChoice, RecoveryItem } from "../../core/sections/recovery"
 import type { RepairItem } from "../../core/sections/repair";
 import type { SharePolicy, SharePreview } from "../../core/sections/share";
 import type { SectionCard } from "../../core/status/card";
+import { returnsFocus } from "./focus-return";
 import { ImportSectionModal } from "./import-section";
 import { ChooseDestinationModal, InsertSectionModal, PickSectionModal } from "./insert-section";
 import { RecoveryModal } from "./recovery";
@@ -92,7 +93,7 @@ export class ObsidianSectionPrompter implements SectionPrompter {
   }
 
   alias(current: string): Promise<string | null> {
-    const ask = new AliasModal(this.app, current);
+    const ask = returnsFocus(new AliasModal(this.app, current));
     ask.open();
     return ask.result;
   }
@@ -110,7 +111,7 @@ export class ObsidianSectionPrompter implements SectionPrompter {
     items: readonly RecoveryItem[],
     apply: (item: RecoveryItem, choice: RecoveryChoice) => Promise<ReviewResult>,
   ): void {
-    new RecoveryModal(this.app, title, items, apply).open();
+    returnsFocus(new RecoveryModal(this.app, title, items, apply)).open();
   }
 
   card(
@@ -127,7 +128,8 @@ export class ObsidianSectionPrompter implements SectionPrompter {
 
 /** A dialog opened now: its result, and bringing it forward. */
 function opened<T>(modal: Modal & { readonly result: Promise<T> }): SectionDialog<T> {
-  modal.open();
+  // U03-18: closed, it gives focus back to the pane or card control that opened it.
+  returnsFocus(modal).open();
   return { result: modal.result, bringForward: () => bringForward(modal) };
 }
 
