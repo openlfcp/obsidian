@@ -13,6 +13,10 @@ const decode = (bytes: Uint8Array): AnyMessage | undefined => {
   }
 };
 
+/** Whether a frame's bytes are the coordinator's ACK of a CONTROL_PUT (a claim's answer). */
+export const isControlPutAckFrame = (bytes: Uint8Array): boolean =>
+  isControlPutAck(decode(Uint8Array.from(bytes)));
+
 /** The coordinator's ACK of a CONTROL_PUT (a claim's answer). */
 export const isControlPutAck = (m: AnyMessage | undefined): boolean => {
   const x = m as { type?: string; body?: { requestType?: bigint } } | undefined;

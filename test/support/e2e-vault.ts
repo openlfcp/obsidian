@@ -36,6 +36,14 @@ class Network {
   readonly frames: Frame[] = [];
   readonly #open = new Set<NativeSocket>();
   #offline = false;
+  #drop: ((bytes: Uint8Array) => boolean) | null = null;
+  /** Incoming frames dropped by dropNextIn. */
+  dropped = 0;
+
+  /** Drops the next incoming frame `pick` chooses (a lost answer), once. */
+  dropNextIn(pick: (bytes: Uint8Array) => boolean): void {
+    this.#drop = pick;
+  }
 
   get offline(): boolean {
     return this.#offline;
@@ -90,9 +98,16 @@ class Network {
     };
     inner.onmessage = (ev) => {
       const data = ev.data;
-      if (data instanceof ArrayBuffer) frames.push({ dir: "in", bytes: new Uint8Array(data) });
-      else if (ArrayBuffer.isView(data))
-        frames.push({ dir: "in", bytes: new Uint8Array(data.buffer.slice(0)) });
+      let bytes: Uint8Array | undefined;
+      if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+      else if (ArrayBuffer.isView(data)) bytes = new Uint8Array(data.buffer.slice(0));
+      if (bytes !== undefined) frames.push({ dir: "in", bytes });
+      const drop = this.#drop;
+      if (bytes !== undefined && drop?.(bytes) === true) {
+        this.#drop = null;
+        this.dropped++;
+        return;
+      }
       outer.onmessage?.(ev);
     };
     return outer;
