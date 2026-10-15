@@ -366,9 +366,13 @@ export class E2EVault {
     else this.#die();
   }
 
-  /** Starts a new plugin instance from fresh modules over the persisted state. */
-  async boot(): Promise<void> {
-    await this.#start(true);
+  /**
+   * Starts a new plugin instance over the persisted state: from fresh
+   * modules, or (`fresh` false) on the loaded ones, as a test that keeps its
+   * own handles on the mock does.
+   */
+  async boot(fresh = true): Promise<void> {
+    await this.#start(fresh);
   }
 
   #die(): void {
