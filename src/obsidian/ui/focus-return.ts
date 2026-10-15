@@ -144,6 +144,12 @@ export function tabStops(dialog: HTMLElement): HTMLElement[] {
   return stops;
 }
 
+/** The dialogs whose Tab is kept in them. */
+const trapped = new WeakSet<object>();
+
+/** Whether Tab and Shift+Tab are kept in `modal` (every dialog of the plugin's). */
+export const trapsTab = (modal: object): boolean => trapped.has(modal);
+
 /**
  * Tab and Shift+Tab cycle through `modal`'s Tab stops and never leave it.
  * The listener is on the dialog's container, in the bubble phase: of
@@ -155,6 +161,7 @@ function trapTab(modal: Modal): void {
   const dialog = (modal as { modalEl?: HTMLElement }).modalEl ?? box;
   if (box === undefined || dialog === undefined || typeof box.addEventListener !== "function")
     return;
+  trapped.add(modal);
   box.addEventListener("keydown", (e) => {
     if (
       e.key !== "Tab" ||

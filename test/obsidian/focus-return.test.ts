@@ -5,7 +5,10 @@
 // a flow's next dialog gives it back to the same place.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { returnsFocus, tabStops } from "../../src/obsidian/ui/focus-return";
+import OpenLfcpPlugin from "../../src/main";
+import { returnsFocus, tabStops, trapsTab } from "../../src/obsidian/ui/focus-return";
+import { ObsidianSectionPrompter } from "../../src/obsidian/ui/section-prompter";
+import * as mock from "../mocks/obsidian";
 
 /** A dialog as Obsidian shows one: a .modal-container while open, onClose on close. */
 class FakeModal {
@@ -225,5 +228,33 @@ describe("focus after a dialog (LFCP-03-022)", () => {
     tab();
     expect(document.activeElement).toBe(first);
     m.close();
+  });
+
+  it("every dialog of the plugin keeps Tab in it: the section card and diagnostics too", async () => {
+    const app = new mock.App();
+    const card = new ObsidianSectionPrompter(app as never, () => undefined).card(
+      {
+        heading: 'Shared section "Launch"',
+        status: "Current",
+        facts: [],
+        problems: [],
+        shared: [],
+        technical: [],
+        held: [],
+      } as never,
+      [],
+      () => undefined,
+      {},
+    );
+    expect(trapsTab(card)).toBe(true);
+    const plugin = new OpenLfcpPlugin(app as never, { id: "shared-tasks", version: "0" } as never);
+    await plugin.onload();
+    mock.modals.length = 0;
+    (plugin as unknown as mock.Plugin).commands
+      .find((c) => c.id === "export-diagnostics")
+      ?.callback?.();
+    expect(mock.modals.length).toBe(1);
+    expect(trapsTab(mock.modals[0] as object)).toBe(true);
+    plugin.onunload();
   });
 });

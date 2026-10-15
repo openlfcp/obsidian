@@ -120,7 +120,8 @@ export class ObsidianSectionPrompter implements SectionPrompter {
     onClosed: () => void,
     rows: CardRowActions,
   ): CardHandle {
-    const modal = new SectionCardModal(this.app, content, actions, onClosed, rows);
+    // The card gives focus back itself (to its badge); this keeps Tab in it.
+    const modal = returnsFocus(new SectionCardModal(this.app, content, actions, onClosed, rows));
     modal.open();
     return modal;
   }
