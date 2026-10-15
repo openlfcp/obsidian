@@ -173,6 +173,8 @@ describe("the controller", () => {
   ) => {
     const s = await setup(ops);
     const changed: string[] = [];
+    /** The counts the status reads at each change announced. */
+    const seen: { pending: number; review: number }[] = [];
     const lookups = { unit: 0, quarantined: 0, queued: 0 };
     const c = new StaleWorkController({
       store: s.store,
@@ -195,10 +197,13 @@ describe("the controller", () => {
         lookups.queued++;
         return [...queued];
       },
-      changed: (r) => void changed.push(r),
+      changed: (r) => {
+        changed.push(r);
+        seen.push(c.counts(r));
+      },
       setTimer: (fn, ms) => setTimeout(fn, ms),
     });
-    return { ...s, c, changed, lookups };
+    return { ...s, c, changed, seen, lookups };
   };
 
   it("guards the Resource at once on a cut, then re-applies and lets its notes pass", async () => {
@@ -279,6 +284,31 @@ describe("the controller", () => {
     );
     await s.c.scan(R);
     expect(s.port.changes.map((c) => c.operationId)).toEqual([reapplyId("op-2")]);
+  });
+
+  it("work gone to review is announced: the last status read shows it in review, not pending (LFCP-03-036)", async () => {
+    // Nothing else re-applied: no "done" to announce it along with.
+    const s = await controller([op(1, [title("a", "A1")], { a: "fp-a" })]);
+    s.set({ a: "changed" });
+    s.c.epochReconciled(R, ["u1"]);
+    for (let i = 0; i < 20 && s.c.counts(R).review < 1; i++)
+      await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(s.c.counts(R)).toEqual({ pending: 0, review: 1 });
+    // The card is drawn from the status read at the last change: never "being sent again".
+    expect(s.seen.at(-1)).toEqual({ pending: 0, review: 1 });
+  });
+
+  it("the guard lifted with the work still waiting: the real pending count is announced", async () => {
+    const s = await controller([
+      op(1, [title("a", "A1")], { a: "fp-a" }),
+      op(2, [title("b", "B1")], { b: "fp-b" }),
+    ]);
+    s.port.access = { allowed: false, reason: "unknown" };
+    s.c.epochReconciled(R, ["u1", "u2"]);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(s.c.counts(R)).toEqual({ pending: 2, review: 0 });
+    expect(s.seen.at(-1)).toEqual({ pending: 2, review: 0 });
   });
 
   it("Review conflicts: Keep sends it again, Discard drops it; either lets the notes pass", async () => {
