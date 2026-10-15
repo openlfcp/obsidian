@@ -5,13 +5,15 @@
 // production status extension too, its statuses from mock facts (no SDK
 // here), with the same next-problem path and live region as the plugin.
 
-import { principalId, toBase64url } from "@openlfcp/core";
+import { fromBase64url, principalId, resourceId, toBase64url } from "@openlfcp/core";
+import { createTask, SharedObjectsReplica } from "@openlfcp/shared-objects";
 import { MarkdownView, Plugin } from "obsidian";
 import { MemorySectionBaseStore, markdownState } from "../../../src/core/sections/base";
 import { SectionEngine } from "../../../src/core/sections/engine";
 import { MemorySectionJournalStore } from "../../../src/core/sections/journal";
-import { parseSections } from "../../../src/core/sections/parser";
+import { parseSections, type SectionNode } from "../../../src/core/sections/parser";
 import { bindsOwnNode } from "../../../src/core/sections/rules";
+import { newSectionTask } from "../../../src/core/sections/task-fields";
 import { Announcer } from "../../../src/core/status/a11y";
 import { type StatusFacts, type StatusView, statusView } from "../../../src/core/status/reducer";
 import { LiveRegion } from "../../../src/obsidian/live-region";
@@ -32,15 +34,43 @@ const uuid = (): string => {
 export default class SectionSyncHarness extends Plugin {
   override onload(): void {
     const port = new FakeSectionPort();
+    const me = principalId(new Uint8Array(32).fill(4));
+    // The section's Task objects, per Resource, as SectionReplica keeps them:
+    // a seed compares the note's Task fields with them (LFCP-03-043).
+    const replicas = new Map<string, SharedObjectsReplica>();
+    const replicaOf = (r: string): SharedObjectsReplica => {
+      let x = replicas.get(r);
+      if (x === undefined) {
+        x = SharedObjectsReplica.create({ resource: resourceId(fromBase64url(r)), principal: me }).replica;
+        replicas.set(r, x);
+      }
+      return x;
+    };
+    const tasks = (r: string, taskId: string) => {
+      const replica = replicaOf(r);
+      if (replica.task(taskId) === undefined)
+        for (const c of port.changes)
+          for (const i of c.intents)
+            if (i.intent === "task.create_in_section" && i.task.id === taskId)
+              replica.apply(createTask({ ...i.task, id: taskId as never, createdBy: me }).intent);
+      return { view: replica.task(taskId) };
+    };
+    port.onTaskIntents = (intents) => {
+      for (const i of intents) {
+        const id = "id" in i ? String(i.id) : undefined;
+        const replica = [...replicas.values()].find((x) => id !== undefined && x.task(id) !== undefined);
+        replica?.apply(i as never);
+      }
+    };
     const engine = new SectionEngine({
       port,
       journal: new MemorySectionJournalStore(),
       bases: new MemorySectionBaseStore(),
       newNodeId: uuid,
       newOperationId: uuid,
-      createdBy: principalId(new Uint8Array(32).fill(4)),
+      createdBy: me,
       newProjectionId: uuid,
-      tasks: () => undefined,
+      tasks,
       newTask: (line, id) => ({ id, title: line.replace(/^[ \t]*[-*+][ \t]+\[.\][ \t]*/, "").trim() }),
     });
     const passes: { path: string; changes: number; local: string | undefined }[] = [];
@@ -98,6 +128,20 @@ export default class SectionSyncHarness extends Plugin {
         if (s === undefined) throw new Error("no section");
         const resource = toBase64url(s.ref.resourceId);
         port.host(resource, s.ref.sectionId, markdownState(markdown, s).state);
+        // A new model: its Tasks as the note shows them.
+        replicas.delete(resource);
+        const replica = replicaOf(resource);
+        const lines = markdown.split("\n");
+        const walk = (nodes: readonly SectionNode[]): void => {
+          for (const n of nodes) {
+            if (n.kind === "task" && n.id !== null) {
+              const task = newSectionTask(lines[n.lines.from] ?? "", me, n.id);
+              replica.apply(createTask({ ...task, id: n.id as never, createdBy: me }).intent);
+            }
+            walk(n.children);
+          }
+        };
+        walk(s.nodes);
         return resource;
       },
       /** A collaborator's edit of a node's Text, then projected into `path`. */
