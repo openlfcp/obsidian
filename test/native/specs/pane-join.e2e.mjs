@@ -5,7 +5,8 @@
 // dialog. A pastes the link and chooses Join: the pane shows each step
 // with the fact that confirms it (claim accepted, access, loaded), lists
 // the section as not inserted yet and offers "Insert into a note…", which
-// runs the existing insert into A's note. The same link again reaches the
+// previews that section without a section choice (LFCP-03-016) and inserts
+// it into A's note. The same link again reaches the
 // section without a new claim. The link is never in the pane, a notice or
 // the clipboard. Reference server at LFCP_SERVER_BIN.
 import { closeModals, evidence, inA, sectionOf, startPeers, titles } from "./support/section-checks.mjs";
@@ -127,22 +128,20 @@ describe("LFCP-03-015: join → insert in the pane", () => {
     expect(joined).not.toContain("Shared collaboration");
     expect(await paneHtml()).not.toContain(secret);
 
-    // Insert into a note…: the existing insert (its section choice, its preview) into A's note.
+    // Insert into a note…: the joined section is the pane's subject, so no section choice
+    // (LFCP-03-016); its preview, then into A's note.
     await inA(() => document.querySelector(".openlfcp-pane .openlfcp-pane-primary button")?.click());
-    await inA(async () => {
-      let items = [];
-      for (let i = 0; i < 100 && items.length === 0; i++) {
-        await new Promise((r) => setTimeout(r, 50));
-        items = [...document.querySelectorAll(".prompt .suggestion-item")];
-      }
-      items.find((x) => x.textContent.includes("Joined from B")).click();
+    const picked = await inA(async () => {
       let ins;
       for (let i = 0; i < 200 && ins === undefined; i++) {
         await new Promise((r) => setTimeout(r, 50));
         ins = [...document.querySelectorAll(".modal button")].find((x) => x.textContent === "Insert");
       }
+      const asked = document.querySelector(".prompt .suggestion-item") !== null;
       ins.click();
+      return asked;
     });
+    expect(picked).toBe(false);
     await browser.waitUntil(
       () => inA(({ app }, file) => app.vault.cachedRead(app.vault.getFileByPath(file)).then((t) => t.includes("<!-- /lfcp-section: ")), FILE),
       { timeout: 30_000, timeoutMsg: "the section inserted" },

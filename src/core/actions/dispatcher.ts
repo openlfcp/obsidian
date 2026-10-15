@@ -151,11 +151,13 @@ export function coreHandlers(env: {
 }): Partial<Record<ActionId, ActionHandler>> {
   // A flow's next step drawn for that flow (the pane, T2) goes back to it, on its own note.
   const withTarget =
-    (run: (a: SectionActions, at: TargetCapture) => Promise<void> | void): ActionHandler =>
+    (
+      run: (a: SectionActions, at: TargetCapture, r: ActionRequest) => Promise<void> | void,
+    ): ActionHandler =>
     async (r) => {
       const a = env.sections();
       if (a === null) return;
-      if (r.target !== undefined) await run(a, r.target);
+      if (r.target !== undefined) await run(a, r.target, r);
       else if (r.flow !== undefined) await a.continueFlow(r.flow);
     };
   /** The section's details card: where its sync facts, held edits and access list are. */
@@ -169,10 +171,11 @@ export function coreHandlers(env: {
   return {
     "share-section": withTarget((a, at) => a.share(at)),
     "share-whole-section": withTarget((a, at) => a.shareWholeSection(at)),
-    "insert-into-note": withTarget((a, at) => {
+    "insert-into-note": withTarget((a, at, r) => {
       // A joined section's next step (LFCP-03-015): the join flow hands over to the insert.
       env.collab.joinPlaced?.();
-      return a.insertSection(at);
+      // The section a surface is about (the pane's joined section) needs no choice (LFCP-03-016).
+      return a.insertSection(at, r.section?.key);
     }),
     // On the note captured, else on the note a surface names (the card's held copy).
     "repair-sections": async (r) => {

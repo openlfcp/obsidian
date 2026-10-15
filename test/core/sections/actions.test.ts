@@ -17,7 +17,11 @@ import { SECTIONS_READ_ONLY } from "../../../src/core/lfcp/runtime";
 import { contentHash } from "../../../src/core/projection/guard";
 import type {
   CreationService,
+  DestinationChoice,
+  InsertDestination,
   InsertionService,
+  InsertPlace,
+  NoticeAction,
   SectionNotes,
   SectionPrompter,
   SectionServices,
@@ -91,8 +95,11 @@ class RecordingPrompter implements SectionPrompter {
   open(kind?: string): OpenDialog<unknown>[] {
     return this.dialogs.filter((d) => !d.answered && (kind === undefined || d.kind === kind));
   }
-  notice(message: string): void {
+  /** The buttons notices carried ("Open" after an insertion), by notice text. */
+  readonly noticeActions = new Map<string, NoticeAction>();
+  notice(message: string, action?: NoticeAction): void {
     this.notices.push(message);
+    if (action !== undefined) this.noticeActions.set(message, action);
   }
   announce(text: string): void {
     this.announced.push(text);
@@ -106,8 +113,11 @@ class RecordingPrompter implements SectionPrompter {
   pickSection(choices: readonly unknown[]) {
     return this.#open<never>("pick", choices);
   }
-  insertPreview(preview: unknown) {
-    return this.#open<boolean>("insert", preview);
+  insertPreview(preview: unknown, place?: InsertPlace) {
+    return this.#open<boolean>("insert", preview, place);
+  }
+  chooseDestination(choice: DestinationChoice) {
+    return this.#open<InsertDestination | null>("destination", choice);
   }
   confirm(o: { title: string; message: string; action: string }) {
     return this.#open<boolean>("confirm", o);
@@ -608,12 +618,17 @@ describe("import of 0.1 shared Tasks (LFCP-03-008 over 053)", () => {
 });
 
 /** An insertion journal that records its calls. */
+/** The section the fake insertion previews: a complete, empty projection. */
+const INSERT_SID = "019a2f85-7b31-7c42-b85a-fc843e2f4099";
+const INSERT_REF = parseSectionRef(`lfcp1:${R0}#section:${INSERT_SID}`) as SectionRef;
+const INSERT_BLOCK = `## Shared\n${formatBoundary("start", INSERT_REF)}\n${formatBoundary("end", INSERT_REF)}\n`;
+
 function fakeInsertion(calls: string[]) {
   const preview: InsertPreview = {
     resource: R0,
-    sectionId: "s1",
+    sectionId: INSERT_SID,
     title: "Shared",
-    block: "## Shared\n",
+    block: INSERT_BLOCK,
     readOnly: false,
     revision: "r1",
   };
@@ -680,7 +695,7 @@ describe("insert (LFCP-03-008 over 052)", () => {
       "indexed Plan.md",
       "pass Plan.md",
     ]);
-    expect(t.prompter.notices).toEqual([]);
+    expect(t.prompter.notices).toEqual(['Shared Tasks: section "Shared" inserted into "Plan".']);
   });
 
   it("D12: an insertion that throws keeps the note; a repeat checks ins-1; a later insert is ins-2", async () => {
@@ -1706,11 +1721,10 @@ describe("stable target and exact selection (LFCP-03-009, U03-03/04/05/12)", () 
         `prepare Plan.md line ${PLAN} rev ${NOTE.length}`,
         "run ins-1",
         "indexed Plan.md",
-        "pass Plan.md",
+        // Closed: passed through its file, as a share passes it (LFCP-03-016).
+        "pass Plan.md (file)",
       ]);
-      expect(t.prompter.notices).toEqual([
-        'Shared Tasks: section "Shared" was inserted into "Plan", which is not open.',
-      ]);
+      expect(t.prompter.notices).toEqual(['Shared Tasks: section "Shared" inserted into "Plan".']);
     });
 
     it("U03-12: renamed meanwhile, the block goes into the renamed note, never at the old path", async () => {
@@ -1726,7 +1740,9 @@ describe("stable target and exact selection (LFCP-03-009, U03-03/04/05/12)", () 
       await flow;
       expect(t.calls).toContain(`prepare Projects/Plan 2.md line ${PLAN} rev ${NOTE.length}`);
       expect(t.calls.some((c) => c.includes(" Plan.md"))).toBe(false);
-      expect(t.prompter.notices).toEqual([]);
+      expect(t.prompter.notices).toEqual([
+        'Shared Tasks: section "Shared" inserted into "Plan 2".',
+      ]);
     });
   });
 

@@ -8,7 +8,11 @@ import type {
   CardAction,
   CardHandle,
   CardRowActions,
+  DestinationChoice,
+  InsertDestination,
+  InsertPlace,
   LostBase,
+  NoticeAction,
   RepairActions,
   ReviewResult,
   SectionChoice,
@@ -22,7 +26,7 @@ import type { RepairItem } from "../../core/sections/repair";
 import type { SharePolicy, SharePreview } from "../../core/sections/share";
 import type { SectionCard } from "../../core/status/card";
 import { ImportSectionModal } from "./import-section";
-import { InsertSectionModal, PickSectionModal } from "./insert-section";
+import { ChooseDestinationModal, InsertSectionModal, PickSectionModal } from "./insert-section";
 import { RecoveryModal } from "./recovery";
 import { RepairModal } from "./repair";
 import { AliasModal, ConfirmModal, SectionCardModal } from "./section-card";
@@ -37,8 +41,21 @@ export class ObsidianSectionPrompter implements SectionPrompter {
     private readonly policy?: () => SharePolicy,
   ) {}
 
-  notice(message: string): void {
-    new Notice(message);
+  notice(message: string, action?: NoticeAction): void {
+    if (action === undefined) {
+      new Notice(message);
+      return;
+    }
+    // A result with its next step ("Open"): shown longer, the button closes it.
+    const notice = new Notice(message, 10_000);
+    const el = (notice as { messageEl?: HTMLElement }).messageEl;
+    if (el === undefined) return;
+    const button = el.createEl("button", { text: action.label, cls: "openlfcp-notice-action" });
+    button.addEventListener("click", (e) => {
+      e.stopPropagation();
+      notice.hide();
+      action.run();
+    });
   }
 
   announce(text: string): void {
@@ -57,8 +74,12 @@ export class ObsidianSectionPrompter implements SectionPrompter {
     return opened(new PickSectionModal(this.app, choices));
   }
 
-  insertPreview(preview: InsertPreview): SectionDialog<boolean> {
-    return opened(new InsertSectionModal(this.app, preview));
+  insertPreview(preview: InsertPreview, place?: InsertPlace): SectionDialog<boolean> {
+    return opened(new InsertSectionModal(this.app, preview, place));
+  }
+
+  chooseDestination(choice: DestinationChoice): SectionDialog<InsertDestination | null> {
+    return opened(new ChooseDestinationModal(this.app, choice));
   }
 
   confirm(o: {
