@@ -43,6 +43,13 @@ export interface SectionCard {
    * line" and "Repair shared sections in this note" for the first.
    */
   readonly held: readonly HeldEdits[];
+  /**
+   * The one status view the card was made from, and whether the section is
+   * on its server: what the card's buttons read through the action
+   * descriptors (LFCP-03-013), as the pane does.
+   */
+  readonly view: StatusView;
+  readonly hosting?: "hosted" | "pending" | "unknown";
 }
 
 /** LFCP-02-117: from here the card suggests a new section for new material (§13.1 floor: 262,144). */
@@ -322,5 +329,7 @@ export function sectionCard(input: CardInput): SectionCard {
       ),
     ],
     held,
+    view: v,
+    ...(input.hosting === undefined ? {} : { hosting: input.hosting }),
   };
 }
