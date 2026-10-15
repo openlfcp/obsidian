@@ -21,6 +21,7 @@ import type { RecoveryItem } from "../../src/core/sections/recovery";
 import type { RegistryRow, RegistrySnapshot } from "../../src/core/sections/registry-view";
 import { type StatusFacts, type StatusView, statusView } from "../../src/core/status/reducer";
 import OpenLfcpPlugin from "../../src/main";
+import { domKey } from "../../src/obsidian/ui/pane-renderer";
 import { OPEN_PANE, PANE_VIEW, SharedTasksView } from "../../src/obsidian/ui/pane-view";
 import * as mock from "../mocks/obsidian";
 
@@ -417,13 +418,15 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
       label: 'Task "Alpha"',
     };
     const problem = (t: { el: () => HTMLElement }, id: string) =>
-      t.el().querySelector<HTMLButtonElement>(`button[data-problem="${id}"]`);
+      t.el().querySelector<HTMLButtonElement>(`button[data-problem="${domKey(id)}"]`);
 
     it("a conflict row shows its reason and source; its button runs the review on that item", async () => {
       const t = await open();
       t.sections.recovery.set(KEY, [CONFLICT]);
       for (const l of t.sections.statusListeners) l();
-      const row = t.el().querySelector<HTMLElement>('li[data-problem="conflict:lifecycle:n1"]');
+      const row = t
+        .el()
+        .querySelector<HTMLElement>(`li[data-problem="${domKey("conflict:lifecycle:n1")}"]`);
       expect(row?.textContent).toContain('Task "Alpha" was deleted and restored at the same time.');
       expect(row?.textContent).toContain("Where: The shared section");
       problem(t, "conflict:lifecycle:n1")?.click();
@@ -463,8 +466,15 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
       for (const l of t.sections.statusListeners) l();
       const button = t
         .el()
-        .querySelector<HTMLButtonElement>(`button[data-problem^="repair:Plan.md:missing-end:"]`);
+        .querySelector<HTMLButtonElement>(
+          `button[data-problem="${domKey(`repair:Plan.md:missing-end:${KEY}:3`)}"]`,
+        );
       expect(button?.textContent).toBe("Repair shared sections…");
+      // P3-3: the DOM names the row by a hash, never by the note's text or path.
+      const attrs = Array.from(t.el().querySelectorAll("[data-problem], [data-pane-key]")).flatMap(
+        (e) => [e.getAttribute("data-problem") ?? "", e.getAttribute("data-pane-key") ?? ""],
+      );
+      expect(attrs.join(" ")).not.toMatch(/Plan\.md|lfcp-section|missing-end/);
       const drawn = t.note.buffer;
       // Typed after the drawing, before the click: the drawn revision goes, the executor reparses.
       t.note.buffer = `${drawn}More text\n`;
