@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { ACTIONS } from "../../../src/core/actions/catalog";
-import { hostPane } from "../../../src/core/pane/host-facts";
+import { hostPane, noteRepairs } from "../../../src/core/pane/host-facts";
 import { paneModel, paneTexts } from "../../../src/core/pane/model";
 import { paneProblems } from "../../../src/core/pane/problems";
 import { contentHash } from "../../../src/core/projection/guard";
@@ -452,6 +452,17 @@ describe("problem hub in the pane (LFCP-03-018)", () => {
     });
     const unknown = hostPane({ note: note(HEALTHY), registry: null, status: () => undefined });
     expect(unknown.facts.problems).toBeUndefined();
+  });
+
+  it("a redraw of the same note text parses it once; another text is parsed anew", () => {
+    const first = noteRepairs(note(NO_END));
+    const again = noteRepairs(note(NO_END, { cursorLine: 0, path: "Copy.md" }));
+    expect(again?.items).toBe(first?.items);
+    expect(again).toMatchObject({ path: "Copy.md", revision: contentHash(NO_END) });
+    const other = noteRepairs(note(HEADING_INSIDE));
+    expect(other?.items).not.toBe(first?.items);
+    expect(other?.revision).toBe(contentHash(HEADING_INSIDE));
+    expect(noteRepairs(note(HEALTHY))).toMatchObject({ items: [], revision: "" });
   });
 
   it("T4: in Reading view a repair of that note is disabled with its reason; elsewhere it is not", () => {

@@ -407,11 +407,29 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
   };
 }
 
-/** The repair items of the note in view, with its revision (only computed when there are some). */
-function noteRepairs(note: TargetCapture | null): NoteRepairs | null {
+/** The last note text parsed for repairs, and what it gave: a redraw of the same text parses nothing. */
+let lastRepairs: {
+  readonly text: string;
+  readonly items: NoteRepairs["items"];
+  readonly revision: string;
+} | null = null;
+
+/**
+ * The repair items of the note in view, with its revision (only computed
+ * when there are some). Memoized by the note's text: most redraws (a cursor
+ * move, a status change) see the same text, and parse it once.
+ */
+export function noteRepairs(note: TargetCapture | null): NoteRepairs | null {
   if (note === null) return null;
-  const items = keyedRepairs(note.text);
-  return { path: note.path, revision: items.length === 0 ? "" : contentHash(note.text), items };
+  if (lastRepairs?.text !== note.text) {
+    const items = keyedRepairs(note.text);
+    lastRepairs = {
+      text: note.text,
+      items,
+      revision: items.length === 0 ? "" : contentHash(note.text),
+    };
+  }
+  return { path: note.path, revision: lastRepairs.revision, items: lastRepairs.items };
 }
 
 /**
