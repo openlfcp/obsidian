@@ -464,6 +464,10 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
         flow;
       return next === null ? {} : { flow: next.generation };
     }
+    // A section joined a moment ago, before the registry lists it: its next step still
+    // names it, by its Resource, and the insert takes its one section (obsidian#30).
+    if (id === "insert-into-note" && at === null && joined !== null)
+      return { ...base, section: { key: joined, title: "" } };
     return base;
   };
   return {

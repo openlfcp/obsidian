@@ -423,6 +423,28 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(hostPaneRequest(src(note(0)))).toEqual({ target: note(0) });
   });
 
+  it("obsidian#30: the section just joined is named to the insert before the registry lists it, then by its row's key", () => {
+    const other = note(1, { path: "Notes.md", text: "# Notes\nPrivate.\n" });
+    const at = (reg: RegistrySnapshot) =>
+      hostPane({ note: other, registry: reg, status: () => undefined, justJoined: R0 });
+    // Not listed yet: the insert names it by its Resource (the executor takes its one section).
+    expect(at(registry({ rows: [], sections: 0 })).request("insert-into-note")).toEqual({
+      target: other,
+      section: { key: R0, title: "" },
+    });
+    // Listed before its model is read (no key yet): its Resource; once read, the full key.
+    const [row] = registry().rows;
+    const unread = registry({ rows: [{ ...row, sectionId: null, key: null } as never] });
+    expect(at(unread).request("insert-into-note").section?.key).toBe(R0);
+    expect(at(registry()).request("insert-into-note").section?.key).toBe(KEY);
+    // Every key a pane hands an action is the full key or the Resource alone, never a cut one.
+    for (const reg of [registry({ rows: [], sections: 0 }), unread, registry()])
+      for (const id of ["insert-into-note", "invite", "open-details"] as const) {
+        const key = at(reg).request(id).section?.key;
+        if (key !== undefined) expect([R0, KEY]).toContain(key);
+      }
+  });
+
   it("with shared sections off, every button but joining is off with that reason; nothing else changes", () => {
     const m = paneModel(
       hostPaneFacts({ note: note(4), registry: registry(), status: () => current }),
