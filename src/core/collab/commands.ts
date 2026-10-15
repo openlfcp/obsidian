@@ -386,8 +386,7 @@ export class CollabCommands {
       const p = this.#env.prompter;
       const link = await p.text({
         title: "Join collaboration",
-        description:
-          "Paste the invitation link (lfcp://join/…). One-time link, does not expire; whoever opens it first joins. Treat it like a password.",
+        description: `Paste the invitation link (lfcp://join/…). ${ONE_TIME_LINK} Treat it like a password.`,
         placeholder: "lfcp://join/…",
         masked: true,
       });
