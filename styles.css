@@ -128,6 +128,12 @@
   font-size: var(--font-smaller);
 }
 
+/* A card action that applies but is blocked (A5): shown, focusable, with its reason. */
+.openlfcp-section-card button.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /*
  * OpenLFCP: keyboard and accessibility (LFCP-02-064). The live region is
  * read, not seen. With more contrast or forced colors, the mark's lighter
