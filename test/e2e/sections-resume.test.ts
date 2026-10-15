@@ -257,8 +257,24 @@ describe.skipIf(!live)("unfinished journeys across a crash (LFCP-03-017)", () =>
         () => (C.vault.plugin.sections?.registry.snapshot().rows.length === 1 ? true : undefined),
         120_000,
       );
-      pane(C).primary?.click();
-      await answer("the insert preview", click("Insert"));
+      const before = pane(C);
+      const said = mock.notices.length;
+      before.primary?.click();
+      await answer("the insert preview", click("Insert")).catch((e: unknown) => {
+        const open = mock.modals.filter((m) => m.isOpen);
+        throw new Error(
+          `${String(e)}; ${JSON.stringify({
+            clicked: before.primary?.dataset.action ?? null,
+            clickedText: before.primary?.textContent ?? null,
+            notices: mock.notices.slice(said),
+            modals: open.map((m) =>
+              `${m.constructor.name}: ${m.contentEl.textContent ?? ""}`.slice(0, 300),
+            ),
+            pane: pane(C).text.slice(0, 600),
+            load: C.runtime.sectionLoad(fromBase64url(resource) as ResourceId) ?? null,
+          })}`,
+        );
+      });
       await until("the section in C's note", () =>
         copies(C, SECTION_NOTE) === 1 ? true : undefined,
       );
