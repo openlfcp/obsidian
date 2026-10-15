@@ -3,6 +3,36 @@
   box-shadow: inset 2px 0 0 var(--background-modifier-border-hover);
 }
 
+/* OpenLFCP: a soft end under a section's last visible line (LFCP-03-020). */
+.openlfcp-section-end {
+  background-image: linear-gradient(
+    to right,
+    var(--background-modifier-border-hover) 50%,
+    transparent 0
+  );
+  background-size: 6px 1px;
+  background-repeat: repeat-x;
+  background-position: left bottom;
+}
+
+/*
+ * OpenLFCP: a boundary cue after a line's text (LFCP-03-020). The words come
+ * from an attribute, so they are never part of the note's text or a copy.
+ */
+.openlfcp-boundary-cue::after {
+  content: attr(data-label);
+  margin-left: var(--size-4-3);
+  font-family: var(--font-interface);
+  font-size: var(--font-smallest);
+  color: var(--text-faint);
+  user-select: none;
+  pointer-events: none;
+}
+
+.openlfcp-boundary-cue[data-cue="unknown"]::after {
+  color: var(--text-warning);
+}
+
 /* OpenLFCP: a bound Task whose shared fields have concurrent values (LFCP-062). */
 .openlfcp-conflict {
   box-shadow: inset 3px 0 0 var(--text-warning);

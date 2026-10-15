@@ -8,7 +8,11 @@ import {
   parseSectionRef,
   type SectionRef,
 } from "../../../src/core/sections/grammar";
-import { sectionPresentation } from "../../../src/core/sections/presentation";
+import {
+  BOUNDARY_CUE_TEXT,
+  boundaryCues,
+  sectionPresentation,
+} from "../../../src/core/sections/presentation";
 
 const R = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const id = (n: number) => `019a2f85-7b31-7c42-b85a-fc843e2f4${n.toString(16).padStart(3, "0")}`;
@@ -33,6 +37,7 @@ describe("sectionPresentation", () => {
     expect(sectionPresentation(md)).toEqual({
       bindingLines: [3, 5, 6, 9],
       sections: [{ from: 2, to: 9 }],
+      damaged: [],
     });
   });
 
@@ -40,8 +45,54 @@ describe("sectionPresentation", () => {
     expect(sectionPresentation(`- [ ] A\n  ${ref(2)}\n`)).toEqual({
       bindingLines: [],
       sections: [],
+      damaged: [],
     });
     const damaged = ["## Shared", formatBoundary("start", S), "- [ ] A", `  ${ref(2)}`].join("\n");
-    expect(sectionPresentation(damaged)).toEqual({ bindingLines: [], sections: [] });
+    // A damaged copy hides nothing and claims no range: only where it starts is named.
+    expect(sectionPresentation(damaged)).toEqual({ bindingLines: [], sections: [], damaged: [0] });
+  });
+});
+
+describe("boundary cues (LFCP-03-020)", () => {
+  const md = [
+    "## Shared", // 0
+    formatBoundary("start", S), // 1
+    "- [ ] Task", // 2
+    `  ${ref(2)}`, // 3
+    formatBoundary("end", S), // 4
+    "Private.", // 5
+    "",
+  ].join("\n");
+  const model = sectionPresentation(md);
+  const hidden = new Set(model.bindingLines);
+
+  it("the end is the last visible line before the end marker", () => {
+    expect(boundaryCues(model, hidden, null, 7)).toEqual({ ends: [2], cues: [] });
+    // Markers shown (Source mode): the ref line is the last line before the end marker.
+    expect(boundaryCues(model, new Set(), null, 7).ends).toEqual([3]);
+  });
+
+  it("an idle cursor on the last line is inside; on the line after the section, outside", () => {
+    expect(boundaryCues(model, hidden, 2, 7).cues).toEqual([{ line: 2, kind: "inside" }]);
+    expect(boundaryCues(model, hidden, 5, 7).cues).toEqual([{ line: 5, kind: "outside" }]);
+    expect(boundaryCues(model, hidden, 0, 7).cues).toEqual([]);
+    expect(BOUNDARY_CUE_TEXT).toEqual({
+      inside: "Inside the shared section",
+      outside: "Outside the shared section",
+      unknown: "Section boundary not determined",
+    });
+  });
+
+  it("a damaged copy is named at its start whatever the cursor, and its tail is never inside", () => {
+    const broken = ["Intro", "## Shared", formatBoundary("start", S), "- [ ] A", "Private."].join(
+      "\n",
+    );
+    const m = sectionPresentation(broken);
+    expect(m.sections).toEqual([]);
+    for (const cursor of [null, 3, 4])
+      expect(boundaryCues(m, new Set(), cursor, 5)).toEqual({
+        ends: [],
+        cues: [{ line: 1, kind: "unknown" }],
+      });
   });
 });
