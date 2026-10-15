@@ -419,7 +419,9 @@ The pane explains what an action does when it offers it, in one short tip
 - **G4. Local and migrated.** `normalizeSettings` reads an absent list
   (0.4 and earlier) as none hidden, keeps well-formed IDs of other
   versions, and drops anything else; no other setting, key, journal or
-  stored note changes. A tip whose meaning changes gets a new ID.
+  stored note changes. A tip whose meaning changes gets a new ID. 0.4.x
+  ignores the list without failing but drops it when it next saves its
+  settings, so after a downgrade that saves, the hidden tips show again.
 - **G5. No tour, no telemetry, no wizard.** Installing or upgrading opens
   no pane, dialog or tour; nothing about tips is sent; the sync server is
   chosen in the settings as before.
