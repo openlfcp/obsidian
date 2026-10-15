@@ -67,7 +67,7 @@ import type {
 import { markdownState, newProjectionId } from "./base";
 import { sectionAtLine, sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
-import { sameState, sharedState } from "./engine";
+import { showsModel } from "./engine";
 import { type SectionRef, sameSection } from "./grammar";
 import {
   type InsertionEntry,
@@ -81,6 +81,7 @@ import {
 import { type LegacySource, legacyPreflight } from "./legacy";
 import { type ParsedSection, parseSections } from "./parser";
 import type { SectionSnapshot } from "./port";
+import { modelTaskLine } from "./remote";
 import {
   adoptedBase,
   boundaryRepair,
@@ -1308,8 +1309,12 @@ export class SectionActions {
       const b = await bases.load(id);
       if (b !== undefined) known.add(sectionKey(b.locator.section));
     }
-    const lost: (LostBase & { section: ParsedSection; snap: SectionSnapshot; block: string })[] =
-      [];
+    const lost: (LostBase & {
+      section: ParsedSection;
+      snap: SectionSnapshot;
+      block: string | null;
+      taskLines: Record<string, string>;
+    })[] = [];
     const lines = md.split(/\r?\n/);
     for (const s of parseSections(md).sections) {
       const key = sectionKey(s.ref);
@@ -1317,25 +1322,39 @@ export class SectionActions {
       const b64 = toBase64url(s.ref.resourceId);
       const snap = model.snapshot(b64, s.ref.sectionId);
       if (snap === undefined || !snap.ready) continue;
-      if (sameState(markdownState(md, s).state, sharedState(snap))) continue;
+      // The engine's own test (LFCP-03-043): a section it keeps waiting is listed here.
+      const tasks = (id: string) => ({ view: model.taskView(b64, id) });
+      if (showsModel(md, s, snap, tasks)) continue;
       const block = renderSection(snap, s.ref, s.heading.level, {
         task: (id) => model.task(b64, id),
         placement: services.refPlacement(),
       });
-      if (block === null) continue;
       const local = lines.slice(s.startLine + 1, s.endLine).join("\n");
       const shared = block
-        .replace(/\r?\n$/, "")
+        ?.replace(/\r?\n$/, "")
         .split("\n")
         .slice(2, -1)
         .join("\n");
+      const taskLines: Record<string, string> = {};
+      const walk = (nodes: ParsedSection["nodes"]): void => {
+        for (const n of nodes) {
+          if (n.kind === "task" && n.id !== null) {
+            const line = modelTaskLine(md, n.lines.from, n.id, tasks);
+            if (line !== undefined) taskLines[n.id] = line;
+          }
+          walk(n.children);
+        }
+      };
+      walk(s.nodes);
       lost.push({
         key,
         title: s.heading.title,
-        lines: compare(local, shared),
+        lines: compare(local, shared ?? local),
+        ...(shared === undefined ? { sharedUnavailable: true as const } : {}),
         section: s,
         snap,
         block,
+        taskLines,
       });
     }
     const running = new Set<Promise<void>>();
@@ -1372,7 +1391,7 @@ export class SectionActions {
       shareMine: onNote(async (path, key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
-        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
+        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap, l.taskLines));
         services.pass(path);
         // F2: no promise that the held edits go out; the pane and the card show what the next pass did.
         prompter.notice(
@@ -1383,6 +1402,13 @@ export class SectionActions {
       useShared: onNote(async (path, key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
+        const block = l.block;
+        if (block === null) {
+          prompter.notice(
+            "Shared Tasks: the shared version cannot be written here yet. Nothing was replaced.",
+          );
+          return;
+        }
         // The note's text first, as a recovery copy kept on this device.
         await journal.putCandidate({
           candidateId: `repair:${crypto.randomUUID()}`,
@@ -1394,7 +1420,7 @@ export class SectionActions {
         await notes.edit(path, (current) => {
           if (current !== md) return null;
           replaced = true;
-          return [sharedVersionChange(current, l.section, l.block)];
+          return [sharedVersionChange(current, l.section, block)];
         });
         if (!replaced) {
           prompter.notice(

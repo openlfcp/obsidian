@@ -210,8 +210,24 @@ export function compare(local: string, shared: string): ComparedLine[] {
  * "Keep my version" of a lost base: the base is the shared state, so the
  * note's differences from it are this vault's edits, sent on the next pass.
  */
-export function adoptedBase(path: string, ref: SectionRef, snap: SectionSnapshot): StoredBase {
-  return { locator: { path, section: ref }, state: sharedState(snap), revision: snap.revision };
+export function adoptedBase(
+  path: string,
+  ref: SectionRef,
+  snap: SectionSnapshot,
+  /**
+   * Per Task, the model's line in the note's format (modelTaskLine): its
+   * fields the note shows otherwise are then edits the next pass sends
+   * (LFCP-03-043). A Task without one keeps no line and is not planned.
+   */
+  taskLines: Readonly<Record<string, string>> = {},
+): StoredBase {
+  const state = sharedState(snap);
+  const nodes = { ...state.nodes };
+  for (const [id, line] of Object.entries(taskLines)) {
+    const n = nodes[id];
+    if (n?.kind === "task") nodes[id] = { ...n, line };
+  }
+  return { locator: { path, section: ref }, state: { ...state, nodes }, revision: snap.revision };
 }
 
 /**
