@@ -137,6 +137,7 @@ describe("the access list (060)", () => {
     const stale = accessView(input({ mine: { ...owner, current: false } }));
     expect(stale.freshness).toBe("Access as last verified at t1000; it may have changed.");
     expect(stale.canInvite).toBe(false);
+    expect(stale.invite).toBeNull();
     expect(stale.inviteNote).toBe(
       "Inviting waits until this device has checked access with the server.",
     );
@@ -145,6 +146,8 @@ describe("the access list (060)", () => {
   it("unknown access: said as unknown, never an empty membership", () => {
     const v = accessView(input({ mine: null }));
     expect(v).toMatchObject({ unknown: true, rows: [], invitations: [], canInvite: false });
+    // Unknown is neither a denial nor a grant (LFCP-03-013).
+    expect(v.invite).toBeNull();
     expect(v.freshness).toBe("Access is unknown until this device checks with the server.");
   });
 
@@ -164,6 +167,7 @@ describe("the access list (060)", () => {
     };
     const v = accessView(input({ mine: reader }));
     expect(v.canInvite).toBe(false);
+    expect(v.invite).toBe(false);
     expect(v.inviteNote).toBe("You can't invite others to this section.");
     expect(v.rows.every((r) => !r.removable)).toBe(true);
   });
