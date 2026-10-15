@@ -1058,7 +1058,7 @@ describe("repair (LFCP-03-008 over 062)", () => {
     expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
     expect(t.notes.writes).toEqual([]);
     expect(t.prompter.notices).toEqual([
-      "Shared Tasks: your version of this section is being shared.",
+      "Shared Tasks: this note's version is kept as this copy's base. Whether its edits are sent shows in the pane and on the section card.",
     ]);
   });
 });
