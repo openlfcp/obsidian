@@ -13,7 +13,15 @@
 // a disabled button is never the only guard (the executor checks again).
 
 import { ACTIONS, type ActionId, SOURCE_CHANGING } from "../actions/catalog";
-import { ACCESS_HELD, type ActionFacts, availabilities, REPAIR_HELD } from "../actions/descriptors";
+import {
+  ACCESS_HELD,
+  type ActionFacts,
+  availabilities,
+  hostRefusal,
+  hostRefusalReason,
+  REPAIR_HELD,
+  RUNNING,
+} from "../actions/descriptors";
 import { ONE_TIME_LINK } from "../collab/commands";
 import { rowLabel } from "../sections/registry-view";
 import {
@@ -38,6 +46,7 @@ import {
   flowAction,
   stageOf,
 } from "./flows";
+import type { PaneProblem, ProblemCategory } from "./problems";
 
 /** Why a selection cannot be shared exactly (UX §4.2): the executor's reasons (LFCP-03-009). */
 export type SelectionReason = TargetSelectionReason;
@@ -151,6 +160,8 @@ export interface PaneFacts extends ActionFacts {
   readonly preview?: PanePreview;
   /** A short confirmation of the last step, e.g. "Link copied" (I3). */
   readonly notice?: string | null;
+  /** The problem rows of the section and the note in view (problems.ts, LFCP-03-018). */
+  readonly problems?: readonly PaneProblem[];
 }
 
 export interface PaneOptions {
@@ -190,6 +201,16 @@ export interface PaneFlowView {
   readonly waiting: boolean;
 }
 
+/** A problem row (LFCP-03-018): what, from where, and the way to its resolver. */
+export interface PaneProblemView {
+  readonly id: string;
+  readonly category: ProblemCategory;
+  readonly text: string;
+  readonly source: string;
+  /** Never destructive; null: nothing to do here but read it. */
+  readonly action: PaneAction | null;
+}
+
 export interface PaneRowView {
   readonly key: string;
   readonly label: string;
@@ -216,6 +237,8 @@ export interface PaneModel {
   readonly flow: PaneFlowView | null;
   /** Short status, problems first. */
   readonly status: readonly PaneLine[];
+  /** The problem hub: each problem with its source and its resolver, in a stable order. */
+  readonly problems: readonly PaneProblemView[];
   /** The share preview's summary, when one is shown. */
   readonly preview: readonly string[];
   /** At most one; never destructive (A1). */
@@ -634,6 +657,32 @@ function primaryOf(
   return p;
 }
 
+/**
+ * A problem row's action (LFCP-03-018): the host guard, and in Reading view
+ * a repair of that note waits for an editor (T4). The executor checks again.
+ */
+function problemView(f: PaneFacts, p: PaneProblem): PaneProblemView {
+  let a: PaneAction | null = null;
+  if (p.action !== null) {
+    const refusal = hostRefusal(f.host ?? RUNNING);
+    const path = p.ref === null || p.ref.kind === "conflict" ? null : p.ref.path;
+    const reading =
+      p.action === "repair-sections" &&
+      f.context.editor === "reading" &&
+      path !== null &&
+      path === f.context.note;
+    a = action(
+      p.action,
+      refusal !== null
+        ? { enabled: false, reason: hostRefusalReason(refusal) }
+        : reading
+          ? { enabled: false, reason: "Open the note for editing to repair it." }
+          : { enabled: true, reason: null },
+    );
+  }
+  return { id: p.id, category: p.category, text: p.text, source: p.source, action: a };
+}
+
 const action = (id: ActionId, x: Avail): PaneAction => ({
   id,
   label: ACTIONS[id].label,
@@ -714,6 +763,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
         ? null
         : flowView(f.context.flow),
     status: f.section === null ? [] : statusLines(f.section, o, a.get("invite")?.enabled === true),
+    problems: (f.problems ?? []).map((p) => problemView(f, p)),
     preview:
       preview === undefined
         ? []
@@ -757,6 +807,7 @@ export function paneTexts(m: PaneModel): string[] {
           ...m.flow.lines,
         ]),
     ...m.status.map((l) => l.text),
+    ...m.problems.flatMap((p) => [p.text, p.source, ...(p.action === null ? [] : act(p.action))]),
     ...m.preview,
     ...(m.primary === null ? [] : act(m.primary)),
     ...m.secondary.flatMap(act),

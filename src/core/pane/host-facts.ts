@@ -20,9 +20,12 @@
 import type { ActionId } from "../actions/catalog";
 import { type HostFacts, RUNNING } from "../actions/descriptors";
 import type { ActionRequest } from "../actions/dispatcher";
+import { contentHash } from "../projection/guard";
 import type { ActiveFlow } from "../sections/actions";
 import { sectionAtLine } from "../sections/context";
+import type { RecoveryItem } from "../sections/recovery";
 import type { RegistryRow, RegistrySnapshot } from "../sections/registry-view";
+import { keyedRepairs } from "../sections/repair";
 import { preflight, proposeRange, type SharePolicy, shareMessages } from "../sections/share";
 import { type ShareScope, shareScope, type TargetCapture } from "../sections/target";
 import { type StatusView, statusView } from "../status/reducer";
@@ -38,6 +41,7 @@ import type {
   PaneSection,
   PaneSelection,
 } from "./model";
+import { type NoteRepairs, type PaneProblem, paneProblems } from "./problems";
 
 /**
  * What the access list (AccessView, the card's) says of a section, for the
@@ -94,6 +98,8 @@ export interface PaneHostSources {
   readonly invitation?: PaneInvitation | null;
   /** What this device's share or invitation of section `key` came to, in this session. */
   readonly journey?: (key: string) => PaneJourney | undefined;
+  /** A section's review items (conflicts, kept work), read now; absent: none known (LFCP-03-018). */
+  readonly recovery?: (key: string) => readonly RecoveryItem[];
 }
 
 /** The registry as the pane shows it while shared sections are off: nothing is claimed. */
@@ -249,6 +255,8 @@ export interface PaneDrawing {
   request(id: ActionId): ActionRequest;
   /** What action `id` acts on (note, section, flow): a click compares it with the facts then (L2). */
   identity(id: ActionId): string;
+  /** What a problem row's action hands the dispatcher (LFCP-03-018); null: no such row now. */
+  problemRequest(problemId: string): ActionRequest | null;
   /** The flow the pane holds now (its generation), to keep on the next drawing. */
   readonly pinned: number | null;
 }
@@ -348,13 +356,21 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
       ? undefined
       : previewOf(note, shareScope(note.text, note.cursorLine, note.selections), src.policy);
   const unfinished = inviting && flow !== null ? [flow, ...others] : others;
+  const section = at === null ? null : sectionOf(at, rows, src);
+  const problems = paneProblems({
+    // A section whose status is not computed yet has no problems to claim.
+    view: at === null || src.status(at.key) === undefined ? null : (section?.view ?? null),
+    recovery: at === null ? [] : (src.recovery?.(at.key) ?? []),
+    repairs: noteRepairs(note),
+  });
   const facts: PaneFacts = {
     context,
     registry: registryOf(src.registry),
-    section: at === null ? null : sectionOf(at, rows, src),
+    section,
     ...(unfinished.length === 0 ? {} : { unfinished: unfinished.map(paneFlow) }),
     host: src.host ?? RUNNING,
     ...(preview === undefined ? {} : { preview }),
+    ...(problems.length === 0 ? {} : { problems }),
   };
   const base: ActionRequest = {
     ...(note === null ? {} : { target: note }),
@@ -383,8 +399,32 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
       const r = request(id);
       return JSON.stringify([r.target?.path ?? null, r.section?.key ?? null, r.flow ?? null]);
     },
+    problemRequest: (problemId) => {
+      const p = problems.find((x) => x.id === problemId);
+      return p === undefined ? null : problemRequest(p, at);
+    },
     pinned: flow?.generation ?? null,
   };
+}
+
+/** The repair items of the note in view, with its revision (only computed when there are some). */
+function noteRepairs(note: TargetCapture | null): NoteRepairs | null {
+  if (note === null) return null;
+  const items = keyedRepairs(note.text);
+  return { path: note.path, revision: items.length === 0 ? "" : contentHash(note.text), items };
+}
+
+/**
+ * What a problem row hands the dispatcher: a conflict its RecoveryItem.key
+ * with the section; a repair its line key, line and revision (the executor
+ * parses the note again); held edits their place; the rest the section.
+ */
+function problemRequest(p: PaneProblem, at: { key: string; title: string } | null): ActionRequest {
+  const section = at === null ? {} : { section: at };
+  const ref = p.ref;
+  if (ref === null) return section;
+  if (ref.kind === "at") return { ...section, at: { path: ref.path, line: ref.line } };
+  return { ...section, problem: ref };
 }
 
 /** The pane's facts from the host's sources. */
