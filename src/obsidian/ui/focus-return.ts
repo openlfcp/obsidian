@@ -16,6 +16,11 @@
 // editor back its selection. Nothing is taken when the next dialog of the
 // flow is already open, or when focus went elsewhere on purpose (another
 // control than the editor and the page).
+//
+// Tab and Shift+Tab stay in the dialog (a modal trap). Obsidian keeps Tab
+// in its Modal on macOS and Windows, but Shift+Tab left it for the pane on
+// Linux (run 38769145805); the plugin's dialogs keep both, everywhere,
+// unless Obsidian already took the key.
 
 import type { Modal } from "obsidian";
 
@@ -77,6 +82,7 @@ export function returnsFocus<M extends Modal>(modal: M): M {
   const doc = typeof activeDocument === "undefined" ? undefined : activeDocument;
   const win = doc?.defaultView;
   if (doc === undefined || win === null || win === undefined) return modal;
+  trapTab(modal);
   const from = doc.activeElement?.closest(".modal-container");
   const origin =
     (from === null || from === undefined ? null : (origins.get(from) ?? null)) ??
@@ -96,4 +102,45 @@ export function returnsFocus<M extends Modal>(modal: M): M {
     }, 0);
   };
   return modal;
+}
+
+/** What Tab may reach in a dialog: enabled, shown, in the Tab order. */
+const FOCUSABLE =
+  'button, [href], input:not([type="hidden"]), select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+
+/** Tab and Shift+Tab cycle through `modal`'s controls and never leave it. */
+function trapTab(modal: Modal): void {
+  const box = (modal as { containerEl?: HTMLElement }).containerEl;
+  const dialog = (modal as { modalEl?: HTMLElement }).modalEl ?? box;
+  if (box === undefined || dialog === undefined || typeof box.addEventListener !== "function")
+    return;
+  box.addEventListener("keydown", (e) => {
+    if (
+      e.key !== "Tab" ||
+      e.defaultPrevented ||
+      e.isComposing ||
+      e.altKey ||
+      e.ctrlKey ||
+      e.metaKey
+    )
+      return;
+    const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      (x) =>
+        !(x as HTMLButtonElement).disabled &&
+        x.getAttribute("aria-hidden") !== "true" &&
+        (x.checkVisibility?.() ?? true),
+    );
+    if (items.length === 0) return;
+    const at = items.indexOf(dialog.ownerDocument.activeElement as HTMLElement);
+    const next = e.shiftKey
+      ? at <= 0
+        ? items.length - 1
+        : at - 1
+      : at === -1 || at === items.length - 1
+        ? 0
+        : at + 1;
+    e.preventDefault();
+    e.stopPropagation();
+    items[next]?.focus();
+  });
 }

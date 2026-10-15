@@ -10,11 +10,15 @@ import { returnsFocus } from "../../src/obsidian/ui/focus-return";
 /** A dialog as Obsidian shows one: a .modal-container while open, onClose on close. */
 class FakeModal {
   readonly containerEl = document.createElement("div");
+  readonly modalEl = document.createElement("div");
   readonly input = document.createElement("input");
+  readonly cancel = document.createElement("button");
+  readonly share = document.createElement("button");
   closed = 0;
   constructor() {
     this.containerEl.className = "modal-container";
-    this.containerEl.appendChild(this.input);
+    this.containerEl.appendChild(this.modalEl);
+    this.modalEl.append(this.input, this.cancel, this.share);
   }
   onClose(): void {
     this.closed++;
@@ -151,5 +155,38 @@ describe("focus after a dialog (LFCP-03-022)", () => {
     other.focus();
     vi.runOnlyPendingTimers();
     expect(document.activeElement).toBe(other);
+  });
+
+  it("Tab and Shift+Tab cycle in the dialog and never leave it", () => {
+    drawPane(["action:share-section"])["action:share-section"]?.focus();
+    const m = open();
+    m.open();
+    const tab = (shiftKey = false, handled = false) => {
+      const e = new KeyboardEvent("keydown", {
+        key: "Tab",
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+      if (handled) e.preventDefault();
+      (document.activeElement ?? document.body).dispatchEvent(e);
+      return e;
+    };
+    expect(document.activeElement).toBe(m.input);
+    expect(tab().defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(m.cancel);
+    tab();
+    expect(document.activeElement).toBe(m.share);
+    tab();
+    expect(document.activeElement).toBe(m.input);
+    tab(true);
+    expect(document.activeElement).toBe(m.share);
+    tab(true);
+    tab(true);
+    expect(document.activeElement).toBe(m.input);
+    // Obsidian already took the key: the dialog leaves it alone.
+    tab(false, true);
+    expect(document.activeElement).toBe(m.input);
+    m.close();
   });
 });
