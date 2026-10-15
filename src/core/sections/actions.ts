@@ -31,6 +31,7 @@ import {
   type HostNeeds,
   hostRefusal,
   hostRefusalNotice,
+  sectionFacts,
 } from "../actions/descriptors";
 import type { ActionRequest, Surface } from "../actions/dispatcher";
 import { type Flow, InFlight, type Reconciled } from "../in-flight";
@@ -1144,10 +1145,8 @@ export class SectionActions {
   /** The card's facts as the action descriptors read them: the pane's, for this section alone. */
   #cardFacts(key: string, title: string, content: SectionCard): ActionFacts {
     const { services } = this.env;
-    return {
-      context: { editor: "none", note: null, cursor: "none", selection: null, flow: null },
-      registry: { status: "ready", placementIndex: "unknown", sections: null, unplaced: null },
-      section: {
+    return sectionFacts(
+      {
         key,
         sharedTitle: title,
         localAlias: null,
@@ -1156,13 +1155,13 @@ export class SectionActions {
         canInvite: content.access?.invite ?? null,
         ...(content.hosting === undefined ? {} : { hosting: content.hosting }),
       },
-      host: {
+      {
         unavailable: services.unavailable(),
         starting: false,
         readOnly: services.readOnly(),
         server: services.server().trim() !== "",
       },
-    };
+    );
   }
 
   /** "Go to line N" of a held copy (the card, F-04): note `path` opened at `line`. */
