@@ -458,13 +458,22 @@ export class StaleWorkController {
   }
 
   async #cut(resource: string, units: readonly string[]): Promise<void> {
+    const before = this.#shape(resource);
     try {
       await this.o.store.cut(resource, units);
       await this.#refresh(resource);
     } finally {
       this.#guard.delete(resource);
     }
+    // The guard counted as one pending edit: the status shows the real count now.
+    if (this.#shape(resource) !== before) this.o.changed(resource);
     await this.reapply(resource);
+  }
+
+  /** What the status shows of `resource`'s open work: each operation and its state, and the guard. */
+  #shape(resource: string): string {
+    const open = (this.#open.get(resource) ?? []).map((op) => `${op.operationId}:${op.state}`);
+    return `${this.#guard.has(resource)}|${open.join(",")}`;
   }
 
   /**
@@ -516,6 +525,7 @@ export class StaleWorkController {
     const port = this.o.port;
     if (this.o.ready !== undefined && !(await this.o.ready(resource)))
       return { done: [], review: [], waiting: true, reason: "catching up with the server" };
+    const before = this.#shape(resource);
     const result = await port.exclusive(resource, () =>
       reapplyStale(
         { port, store: this.o.store, fingerprints: (r, ids) => port.fingerprints(r, ids) },
@@ -525,7 +535,10 @@ export class StaleWorkController {
     );
     await this.#refresh(resource);
     await this.#settle(resource, result.done);
-    if (result.done.length > 0 || !this.#open.has(resource)) this.o.changed(resource);
+    // LFCP-03-036: work gone to review changes the status too ("could not be
+    // sent"), else the card kept saying it is being sent again.
+    if (result.done.length > 0 || !this.#open.has(resource) || this.#shape(resource) !== before)
+      this.o.changed(resource);
     return result;
   }
 

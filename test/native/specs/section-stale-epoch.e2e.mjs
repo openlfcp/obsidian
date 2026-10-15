@@ -239,6 +239,22 @@ describe("offline edits in vault A across an unrelated removal (§19.1)", () => 
         { timeout: 30_000 },
       )
       .catch(() => false);
+    // The status the card is drawn from follows (LFCP-03-036): it is refreshed
+    // a moment after the controller moved the work to review, never left behind.
+    const statusReview = await browser
+      .waitUntil(
+        () =>
+          inA(({ app, obsidian }, hex) => {
+            const R = Uint8Array.from(hex.match(/../g).map((h) => Number.parseInt(h, 16)));
+            const b64 = btoa(String.fromCharCode(...R)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+            const md = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getValue();
+            const id = /<!-- lfcp-section: [^#\s]+#section:(\S+) -->/.exec(md)?.[1];
+            const v = id === undefined ? undefined : app.plugins.plugins["shared-tasks"].sections.sectionStatus(`${b64}#${id}`);
+            return (v?.conditions ?? []).some((c) => c.kind === "stale-work" && c.review > 0 && c.pending === 0);
+          }, s.R),
+        { timeout: 10_000 },
+      )
+      .catch(() => false);
     const before = await noteA();
     evidence("STALE2 diag", await inA(async ({ app }, hex) => {
       const p = app.plugins.plugins["shared-tasks"];
@@ -282,9 +298,10 @@ describe("offline edits in vault A across an unrelated removal (§19.1)", () => 
       .waitUntil(async () => titlesB(s).includes("Beta by A"), { timeout: 30_000 })
       .catch(() => false);
     const current = await browser.waitUntil(async () => (await badge()) === "CURRENT", { timeout: 20_000 }).catch(() => false);
-    evidence("STALE2", { inReview, attention, before: titles(sectionOf(before)), reviewed, got, current, titlesB: titlesB(s), titlesA: titles(sectionOf(await noteA())) });
+    evidence("STALE2", { inReview, statusReview, attention, before: titles(sectionOf(before)), reviewed, got, current, titlesB: titlesB(s), titlesA: titles(sectionOf(await noteA())) });
     expect(attention).toBe(true);
     expect(inReview).toBe(true);
+    expect(statusReview).toBe(true);
     // Never overwritten while it waited: A's note kept A's title.
     expect(titles(sectionOf(before))).toEqual(["Alpha by A", "Beta by A", "Gamma"]);
     expect(reviewed.cardText).toContain("could not be sent after an access change");
