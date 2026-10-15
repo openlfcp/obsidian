@@ -54,6 +54,7 @@ import {
 } from "../core/sections/recovery";
 import { SectionRegistryView } from "../core/sections/registry-view";
 import { bindsOwnNode, type PastedBinding, removeNodeLines } from "../core/sections/rules";
+import type { SharePolicy } from "../core/sections/share";
 import {
   KeyValueStaleWorkStore,
   StaleWorkController,
@@ -219,7 +220,11 @@ export class SectionsHost {
     private readonly announce: (text: string) => void = () => undefined,
   ) {
     this.actions = new SectionActions({
-      prompter: new ObsidianSectionPrompter(app, (text) => this.announce(text)),
+      prompter: new ObsidianSectionPrompter(
+        app,
+        (text) => this.announce(text),
+        () => this.sharePolicy(),
+      ),
       notes: {
         capture: (path) => this.#captureOpen(path),
         read: async (path) => {
@@ -1013,6 +1018,11 @@ export class SectionsHost {
    */
   paneAccess(key: string): PaneAccess | undefined {
     return this.#paneAccess.get(key);
+  }
+
+  /** The settings a share runs under now: the default sync server and the comments setting. */
+  sharePolicy(): SharePolicy {
+    return { server: this.server(), comments: this.sectionComments() };
   }
 
   /** The host's running state as the action descriptors read it (the pane's disabled reasons). */
