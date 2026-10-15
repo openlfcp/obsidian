@@ -1,0 +1,213 @@
+// LFCP-03-012 (U03-01): the pane's facts from the real host, before 013
+// wires flows and CTAs. No note: the join entry and "Open a note…"; a
+// private heading: Share section…; the cursor in a shared section: that
+// section, by its key, with its status from the one status path or, before
+// its first, the reducer's "no evidence" view (never healthy, never a
+// denial); the registry's rows as the list. A pane button hands the
+// dispatcher the note captured now and the section it is about. An action
+// this host cannot run is off with its reason, never a dead button.
+
+import { describe, expect, it } from "vitest";
+import {
+  hostPaneFacts,
+  hostPaneRequest,
+  NOT_WIRED,
+  unknownStatus,
+  wiredModel,
+} from "../../../src/core/pane/host-facts";
+import { paneModel, paneTexts } from "../../../src/core/pane/model";
+import {
+  formatBoundary,
+  parseSectionRef,
+  type SectionRef,
+} from "../../../src/core/sections/grammar";
+import type { RegistrySnapshot } from "../../../src/core/sections/registry-view";
+import type { TargetCapture } from "../../../src/core/sections/target";
+import { statusView } from "../../../src/core/status/reducer";
+
+const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
+const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
+const S = parseSectionRef(`lfcp1:${R0}#section:${SID}`) as SectionRef;
+const KEY = `${R0}#${SID}`;
+const TEXT = [
+  "# Plan",
+  "Private text.",
+  "## Launch",
+  formatBoundary("start", S),
+  "- [ ] Alpha",
+  formatBoundary("end", S),
+  "",
+].join("\n");
+
+const note = (cursorLine: number, over: Partial<TargetCapture> = {}): TargetCapture => ({
+  path: "Plan.md",
+  text: TEXT,
+  mode: "source",
+  cursorLine,
+  selections: [],
+  composing: false,
+  ...over,
+});
+
+const registry = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
+  version: 1,
+  status: "ready",
+  error: null,
+  placementIndex: "complete",
+  rows: [
+    {
+      resource: R0,
+      sectionId: SID,
+      key: KEY,
+      sharedTitle: "Launch",
+      localAlias: "Work launch",
+      registryState: "available",
+      refusal: null,
+      status: { watched: true, state: "CURRENT" },
+      placements: [{ path: "Plan.md" } as never],
+      placementCount: 1,
+      placed: "placed",
+    },
+  ],
+  sections: 1,
+  unplaced: 0,
+  ...over,
+});
+
+const current = statusView({
+  session: "s",
+  revision: 1,
+  replica: "loaded",
+  access: "writer",
+  accessVerifiedAt: 1,
+  accessCurrent: true,
+  pendingControl: [],
+  connection: "connected",
+  catchUp: "current-at-checkpoint",
+  problems: [],
+  batches: [],
+  acceptanceEvidence: "available",
+  projections: [],
+});
+
+describe("pane host facts (LFCP-03-012)", () => {
+  it("no note open: the join entry, the registry list, and no invented context", () => {
+    const m = paneModel(
+      hostPaneFacts({ note: null, registry: registry(), status: () => undefined }),
+    );
+    expect(m.join).toMatchObject({ label: "Join with a link…", enabled: true });
+    expect(m.context.heading).toBe("No note open");
+    expect(m.primary).toBeNull();
+    expect(m.primaryNone).toBe("Open a note to share from it, or join with a link.");
+    expect(m.sections.summary).toBe("1 shared section on this device");
+    expect(m.sections.groups.map((g) => g.rows.map((r) => r.label))).toEqual([["Launch"]]);
+    expect(m.status).toEqual([]);
+  });
+
+  it("a private heading under the cursor offers Share section…; private text does not", () => {
+    const heading = paneModel(
+      hostPaneFacts({ note: note(0), registry: registry(), status: () => undefined }),
+    );
+    expect(heading.primary?.id).toBe("share-section");
+    const text = hostPaneFacts({ note: note(1), registry: registry(), status: () => undefined });
+    expect(text.context.cursor).toBe("private-text");
+  });
+
+  it("the cursor in a shared section: that section by its key, with its own status", () => {
+    const f = hostPaneFacts({
+      note: note(4),
+      registry: registry(),
+      status: (k) => (k === KEY ? current : undefined),
+    });
+    expect(f.context.cursor).toBe("inside-section");
+    expect(f.section).toMatchObject({
+      key: KEY,
+      sharedTitle: "Launch",
+      localAlias: "Work launch",
+      placements: 1,
+      canInvite: null,
+    });
+    expect(f.section?.view).toBe(current);
+    const m = paneModel(f);
+    expect(m.context.lines).toContain("On this device: Work launch");
+    // The access list is not read yet (013): inviting waits, it is never granted by default.
+    expect(m.secondary.find((a) => a.id === "invite")).toMatchObject({ enabled: false });
+  });
+
+  it("a section with no status yet is the reducer's no-evidence view: never healthy or denied", () => {
+    const f = hostPaneFacts({
+      note: note(4),
+      registry: registry({ rows: [] }),
+      status: () => undefined,
+    });
+    const v = f.section?.view;
+    expect(v?.state).toBe("LOADING");
+    expect(v?.access.access).toBe("unknown");
+    expect(v?.sync.current).toBe(false);
+    expect(unknownStatus().state).toBe("LOADING");
+    // Its heading in the note names it until the model is open here.
+    expect(f.section?.sharedTitle).toBe("Launch");
+  });
+
+  it("a selection is the executor's own scope rule: exact or refused, never widened", () => {
+    const exact = hostPaneFacts({
+      note: note(1, {
+        cursorLine: 1,
+        selections: [{ anchor: { line: 0, ch: 0 }, head: { line: 1, ch: 13 } }],
+      }),
+      registry: registry(),
+      status: () => undefined,
+    });
+    expect(exact.context.selection).toMatchObject({ eligibility: "exact", fromLine: 1, toLine: 2 });
+    const partial = hostPaneFacts({
+      note: note(1, { selections: [{ anchor: { line: 1, ch: 0 }, head: { line: 1, ch: 4 } }] }),
+      registry: registry(),
+      status: () => undefined,
+    });
+    expect(partial.context.selection).toMatchObject({ eligibility: "ineligible" });
+  });
+
+  it("the registry before its first read and while sections are off claims nothing", () => {
+    const loading = paneModel(
+      hostPaneFacts({
+        note: null,
+        registry: registry({ status: "loading", rows: [], sections: null, unplaced: null }),
+        status: () => undefined,
+      }),
+    );
+    expect(loading.sections.summary).toBe("Reading the shared sections on this device…");
+    const off = paneModel(hostPaneFacts({ note: null, registry: null, status: () => undefined }));
+    expect(off.sections).toEqual({ summary: null, groups: [] });
+  });
+
+  it("a button hands the dispatcher the note captured now and the section it is about", () => {
+    expect(hostPaneRequest({ note: null })).toEqual({});
+    const n = note(4);
+    expect(hostPaneRequest({ note: n })).toEqual({
+      target: n,
+      section: { key: KEY, title: "Launch" },
+    });
+    expect(hostPaneRequest({ note: note(0) })).toEqual({ target: note(0) });
+  });
+
+  it("an action this host cannot run is off with its reason; nothing else changes", () => {
+    const m = paneModel(
+      hostPaneFacts({ note: note(4), registry: registry(), status: () => current }),
+    );
+    const wired = wiredModel(m, (id) => id === "join-with-link");
+    for (const a of [...wired.secondary, ...wired.menu, ...(wired.primary ? [wired.primary] : [])])
+      if (a.id !== "join-with-link") expect(a.enabled).toBe(false);
+    expect(wired.join.enabled).toBe(true);
+    expect(paneTexts(wired)).toContain(NOT_WIRED);
+    expect(wiredModel(m, () => true)).toEqual(m);
+  });
+
+  it("claims no OS link handler and starts no wizard (U03-01)", () => {
+    const texts = [null, note(0), note(4)].flatMap((n) =>
+      paneTexts(paneModel(hostPaneFacts({ note: n, registry: registry(), status: () => current }))),
+    );
+    expect(texts.join("\n")).not.toMatch(
+      /protocol|click the link|opens? (the )?link|wizard|setup/i,
+    );
+  });
+});
