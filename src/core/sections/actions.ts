@@ -100,6 +100,9 @@ type CreationOutcome =
   | { readonly kind: "known"; readonly result: CreationResult }
   | { readonly kind: "unknown"; readonly error: unknown };
 
+/** The card's link to the pane (LFCP-03-012). */
+export const PANE_LINK = "Open Shared Tasks pane";
+
 /** How a surface runs an action by its ID: the dispatcher's `run` (actions/dispatcher.ts). */
 export type Dispatch = (id: ActionId, request: ActionRequest, surface: Surface) => Promise<void>;
 
@@ -131,6 +134,14 @@ export class SectionActions {
    */
   dispatchThrough(dispatch: Dispatch): void {
     this.#dispatch = dispatch;
+  }
+
+  /** The host's "Open Shared Tasks pane" (LFCP-03-012); null: the card has no link to it. */
+  #openPane: (() => void) | null = null;
+
+  /** The card links to the pane, which `open` reveals (one pane per workspace). */
+  paneEntry(open: () => void): void {
+    this.#openPane = open;
   }
 
   /** A card button's action: through the dispatcher when there is one, else `direct`, its handler. */
@@ -1024,6 +1035,8 @@ export class SectionActions {
               : []),
           ]),
       { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
+      // LFCP-03-012: the card is one of the pane's entries.
+      ...(this.#openPane === null ? [] : [{ label: PANE_LINK, run: this.#openPane }]),
       // Text kept on this device after a refusal (a local copy, never applied by itself).
       ...(kept.length > 0
         ? [
