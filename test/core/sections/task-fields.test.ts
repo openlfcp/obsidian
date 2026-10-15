@@ -5,6 +5,7 @@ import { createTask, SharedObjectsReplica } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import type { SectionState } from "../../../src/core/sections/base";
 import {
+  comparableView,
   newSectionTask,
   planTaskFields,
   representLine,
@@ -104,5 +105,26 @@ describe("sameFields (LFCP-03-043)", () => {
 
   it("tags compare as a set: their order is formatting", () => {
     expect(same(BASE, BASE.replace("#a #b", "#b #a"))).toBe(true);
+  });
+});
+
+describe("comparableView (LFCP-03-043)", () => {
+  it("a valid, live Task here is comparable", () => {
+    expect(comparableView(view()())).toBe(true);
+  });
+
+  it("not here, two objects under the ID, or deleted: not comparable", () => {
+    const v = view()();
+    if (v === undefined) throw new Error("no view");
+    expect(comparableView(undefined)).toBe(false);
+    // The Task is still there: only the status says it cannot be trusted.
+    expect(comparableView({ ...v, status: "object_id_collision" })).toBe(false);
+    expect(comparableView({ ...v, status: "profile_invalid" } as never)).toBe(false);
+    expect(comparableView({ ...v, task: undefined })).toBe(false);
+    const deleted = {
+      ...v,
+      task: { ...(v.task as NonNullable<typeof v.task>), lifecycle: "deleted" },
+    };
+    expect(comparableView(deleted as never)).toBe(false);
   });
 });
