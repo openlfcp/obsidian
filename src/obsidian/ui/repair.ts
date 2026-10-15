@@ -102,7 +102,7 @@ export class RepairModal extends Modal {
       box.createEl("p", {
         text:
           lost.sharedUnavailable === true
-            ? "This note's version. The shared version cannot be shown here yet."
+            ? "This note's version. The shared version cannot be shown here yet: Keep my version keeps this text as it is, and the section asks again once the shared version has loaded."
             : "− only in this note · + only in the shared version",
         cls: "setting-item-description",
       });

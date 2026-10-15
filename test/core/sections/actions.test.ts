@@ -2407,8 +2407,10 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
   });
 
-  it("a Task whose shared object is not a valid Task: listed with this note's version only; Keep it gives a base", async () => {
-    const t = wired(MODEL_NOTE, () => undefined);
+  it("a Task not here yet: Keep my version guesses no base; once it arrives the edit is asked about again, never lost", async () => {
+    const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
+    let here = false;
+    const t = wired(edited, (r) => (here ? r.task(T) : undefined));
     await t.passes(1);
     expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
     await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
@@ -2420,7 +2422,34 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       "Shared Tasks: the shared version cannot be written here yet. Nothing was replaced.",
     );
     await actions.shareMine(KEY);
-    expect(await t.passes(2)).toBe(MODEL_NOTE);
+    expect(t.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: this note's version is kept as it is. A Task in it is still loading; once it has, the section asks again if the two versions differ.",
+    );
+    expect(await t.passes(2)).toBe(edited);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    // The Task arrives: the note still differs, so nothing is seeded or rendered over it.
+    here = true;
+    expect(await t.passes(3)).toBe(edited);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    expect(t.port.changes).toEqual([]);
+    // Repair offers the choice again; Keep my version now sends the note's fields.
+    t.prompter.dialogs.length = 0;
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, again, actions2] = opened(t);
+    expect(again.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, undefined]]);
+    await actions2.shareMine(KEY);
+    expect(await t.passes(3)).toBe(edited);
+    expect(t.replica.task(T)?.task?.title).toBe("Local edit");
+    expect(t.replica.task(T)?.task?.due).toBe("2026-11-05");
+  });
+
+  it("a Task not here yet that the note shows as the model seeds once it arrives", async () => {
+    let here = false;
+    const t = wired(MODEL_NOTE, (r) => (here ? r.task(T) : undefined));
+    await t.passes(1);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    here = true;
+    expect(await t.passes(1)).toBe(MODEL_NOTE);
     expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
   });
 
