@@ -211,6 +211,11 @@ export class Workspace extends Events {
   onLayoutReady(callback: () => unknown): void {
     callback();
   }
+  /** Every leaf: the Markdown editors' and the others' (LFCP-03-022). */
+  iterateAllLeaves(callback: (leaf: { view: unknown }) => unknown): void {
+    for (const view of this.views) callback({ view });
+    for (const leaf of this.leaves) callback(leaf);
+  }
 }
 
 /** One item of a context menu, as the plugin builds it. */
@@ -570,9 +575,9 @@ export class Plugin {
   }
 
   /** DOM listeners registered for unload, by event type (a test calls them). */
-  readonly domEvents: { type: string; callback: (e: unknown) => unknown }[] = [];
-  registerDomEvent(_el: unknown, type: string, callback: (e: unknown) => unknown): void {
-    this.domEvents.push({ type, callback });
+  readonly domEvents: { el: unknown; type: string; callback: (e: unknown) => unknown }[] = [];
+  registerDomEvent(el: unknown, type: string, callback: (e: unknown) => unknown): void {
+    this.domEvents.push({ el, type, callback });
   }
 
   /** Status bar items, with their current text. */

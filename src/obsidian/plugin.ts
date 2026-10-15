@@ -80,6 +80,7 @@ import {
   SharedTasksView,
 } from "./ui/pane-view";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
+import { inEveryWindow } from "./windows";
 
 /** Apply outcomes after which a collaborator may be blocked. */
 const BLOCKING_OUTCOMES: ReadonlySet<string> = new Set([
@@ -279,10 +280,17 @@ export default class OpenLfcpPlugin extends Plugin {
         name: "Share section…",
         editorCallback: (editor, ctx) => void this.#runOnNote("share-section", editor, ctx),
       });
-      // LFCP-02-063: no plugin UI in a copy of rendered content; the two copy commands.
-      this.registerDomEvent(document, "copy", (e) => {
-        filterUiFromCopy(e, document);
-      });
+      // LFCP-02-063: no plugin UI in a copy of rendered content, in every
+      // window (a popout has its own document, LFCP-03-022); the two copy commands.
+      inEveryWindow(
+        this.app.workspace,
+        document,
+        (ref) => this.registerEvent(ref),
+        (doc) =>
+          this.registerDomEvent(doc, "copy", (e) => {
+            filterUiFromCopy(e, doc);
+          }),
+      );
       this.addCommand({
         id: "copy-readable-text",
         name: "Copy readable text (without sharing metadata)",
