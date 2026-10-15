@@ -65,6 +65,11 @@ export interface RepairActions {
 /** A button of the section card. */
 export interface CardAction {
   readonly label: string;
+  /**
+   * Why it cannot run now, in words, when it applies but is blocked (A5,
+   * D10): shown disabled with this reason; absent when it can run.
+   */
+  readonly disabled?: string;
   /** Runs after the card closes; the executor revalidates the section first. */
   readonly run: () => void;
 }
