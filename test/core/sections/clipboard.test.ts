@@ -3,7 +3,11 @@
 // inspects the actual clipboard).
 
 import { describe, expect, it } from "vitest";
-import { readableText, sharedSectionText } from "../../../src/core/sections/clipboard";
+import {
+  readableCopy,
+  readableText,
+  sharedSectionText,
+} from "../../../src/core/sections/clipboard";
 import { formatBoundary, formatNodeMarker } from "../../../src/core/sections/grammar";
 
 const ref = {
@@ -58,5 +62,30 @@ describe("copying (063)", () => {
     expect(shared.trimEnd().endsWith("-->")).toBe(true);
     expect(shared).not.toContain("Private");
     expect(sharedSectionText(md, 0)).toBeNull();
+  });
+
+  it("LFCP-03-013: the pane's copy is the palette's: the selection, else the section, readable", () => {
+    const at = (
+      cursorLine: number,
+      selections: { anchor: [number, number]; head: [number, number] }[] = [],
+    ) => ({
+      path: "Plan.md",
+      text: md,
+      mode: "source" as const,
+      cursorLine,
+      selections: selections.map((x) => ({
+        anchor: { line: x.anchor[0], ch: x.anchor[1] },
+        head: { line: x.head[0], ch: x.head[1] },
+      })),
+      composing: false,
+    });
+    // The section at the cursor, without its metadata.
+    expect(readableCopy(at(9))).toBe(readableText(sharedSectionText(md, 9) as string));
+    // A selection, backwards too: exactly its text, readable.
+    expect(readableCopy(at(9, [{ anchor: [5, 0], head: [4, 6] }]))).toBe(
+      readableText(md.split("\n").slice(4, 5).join("\n").slice(6) + "\n"),
+    );
+    // An empty selection is no selection; private text with none: nothing to copy.
+    expect(readableCopy(at(0, [{ anchor: [0, 3], head: [0, 3] }]))).toBeNull();
   });
 });
