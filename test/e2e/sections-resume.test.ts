@@ -251,20 +251,9 @@ describe.skipIf(!live)("unfinished journeys across a crash (LFCP-03-017)", () =>
             : undefined,
         120_000,
       );
-      // Listed on this device with its section ID, so the pane's next step is about it (D9).
-      // A row listed before its model is read has no key yet: the pane's "Insert into a
-      // note…" then names no section and the insert asks which one (the section picker,
-      // not the preview; macOS smoke, LFCP-03-038).
-      await until(
-        "the section listed on C with its key",
-        () => {
-          const rows = C.vault.plugin.sections?.registry.snapshot().rows ?? [];
-          return rows.length === 1 && rows[0]?.key?.startsWith(`${resource}#`) === true
-            ? true
-            : undefined;
-        },
-        120_000,
-      );
+      // The row may still be keyed by its Resource alone (its model not read yet): the pane's
+      // "Insert into a note…" names it so, and the insert takes its one section without the
+      // picker (obsidian#30; the macOS smoke waited for the section ID, LFCP-03-038).
       const before = pane(C);
       const said = mock.notices.length;
       before.primary?.click();

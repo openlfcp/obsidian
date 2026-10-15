@@ -504,8 +504,7 @@ export class SectionActions {
       prompter.notice("Shared Tasks: no shared section on this device yet.");
       return;
     }
-    let choice: SectionChoice | null =
-      choices.find((c) => section !== undefined && choiceKey(c) === section) ?? null;
+    let choice = section === undefined ? null : namedChoice(choices, section);
     if (choice === null) {
       const pick = prompter.pickSection(choices);
       this.#showing(flow, pick, "the choice of a section to insert", "captured");
@@ -1892,6 +1891,20 @@ const noteName = (path: string): string => (path.split("/").pop() ?? path).repla
 
 /** A section choice's key ("<resource base64url>#<section>"), as surfaces name a section. */
 const choiceKey = (c: SectionChoice): string => `${toBase64url(c.resource)}#${c.sectionId}`;
+
+/**
+ * The choice a surface named by `key`: its full key, or, for a section
+ * joined a moment ago whose model has not named it yet (the pane's row,
+ * keyed by its Resource), the one choice of that Resource. Null when none
+ * or several match: the user then picks.
+ */
+function namedChoice(choices: readonly SectionChoice[], key: string): SectionChoice | null {
+  const exact = choices.find((c) => choiceKey(c) === key);
+  if (exact !== undefined) return exact;
+  if (key.includes("#")) return null;
+  const same = choices.filter((c) => toBase64url(c.resource) === key);
+  return same.length === 1 ? (same[0] ?? null) : null;
+}
 
 /** Where an insertion's lines go, as its preview says it ("These lines go …"). */
 function destinationText(d: InsertDestination, other: string | null): string {

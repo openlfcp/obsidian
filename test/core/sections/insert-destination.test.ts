@@ -511,6 +511,49 @@ describe("Insert into a note… with a destination (LFCP-03-016)", () => {
     await done;
     expect(env.files.get("Week.md")).toBe(WEEK);
   });
+
+  it("obsidian#30: a pane row keyed by its Resource (model not read yet) resolves to its one section, no picker", async () => {
+    const env = await setup();
+    const placed: string[] = [];
+    const dispatcher = new ActionDispatcher(
+      coreHandlers({
+        sections: () => env.actions,
+        collab: {
+          joinCollaboration: async () => undefined,
+          inviteCollaborator: async () => undefined,
+          inviteTo: async () => undefined,
+          resourceStatus: async () => undefined,
+          joinPlaced: (r) => placed.push(toBase64url(r)),
+        },
+      }),
+    );
+    // host-facts rowFocus: `row.key ?? row.resource`, the Resource alone before the model names the section.
+    const done = dispatcher.run(
+      "insert-into-note",
+      { target: env.at("Week.md"), section: { key: env.R, title: "Launch" } },
+      "pane",
+    );
+    await flush();
+    expect(env.prompter.dialogs.map((d) => d.kind)).toEqual(["insert"]);
+    env.prompter.open<boolean>("insert").answer(true);
+    await done;
+    expect(env.copies("Week.md")).toHaveLength(1);
+    // The join flow it ends is that Resource's (the full key's Resource, not a cut one).
+    expect(placed).toEqual([env.R]);
+  });
+
+  it("a key naming no section of this device still asks which one", async () => {
+    const env = await setup();
+    const other = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    for (const key of [other, `${env.R}#another-section`]) {
+      const done = env.actions.insertSection(env.at("Week.md"), key);
+      await flush();
+      expect(env.prompter.open("pick")).toBeDefined();
+      env.prompter.open<SectionChoice | null>("pick").answer(null);
+      await done;
+    }
+    expect(env.files.get("Week.md")).toBe(WEEK);
+  });
 });
 
 const hexOf = (b64: string) =>
