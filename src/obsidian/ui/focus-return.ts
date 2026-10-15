@@ -108,7 +108,37 @@ export function returnsFocus<M extends Modal>(modal: M): M {
 const FOCUSABLE =
   'button, [href], input:not([type="hidden"]), select, textarea, summary, [tabindex]:not([tabindex="-1"])';
 
-/** Tab and Shift+Tab cycle through `modal`'s controls and never leave it. */
+/**
+ * The Tab stops of `dialog`, in order. A radio group is one stop, as in the
+ * browser: its checked button, else its first (the recovery and repair
+ * choices); arrows move within the group.
+ */
+export function tabStops(dialog: HTMLElement): HTMLElement[] {
+  const stops: HTMLElement[] = [];
+  const groups = new Map<string, number>();
+  for (const x of Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))) {
+    if (
+      (x as HTMLButtonElement).disabled ||
+      x.getAttribute("aria-hidden") === "true" ||
+      !(x.checkVisibility?.() ?? true)
+    )
+      continue;
+    const radio = x.tagName === "INPUT" && x.getAttribute("type") === "radio";
+    if (!radio || (x as HTMLInputElement).name === "") {
+      stops.push(x);
+      continue;
+    }
+    const name = (x as HTMLInputElement).name;
+    const at = groups.get(name);
+    if (at === undefined) {
+      groups.set(name, stops.length);
+      stops.push(x);
+    } else if ((x as HTMLInputElement).checked) stops[at] = x;
+  }
+  return stops;
+}
+
+/** Tab and Shift+Tab cycle through `modal`'s Tab stops and never leave it. */
 function trapTab(modal: Modal): void {
   const box = (modal as { containerEl?: HTMLElement }).containerEl;
   const dialog = (modal as { modalEl?: HTMLElement }).modalEl ?? box;
@@ -124,14 +154,22 @@ function trapTab(modal: Modal): void {
       e.metaKey
     )
       return;
-    const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-      (x) =>
-        !(x as HTMLButtonElement).disabled &&
-        x.getAttribute("aria-hidden") !== "true" &&
-        (x.checkVisibility?.() ?? true),
-    );
+    const items = tabStops(dialog);
     if (items.length === 0) return;
-    const at = items.indexOf(dialog.ownerDocument.activeElement as HTMLElement);
+    const active = dialog.ownerDocument.activeElement as HTMLElement | null;
+    // On a radio button: where its group's stop is.
+    const name =
+      active instanceof HTMLElement && active.getAttribute("type") === "radio"
+        ? active.getAttribute("name")
+        : null;
+    const at = items.findIndex(
+      (x) =>
+        x === active ||
+        (name !== null &&
+          name !== "" &&
+          x.getAttribute("type") === "radio" &&
+          x.getAttribute("name") === name),
+    );
     const next = e.shiftKey
       ? at <= 0
         ? items.length - 1
