@@ -33,41 +33,45 @@ describe("repair dialog, a section without a base", () => {
     expect(labels).toEqual(["Keep my version", "Use the shared version"]);
   });
 
-  it("only Keep my version when it cannot, and says why: a Task still loading", () => {
+  it("a Task still loading, no shared block: Keep only, with no base guessed", () => {
     const { el, labels } = buttons({
       key: "k",
       title: "Launch",
       lines,
-      sharedUnavailable: "task-loading",
+      sharedUnavailable: true,
+      taskWait: "task-loading",
     });
     expect(labels).toEqual(["Keep my version"]);
-    expect(el.textContent).toContain(
-      "Keep my version keeps this text as it is, and the section asks again once the shared version has loaded.",
-    );
+    expect(el.textContent).toContain("This note's version.");
+    expect(el.textContent).toContain("the section asks again once it has loaded");
   });
 
-  it("a Task that is not a valid task here: no promise that it loads", () => {
+  it("a Task that is not a valid task, the shared block drawn: both choices, the diff legend, no promise of loading", () => {
     const { el, labels } = buttons({
       key: "k",
       title: "Launch",
       lines,
-      sharedUnavailable: "task-unreadable",
+      taskWait: "task-unreadable",
     });
-    expect(labels).toEqual(["Keep my version"]);
-    expect(el.textContent).toContain("cannot be compared with the shared version");
+    expect(labels).toEqual(["Keep my version", "Use the shared version"]);
+    expect(el.textContent).toContain("− only in this note · + only in the shared version");
+    expect(el.textContent).not.toContain("This note's version.");
     expect(el.textContent).toContain("once the shared version is fixed");
-    expect(el.textContent).toContain('"Export diagnostics…"');
     expect(el.textContent).not.toContain("loaded");
+    expect(el.textContent).not.toContain("Export diagnostics");
     expect(el.textContent).not.toMatch(/collaboration/i);
   });
 
+  it("a Task deleted in the shared version: both choices, and what each does", () => {
+    const { el, labels } = buttons({ key: "k", title: "Launch", lines, taskWait: "task-deleted" });
+    expect(labels).toEqual(["Keep my version", "Use the shared version"]);
+    expect(el.textContent).toContain("deleted in the shared version");
+    expect(el.textContent).toContain("keeps this text as a recovery copy");
+    expect(el.textContent).not.toContain("fixed");
+  });
+
   it("a model that cannot be drawn: Keep keeps this note's version as the base", () => {
-    const { el, labels } = buttons({
-      key: "k",
-      title: "Launch",
-      lines,
-      sharedUnavailable: "model",
-    });
+    const { el, labels } = buttons({ key: "k", title: "Launch", lines, sharedUnavailable: true });
     expect(labels).toEqual(["Keep my version"]);
     expect(el.textContent).toContain("as this copy's base");
   });

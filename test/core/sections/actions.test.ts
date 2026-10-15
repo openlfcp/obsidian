@@ -6,7 +6,13 @@
 // cannot classify, and a running flow is revealed, never started twice.
 
 import { fromBase64url, principalId, resourceId, toBase64url } from "@openlfcp/core";
-import { createTask, SharedObjectsReplica, type TaskView } from "@openlfcp/shared-objects";
+import {
+  createTask,
+  deleteTask,
+  SharedObjectsReplica,
+  type Task,
+  type TaskView,
+} from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import { ACTION_IDS } from "../../../src/core/actions/catalog";
 import {
@@ -2396,7 +2402,9 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     expect((await t.passes(1)).includes("Local edit")).toBe(true);
     await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
     const [, lost, actions] = opened(t);
-    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, undefined]]);
+    expect(lost.map((l) => [l.key, l.sharedUnavailable, l.taskWait])).toEqual([
+      [KEY, undefined, undefined],
+    ]);
     expect(lost[0]?.lines.some((l) => l.kind !== "same")).toBe(true);
     await actions.shareMine(KEY);
     expect(await t.passes(3)).toBe(edited);
@@ -2441,7 +2449,9 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
     await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
     const [, lost, actions] = opened(t);
-    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, "task-loading"]]);
+    expect(lost.map((l) => [l.key, l.sharedUnavailable, l.taskWait])).toEqual([
+      [KEY, true, "task-loading"],
+    ]);
     await actions.useShared(KEY);
     expect(t.notes.writes).toEqual([]);
     expect(t.prompter.notices.at(-1)).toBe(
@@ -2462,14 +2472,16 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     t.prompter.dialogs.length = 0;
     await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
     const [, again, actions2] = opened(t);
-    expect(again.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, undefined]]);
+    expect(again.map((l) => [l.key, l.sharedUnavailable, l.taskWait])).toEqual([
+      [KEY, undefined, undefined],
+    ]);
     await actions2.shareMine(KEY);
     expect(await t.passes(3)).toBe(edited);
     expect(t.replica.task(T)?.task?.title).toBe("Local edit");
     expect(t.replica.task(T)?.task?.due).toBe("2026-11-05");
   });
 
-  it("a Task here but not a valid task: Keep guesses no base and promises no loading", async () => {
+  it("a Task here but not a valid task: Keep guesses no base, promises no loading; Use shared stays offered", async () => {
     const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
     const t = wired(edited, (r) => {
       const v = r.task(T);
@@ -2478,13 +2490,42 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     await t.passes(1);
     await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
     const [, lost, actions] = opened(t);
-    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, "task-unreadable"]]);
+    // The shared block is drawn: Use the shared version is offered.
+    expect(lost.map((l) => [l.key, l.sharedUnavailable, l.taskWait])).toEqual([
+      [KEY, undefined, "task-unreadable"],
+    ]);
     await actions.shareMine(KEY);
     const said = t.prompter.notices.at(-1) ?? "";
-    expect(said).toContain("cannot be compared with the shared version");
+    expect(said).toContain("not a valid task in the shared version");
     expect(said).not.toContain("loading");
     expect(await t.passes(2)).toBe(edited);
     expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    expect(t.port.changes).toEqual([]);
+  });
+
+  it("a Task deleted in the shared version: Use the shared version is offered and works; Keep waits", async () => {
+    const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
+    let removed = false;
+    const t = wired(edited, (r) => r.task(T));
+    t.replica.apply(deleteTask(t.replica.task(T)?.task as Task).intent);
+    removed = t.replica.task(T)?.task?.lifecycle === "deleted";
+    expect(removed).toBe(true);
+    await t.passes(1);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, lost, actions] = opened(t);
+    expect(lost.map((l) => [l.key, l.sharedUnavailable, l.taskWait])).toEqual([
+      [KEY, undefined, "task-deleted"],
+    ]);
+    await actions.shareMine(KEY);
+    expect(t.prompter.notices.at(-1)).toContain("deleted in the shared version");
+    expect(t.prompter.notices.at(-1)).not.toContain("fixed");
+    expect(await t.passes(1)).toBe(edited);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    await actions.useShared(KEY);
+    expect(t.kept.map((c) => c.sourceText)).toEqual([edited.split("\n").slice(0, 5).join("\n")]);
+    const out = t.notes.files.get("Plan.md") ?? "";
+    expect(out).not.toContain("Local edit");
     expect(t.port.changes).toEqual([]);
   });
 
