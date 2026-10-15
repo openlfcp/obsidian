@@ -10,18 +10,25 @@ import type { RepairItem } from "../../core/sections/repair";
 
 export type { LostBase, RepairActions };
 
-/** The line under a lost base's lines: what they show, and why only Keep is offered when it is. */
-function unavailableText(why: LostBase["sharedUnavailable"]): string {
-  switch (why) {
-    case undefined:
-      return "− only in this note · + only in the shared version";
-    case "task-loading":
-      return "This note's version. The shared version cannot be shown here yet: Keep my version keeps this text as it is, and the section asks again once the shared version has loaded.";
-    case "task-unreadable":
-      return 'This note\'s version. A Task in it cannot be compared with the shared version, which is not a valid task here: Keep my version keeps this text as it is, and the choice comes back once the shared version is fixed. "Export diagnostics…" has the details.';
-    case "model":
-      return "This note's version. The shared version cannot be shown here: Keep my version keeps this note's version as this copy's base.";
-  }
+const WAIT_TEXT: Record<NonNullable<LostBase["taskWait"]>, string> = {
+  "task-loading":
+    "A Task in it is still loading: Keep my version keeps this text as it is, and the section asks again once it has loaded.",
+  "task-unreadable":
+    "A Task in it is not a valid task in the shared version: Keep my version keeps this text as it is, and the choice comes back once the shared version is fixed.",
+  "task-deleted":
+    "A Task in it is deleted in the shared version: Use the shared version shows that version and keeps this text as a recovery copy; Keep my version keeps this text as it is, and nothing is sent while the Task stays deleted.",
+};
+
+/** The line under a lost base's lines: what they show, and what each choice does when it differs. */
+function caption(lost: LostBase): string {
+  const shown =
+    lost.sharedUnavailable === true
+      ? "This note's version. The shared version cannot be shown here."
+      : "− only in this note · + only in the shared version";
+  if (lost.taskWait !== undefined) return `${shown} ${WAIT_TEXT[lost.taskWait]}`;
+  return lost.sharedUnavailable === true
+    ? `${shown} Keep my version keeps this note's version as this copy's base.`
+    : shown;
 }
 
 export class RepairModal extends Modal {
@@ -114,7 +121,7 @@ export class RepairModal extends Modal {
           cls: `openlfcp-diff-${l.kind}`,
         });
       box.createEl("p", {
-        text: unavailableText(lost.sharedUnavailable),
+        text: caption(lost),
         cls: "setting-item-description",
       });
       const buttons = box.createDiv({ cls: "modal-button-container" });
@@ -122,7 +129,7 @@ export class RepairModal extends Modal {
         this.close();
         void this.actions.shareMine(lost.key);
       });
-      if (lost.sharedUnavailable === undefined)
+      if (lost.sharedUnavailable !== true)
         buttons
           .createEl("button", { text: "Use the shared version" })
           .addEventListener("click", () => {

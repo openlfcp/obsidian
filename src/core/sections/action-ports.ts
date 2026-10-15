@@ -84,23 +84,29 @@ export interface SectionChoice {
   readonly alias?: string | null;
 }
 
+/** Why a section's Task cannot be compared with its shared version (LostBase.taskWait). */
+export type TaskWait = "task-loading" | "task-unreadable" | "task-deleted";
+
 /** A section of a note whose base is lost: the note's lines against the shared ones. */
 export interface LostBase {
   readonly key: string;
   readonly title: string;
   readonly lines: readonly ComparedLine[];
   /**
-   * The shared version cannot be written here (only this note's version can
-   * be kept; `lines` are the note's), and why:
-   * - `task-loading`: a Task in it is not here yet; Keep guesses no base,
-   *   the choice comes back once it has loaded;
-   * - `task-unreadable`: a Task in it is not a valid Task here (invalid,
-   *   two objects under its ID, deleted); Keep guesses no base, the choice
-   *   comes back once the shared version is fixed;
-   * - `model`: the section model cannot be drawn (a model problem); Keep
-   *   keeps this note's version as the copy's base.
+   * The shared version cannot be written here (a model problem, a Task not
+   * drawable): Use the shared version is not offered; `lines` are the note's.
    */
-  readonly sharedUnavailable?: "task-loading" | "task-unreadable" | "model";
+  readonly sharedUnavailable?: true;
+  /**
+   * A Task of the section cannot be compared with its shared version, so
+   * Keep guesses no base (the note's text stays as it is) — and why:
+   * - `task-loading`: not here yet; the choice comes back once it has loaded;
+   * - `task-unreadable`: not a valid task (invalid, two objects under its
+   *   ID); the choice comes back once the shared version is fixed;
+   * - `task-deleted`: deleted in the shared version; nothing is sent while
+   *   it stays deleted.
+   */
+  readonly taskWait?: TaskWait;
 }
 
 /** What the repair dialog can do; each runs on the note the repair was computed for. */

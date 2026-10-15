@@ -63,6 +63,7 @@ import type {
   SectionNotes,
   SectionPrompter,
   SectionServices,
+  TaskWait,
 } from "./action-ports";
 import { markdownState, newProjectionId } from "./base";
 import { sectionAtLine, sectionKey } from "./context";
@@ -162,6 +163,16 @@ const SHARE_NEEDS: HostNeeds = { writes: true, server: true };
 const SHARE_AGAIN = "Share the section again in a moment.";
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** What Keep my version did for a section whose Task cannot be compared (no base guessed). */
+const KEPT_WAITING: Record<TaskWait, string> = {
+  "task-loading":
+    "Shared Tasks: this note's version is kept as it is. A Task in it is still loading; once it has, the section asks again if the two versions differ.",
+  "task-unreadable":
+    "Shared Tasks: this note's version is kept as it is. A Task in it is not a valid task in the shared version; the choice comes back once the shared version is fixed.",
+  "task-deleted":
+    "Shared Tasks: this note's version is kept as it is. A Task in it is deleted in the shared version; nothing is sent while it stays deleted. Use the shared version to take that version instead.",
+};
 
 export class SectionActions {
   /** Share, import and insert flows, one per note at a time (F-03, F-C04), keyed by its held identity. */
@@ -1317,7 +1328,7 @@ export class SectionActions {
       taskLines: Record<string, string>;
       /** A Task the model cannot be drawn for here yet: no base is guessed for it. */
       /** A Task the model cannot be drawn for here: no base is guessed for it. */
-      waiting: "task-loading" | "task-unreadable" | null;
+      waiting: TaskWait | null;
     })[] = [];
     const lines = md.split(/\r?\n/);
     for (const s of parseSections(md).sections) {
@@ -1340,7 +1351,16 @@ export class SectionActions {
         .slice(2, -1)
         .join("\n");
       const taskLines: Record<string, string> = {};
-      let waiting: "task-loading" | "task-unreadable" | null = null;
+      let waiting: TaskWait | null = null;
+      // The reason that lasts longest wins: unreadable, then deleted, then loading.
+      const rank: Record<TaskWait, number> = {
+        "task-loading": 0,
+        "task-deleted": 1,
+        "task-unreadable": 2,
+      };
+      const wait = (why: TaskWait) => {
+        if (waiting === null || rank[why] > rank[waiting]) waiting = why;
+      };
       const walk = (nodes: ParsedSection["nodes"]): void => {
         for (const n of nodes) {
           if (n.kind === "task" && n.id !== null) {
@@ -1350,9 +1370,11 @@ export class SectionActions {
               ? modelTaskLine(md, n.lines.from, n.id, tasks)
               : undefined;
             if (line !== undefined) taskLines[n.id] = line;
-            // Not here yet: it loads. Here but not a valid, live Task: it will not by itself.
-            else if (view === undefined) waiting ??= "task-loading";
-            else waiting = "task-unreadable";
+            // Not here yet: it loads. Deleted, or not a valid task: it will not by itself.
+            else if (view === undefined) wait("task-loading");
+            else if (view.status === "ready" && view.task?.lifecycle === "deleted")
+              wait("task-deleted");
+            else wait("task-unreadable");
           }
           walk(n.children);
         }
@@ -1362,12 +1384,9 @@ export class SectionActions {
         key,
         title: s.heading.title,
         lines: compare(local, shared ?? local),
-        // A Task that cannot be compared: only Keep (which guesses no base), whatever the model draws.
-        ...(waiting !== null
-          ? { sharedUnavailable: waiting }
-          : shared === undefined
-            ? { sharedUnavailable: "model" as const }
-            : {}),
+        // Use the shared version whenever it can be written; Keep guesses no base for a Task it cannot compare.
+        ...(shared === undefined ? { sharedUnavailable: true as const } : {}),
+        ...(waiting === null ? {} : { taskWait: waiting }),
         section: s,
         snap,
         block,
@@ -1415,11 +1434,7 @@ export class SectionActions {
           // note's once it can (review round 2). The note's text stays as it
           // is, kept by the engine; the comparison is offered again then.
           services.pass(path);
-          prompter.notice(
-            l.waiting === "task-loading"
-              ? "Shared Tasks: this note's version is kept as it is. A Task in it is still loading; once it has, the section asks again if the two versions differ."
-              : 'Shared Tasks: this note\'s version is kept as it is. A Task in it cannot be compared with the shared version, which is not a valid task here; the choice comes back once the shared version is fixed. "Export diagnostics…" has the details.',
-          );
+          prompter.notice(KEPT_WAITING[l.waiting]);
           this.#changed();
           return;
         }
