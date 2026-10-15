@@ -143,6 +143,21 @@ function labelOf(m: RecoveryModel, id: string, withParent = true): string {
   return `${own} under "${clip(ptext ?? "")}"`;
 }
 
+/**
+ * A node named without its own text, by where it is (F-10): for a conflict
+ * on its title, whose shown value is only one of the competing ones, so the
+ * question does not take a side ("a task under "Plan"").
+ */
+function placeOf(m: RecoveryModel, id: string): string {
+  const n = m.snapshot.nodes[id];
+  const kind = (KIND_WORD[n?.kind ?? ""] ?? "Item").toLowerCase();
+  const parent = n?.parent;
+  if (parent === undefined || parent === m.sectionId) return `a ${kind} at the top of the section`;
+  const p = m.snapshot.nodes[parent];
+  const ptext = p?.kind === "task" ? m.taskTitle(parent) : p?.text?.split("\n")[0];
+  return `a ${kind} under "${clip(ptext ?? "")}"`;
+}
+
 const parentLabel = (m: RecoveryModel, parent: string) =>
   parent === m.sectionId ? "The section's top level" : `Under ${labelOf(m, parent)}`;
 
@@ -237,7 +252,7 @@ export function recoveryItems(m: RecoveryModel): RecoveryItem[] {
         kind: "field",
         key: `field:${c.id}:${c.field}`,
         nodeId: c.id,
-        label: labelOf(m, c.id),
+        label: c.field === "title" ? placeOf(m, c.id) : labelOf(m, c.id),
         field: c.field,
         values: c.values,
       });
