@@ -81,6 +81,34 @@ describe("action descriptors", () => {
     });
   });
 
+  it("LFCP-03-019: access, copy and detach from the pane, by placement, rights and refusal", () => {
+    const healthy = state("healthy-can-invite");
+    expect(DESCRIPTORS["copy-shared-section"].availability(healthy)).toEqual({ kind: "enabled" });
+    expect(DESCRIPTORS["remove-access"].availability(healthy)).toEqual({ kind: "enabled" });
+    // A selection outside a section, or no note: no copy of a section, no detach.
+    for (const id of ["selection-exact", "no-editor"])
+      for (const a of ["copy-shared-section", "copy-readable", "detach-section"] as const)
+        expect(DESCRIPTORS[a].availability(state(id)), `${id} ${a}`).toEqual({ kind: "hidden" });
+    // A reader removes nobody: not offered; it may still copy and detach its own copy.
+    const reader = state("healthy-read-only");
+    expect(DESCRIPTORS["remove-access"].availability(reader)).toEqual({ kind: "hidden" });
+    expect(DESCRIPTORS["detach-section"].availability(reader)).toEqual({ kind: "enabled" });
+    // Refused by the server: the chain may still grant removing; the server's answer wins.
+    const refused = state("access-refused-held");
+    const section = refused.section;
+    if (section === null) throw new Error("no section");
+    expect(
+      DESCRIPTORS["remove-access"].availability({
+        ...refused,
+        section: { ...section, canRemove: true },
+      }),
+    ).toEqual({
+      kind: "disabled",
+      reason: "Removing access needs the server to accept this vault's access to this section.",
+    });
+    expect(DESCRIPTORS["detach-section"].availability(refused)).toEqual({ kind: "enabled" });
+  });
+
   it("the host guard: read-only, starting and unavailable disable the actions that need the host", () => {
     const healthy = state("healthy-can-invite");
     const host = (h: Partial<typeof RUNNING>) => ({ ...healthy, host: { ...RUNNING, ...h } });
