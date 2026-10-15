@@ -335,6 +335,27 @@
   min-width: 0;
 }
 
+/* The join field (LFCP-03-015): label above its input, the inputs as wide as
+   the pane and no wider, at any zoom (LFCP-03-022). */
+.openlfcp-pane-join-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  min-width: 0;
+}
+
+.openlfcp-pane-join-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+}
+
+.openlfcp-pane-join-form button {
+  align-self: flex-start;
+  max-width: 100%;
+  white-space: normal;
+}
+
 .openlfcp-pane button.is-disabled {
   opacity: 0.6;
   cursor: not-allowed;
