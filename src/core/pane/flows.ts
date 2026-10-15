@@ -40,7 +40,9 @@ export const FLOW_STAGES: Readonly<Record<FlowKind, readonly FlowStage[]>> = {
   join: [
     // Pasting the link and choosing Join in the pane's field is the explicit Join (UX §6, I5).
     user("link", "Paste the invitation link and choose Join"),
+    // The IDs are the join flow's (collab/join-flow.ts): claim, access, model loaded (LFCP-03-015).
     effect("claiming capability", "Claim the invitation with the server"),
+    effect("access", "Open the section with the access granted"),
     effect("loading", "Load the section"),
     user("choose-place", "Choose a note to insert it into"),
   ],

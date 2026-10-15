@@ -74,6 +74,12 @@ export interface PaneFlow {
   readonly confirmed?: boolean;
   /** Its steps run in its own dialog (the invitation's role choice and link): the pane points there. */
   readonly dialog?: boolean;
+  /** What is confirmed so far, in words (a join's claim, access, load: LFCP-03-015). */
+  readonly facts?: readonly string[];
+  /** Why its last attempt stopped, in words; kept in view until the next step (a join's error). */
+  readonly problem?: string | null;
+  /** Its unknown result is being checked now. */
+  readonly checking?: boolean;
 }
 
 export interface PaneContext {
@@ -199,6 +205,11 @@ export interface PaneFlowView {
   readonly lines: readonly string[];
   /** An effect is under way: no next step, only progress (P1 row 2). */
   readonly waiting: boolean;
+  /**
+   * The flow's own way out, its label: a join's "Cancel" before the claim,
+   * "Later" once joined, "Give up" a claim whose answer was lost; null: none.
+   */
+  readonly dismiss: string | null;
 }
 
 /** A problem row (LFCP-03-018): what, from where, and the way to its resolver. */
@@ -424,6 +435,18 @@ function placementText(
   return `In ${plural(placements, "note")}`;
 }
 
+/** The join flow's lines (LFCP-03-015): the facts confirmed, the step under way, the next one. */
+function joinLines(flow: PaneFlow): string[] {
+  const stage = stageOf(flow.kind, flow.stage);
+  const lines = [...(flow.problem == null ? [] : [flow.problem]), ...(flow.facts ?? [])];
+  if (flow.stage === "link")
+    lines.push(`${ONE_TIME_LINK} Treat it like a password: it is not shown here.`);
+  if (stage.waits === "effect") lines.push(`${stage.label}…`);
+  if (flow.stage === "choose-place")
+    lines.push("Joined. Choose a note to insert it into, now or later.");
+  return lines;
+}
+
 function flowLines(flow: PaneFlow): string[] {
   const stage = stageOf(flow.kind, flow.stage);
   if (flow.outcome === "unknown") {
@@ -432,6 +455,8 @@ function flowLines(flow: PaneFlow): string[] {
         return [
           "The server did not confirm the claim. The claim is kept on this device.",
           "Check the result: it resumes the same claim with the same link, never a new one.",
+          ...(flow.checking === true ? ["Checking the result…"] : []),
+          ...(flow.problem == null ? [] : [flow.problem]),
         ];
       case "insert":
         return [
@@ -447,6 +472,7 @@ function flowLines(flow: PaneFlow): string[] {
   }
   if (flow.outcome === "unfinished")
     return [`Stopped before: ${stage.label.toLowerCase()}. Continue resumes the same operation.`];
+  if (flow.kind === "join") return joinLines(flow);
   const lines: string[] = [];
   if (flow.kind === "invite") {
     // D2 (UX §9 I1): the same sentence as the invitation dialog's, from one place.
@@ -478,7 +504,16 @@ function flowView(flow: PaneFlow): PaneFlowView {
     })),
     lines: flowLines(flow),
     waiting: flow.outcome === "running" && stageOf(flow.kind, flow.stage).waits === "effect",
+    dismiss: dismissOf(flow),
   };
+}
+
+/** A join's way out at its stage; none while its claim runs or is being checked. */
+function dismissOf(flow: PaneFlow): string | null {
+  if (flow.kind !== "join" || flow.checking === true) return null;
+  if (flow.outcome === "unknown") return "Give up";
+  if (flow.outcome !== "running") return null;
+  return flow.stage === "link" ? "Cancel" : flow.stage === "choose-place" ? "Later" : null;
 }
 
 function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGroup[] } {
@@ -805,6 +840,7 @@ export function paneTexts(m: PaneModel): string[] {
           ...(m.flow.target === null ? [] : [m.flow.target]),
           ...m.flow.steps.map((s) => s.label),
           ...m.flow.lines,
+          ...(m.flow.dismiss === null ? [] : [m.flow.dismiss]),
         ]),
     ...m.status.map((l) => l.text),
     ...m.problems.flatMap((p) => [p.text, p.source, ...(p.action === null ? [] : act(p.action))]),

@@ -18,8 +18,13 @@ import { contentHash } from "../../core/projection/guard";
 
 export interface PaneHandlers {
   readonly action: (id: ActionId) => void;
-  /** A link pasted in the join field (I5); absent: the field is not offered. */
-  readonly join?: (link: string) => void;
+  /**
+   * A link pasted in the join field and Join chosen (I5), with the optional
+   * name on this device (N5); absent: the field is not offered.
+   */
+  readonly join?: (link: string, name: string) => void;
+  /** The flow's own way out (PaneFlowView.dismiss: Cancel, Later, Give up); absent: not offered. */
+  readonly dismiss?: () => void;
   /** A row of the section list chosen (its key, D9); absent: rows are not choosable. */
   readonly row?: (key: string) => void;
   /** The key of the row chosen now, marked as such. */
@@ -101,6 +106,10 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open === true;
   const joinDraft =
     root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input")?.value ?? "";
+  const nameDraft =
+    root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-name")?.value ?? "";
+  // The field appears for the user's own "Join with a link…": the caret goes into it.
+  const fieldNew = model.joinField && root.querySelector("form.openlfcp-pane-join-form") === null;
 
   root.replaceChildren();
   root.classList.add("openlfcp-pane");
@@ -117,19 +126,35 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     const id = `openlfcp-pane-join-${++ids}`;
     const label = el(form, "label", "openlfcp-pane-label", "Paste the invitation link");
     label.htmlFor = id;
+    // Masked (I3): the link is a secret; it is pasted, never shown, never kept after Join.
     const input = el(form, "input", "openlfcp-pane-join-input");
     input.id = id;
-    input.type = "text";
+    input.type = "password";
     input.autocomplete = "off";
     input.spellcheck = false;
+    input.placeholder = "lfcp://join/…";
     input.value = joinDraft;
     input.setAttribute(KEY, "join-input");
+    // N5: optional, never a step of its own.
+    const nameId = `openlfcp-pane-join-name-${++ids}`;
+    const nameLabel = el(form, "label", "openlfcp-pane-label", "Name on this device (optional)");
+    nameLabel.htmlFor = nameId;
+    const name = el(form, "input", "openlfcp-pane-join-name");
+    name.id = nameId;
+    name.type = "text";
+    name.autocomplete = "off";
+    name.placeholder = "The section's own title";
+    name.value = nameDraft;
+    name.setAttribute(KEY, "join-name");
     const go = el(form, "button", "mod-cta", "Join");
     go.type = "submit";
     go.setAttribute(KEY, "join-submit");
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      join(input.value);
+      const link = input.value;
+      // Out of the page before anything else runs: a redraw keeps no copy of it.
+      input.value = "";
+      join(link, name.value);
     });
   }
 
@@ -148,6 +173,13 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
       if (s.state === "current") li.setAttribute("aria-current", "step");
     }
     for (const line of flow.lines) el(f, "div", "openlfcp-pane-line", line);
+    const dismiss = h.dismiss;
+    if (flow.dismiss !== null && dismiss !== undefined) {
+      const b = el(f, "button", "openlfcp-pane-secondary", flow.dismiss);
+      b.type = "button";
+      b.setAttribute(KEY, "flow-dismiss");
+      b.addEventListener("click", () => dismiss());
+    }
   }
 
   if (model.status.length > 0) {
@@ -230,7 +262,9 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     for (const x of model.unfinished) el(ul, "li", "openlfcp-pane-row", `${x.title}: ${x.detail}`);
   }
 
-  if (hadFocus) {
+  if (fieldNew && hadFocus && focusKey === "action:join-with-link") {
+    root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input")?.focus();
+  } else if (hadFocus) {
     const again =
       focusKey === null || focusKey === undefined
         ? null

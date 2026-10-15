@@ -71,6 +71,16 @@ export interface PaneSnapshot {
   problemRequest?(problemId: string): ActionRequest | null;
   /** The flow this drawing holds. */
   readonly pinned: number | null;
+  /** The join flow this drawing shows (its generation), or null (LFCP-03-015). */
+  readonly join?: number | null;
+}
+
+/** The pane's join field and the join flow's way out (LFCP-03-015). */
+export interface PaneJoinPort {
+  /** Join chosen with a pasted link (I5) and an optional name (N5). */
+  submit(link: string, name: string): void;
+  /** Cancel, Later or Give up, for the join flow `generation` as it was drawn. */
+  dismiss(generation: number): void;
 }
 
 /** What the pane reads and runs, from the plugin. */
@@ -81,6 +91,8 @@ export interface PaneHostPort {
   run(id: ActionId, request: ActionRequest): Promise<void>;
   /** The host's change sources: the registry view, the statuses, the flows, the editors' cursor. */
   readonly sources: readonly PaneSource[];
+  /** The join field's port; absent: no field is offered. */
+  readonly join?: PaneJoinPort;
 }
 
 /** Every action a drawing shows, enabled or not. */
@@ -213,8 +225,22 @@ export class SharedTasksView extends ItemView {
     const generation = this.#generation;
     const drawn = this.port.snapshot(this.#liveTarget(), this.#ui());
     this.#pinned = drawn.pinned;
+    const join = this.port.join;
+    const joinGeneration = drawn.join ?? null;
     renderPane(root, drawn.model, {
       action: (id) => this.#click(generation, drawn, id),
+      ...(join === undefined
+        ? {}
+        : {
+            // The link goes straight to the join flow; the pane keeps no copy of it.
+            join: (link: string, name: string) => {
+              if (generation === this.#generation) join.submit(link, name);
+            },
+            dismiss: () => {
+              if (generation === this.#generation && joinGeneration !== null)
+                join.dismiss(joinGeneration);
+            },
+          }),
       row: (key) => {
         if (generation !== this.#generation) return;
         this.#chosen = key;
