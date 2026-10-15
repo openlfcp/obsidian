@@ -273,6 +273,39 @@ describe("LfcpRuntime (LFCP-059)", () => {
     }
   });
 
+  it("an open that awaits across stop() starts no session (no socket or timer after unload)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    await r.stop();
+    const again = await start(device, local);
+    // The plugin opens its Resources at start, and is disabled while the
+    // open reads the route.
+    await again.profileOf(R); // restored, not yet on a session
+    const storage = again.storage as LfcpStorage;
+    const route = await storage.resources.route(R);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((ok) => {
+      release = ok;
+    });
+    let reading: () => void = () => undefined;
+    const read = new Promise<void>((ok) => {
+      reading = ok;
+    });
+    storage.resources.route = async () => {
+      reading();
+      await gate;
+      return route;
+    };
+    const opening = again.openResource(R);
+    await read;
+    await again.stop();
+    release();
+    await opening.catch(() => undefined);
+    expect(again.sessions).toBe(0);
+  });
+
   it("keeps own units remembered while a Key Epoch cut is being collected (no lost update)", async () => {
     const device = new Device();
     const local = new FakeLocal();

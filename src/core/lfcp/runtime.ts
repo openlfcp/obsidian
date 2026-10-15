@@ -1660,7 +1660,8 @@ export class LfcpRuntime {
     const pooled = this.#pool.get(url);
     if (pooled !== undefined) return pooled;
     const i = this.#install;
-    if (i.kind !== "ready") throw new Error("Shared Tasks is not ready");
+    // Stopped meanwhile (an open that awaited across stop()): no new session.
+    if (this.#stopped || i.kind !== "ready") throw new Error("Shared Tasks is not ready");
     // One outbound queue per session: a queue holds its server's READY
     // limits and the messages in flight on that connection, and a lost
     // connection retries only its own (a shared queue applied one server's
