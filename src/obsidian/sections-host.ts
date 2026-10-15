@@ -453,6 +453,8 @@ export class SectionsHost {
 
   /** The review items of section `key`: the model's conflicts, then nodes notes show again. */
   #recoveryItems(key: string): RecoveryItem[] {
+    // A section joined a moment ago is named by its Resource until its model names the section.
+    if (!key.includes("#")) return [];
     const b64 = key.slice(0, key.indexOf("#"));
     const sectionId = key.slice(key.indexOf("#") + 1);
     const m = this.#port?.recoveryModel(b64, sectionId);
