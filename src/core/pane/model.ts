@@ -54,6 +54,7 @@ import {
   flowAction,
   stageOf,
 } from "./flows";
+import { HIDE_HINT, HINTS, type HintId, hiddenHints, paneHint, SHOW_HINTS } from "./hints";
 import type { PaneProblem, ProblemCategory } from "./problems";
 
 /** Why a selection cannot be shared exactly (UX §4.2): the executor's reasons (LFCP-03-009). */
@@ -185,6 +186,11 @@ export interface PaneFacts extends ActionFacts {
   readonly notice?: string | null;
   /** The problem rows of the section and the note in view (problems.ts, LFCP-03-018). */
   readonly problems?: readonly PaneProblem[];
+  /**
+   * The tips this vault has hidden (LFCP-03-021, settings `dismissedHints`);
+   * absent: the pane shows no tips (the developer prototype, a test).
+   */
+  readonly hints?: { readonly hidden: readonly string[] };
 }
 
 export interface PaneOptions {
@@ -286,6 +292,10 @@ export interface PaneModel {
   readonly sections: { readonly summary: string | null; readonly groups: readonly PaneGroup[] };
   readonly unfinished: readonly { readonly title: string; readonly detail: string }[];
   readonly notice: string | null;
+  /** One short tip for what the pane offers now, with its "Hide tip" (LFCP-03-021); null: none. */
+  readonly hint: { readonly id: HintId; readonly text: string; readonly hide: string } | null;
+  /** "Show tips again", when this vault has hidden some; null: none hidden. */
+  readonly showHints: string | null;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -295,6 +305,10 @@ export function selectionReasonText(s: PaneSelection): string {
   // The pane counts lines from 1; the executor's sentences take the 0-based line.
   return s.reason === null ? "" : reasonText(s.reason, (s.line ?? s.fromLine) - 1);
 }
+
+/** The empty section list (LFCP-03-021): where to start, share or join. */
+export const EMPTY_SECTIONS =
+  "No shared sections on this device yet. Share one from a note, or join one with a link.";
 
 /** After "Copy link" (I3): never "sent" or "invited". */
 export const LINK_COPIED = "Link copied";
@@ -550,7 +564,7 @@ function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGrou
       : r.status === "error"
         ? "The list of shared sections could not be read again; it shows the last one."
         : r.sections === 0
-          ? "No shared sections on this device yet."
+          ? EMPTY_SECTIONS
           : r.sections === null
             ? null
             : `${plural(r.sections, "shared section")} on this device`;
@@ -821,6 +835,27 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
     return { title: FLOW_TITLE[x.kind], detail: `${where}${detail}` };
   });
   const preview = f.preview;
+  const status =
+    f.section === null ? [] : statusLines(f.section, o, a.get("invite")?.enabled === true);
+  const hidden = f.hints?.hidden ?? [];
+  const flow = f.context.flow;
+  const hint =
+    f.hints === undefined
+      ? null
+      : paneHint(
+          {
+            problem:
+              status.some((l) => l.tone === "problem") ||
+              (f.problems?.length ?? 0) > 0 ||
+              (preview?.problems.length ?? 0) > 0,
+            flow: flow !== null && flow.outcome !== "unfinished",
+            preview: preview !== undefined,
+            primary: primary?.enabled === true ? primary.id : null,
+            cursor: f.context.cursor,
+            empty: f.registry.status === "ready" && f.registry.sections === 0,
+          },
+          hidden,
+        );
   return {
     title: "Shared Tasks",
     join: action("join-with-link", a.get("join-with-link") ?? { enabled: true, reason: null }),
@@ -833,7 +868,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
       f.context.flow === null || f.context.flow.outcome === "unfinished"
         ? null
         : flowView(f.context.flow),
-    status: f.section === null ? [] : statusLines(f.section, o, a.get("invite")?.enabled === true),
+    status,
     problems: (f.problems ?? []).map((p) => problemView(f, p)),
     preview:
       preview === undefined
@@ -859,6 +894,8 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
     sections: sectionGroups(f),
     unfinished,
     notice: f.notice ?? (f.section?.linkCopied === true ? LINK_COPIED : null),
+    hint: hint === null ? null : { id: hint, text: HINTS[hint], hide: HIDE_HINT },
+    showHints: f.hints !== undefined && hiddenHints(hidden) > 0 ? SHOW_HINTS : null,
   };
 }
 
@@ -898,5 +935,7 @@ export function paneTexts(m: PaneModel): string[] {
     ]),
     ...m.unfinished.flatMap((u) => [u.title, u.detail]),
     ...(m.notice === null ? [] : [m.notice]),
+    ...(m.hint === null ? [] : [m.hint.text, m.hint.hide]),
+    ...(m.showHints === null ? [] : [m.showHints]),
   ];
 }

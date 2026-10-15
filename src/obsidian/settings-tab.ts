@@ -8,6 +8,7 @@
 // the public Principal ID is available to later UI through runtime.status.
 
 import { type App, PluginSettingTab, type Setting, type SettingDefinitionItem } from "obsidian";
+import { hiddenHints, SHOW_HINTS } from "../core/pane/hints";
 import { isRefPlacement, isSectionComments } from "../core/settings";
 import type OpenLfcpPlugin from "./plugin";
 
@@ -73,6 +74,10 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         desc: "The sync server offered when you create a collaboration. It is not your identity and does not own your collaborations. Default: the OpenLFCP project server (beta). Clear it to type a server each time.",
         control: { type: "text", key: "defaultServer", placeholder: "wss://…" },
       },
+      {
+        name: "Tips in the Shared Tasks pane",
+        render: (setting) => this.#tips(setting),
+      },
     ];
   }
 
@@ -96,6 +101,25 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       this.plugin.settings.defaultServer = value;
     else return;
     await this.plugin.saveSettings();
+  }
+
+  /** LFCP-03-021: the pane's hidden tips, and "Show tips again". Warnings are never tips. */
+  #tips(setting: Setting): void {
+    const hidden = hiddenHints(this.plugin.settings.dismissedHints);
+    setting.setDesc(
+      hidden === 0
+        ? "The pane shows a short tip next to what it offers. Hide one with Hide tip."
+        : `The pane shows a short tip next to what it offers. ${hidden === 1 ? "1 tip is" : `${hidden} tips are`} hidden in this vault.`,
+    );
+    setting.addButton((button) =>
+      button
+        .setButtonText(SHOW_HINTS)
+        .setDisabled(hidden === 0)
+        .onClick(async () => {
+          await this.plugin.setDismissedHints([]);
+          this.update();
+        }),
+    );
   }
 
   /**

@@ -735,9 +735,14 @@ export class TextComponent {
 
 export class ButtonComponent {
   text = "";
+  disabled = false;
   onClickHandler: () => unknown = () => undefined;
   setButtonText(text: string): this {
     this.text = text;
+    return this;
+  }
+  setDisabled(disabled: boolean): this {
+    this.disabled = disabled;
     return this;
   }
   onClick(handler: () => unknown): this {

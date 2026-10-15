@@ -25,6 +25,7 @@ describe("settings", () => {
       sectionComments: "local",
       sectionsDisabled: false,
       developerPanePrototype: false,
+      dismissedHints: [],
       settingsVersion: SETTINGS_VERSION,
     });
     expect(
@@ -65,6 +66,7 @@ describe("settings", () => {
       sectionComments: "local",
       sectionsDisabled: false,
       developerPanePrototype: false,
+      dismissedHints: [],
       settingsVersion: 2,
     });
     expect(normalizeSettings({ refPlacement: "inline" }).defaultServer).toBe(PROJECT_SERVER);
@@ -86,6 +88,42 @@ describe("settings", () => {
     expect(normalizeSettings({ defaultServer: 7, settingsVersion: 2 }).defaultServer).toBe(
       PROJECT_SERVER,
     );
+  });
+
+  it("upgrade a 0.4 data.json with no hidden tips, every other value as it was (LFCP-03-021)", () => {
+    // What 0.4.0 saves: version 2, no dismissedHints.
+    const stored = {
+      refPlacement: "inline",
+      defaultServer: "",
+      showSharingMetadata: true,
+      sectionComments: "shared",
+      sectionsDisabled: false,
+      developerPanePrototype: false,
+      settingsVersion: 2,
+    };
+    const s = normalizeSettings(stored);
+    expect(s).toEqual({ ...stored, dismissedHints: [] });
+    // A save and a reload keep it; nothing else is added or dropped.
+    expect(normalizeSettings(JSON.parse(JSON.stringify(s)))).toEqual(s);
+    expect(DEFAULT_SETTINGS.dismissedHints).toEqual([]);
+  });
+
+  it("keep hidden tip IDs, of this version or another, once each; drop anything else", () => {
+    expect(
+      normalizeSettings({ dismissedHints: ["first-use", "a-tip-of-0-6", "first-use"] })
+        .dismissedHints,
+    ).toEqual(["first-use", "a-tip-of-0-6"]);
+    for (const bad of ["first-use", 3, null, { a: 1 }])
+      expect(normalizeSettings({ dismissedHints: bad }).dismissedHints).toEqual([]);
+    expect(
+      normalizeSettings({ dismissedHints: [7, "", "Not An Id", "x".repeat(49), "invite-link"] })
+        .dismissedHints,
+    ).toEqual(["invite-link"]);
+    const many = Array.from({ length: 100 }, (_, i) => `tip-${i}`);
+    expect(normalizeSettings({ dismissedHints: many }).dismissedHints).toHaveLength(64);
+    // Hiding tips touches no other setting.
+    const hidden = normalizeSettings({ ...DEFAULT_SETTINGS, dismissedHints: ["first-use"] });
+    expect({ ...hidden, dismissedHints: [] }).toEqual(DEFAULT_SETTINGS);
   });
 
   it("recognize exactly the two placements", () => {

@@ -223,6 +223,43 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     expect(t.el().textContent).not.toMatch(/protocol|wizard/i);
   });
 
+  it("LFCP-03-021: first use leads to share and join; a tip hides per vault and comes back", async () => {
+    const t = await loaded();
+    const sections = fakeSections();
+    (t.plugin as unknown as { sections: unknown }).sections = sections;
+    const before = structuredClone(t.host.stored);
+    await t.plugin.openPane();
+    // No tour: nothing opened by itself.
+    expect(mock.modals).toEqual([]);
+    expect(t.el().textContent).toContain(
+      "No shared sections on this device yet. Share one from a note, or join one with a link.",
+    );
+    const tip = () => t.el().querySelector<HTMLElement>(".openlfcp-pane-hint");
+    expect(tip()?.dataset.hint).toBe("first-use");
+    expect(t.host.stored).toEqual(before);
+
+    t.button("Hide tip").click();
+    await wait(150);
+    expect(tip()).toBeNull();
+    expect(t.runs).toEqual([]);
+    // Saved in this vault's settings, and only there: every other value as it was.
+    expect(t.plugin.settings.dismissedHints).toEqual(["first-use"]);
+    expect(t.host.stored).toEqual({ ...t.plugin.settings, dismissedHints: ["first-use"] });
+
+    // Another start of the vault keeps it hidden.
+    const again = await loaded();
+    again.host.stored = structuredClone(t.host.stored);
+    await again.plugin.onExternalSettingsChange();
+    expect(again.plugin.settings.dismissedHints).toEqual(["first-use"]);
+
+    t.button("Show tips again").click();
+    await wait(150);
+    expect(tip()?.dataset.hint).toBe("first-use");
+    expect(t.plugin.settings.dismissedHints).toEqual([]);
+    expect(mock.modals).toEqual([]);
+    (t.plugin as unknown as { sections: unknown }).sections = null;
+  });
+
   it("T1: the pane follows the last Markdown note; focus in the pane keeps it", async () => {
     const t = await loaded();
     const sections = fakeSections();
