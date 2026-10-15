@@ -195,7 +195,7 @@
           "heldCheck": "checked",
           "placements": 2,
           "access": { "access": "writer", "verifiedAt": 1792054800000, "current": true, "checking": false },
-          "accessView": { "canInvite": true },
+          "accessView": { "canInvite": true, "canRemove": true },
           "connection": "connected",
           "connectionQualifier": null,
           "refusal": null,
@@ -220,6 +220,7 @@
           { "action": "open-details", "reason": "Details are always available." },
           { "action": "copy-readable", "reason": "The cursor is in a section." },
           { "action": "copy-shared-section", "reason": "The cursor is in a section." },
+          { "action": "remove-access", "reason": "The access list lets this vault remove someone; current and connected." },
           { "action": "detach-section", "reason": "Secondary, with its confirmation." }
         ],
         "disabled": [
@@ -246,7 +247,7 @@
           "heldCheck": "checked",
           "placements": 1,
           "access": { "access": "reader", "verifiedAt": 1792054800000, "current": true, "checking": false },
-          "accessView": { "canInvite": false },
+          "accessView": { "canInvite": false, "canRemove": false },
           "connection": "connected",
           "connectionQualifier": null,
           "refusal": null,

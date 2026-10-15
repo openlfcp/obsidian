@@ -350,12 +350,18 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
       : HIDDEN,
   ),
   // Destructive: secondary, each with its existing confirmation (A1).
-  // Applicable unless this vault surely may not manage access; enabled only when it surely may.
+  // By the access list's guards, the card's (LFCP-03-019): applicable unless this vault surely
+  // may remove nobody's access; enabled only when it surely may, now. The card asks whom.
   "remove-access": ofSection((d, s) => {
-    if (s.canInvite === false) return HIDDEN;
+    if (s.canRemove === false) return HIDDEN;
+    if (NOT_ACCEPTED.has(s.view.access.access))
+      return disabled(
+        "Removing access needs the server to accept this vault's access to this section.",
+      );
     if (s.view.connection !== "connected")
       return disabled("Removing access needs a connection to the section's server.");
-    if (s.canInvite !== true || s.view.access.current !== true || s.view.access.checking)
+    if (s.removeNote !== undefined && s.removeNote !== null) return disabled(s.removeNote);
+    if (s.canRemove !== true || s.view.access.current !== true || s.view.access.checking)
       return disabled(
         "Removing access waits until this device has checked access with the server.",
       );

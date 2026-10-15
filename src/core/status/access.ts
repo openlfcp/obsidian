@@ -70,6 +70,14 @@ export interface AccessView {
    * is current; null while unknown or stale, never a denial or a grant.
    */
   readonly invite: boolean | null;
+  /**
+   * Whether this vault may remove someone's access, as the pane and the
+   * action descriptors read it (LFCP-03-019): true when a row is removable
+   * (this vault's abilities, someone else not the owner), false when none
+   * is, null while the view is unknown. Whether it can be done now is
+   * `removeNote`.
+   */
+  readonly remove: boolean | null;
   /** Why inviting is not offered, when it is not. */
   readonly inviteNote: string | null;
   /** Why removing access is not available right now, when it would be offered otherwise (UX §7). */
@@ -144,6 +152,7 @@ export function accessView(input: AccessInput): AccessView {
     pending,
     canInvite,
     invite: canInvite ? true : waits ? null : false,
+    remove: unknown ? null : rows.some((r) => r.removable),
     inviteNote: canInvite
       ? null
       : waits

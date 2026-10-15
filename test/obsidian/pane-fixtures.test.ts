@@ -223,7 +223,13 @@ function hostOf(st: State) {
     unplaced: f.registry.unplaced,
   };
   const access: PaneAccess | undefined =
-    s === null ? undefined : { canInvite: s.accessView.canInvite, hosting: s.hosting ?? "unknown" };
+    s === null
+      ? undefined
+      : {
+          canInvite: s.accessView.canInvite,
+          hosting: s.hosting ?? "unknown",
+          ...(s.accessView.canRemove === undefined ? {} : { canRemove: s.accessView.canRemove }),
+        };
   const flow = f.context.flow;
   const flows: ActiveFlow[] =
     flow === null ||

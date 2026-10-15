@@ -197,6 +197,21 @@ export function sectionProblems(v: StatusView): string[] {
   return problems;
 }
 
+/**
+ * This vault's effective rights on the section, in one sentence (the card's
+ * facts and the pane's, LFCP-03-019): not accepted by the server (removed,
+ * not a member, refused), read only, or edit.
+ */
+export function rightsFact(v: StatusView): string {
+  const denied = v.conditions.some(
+    (c) =>
+      c.kind === "access" &&
+      (c.access === "refused" || c.access === "revoked" || c.access === "not-member"),
+  );
+  if (denied) return "The sync server does not accept your edits to this section now.";
+  return v.readOnly ? "You can read this section, not edit it." : "You can edit this section.";
+}
+
 /** The card's content. */
 export function sectionCard(input: CardInput): SectionCard {
   const v = input.view;
@@ -278,11 +293,7 @@ export function sectionCard(input: CardInput): SectionCard {
     );
   // Not current for another reason (a conflict, access being checked): said above.
   else facts.push("The shared version is current as last checked with the server.");
-  if (denied) facts.push("The sync server does not accept your edits to this section now.");
-  else
-    facts.push(
-      v.readOnly ? "You can read this section, not edit it." : "You can edit this section.",
-    );
+  facts.push(rightsFact(v));
   if (kinds.has("access-checking"))
     facts.push(
       "Access is being checked with the server: it may have changed since this device last saw it.",
