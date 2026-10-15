@@ -434,6 +434,23 @@ export class SoakPeer {
     this.#saver = setInterval(() => this.#save(), 2000);
   }
 
+  /**
+   * Disables and enables the plugin, the note open in the editor: what the
+   * editor shows is saved first, the editor gets the new instance's extensions.
+   */
+  async restart(): Promise<void> {
+    this.#save();
+    if (this.#saver !== null) clearInterval(this.#saver);
+    this.#saver = null;
+    const views = this.vault.app.workspace.views;
+    views.splice(0, views.length);
+    this.#view?.destroy();
+    this.#view = null;
+    await this.vault.shutdown("clean");
+    await this.vault.boot(false);
+    this.openEditor();
+  }
+
   /** Obsidian's autosave: the editor's text to the file, a modify event. */
   #save(): void {
     const view = this.#view;
@@ -871,6 +888,21 @@ export class SoakPeer {
     if (at < 0) throw new Error(`no Task "${title}"`);
     const [from, to] = blockAt(L, at);
     this.#dispatch({ from: this.#at(from), to: this.#at(to) }, "delete.cut", this.#at(from));
+  }
+
+  /** Replaces `from` by `to` in the line of the Task titled `title`, through the editor's API (Obsidian's editor.setLine). */
+  editTask(title: string, from: string, to: string): void {
+    const L = lines(this.#doc);
+    const at = L.findIndex((l) => TASK.exec(l)?.[3]?.replace(/ ?<!--.*-->$/, "") === title);
+    if (at < 0) throw new Error(`${this.name}: no Task "${title}" in\n${this.#doc}`);
+    const line = L[at] as string;
+    const i = line.indexOf(from);
+    if (i < 0) throw new Error(`no "${from}" in "${line}"`);
+    const start = this.#at(at) + i;
+    // As Obsidian's editor.setLine does: no userEvent (an API edit).
+    (this.#view as EditorView).dispatch({
+      changes: { from: start, to: start + from.length, insert: to },
+    });
   }
 
   /** Whether the section's card offers "Review conflicts…" (and closes the card). */
