@@ -67,6 +67,7 @@ import { captureEditor, editorMode } from "./section-target";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
 import { DiagnosticsModal } from "./ui/diagnostics";
+import { returnsFocus } from "./ui/focus-return";
 import { registerPanePrototype } from "./ui/pane-prototype-view";
 import {
   keepOne,
@@ -1196,8 +1197,9 @@ export default class OpenLfcpPlugin extends Plugin {
   /** Safe events for the diagnostics report (LFCP-02-065), in memory only. */
   readonly #diagnostics = new DiagnosticLog();
 
+  /** The diagnostics dialog, open; Tab kept in it, focus given back (LFCP-03-022). */
   #openDiagnostics(): void {
-    new DiagnosticsModal(this.app, {
+    const modal = new DiagnosticsModal(this.app, {
       report: async (detailed) => diagnosticReport(await this.#diagnosticInput(), detailed),
       copy: (text) => navigator.clipboard.writeText(text),
       save: async (text) => {
@@ -1207,7 +1209,8 @@ export default class OpenLfcpPlugin extends Plugin {
         return `"${path}" in this vault`;
       },
       say: (text) => new Notice(`Shared Tasks: ${text}`),
-    }).open();
+    });
+    returnsFocus(modal).open();
   }
 
   async #diagnosticInput(): Promise<DiagnosticInput> {

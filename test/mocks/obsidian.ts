@@ -418,6 +418,9 @@ export class FakeElement {
 export const modals: Modal[] = [];
 
 export class Modal {
+  /** The dialog's container (a real element where the test has a DOM). */
+  readonly containerEl: unknown =
+    typeof document === "undefined" ? new FakeElement("div") : document.createElement("div");
   readonly modalEl = new FakeElement("div");
   readonly contentEl = new FakeElement("div");
   readonly titleEl = new FakeElement("div");
