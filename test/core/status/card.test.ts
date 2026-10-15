@@ -175,6 +175,24 @@ describe("the section card", () => {
     expect(c.technical[0]).toBe("State: ATTENTION");
   });
 
+  it("LFCP-03-019: without the section's key, and refused by the server, edits are not promised", () => {
+    const key = card({ access: "unavailable-key" });
+    expect(key.problems).toContain(
+      "This device does not hold the section's key yet. Edits wait until it arrives.",
+    );
+    expect(key.facts).toContain(
+      "Your edits to this section wait on this device until it holds the section's key.",
+    );
+    expect(key.facts).not.toContain("You can edit this section.");
+    const refused = card({ refusal: "FORBIDDEN" });
+    expect(refused.facts).toContain(
+      "The sync server does not accept your edits to this section now.",
+    );
+    expect(refused.facts).not.toContain("You can edit this section.");
+    // Not hosted is not a refusal of this vault's edits: they are kept until it is hosted.
+    expect(card({ refusal: "RESOURCE_NOT_HOSTED" }).facts).toContain("You can edit this section.");
+  });
+
   it("read-only, and markup in a title is plain text", () => {
     const c = sectionCard({
       title: '<img src=x onerror="alert(1)">',

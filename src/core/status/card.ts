@@ -200,15 +200,20 @@ export function sectionProblems(v: StatusView): string[] {
 /**
  * This vault's effective rights on the section, in one sentence (the card's
  * facts and the pane's, LFCP-03-019): not accepted by the server (removed,
- * not a member, refused), read only, or edit.
+ * not a member, refused, or the section refused other than for not being
+ * hosted), waiting for the section's key, read only, or edit.
  */
 export function rightsFact(v: StatusView): string {
   const denied = v.conditions.some(
     (c) =>
-      c.kind === "access" &&
-      (c.access === "refused" || c.access === "revoked" || c.access === "not-member"),
+      (c.kind === "access" &&
+        (c.access === "refused" || c.access === "revoked" || c.access === "not-member")) ||
+      (c.kind === "server-refused" && c.code !== "RESOURCE_NOT_HOSTED"),
   );
   if (denied) return "The sync server does not accept your edits to this section now.";
+  // KEY_BLOCKED / key-unavailable: edits wait here (the problem says why); none is promised.
+  if (v.conditions.some((c) => c.kind === "access" && c.access === "unavailable-key"))
+    return "Your edits to this section wait on this device until it holds the section's key.";
   return v.readOnly ? "You can read this section, not edit it." : "You can edit this section.";
 }
 
