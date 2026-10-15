@@ -242,7 +242,7 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
 
   it("Insert shared section… writes the loaded section, complete, after the paragraph at the cursor (LFCP-02-052)", async () => {
     const note = ["# Week", "", "Private intro,", "two lines.", "", "## Later", "Private.", ""].join("\n");
-    await browser.executeObsidian(
+    const shown = await browser.executeObsidian(
       async ({ app, obsidian }, file, text) => {
         await app.vault.create(file, text);
         const leaf = app.workspace.getLeaf(false);
@@ -269,11 +269,25 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
               (b) => b.textContent === "Insert",
             ) ?? null;
         }
+        // LFCP-03-020: the readable text first; the exact lines collapsed.
+        const modal = insert.closest(".modal");
+        const details = modal.querySelector("details.openlfcp-preview-source");
+        const shown = {
+          readable: modal.querySelector(".modal-content > .openlfcp-share-content")?.textContent ?? "",
+          open: details?.open ?? null,
+          source: details?.querySelector(".openlfcp-share-content")?.textContent ?? "",
+        };
         insert.click();
+        return shown;
       },
       "insert-target.md",
       note,
     );
+    console.log(`EVIDENCE ${JSON.stringify({ id: "INSERT-PREVIEW-READABLE", shown })}`);
+    expect(shown.readable).toContain("- [ ] Prepare contract");
+    expect(shown.readable).not.toContain("lfcp-");
+    expect(shown.open).toBe(false);
+    expect(shown.source).toContain("<!-- lfcp-section: ");
     await browser.waitUntil(
       () =>
         browser.executeObsidian(({ app, obsidian }) =>
@@ -299,6 +313,37 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(ids(out.text)).toEqual(ids(out.source));
     expect(out.text).toContain("- [ ] Prepare contract\n");
     expect(out.text).toContain("Draft the plan.\n");
+    // The source written is the one the preview held, markers and all.
+    expect(out.text).toContain(shown.source);
+    // LFCP-03-020: boundary cues near the end, for an idle cursor; never in the note.
+    const cues = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      const before = view.editor.getValue();
+      const lines = before.split("\n");
+      const end = lines.findIndex((l) => l.startsWith("<!-- /lfcp-section: "));
+      const at = async (line) => {
+        view.editor.setCursor({ line, ch: 0 });
+        await new Promise((r) => setTimeout(r, 300));
+        const cue = view.containerEl.querySelector(".openlfcp-boundary-cue");
+        return {
+          cue: cue?.dataset.cue ?? null,
+          label: cue?.getAttribute("aria-label") ?? null,
+          lineText: cue?.closest(".cm-line")?.textContent ?? null,
+          docLine: view.editor.getLine(line),
+        };
+      };
+      const inside = await at(end - 1);
+      const outside = await at(end + 1);
+      const heading = await at(lines.indexOf("## Launch"));
+      return { inside, outside, heading, same: view.editor.getValue() === before };
+    });
+    console.log(`EVIDENCE ${JSON.stringify({ id: "BOUNDARY-CUES", cues })}`);
+    expect(cues.inside).toMatchObject({ cue: "inside", label: "Inside the shared section" });
+    expect(cues.inside.lineText).toBe(cues.inside.docLine);
+    expect(cues.outside).toMatchObject({ cue: "outside", label: "Outside the shared section" });
+    expect(cues.outside.lineText).toBe(cues.outside.docLine);
+    expect(cues.heading.cue).toBeNull();
+    expect(cues.same).toBe(true);
   });
 
   it("Invite collaborator refuses a section its server does not hold yet (LFCP-02-051)", async () => {
