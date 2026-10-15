@@ -317,7 +317,19 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
     await inA(({ app }) =>
       app.vault.process(app.vault.getFileByPath("RO.md"), (t) => t.replace("- [ ] Task of B", "- [ ] Task of B, edited outside")),
     );
-    await badgeIs("ATTENTION", "the read-only copy holds an edit");
+    const held = await browser.waitUntil(async () => (await stateA()).badge === "ATTENTION", { timeout: 20_000 }).catch(() => false);
+    if (!held) {
+      // Diagnostics (mac/Windows, LFCP-03-036): what the note and the status show instead.
+      const now = await stateA();
+      evidence("F-04-read-only not held", {
+        badge: now.badge,
+        edited: now.md.includes("edited outside"),
+        disk: await inA(async ({ app }) => (await app.vault.read(app.vault.getFileByPath("RO.md"))).includes("edited outside")),
+        card: await card(),
+      });
+      await closeCard();
+      throw new Error("the read-only copy holds an edit");
+    }
     const s = await stateA();
     const line = s.md.split("\n").findIndex((l) => l.includes("edited outside"));
     const c = await card();
