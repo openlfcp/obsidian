@@ -131,6 +131,74 @@ describe("pane focus", () => {
     expect(root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open).toBe(false);
   });
 
+  it("LFCP-03-022: a redraw keeps the join field itself: its text, caret and focus", () => {
+    const proto = new PanePrototype(doc.states, "no-note");
+    const joined: string[] = [];
+    const draw = () =>
+      renderPane(root, proto.model(), {
+        action: (id) => {
+          proto.act(id);
+          draw();
+        },
+        join: (link, name) => joined.push(`${link}|${name}`),
+      });
+    draw();
+    byText("Join with a link…").click();
+    const name = root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-name");
+    const form = root.querySelector("form");
+    if (name === null || form === null) throw new Error("no join field");
+    name.value = "Sprint plan";
+    name.focus();
+    name.setSelectionRange(3, 3);
+    // A status or a flow step redraws the pane while the user types.
+    draw();
+    draw();
+    expect(root.querySelector("input.openlfcp-pane-join-name")).toBe(name);
+    expect(root.querySelector("form")).toBe(form);
+    expect(document.activeElement).toBe(name);
+    expect([name.value, name.selectionStart]).toEqual(["Sprint plan", 3]);
+    // The header stays first, the field right after it, one of each.
+    expect(root.firstElementChild?.classList.contains("openlfcp-pane-header")).toBe(true);
+    expect(root.firstElementChild?.nextElementSibling).toBe(form);
+    expect(root.querySelectorAll("form").length).toBe(1);
+    expect(root.querySelectorAll(".openlfcp-pane-header").length).toBe(1);
+    // The submit runs the latest drawing's handler, once.
+    const link = root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input");
+    if (link === null) throw new Error("no link field");
+    link.value = "lfcp://join/synthetic-link";
+    form.requestSubmit();
+    expect(joined).toEqual(["lfcp://join/synthetic-link|Sprint plan"]);
+    expect(link.value).toBe("");
+  });
+
+  it("LFCP-03-022: Enter that ends an IME composition joins nothing", () => {
+    const proto = new PanePrototype(doc.states, "no-note");
+    const joined: string[] = [];
+    const draw = () =>
+      renderPane(root, proto.model(), {
+        action: (id) => {
+          proto.act(id);
+          draw();
+        },
+        join: (link) => joined.push(link),
+      });
+    draw();
+    byText("Join with a link…").click();
+    const name = root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-name");
+    const link = root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input");
+    const form = root.querySelector("form");
+    if (name === null || link === null || form === null) throw new Error("no join field");
+    link.value = "lfcp://join/synthetic-link";
+    name.dispatchEvent(new Event("compositionstart", { bubbles: true }));
+    draw();
+    form.requestSubmit();
+    expect(joined).toEqual([]);
+    expect(link.value).toBe("lfcp://join/synthetic-link");
+    name.dispatchEvent(new Event("compositionend", { bubbles: true }));
+    form.requestSubmit();
+    expect(joined).toEqual(["lfcp://join/synthetic-link"]);
+  });
+
   it("never takes focus from outside the pane on an update", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);

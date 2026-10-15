@@ -10,6 +10,10 @@
 //   next to it, so the reason is reachable by keyboard; a click on it does nothing.
 // - A redraw keeps focus on the same control when focus was in the pane,
 //   else on the pane's heading; an update never takes focus from elsewhere.
+// - The join field is kept, not drawn again, while it is offered: a redraw
+//   (a status, a flow step) leaves its text, caret and an IME composition
+//   as they are (U03-18, LFCP-03-022). A submit during a composition (Enter
+//   that ends it) joins nothing; only Join, or Enter outside one, does.
 // - Narrow panes: everything wraps; colours and spacing are Obsidian's CSS variables.
 
 import type { ActionId } from "../../core/actions/catalog";
@@ -55,6 +59,9 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 let ids = 0;
+
+/** The join field's form, drawn once while offered: what its submit runs now. */
+const submits = new WeakMap<HTMLFormElement, (link: string, name: string) => void>();
 
 /**
  * A problem's ID as the DOM carries it: a hash, never the ID itself, which
@@ -109,25 +116,29 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
   // The menu stays as the user left it: a redraw does not close it under them.
   const menuOpen =
     root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open === true;
-  const joinDraft =
-    root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input")?.value ?? "";
-  const nameDraft =
-    root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-name")?.value ?? "";
+  // The join field as drawn before, kept in place while it is still offered.
+  const kept =
+    model.joinField && h.join !== undefined
+      ? root.querySelector<HTMLFormElement>(":scope > form.openlfcp-pane-join-form")
+      : null;
   // The field appears for the user's own "Join with a link…": the caret goes into it.
-  const fieldNew = model.joinField && root.querySelector("form.openlfcp-pane-join-form") === null;
+  const fieldNew = model.joinField && kept === null;
 
-  root.replaceChildren();
+  for (const child of Array.from(root.childNodes)) if (child !== kept) child.remove();
   root.classList.add("openlfcp-pane");
 
   const header = el(root, "div", "openlfcp-pane-header");
+  // Before the kept field: moving the header, never the field, keeps its focus.
+  if (kept !== null) root.insertBefore(header, kept);
   const title = el(header, "h2", "openlfcp-pane-title", model.title);
   title.tabIndex = -1;
   title.setAttribute(KEY, "title");
   button(header, model.join, h, "openlfcp-pane-join");
 
-  if (model.joinField && h.join !== undefined) {
-    const join = h.join;
+  if (kept !== null && h.join !== undefined) submits.set(kept, h.join);
+  else if (model.joinField && h.join !== undefined) {
     const form = el(root, "form", "openlfcp-pane-join-form");
+    submits.set(form, h.join);
     const id = `openlfcp-pane-join-${++ids}`;
     const label = el(form, "label", "openlfcp-pane-label", "Paste the invitation link");
     label.htmlFor = id;
@@ -138,7 +149,6 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     input.autocomplete = "off";
     input.spellcheck = false;
     input.placeholder = "lfcp://join/…";
-    input.value = joinDraft;
     input.setAttribute(KEY, "join-input");
     // N5: optional, never a step of its own.
     const nameId = `openlfcp-pane-join-name-${++ids}`;
@@ -149,17 +159,25 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     name.type = "text";
     name.autocomplete = "off";
     name.placeholder = "The section's own title";
-    name.value = nameDraft;
     name.setAttribute(KEY, "join-name");
     const go = el(form, "button", "mod-cta", "Join");
     go.type = "submit";
     go.setAttribute(KEY, "join-submit");
+    // IME: Enter that ends a composition is the IME's, not a Join.
+    let composing = false;
+    form.addEventListener("compositionstart", () => {
+      composing = true;
+    });
+    form.addEventListener("compositionend", () => {
+      composing = false;
+    });
     form.addEventListener("submit", (e) => {
       e.preventDefault();
+      if (composing) return;
       const link = input.value;
       // Out of the page before anything else runs: a redraw keeps no copy of it.
       input.value = "";
-      join(link, name.value);
+      submits.get(form)?.(link, name.value);
     });
   }
 
@@ -299,7 +317,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
 
   if (fieldNew && hadFocus && focusKey === "action:join-with-link") {
     root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input")?.focus();
-  } else if (hadFocus) {
+  } else if (hadFocus && !(kept?.contains(active) ?? false)) {
     const again =
       focusKey === null || focusKey === undefined
         ? null
