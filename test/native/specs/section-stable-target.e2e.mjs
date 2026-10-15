@@ -129,11 +129,25 @@ describe("a share keeps its captured target (LFCP-03-009)", () => {
     });
     await clickShare();
     await hosted("Switched.md");
+    // The share says what it came to once the section is open on this device,
+    // a moment after its hosting is stored (LFCP-03-038): wait for that notice,
+    // or for one that says it went wrong.
+    const said = await browser
+      .waitUntil(
+        async () => {
+          const now = (await notices()).slice(before);
+          return now.some((t) => /is shared\.|heading is gone|Nothing was shared|could not be created|changed since the preview/.test(t))
+            ? now
+            : false;
+        },
+        { timeout: 10_000 },
+      )
+      .catch(async () => (await notices()).slice(before));
     const files = await inA(async ({ app }) => ({
+      switched: await app.vault.read(app.vault.getFileByPath("Switched.md")),
       elsewhere: await app.vault.read(app.vault.getFileByPath("Elsewhere.md")),
       active: app.workspace.getActiveFile()?.path ?? null,
     }));
-    const said = (await notices()).slice(before);
     evidence("U03-03-switch", { files, said });
     expect(files.elsewhere).toBe(OTHER);
     expect(said).toContain('Shared Tasks: section "Switched share" is shared.');
