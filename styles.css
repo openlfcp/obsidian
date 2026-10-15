@@ -54,6 +54,13 @@
   color: var(--text-error);
 }
 
+/* OpenLFCP: a section's name on this device, below its shared title (UX contract N2). */
+.openlfcp-choice-alias {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+}
+
 /* OpenLFCP: an insert preview's exact lines, markers included, collapsed (LFCP-03-020). */
 .openlfcp-preview-source {
   margin-top: var(--size-4-2);

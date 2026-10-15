@@ -1444,7 +1444,12 @@ export class SectionsHost {
       const sectionId = (replica?.toJSON() as { section?: { id?: unknown } } | undefined)?.section
         ?.id;
       if (snap === undefined || typeof sectionId !== "string") continue;
-      choices.push({ resource: entry.resourceId, sectionId, title: snap.title.value ?? "" });
+      choices.push({
+        resource: entry.resourceId,
+        sectionId,
+        title: snap.title.value ?? "",
+        alias: entry.localName,
+      });
     }
     return choices;
   }

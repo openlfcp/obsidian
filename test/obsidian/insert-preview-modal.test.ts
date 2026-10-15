@@ -1,6 +1,7 @@
 // LFCP-03-020 (U03-27, F-09): the insert preview on the Obsidian mock shows
 // the readable text first, the exact lines in a collapsed part, and draws
-// remote content as text only. Insert writes the block it was given.
+// remote content as text only. Insert writes the block it was given. The
+// choice before it names sections by their shared title (F-10).
 
 import { describe, expect, it } from "vitest";
 import {
@@ -9,8 +10,12 @@ import {
   parseSectionRef,
   type SectionRef,
 } from "../../src/core/sections/grammar";
-import { InsertSectionModal } from "../../src/obsidian/ui/insert-section";
-import { App, type FakeElement } from "../mocks/obsidian";
+import {
+  choiceLabel,
+  InsertSectionModal,
+  PickSectionModal,
+} from "../../src/obsidian/ui/insert-section";
+import { App, FakeElement } from "../mocks/obsidian";
 
 const R = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const id = (n: number) => `019a2f85-7b31-7c42-b85a-fc843e2f4${n.toString(16).padStart(3, "0")}`;
@@ -78,5 +83,37 @@ describe("the insert preview", () => {
     );
     expect(el.children.find((c) => c.cls === "openlfcp-share-content")?.text).toBe(broken);
     m.close();
+  });
+});
+
+describe("the insert choice (UX contract N1–N3, F-10)", () => {
+  const sprint = { resource: new Uint8Array([1]), sectionId: "s1", title: "Sprint" };
+  const rendered = (m: PickSectionModal, q = "") =>
+    m.getSuggestions(q).map((c) => {
+      const el = new FakeElement("div");
+      m.renderSuggestion(c, el as never);
+      return el.textContent;
+    });
+
+  it("names a section by its shared title; the name on this device only below it, when it differs", () => {
+    const m = new PickSectionModal(new App() as never, [
+      { ...sprint, alias: "Sprint (from B)" },
+      { ...sprint, sectionId: "s2", title: "Launch", alias: "Launch" },
+      { ...sprint, sectionId: "s3", title: "", alias: "Ideas" },
+      { ...sprint, sectionId: "s4", title: "Plan" },
+    ]);
+    expect(rendered(m)).toEqual([
+      "Sprint\nOn this device: Sprint (from B)",
+      "Launch",
+      "Ideas (name on this device)",
+      "Plan",
+    ]);
+    expect(rendered(m, "from b")).toEqual(["Sprint\nOn this device: Sprint (from B)"]);
+  });
+
+  it("two sections with one title stay two choices", () => {
+    const m = new PickSectionModal(new App() as never, [sprint, { ...sprint, sectionId: "s2" }]);
+    expect(rendered(m)).toEqual(["Sprint", "Sprint"]);
+    expect(choiceLabel({ ...sprint, title: "", alias: null }).primary).toBe("Untitled section");
   });
 });
