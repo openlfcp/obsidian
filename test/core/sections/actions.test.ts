@@ -1705,7 +1705,12 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
         }) as never,
       known: () => true,
       held: (key) =>
-        key === KEY ? [{ path: "Other.md", line: 7, cause: "read-only" } as never] : [],
+        key === KEY
+          ? [
+              { path: "Other.md", line: 7, cause: "read-only", count: 5 } as never,
+              { path: "Plan.md", line: 2, cause: "read-only", count: 1 } as never,
+            ]
+          : [],
     }));
     const { d } = dispatch(t);
     const section = { key: KEY, title: "Launch" };
@@ -1716,10 +1721,14 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
     expect(t.prompter.notices.at(-1)).toBe(
       'Shared Tasks: no local copy of "Launch" is kept on this device.',
     );
-    // Go to the problem: the section's held copy, in its own note.
+    // Go to the problem: the held copy in the note in view first, then the one holding the most.
     t.notes.files.set("Other.md", "x\n".repeat(10));
     await d.run("go-to-problem", { section, target: t.editor.at() }, "pane");
-    expect(t.notes.located).toEqual([["Other.md", 7]]);
+    await d.run("go-to-problem", { section }, "card");
+    expect(t.notes.located).toEqual([
+      ["Plan.md", 2],
+      ["Other.md", 7],
+    ]);
   });
 
   it("continue-flow brings the running flow forward; a late click on a closed flow does nothing", async () => {

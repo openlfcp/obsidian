@@ -159,7 +159,7 @@ export function coreHandlers(env: {
       const a = env.sections();
       if (a === null) return;
       if (r.at !== undefined) return a.goToLine(r.at.path, r.at.line);
-      if (r.section !== undefined && (await a.goToHeld(r.section.key))) return;
+      if (r.section !== undefined && (await a.goToHeld(r.section.key, r.target?.path))) return;
       if (r.target !== undefined) host?.nextProblem(r.target);
     },
     "continue-flow": async (r) => {
