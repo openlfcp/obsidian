@@ -8,6 +8,7 @@ import {
   newSectionTask,
   planTaskFields,
   representLine,
+  sameFields,
 } from "../../../src/core/sections/task-fields";
 
 const T = "019a2f85-7b31-7c42-b85a-fc843e2f4009";
@@ -73,5 +74,35 @@ describe("a new section Task from its line", () => {
       expect(t).toMatchObject({ title: "Deep task", due: "2026-11-02" });
     }
     expect(() => newSectionTask("    plain text", me, T)).toThrow("not a Task line");
+  });
+});
+
+describe("sameFields (LFCP-03-043)", () => {
+  const same = (a: string, b: string) => {
+    const x = representLine(a);
+    const y = representLine(b);
+    if (x === null || y === null) throw new Error("not a Task line");
+    return sameFields(x, y);
+  };
+  const BASE = "- [ ] Contract #a #b ⏳ 2026-10-30 📅 2026-11-01 🔼";
+
+  it("the same fields, formatted otherwise, are the same", () => {
+    expect(same(BASE, BASE)).toBe(true);
+    expect(same(BASE, `${BASE}  `)).toBe(true);
+    expect(same("- [x] Done ✅ 2026-10-01", "- [x] Done ✅ 2026-10-01")).toBe(true);
+  });
+
+  it("each shared field differs on its own", () => {
+    expect(same(BASE, BASE.replace("[ ]", "[x]"))).toBe(false);
+    expect(same(BASE, BASE.replace("Contract", "Contract v2"))).toBe(false);
+    expect(same(BASE, BASE.replace("📅 2026-11-01", "📅 2026-11-02"))).toBe(false);
+    expect(same(BASE, BASE.replace("⏳ 2026-10-30", "⏳ 2026-10-31"))).toBe(false);
+    expect(same(BASE, BASE.replace("🔼", "⏫"))).toBe(false);
+    expect(same(BASE, BASE.replace("#a #b", "#a #c"))).toBe(false);
+    expect(same("- [x] Done ✅ 2026-10-01", "- [x] Done ✅ 2026-10-02")).toBe(false);
+  });
+
+  it("tags compare as a set: their order is formatting", () => {
+    expect(same(BASE, BASE.replace("#a #b", "#b #a"))).toBe(true);
   });
 });
