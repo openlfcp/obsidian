@@ -190,6 +190,7 @@ click it, or press Enter on it, to open the section's details.
 | Sending local updates | On its way to the server |
 | Local updates accepted; receiving changes | Your changes arrived; others' are coming in |
 | Offline; local updates will wait | No connection; your edits are kept |
+| Not checked with the server yet; local updates will wait | No connection has been reported yet, so this is not "offline" either; your edits are kept (a cloud with dots, not crossed out) |
 | Server confirmation unavailable | Sent, but the server could not confirm it |
 | Needs your attention | Something needs a decision: open the details |
 | Changes are not safely saved for sync | A change could not be saved on this device; nothing was sent for it. Keep the note open and try again |

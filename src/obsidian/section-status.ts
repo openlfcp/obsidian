@@ -61,6 +61,13 @@ const ICONS: Readonly<Record<SyncIcon, readonly string[]>> = {
   pending: ["M8 2 A6 6 0 1 0 8 14 A6 6 0 1 0 8 2", "M8 5 L8 8 L10.5 9.5"],
   receiving: ["M8 2 L8 12", "M4 8.5 L8 12.5 L12 8.5"],
   offline: ["M3 11 A4 4 0 0 1 5 4.5 A5 5 0 0 1 13 6 A3 3 0 0 1 12 11 Z", "M2 2 L14 14"],
+  // The cloud, not crossed out, with an ellipsis: not checked yet, not offline.
+  unchecked: [
+    "M3 11 A4 4 0 0 1 5 4.5 A5 5 0 0 1 13 6 A3 3 0 0 1 12 11 Z",
+    "M5.5 8.5 L5.6 8.5",
+    "M8 8.5 L8.1 8.5",
+    "M10.5 8.5 L10.6 8.5",
+  ],
   unknown: ["M5.5 6 A2.5 2.5 0 1 1 8 8.5 L8 10", "M8 12.5 L8 13"],
   attention: ["M8 2 L14.5 13.5 L1.5 13.5 Z", "M8 6.5 L8 9.5", "M8 11.5 L8 12"],
   error: ["M5 2 L11 2 L14 5 L14 11 L11 14 L5 14 L2 11 L2 5 Z", "M6 6 L10 10", "M10 6 L6 10"],

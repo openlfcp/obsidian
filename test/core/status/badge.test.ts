@@ -57,7 +57,22 @@ describe("the heading badge (M8)", () => {
     );
     expect(b).toMatchObject({ state: "SENDING", icon: "pending" });
     expect(b.accessibleName).toBe("Shared section Launch, 3 local updates waiting, open details");
-    expect(headingBadge("Launch", view({ connection: "offline" })).icon).toBe("offline");
+    expect(
+      headingBadge("Launch", view({ connection: "offline", connectionQualifier: "lost" })).icon,
+    ).toBe("offline");
+  });
+
+  it("offline with no evidence of it has its own icon, not the offline one (LFCP-03-020)", () => {
+    const b = headingBadge("Launch", view({ connection: "offline" }));
+    expect(b).toMatchObject({
+      state: "OFFLINE",
+      icon: "unchecked",
+      tooltip: "Not checked with the server yet; local updates will wait",
+    });
+    expect(b.accessibleName).toBe(
+      "Shared section Launch, not checked with the server yet; local updates will wait, open details",
+    );
+    expect(Object.values(SYNC_ICON)).not.toContain("unchecked");
   });
 });
 
