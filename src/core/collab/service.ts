@@ -492,6 +492,13 @@ export class Collaboration {
       // "cannot": another member who may publish one does (the same rule runs on their device).
       // "checking": not known yet whether this vault may (just started): waits for its session.
       if (s !== "publishing" && s !== "checking") return;
+      // Refused by the server (RESOURCE_NOT_HOSTED, …): no Snapshot will reach it, so no waiting.
+      const refused = runtime.refusal?.(R) ?? null;
+      if (refused !== null)
+        throw new CollabError(
+          refused.code,
+          `The server refused this collaboration (${refused.code}), so nobody could join it after the change of access. Nothing was created.`,
+        );
       if (Date.now() > deadline)
         throw new CollabError(
           "SNAPSHOT_PENDING",

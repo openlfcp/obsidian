@@ -168,6 +168,22 @@ describe("Invite collaborator (LFCP-065)", () => {
     expect(await queuedRecords(runtime, R)).toEqual([]);
   });
 
+  it("does not wait for a Snapshot the server refuses: its refusal at once, nothing created (LFCP-03-037)", async () => {
+    const { runtime, collab } = await offline();
+    const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
+    vi.spyOn(runtime, "epochSnapshotState").mockResolvedValue("checking");
+    vi.spyOn(runtime, "refusal").mockReturnValue({ code: "RESOURCE_NOT_HOSTED" } as never);
+    const started = Date.now();
+    const refused = collab.invite(R, "read");
+    await expect(refused).rejects.toMatchObject({ code: "RESOURCE_NOT_HOSTED" });
+    await expect(refused).rejects.toThrow(
+      /refused this collaboration \(RESOURCE_NOT_HOSTED\).*Nothing was created/,
+    );
+    // Well before the Snapshot wait's timeout (60 s by default).
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(await queuedRecords(runtime, R)).toEqual([]);
+  });
+
   it("is refused while the Control Chain is forked", async () => {
     const { runtime, collab } = await offline();
     const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
