@@ -433,6 +433,11 @@ unknown, never as zero.
   a repair; it shows the result after the repair.
 - **F3. Read-only, revoked, not-member and refused are four states**, each
   with its own sentence (U03-17, U03-28).
+- **F4. Not checked is not offline** (LFCP-03-020). With `connectionQualifier`
+  "no-evidence" the badge draws its own icon (a cloud with dots, not
+  crossed out) next to the tooltip "Not checked with the server yet; local
+  updates will wait". The crossed-out cloud is only for offline with
+  evidence.
 
 ## 7. Names: shared title and local alias
 
@@ -451,6 +456,11 @@ unknown, never as zero.
   collaboration".
 - **N6.** A member's label is local ("Name…"), not a verified name. Equal
   labels never merge members.
+- **N7.** The insert choice ("Insert shared section…", "Insert into a
+  note…") names each section as N1–N3 do, and finds it by either name
+  (LFCP-03-020). "Review conflicts…" asks about a task's title by the
+  task's place ("the title of a task under "Plan""), never by one of the
+  competing titles (F-10).
 
 ## 8. Content policy: raw blocks and comments
 
@@ -476,7 +486,14 @@ preview (MARKDOWN-SECTIONS-01 §8).
   insert preview hides `lfcp-section`, `lfcp-node` and `lfcp-ref` metadata
   that the parser recognises. The source that is written keeps every
   marker. Unknown comments and raw text are not removed. Remote embeds and
-  scripts are not run (U03-27, F-09).
+  scripts are not run (U03-27, F-09). In 0.3 (LFCP-03-020,
+  `src/core/sections/preview-display.ts`): the preview shows the readable
+  text, and the exact lines under a collapsed "Technical details: the
+  lines as written". A marker inside a fence or a multi-line comment is
+  text and stays. A marker the parser cannot read stays visible, with
+  "Line N has sharing metadata that could not be read. It is shown as it
+  is."; a block that does not read back as one section hides nothing and
+  says so. Both parts are drawn as text, never as Markdown or HTML.
 - **C6. Body deletion and whole-copy removal are different** (§10). Deleting
   visible content in a healthy section deletes it for everyone (a retained
   tombstone). Removing a whole copy or deleting the note removes the local
@@ -492,6 +509,14 @@ preview (MARKDOWN-SECTIONS-01 §8).
   card says the first two under "What is shared". The detach confirmation
   says that the shared section, the other notes, the collaborators and
   their access are not changed. No new operation is added.
+- **C7. Boundary cues** (LFCP-03-020, package §8). A thin dotted line marks
+  a section's last visible line. With an idle cursor (moved, not typing)
+  on that line the editor shows "Inside the shared section"; on the line
+  right after the section, "Outside the shared section". Typing hides the
+  cue. A damaged copy shows "Section boundary not determined" at its
+  heading, whatever the cursor, and no line after it is drawn as shared
+  (S4). Cues are editor widgets whose words come from CSS: never in the
+  note, its undo history, its text content or the clipboard (U03-19).
 
 ## 9. Invitations and joining
 
