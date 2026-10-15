@@ -40,10 +40,13 @@ import { scanRefs } from "../refs";
 import { REMOVE_CONFIRMATION, type RevokeOutcome, revokeMessage } from "../status/access";
 import type { SectionCard } from "../status/card";
 import type {
+  BaseService,
+  CandidateService,
   CardAction,
   CardHandle,
   CardRowActions,
   LostBase,
+  ModelService,
   ResourceCommands,
   SectionDialog,
   SectionNotes,
@@ -929,24 +932,49 @@ export class SectionActions {
    * "Repair shared sections in this note" (062): broken boundaries with
    * their candidate lines, problems to locate, and sections whose base is
    * lost, compared. Nothing changes without the user's choice.
+   *
+   * The note is held while the dialog is open and while a choice it started
+   * runs (LFCP-03-018, review of 009 F1): each choice writes, locates and
+   * saves its base at the note's path at that moment, following a rename;
+   * once the note is deleted it writes nothing.
    */
   async repairNote(at: TargetCapture): Promise<void> {
-    const { prompter, notes, services } = this.env;
+    const { prompter, services } = this.env;
     const refused = captureRefusal(at);
     if (refused !== null) {
       prompter.notice(invalidationText(refused, "changed"));
       return;
     }
-    const path = at.path;
     const model = services.model();
     const bases = services.bases();
     const journal = services.candidates();
     if (this.#refused({}, model === null || bases === null || journal === null)) return;
     if (model === null || bases === null || journal === null) return;
+    const held = this.#targets.hold(at.path);
+    let open: { dialog: SectionDialog<void>; running: ReadonlySet<Promise<void>> } | null = null;
+    try {
+      open = await this.#repair(at, held.target, model, bases, journal);
+    } finally {
+      if (open === null) held.release();
+    }
+    const { dialog, running } = open;
+    // Released once the dialog closed and every choice it started has settled.
+    void dialog.result.then(() => Promise.allSettled([...running])).finally(() => held.release());
+  }
+
+  /** The repair dialog of `at`, held as `target`, and the choices it started that still run. */
+  async #repair(
+    at: TargetCapture,
+    target: NoteTarget,
+    model: ModelService,
+    bases: BaseService,
+    journal: CandidateService,
+  ): Promise<{ dialog: SectionDialog<void>; running: ReadonlySet<Promise<void>> }> {
+    const { prompter, notes, services } = this.env;
     const md = at.text;
     const items = repairItems(md);
     const known = new Set<string>();
-    for (const id of await bases.projectionsOf(path)) {
+    for (const id of await bases.projectionsOf(at.path)) {
       const b = await bases.load(id);
       if (b !== undefined) known.add(sectionKey(b.locator.section));
     }
@@ -980,25 +1008,43 @@ export class SectionActions {
         block,
       });
     }
-    prompter.repair(items, lost, {
-      boundary: async (item, line) => {
+    const running = new Set<Promise<void>>();
+    /** A choice of the dialog, on the note where it is now; nothing once it is deleted. */
+    const onNote =
+      <A extends unknown[]>(run: (path: string, ...args: A) => Promise<void>) =>
+      (...args: A): Promise<void> => {
+        const path = target.path;
+        if (path === null) {
+          prompter.notice("Shared Tasks: the note was deleted. Nothing was repaired.");
+          return Promise.resolve();
+        }
+        const p = run(path, ...args);
+        running.add(p);
+        return p.finally(() => running.delete(p));
+      };
+    const dialog = prompter.repair(items, lost, {
+      boundary: onNote(async (path, item, line) => {
         await notes.edit(path, (current) => {
           // Only on the note the candidates were computed for.
           if (current !== md) return null;
           return [boundaryRepair(current, item, line)];
         });
         services.pass(path);
+      }),
+      // The repaired note, where it is now: never whichever note the tab shows.
+      locate: (line) => {
+        void onNote(async (path) => {
+          await notes.goToLine(path, line);
+        })();
       },
-      // The repaired note, by its path: never whichever note the tab shows now.
-      locate: (line) => void notes.goToLine(path, line),
-      shareMine: async (key) => {
+      shareMine: onNote(async (path, key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
         await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
         services.pass(path);
         prompter.notice("Shared Tasks: your version of this section is being shared.");
-      },
-      useShared: async (key) => {
+      }),
+      useShared: onNote(async (path, key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
         // The note's text first, as a recovery copy kept on this device.
@@ -1027,8 +1073,9 @@ export class SectionActions {
         prompter.notice(
           "Shared Tasks: this section shows the shared version now. Your previous text is kept as a recovery copy on this device.",
         );
-      },
+      }),
     });
+    return { dialog, running };
   }
 
   /**

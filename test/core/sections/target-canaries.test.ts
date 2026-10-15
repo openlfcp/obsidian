@@ -82,7 +82,9 @@ class Approver implements SectionPrompter {
   alias(): never {
     throw new Error("unexpected");
   }
-  repair(): void {}
+  repair(): never {
+    throw new Error("unexpected");
+  }
   review(): void {}
   card(): never {
     throw new Error("unexpected");

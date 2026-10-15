@@ -76,8 +76,12 @@ export class ObsidianSectionPrompter implements SectionPrompter {
     return ask.result;
   }
 
-  repair(items: readonly RepairItem[], lost: readonly LostBase[], actions: RepairActions): void {
-    new RepairModal(this.app, items, lost, actions).open();
+  repair(
+    items: readonly RepairItem[],
+    lost: readonly LostBase[],
+    actions: RepairActions,
+  ): SectionDialog<void> {
+    return opened(new RepairModal(this.app, items, lost, actions));
   }
 
   review(
