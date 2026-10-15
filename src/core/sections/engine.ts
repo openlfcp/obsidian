@@ -58,7 +58,7 @@ import { recurringCopyRepair } from "./recurrence";
 import { misplaced, modelTaskLine, planRemote, type RemotePlan } from "./remote";
 import { type DocChange, lineStarts } from "./source-map";
 import { planStructure, type StructurePlan } from "./structure";
-import { planTaskFields } from "./task-fields";
+import { planTaskFields, tasksShowModel } from "./task-fields";
 import { type ChangeOrigin, compensate, SessionLedger } from "./undo";
 
 export interface EngineDeps extends CommitDeps {
@@ -234,7 +234,10 @@ export function sharedState(s: SectionSnapshot): SectionState {
   return { title: s.title, nodes, order };
 }
 
-/** Whether the note shows exactly the model: same title, nodes, parents, Text and order. */
+/**
+ * Whether the note shows exactly the model: same title, nodes, parents, Text
+ * and order. Task fields are not in a state's terms: tasksShowModel compares them.
+ */
 export function sameState(a: SectionState, b: SectionState): boolean {
   if (a.title !== b.title) return false;
   const ids = Object.keys(a.nodes);
@@ -719,10 +722,16 @@ export class SectionEngine {
       // MS11, CM11: only a note that already shows the model seeds a base.
       // Otherwise its bindings are recovered but no causal base is guessed:
       // nothing is uploaded, and the section's source is kept as a
-      // comparison candidate until the note and the model agree.
+      // comparison candidate until the note and the model agree. A Task's
+      // fields are compared too (LFCP-03-043): a seeded base would make the
+      // next pass render the model over a title or checkbox edited here.
       const note = markdownState(source, section);
       const candidateId = `base-unknown:${projectionId}`;
-      if (note.unbound.length > 0 || !sameState(note.state, shared)) {
+      if (
+        note.unbound.length > 0 ||
+        !sameState(note.state, shared) ||
+        !tasksShowModel(source, section, (taskId) => this.deps.tasks(resource, taskId))
+      ) {
         if (ctx.seedOnly === true)
           return { result: { projectionId, section: ref, ...none }, changes: [] };
         const lines = splitLines(source);

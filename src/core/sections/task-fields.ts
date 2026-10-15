@@ -8,10 +8,13 @@ import type { PrincipalId } from "@openlfcp/core";
 import type { TaskView } from "@openlfcp/shared-objects";
 import { planShare } from "../collab/markdown";
 import { type FieldIssue, planIntents, type Represented } from "../projection/intents";
+import { type RenderTarget, renderProjectedLine } from "../projection/render";
 import { parseTaskText, statusOfGlyph } from "../projection/task-text";
 import { scanRefs } from "../refs";
+import { splitLines } from "../refs/lines";
 import { parseTaskLine } from "../refs/scanner";
 import type { SectionState } from "./base";
+import { type ParsedSection, type SectionNode, scanSectionRefs } from "./parser";
 import type { NewSectionTask, TaskFieldIntent } from "./port";
 
 /** An inline Task ref anywhere on the line (at the end, or before the Tasks fields). */
@@ -47,6 +50,71 @@ export function planTaskFields(
     for (const issue of plan.issues) issues.push({ taskId: id, issue });
   }
   return { intents, issues };
+}
+
+/** Whether two Task lines represent the same shared fields (status and owned fields). */
+function sameFields(a: Represented, b: Represented): boolean {
+  const tags = (r: Represented) =>
+    r.text.tags
+      .map((t) => t.normalize("NFC"))
+      .sort()
+      .join(" ");
+  return (
+    a.status === b.status &&
+    a.text.title === b.text.title &&
+    a.text.due === b.text.due &&
+    a.text.scheduled === b.text.scheduled &&
+    a.text.completion === b.text.completion &&
+    a.text.priority === b.text.priority &&
+    tags(a) === tags(b)
+  );
+}
+
+/**
+ * Whether every bound Task of `section` shows its shared object (LFCP-03-043).
+ *
+ * Without a base, a note seeds one only when it shows the model (MS11):
+ * then the next pass renders the model onto every line the base holds. A
+ * Task's fields are not in the compared state (its line is), so they are
+ * compared here: the model's object rendered onto the note's own line (its
+ * format, inline ref, list marker and local pieces kept) must represent the
+ * same fields as the line. A difference the renderer only formats (the
+ * inline ref's place) is no difference; a title, checkbox or date the note
+ * changed is one. An object that is not here or not a live, valid Task
+ * cannot be compared: not shown either, so no base is guessed for it.
+ */
+export function tasksShowModel(
+  markdown: string,
+  section: ParsedSection,
+  tasks: (taskId: string) => RenderTarget | undefined,
+): boolean {
+  const lines = splitLines(markdown);
+  const scan = scanSectionRefs(markdown);
+  const refAt = new Map(scan.projections.map((p) => [p.taskLine, p]));
+  const shows = (n: SectionNode): boolean => {
+    if (n.kind !== "task" || n.id === null) return true;
+    const target = tasks(n.id);
+    const view = target?.view;
+    if (
+      target === undefined ||
+      view?.status !== "ready" ||
+      view.task === undefined ||
+      view.task.lifecycle === "deleted"
+    )
+      return false;
+    const p = refAt.get(n.lines.from);
+    const text = lines[n.lines.from]?.text;
+    if (p === undefined || p.objectId !== n.id || text === undefined) return false;
+    const rendered = renderProjectedLine(text, p, scan.tasks, target)?.line;
+    if (rendered === undefined) return false;
+    if (rendered === text) return true;
+    const now = representLine(text);
+    const model = representLine(rendered);
+    return now !== null && model !== null && sameFields(now, model);
+  };
+  const all = (nodes: readonly SectionNode[]): boolean =>
+    nodes.every((n) => shows(n) && all(n.children));
+  return all(section.nodes);
 }
 
 /** A new section Task from its line, as 0.1 shares one (planShare's fields). */
