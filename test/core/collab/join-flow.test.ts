@@ -350,6 +350,57 @@ describe("the join flow (LFCP-03-015)", () => {
     expect(all).not.toContain(LINK.slice(0, 40));
   });
 
+  it("a claim a restart left unknown is shown again; Check the result settles it without the link (LFCP-03-017)", async () => {
+    const s = scripted(
+      [],
+      [
+        {
+          kind: "unavailable",
+          message: "The collaboration's server could not be reached (offline).",
+          resourceId: R,
+          claimSent: true,
+        },
+        {
+          kind: "joined",
+          resourceId: R,
+          abilities: ["data/read", "data/write"],
+          section: { loaded: true },
+        },
+      ],
+    );
+    const { f, joined } = flow(s.collab);
+    const generation = f.restore(R, "The server could not be reached.");
+    expect(generation).not.toBeNull();
+    expect(f.state()).toMatchObject({
+      stage: "claiming capability",
+      outcome: "unknown",
+      problem: "The server could not be reached.",
+    });
+    // The one join lock is held: no second join starts meanwhile, and no second restore.
+    expect(f.busy()).toBe(true);
+    expect(f.hold()).toBeNull();
+    expect(f.restore(R, "again")).toBeNull();
+    // Still unreachable: unknown, with why.
+    await f.checkResult(generation ?? -1);
+    expect(f.state()).toMatchObject({ outcome: "unknown", checking: false });
+    // Reached: the same claim settles; no join was sent.
+    await f.checkResult(generation ?? -1);
+    expect(f.state()).toMatchObject({ stage: "choose-place", outcome: "running" });
+    expect(s.calls.join).toEqual([]);
+    expect(s.calls.resume).toBe(2);
+    expect(joined).toEqual([toHex(R)]);
+  });
+
+  it("a restored claim given up drops its journal and says so", async () => {
+    const s = scripted([]);
+    const { f, notices } = flow(s.collab);
+    const generation = f.restore(R, "offline");
+    await f.dismiss(generation ?? -1);
+    expect(s.calls.abandon).toBe(1);
+    expect(f.state()).toBeNull();
+    expect(notices).toEqual([JOIN_TEXT.stopped]);
+  });
+
   it("an insert of another section does not end the join waiting for its place", async () => {
     const s = scripted([joinedSection()]);
     const { f } = flow(s.collab);
