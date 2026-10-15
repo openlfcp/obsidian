@@ -322,6 +322,8 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
   "discard-local-copy": ofSection((_d, s) =>
     s.view.held.some((h) => ACCESS_HELD.has(h.cause)) ? ENABLED : HIDDEN,
   ),
+  // Technical details (§2): the card's button and the palette's command, never a pane entry.
+  "resource-status": () => HIDDEN,
   "detach-section": ofSection((d) => {
     if (d.f.context.cursor !== "inside-section") return HIDDEN;
     if (d.reading) return disabled("Open the note for editing to detach it.");
@@ -355,6 +357,7 @@ export const DESCRIPTOR_ORDER: readonly ActionId[] = [
   "remove-access",
   "discard-local-copy",
   "detach-section",
+  "resource-status",
 ];
 
 export const DESCRIPTORS: Readonly<Record<ActionId, ActionDescriptor>> = Object.fromEntries(

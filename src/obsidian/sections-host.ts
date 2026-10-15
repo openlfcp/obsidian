@@ -1365,6 +1365,7 @@ export class SectionsHost {
       unavailable: () => this.#unavailable,
       known: (key) => this.#statuses.has(key),
       cardContent: (key, title) => this.#cardContent(key, title),
+      held: (key) => this.#statuses.get(key)?.held ?? [],
       recoveryItems: (key) => this.#recoveryItems(key),
       resolveRecovery: (key, item, choice) => this.#resolveRecovery(key, item, choice),
       commands: () => this.commands(),
