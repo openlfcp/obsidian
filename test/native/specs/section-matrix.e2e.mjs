@@ -298,8 +298,14 @@ describe("the desktop support matrix (LFCP-02-069)", () => {
       e.setCursor({ line: 2, ch: 0 });
     });
     await browser.keys([mod, "v"]);
-    await browser.pause(800);
-    const pasted = await inA(async ({ app }) => app.vault.read(app.vault.getFileByPath("Plain.md")));
+    // The editor's text: the file on disk follows only after Obsidian's save delay.
+    const pastedText = () =>
+      inA(({ app, obsidian }) => {
+        const v = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+        return v?.file?.path === "Plain.md" ? v.editor.getValue() : "";
+      });
+    await browser.waitUntil(async () => (await pastedText()).includes("Alpha split focus"), { timeout: 5000 }).catch(() => false);
+    const pasted = await pastedText();
     evidence("MATRIX clipboard", { copiedHasBinding: BINDING.test(copied), pasted: pasted.split("\n") });
     expect(pasted).toContain("Alpha split focus");
     expect(BINDING.test(pasted)).toBe(false);
