@@ -661,6 +661,12 @@ function fakeInsertion(calls: string[]) {
       calls.push(`run ${e.insertionId}`);
       return i.result(e);
     },
+    async cancel(e: InsertionEntry): Promise<InsertionEntry> {
+      calls.push(`cancel ${e.insertionId}`);
+      const c: InsertionEntry = { ...e, phase: "cancelled" };
+      i.journal.set(e.insertionId, c);
+      return c;
+    },
   };
   return i satisfies InsertionService;
 }
@@ -730,13 +736,14 @@ describe("insert (LFCP-03-008 over 052)", () => {
     expect(t.calls).toContain("run ins-2");
   });
 
-  it("stale: the note changed where the block would go; nothing indexed, said once", async () => {
+  it("stale: the note changed where the block would go; nothing indexed, said once; the insertion ends", async () => {
     const t = insertSetup();
     t.prompter.script.pick = [choice];
     t.prompter.script.insert = [true];
     t.insertion.result = (e) => Promise.resolve({ kind: "stale", entry: e });
     await t.actions.insertSection(t.editor.at());
-    expect(t.calls.at(-1)).toBe("run ins-1");
+    // Nothing was written: it is not resumed at the next start (LFCP-03-017).
+    expect(t.calls.slice(-2)).toEqual(["run ins-1", "cancel ins-1"]);
     expect(t.prompter.notices).toEqual([
       "Shared Tasks: the note changed where the section would go. Insert it again.",
     ]);

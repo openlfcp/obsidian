@@ -296,7 +296,7 @@ async function startInsert(env: Env, at = env.at("Week.md")) {
 
 /** Chooses `d` in the place's destination choice. */
 async function choose(env: Env, place: InsertPlace, d: InsertDestination) {
-  const changing = place.change();
+  const changing = place.change?.();
   await flush();
   env.prompter.open<InsertDestination | null>("destination").answer(d);
   await changing;
@@ -464,7 +464,7 @@ describe("Insert into a note… with a destination (LFCP-03-016)", () => {
 
     const second = await startInsert(env);
     expect(second.place.placements).toEqual(["Launch.md", "Other.md"]);
-    const changing = second.place.change();
+    const changing = second.place.change?.();
     await flush();
     const asked = env.prompter.open<InsertDestination | null>("destination");
     expect(asked.args[0]).toEqual({
