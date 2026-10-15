@@ -1809,6 +1809,9 @@ export class LfcpRuntime {
             else this.#publishers.delete(toHex(e.resourceId));
             this.#accessKnown.add(toHex(e.resourceId));
           })
+          // Not answered: the access stays unknown until the next LIVE, and an
+          // invitation waiting on it ends in SNAPSHOT_PENDING (candidate: retry
+          // accessState here instead of waiting for the next LIVE).
           .catch(() => undefined);
     });
     client.start();
