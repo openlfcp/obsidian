@@ -319,6 +319,42 @@ what is in progress. The fixtures' `primaryCtaNone` holds these sentences.
 | No open Markdown note | None. "Join with a link…" and the section list stay available |
 | Reading view, source-changing action wanted | `open-for-editing` |
 
+### 5.2 Problem hub (LFCP-03-018)
+
+Below the status the pane lists every problem of the section and of the
+note in view, one row each (`src/core/pane/problems.ts`). A row says what
+the problem is, where it comes from, and offers the one action that opens
+its resolver. The primary action of P1 is unchanged; the rows are the way
+to each problem, not a second precedence.
+
+| Problem | Source shown | Row action and what it carries |
+| --- | --- | --- |
+| Conflict or kept work (`RecoveryItem`) | "The shared section"; "Kept on this device" (stale work); "A note on this device" (reappeared) | `review-conflicts` with the item's `RecoveryItem.key`: the review re-reads its items and opens on that one; an item no longer there opens nothing and says so |
+| Damaged boundary or binding in the note in view (`repairItems`) | The note and its line | `repair-sections` with the item's line key, its line and the note's revision: the executor parses the note again and finds the item by its key (the nearest to its old line), then opens the repair on it; gone, nothing opens and nothing is written |
+| Unsupported content or a damaged line in the note in view | The note and its line | `go-to-problem` with the same line key and revision: the line as the note is now |
+| Held edits in another note (`StatusView.held`) | That note and its line | By cause: `repair-sections` (boundary, binding, base unknown), `go-to-problem` (unsupported), `review-local-changes` (read-only, revoked, refused, rejected) |
+| Access or refusal (`access`, `server-refused`) | "The sync server", "This vault's access, as this device last verified it" (or "as checked with the server"), "This device" | `review-local-changes` when edits are held, else `open-details` |
+
+Rules:
+
+- **H1. No fix-all, no destructive default.** Each row has at most one
+  action and none is destructive; discarding stays in the menu with its
+  confirmation (A1).
+- **H2. A line number is a hint, never an identity.** A repair row carries
+  its line key and the revision the pane read; before any effect the note
+  is parsed again. A held copy in the note in view is shown by that note's
+  repair rows, not twice.
+- **H3. Facts, not clicks.** A row is gone only when the facts no longer
+  have it: the status, the review items, the note's text. After a repair or
+  a review choice the executor tells the pane to read them again; the pane
+  does not promise that held edits are sent (F2), it shows what the next
+  pass did.
+- **H4. L2 for rows.** A click runs only when the facts now still have that
+  problem with the same action, enabled. The request is the one drawn, so a
+  repair carries the revision the user saw.
+- **H5. Read-only, revoked, not-member and refused** keep their own row
+  text and source (F3).
+
 ## 6. Status facts and what may be said
 
 The pane, the card and the badge read one status path: `StatusView` and its
