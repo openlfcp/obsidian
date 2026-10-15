@@ -18,6 +18,7 @@ import {
 import type { Hint } from "../../core/collab/server-notice";
 import type { ResourceStatus } from "../../core/collab/service";
 import { statusView } from "../../core/collab/view";
+import { returnsFocus } from "./focus-return";
 
 /** One-line text input. */
 class TextModal extends Modal {
@@ -251,7 +252,7 @@ export class ObsidianPrompter implements Prompter {
   }
 
   text(o: Parameters<Prompter["text"]>[0]): Promise<string | null> {
-    const m = new TextModal(this.app, o);
+    const m = returnsFocus(new TextModal(this.app, o));
     m.open();
     return m.result;
   }
@@ -260,19 +261,19 @@ export class ObsidianPrompter implements Prompter {
     readonly title: string;
     readonly choices: readonly Choice<T>[];
   }): Promise<T | null> {
-    const m = new ChoiceModal(this.app, o.title, o.choices);
+    const m = returnsFocus(new ChoiceModal(this.app, o.title, o.choices));
     m.open();
     return m.result;
   }
 
   invitation(o: Parameters<Prompter["invitation"]>[0]): Promise<void> {
-    const m = new InvitationModal(this.app, o, this.copy);
+    const m = returnsFocus(new InvitationModal(this.app, o, this.copy));
     m.open();
     return m.result;
   }
 
   status(status: ResourceStatus, actions: readonly Choice<() => Promise<void>>[]): Promise<void> {
-    const m = new StatusModal(this.app, status, actions);
+    const m = returnsFocus(new StatusModal(this.app, status, actions));
     m.open();
     return m.result;
   }
