@@ -6,6 +6,40 @@ import { peer, restartableServer } from "../../peer.bundle.mjs";
 
 export const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 export const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
+
+/**
+ * Closes every open modal the way a user does, with Obsidian's own close button,
+ * and waits until none is left. The button is the modal's first child:
+ * `.modal-header-button` with the "x" icon on 1.13 and later (`.mod-cta` and
+ * `.mod-start` are phone-only form-sheet buttons), `.modal-close-button` on
+ * older versions (1.13+ keeps it only on the image lightbox). Escape is only
+ * the fallback, so that a dead button fails here and not in the next case;
+ * whether it was needed is in the evidence. Returns "none open", "button" or
+ * "Escape". Never click `.modal-close-button` alone: on 1.13+ it matches
+ * nothing and the modal stays open.
+ */
+export const closeModals = async (label) => {
+  const before = await inA(() =>
+    [...document.querySelectorAll(".modal-container > .modal")].map((m) => {
+      const button =
+        m.querySelector(":scope > .modal-header-button:not(.mod-cta):not(.mod-start)") ?? m.querySelector(":scope > .modal-close-button");
+      button?.click();
+      return { title: m.querySelector(".modal-title")?.textContent ?? null, button: button !== null };
+    }),
+  );
+  if (before.length === 0) return "none open";
+  const gone = () => inA(() => document.querySelector(".modal-container") === null);
+  let closedBy = "button";
+  try {
+    await browser.waitUntil(gone, { timeout: 5_000, interval: 100 });
+  } catch {
+    closedBy = "Escape";
+    for (let i = 0; i < before.length + 1 && !(await gone()); i++) await browser.keys("Escape");
+    await browser.waitUntil(gone, { timeout: 5_000, interval: 100, timeoutMsg: `the modals after ${label} closed` });
+  }
+  evidence(`modals after ${label}`, { before, closedBy });
+  return closedBy;
+};
 // Cmd on macOS, Ctrl elsewhere: Meta does not cut or paste on Linux.
 export const mod = process.platform === "darwin" ? "Meta" : "Control";
 

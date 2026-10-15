@@ -10,6 +10,7 @@
 import { peer } from "../peer.bundle.mjs";
 import {
   checkStep,
+  closeModals,
   evidence,
   inA,
   inviteFromA,
@@ -92,9 +93,7 @@ describe("remove someone, invite someone new: the newcomer loads the section", (
     let link = null;
     for (let i = 0; i < 20 && link === null; i++) {
       link = await inviteFromA("Newcomer two").catch(async () => {
-        await inA(() => {
-          for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
-        });
+        await closeModals("invite retry");
         await browser.pause(1000);
         return null;
       });

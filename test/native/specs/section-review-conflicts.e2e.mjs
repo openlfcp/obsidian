@@ -8,7 +8,7 @@
 // review or send. A Task's title changed by both, and a Task A deleted
 // while B changed it (Keep it deleted, Restore it). The reference server at
 // LFCP_SERVER_BIN.
-import { caret, editorA, evidence, inA, installNetSwitch, lineOf, markerProblems, sectionOf, shareAndJoin, startPeers, titles } from "./support/section-checks.mjs";
+import { caret, closeModals, editorA, evidence, inA, installNetSwitch, lineOf, markerProblems, sectionOf, shareAndJoin, startPeers, titles } from "./support/section-checks.mjs";
 
 const fromHex = (hex) => Uint8Array.from(Buffer.from(hex, "hex"));
 const badge = () =>
@@ -75,8 +75,8 @@ describe("Review conflicts beyond placement, A and B in each order", () => {
   }
 
   /** A's choice in "Review conflicts…": the item whose question has `question`, the choice labelled `label`. */
-  const chooseInA = (question, label) =>
-    inA(
+  const chooseInA = async (question, label) => {
+    const result = await inA(
       async ({ app }, question, label) => {
         app.commands.executeCommandById("shared-tasks:open-section-details");
         const find = async (pred) => {
@@ -93,24 +93,24 @@ describe("Review conflicts beyond placement, A and B in each order", () => {
         const item = await find(() => [...document.querySelectorAll(".openlfcp-recovery-item")].find((x) => x.textContent.includes(question)));
         if (item === null) {
           const items = [...document.querySelectorAll(".openlfcp-recovery-item")].map((x) => x.textContent.slice(0, 200));
-          for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
           return { missing: "no item", items };
         }
         const choice = [...item.querySelectorAll(".openlfcp-recovery-choice")].find((l) => l.textContent.trim() === label);
         if (choice === undefined) {
           const choices = [...item.querySelectorAll(".openlfcp-recovery-choice")].map((l) => l.textContent.trim());
-          for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
           return { missing: "no choice", choices };
         }
         choice.querySelector("input").click();
         item.querySelector("button").click();
         const done = await find(() => document.querySelector(".openlfcp-recovery")?.textContent.includes("Nothing needs a choice now") ?? false);
-        for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
         return { question: item.textContent.slice(0, 200), done: done === true };
       },
       question,
       label,
     );
+    await closeModals("Review conflicts");
+    return result;
+  };
 
   /** Both settled: A CURRENT, B with nothing to review or send, the same Tasks in both notes. */
   async function settled(id, s) {

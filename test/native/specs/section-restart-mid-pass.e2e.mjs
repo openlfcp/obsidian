@@ -7,7 +7,7 @@
 // The edit is then in the model once (B has it, not twice, not lost), both
 // notes show the same Tasks, A is CURRENT, and nothing moves afterwards.
 // The reference server at LFCP_SERVER_BIN.
-import { caret, editorA, evidence, inA, lineOf, markerProblems, sectionOf, shareAndJoin, startPeers, titles } from "./support/section-checks.mjs";
+import { caret, closeModals, editorA, evidence, inA, lineOf, markerProblems, sectionOf, shareAndJoin, startPeers, titles } from "./support/section-checks.mjs";
 
 const fromHex = (hex) => Uint8Array.from(Buffer.from(hex, "hex"));
 const badge = () =>
@@ -99,9 +99,9 @@ describe("a restart of the plugin in the middle of a pass", () => {
             m = document.querySelector(".modal-container .modal");
           }
           const card = m?.textContent?.slice(0, 900) ?? null;
-          for (const x of document.querySelectorAll(".modal-container .modal-close-button")) x.click();
           return { status: status === null ? null : JSON.stringify(status).slice(0, 400), load, phase, queued, card };
         }, hex));
+      if (!current) await closeModals(`RESTART ${stop} stuck card`);
       await b.pass(bFile);
       // Nothing moves afterwards: no correction sent at every pass, no title doubled.
       const md = await noteA();
