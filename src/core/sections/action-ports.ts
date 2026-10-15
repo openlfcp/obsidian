@@ -34,6 +34,43 @@ export interface SectionDialog<T> {
   bringForward(): void;
 }
 
+/**
+ * Where "Insert into a note…" writes (LFCP-03-016): the note it started on,
+ * after the paragraph at its cursor; another existing note, at its end; or
+ * a new note the user names, created empty first and never over a note
+ * that is already there.
+ */
+export type InsertDestination =
+  | { readonly kind: "here" }
+  | { readonly kind: "note"; readonly path: string }
+  | { readonly kind: "new"; readonly path: string };
+
+/** The destination as the insert preview shows it, and how to choose another. */
+export interface InsertPlace {
+  /** Where the lines go, in words ("into this note, after the paragraph at the cursor"). */
+  readonly where: string;
+  /** The notes that already hold a copy of the section; null while the notes are still being read. */
+  readonly placements: readonly string[] | null;
+  /** Opens the choice of another destination; settles once it is chosen or cancelled. */
+  change(): Promise<void>;
+}
+
+/** What the destination choice offers. */
+export interface DestinationChoice {
+  /** The section's shared title. */
+  readonly title: string;
+  /** The note the insert started on, if any. */
+  readonly current: string | null;
+  /** The notes that already hold a copy of the section; null while the notes are still being read. */
+  readonly placements: readonly string[] | null;
+}
+
+/** A button a notice carries ("Open" after an insertion). */
+export interface NoticeAction {
+  readonly label: string;
+  readonly run: () => void;
+}
+
 /** A section of this vault offered by "Insert shared section…". */
 export interface SectionChoice {
   readonly resource: Uint8Array;
@@ -97,7 +134,8 @@ export interface ReviewResult {
 
 /** Dialogs and notices of the section actions (Obsidian: the section modals, Notice). */
 export interface SectionPrompter {
-  notice(message: string): void;
+  /** A notice; with `action`, it carries that button (an insertion's "Open"). */
+  notice(message: string, action?: NoticeAction): void;
   /** Says a short text once through the live region (064). */
   announce(text: string): void;
   /** The share preview (049); `note` is a line above it. True when approved. */
@@ -106,8 +144,16 @@ export interface SectionPrompter {
   importPreview(title: string, preview: LegacyPreview): SectionDialog<ImportChoices | null>;
   /** Which section to insert (052), or null. */
   pickSection(choices: readonly SectionChoice[]): SectionDialog<SectionChoice | null>;
-  /** The insert preview (052). True when approved. */
-  insertPreview(preview: InsertPreview): SectionDialog<boolean>;
+  /**
+   * The insert preview (052). True when approved. `place` says where the
+   * lines go and offers another destination (LFCP-03-016).
+   */
+  insertPreview(preview: InsertPreview, place?: InsertPlace): SectionDialog<boolean>;
+  /**
+   * The destination of an insertion (LFCP-03-016): another existing note or
+   * a new one; null when cancelled. Absent: the insert goes into its note.
+   */
+  chooseDestination?(choice: DestinationChoice): SectionDialog<InsertDestination | null>;
   /**
    * A confirmation; `action` labels the confirming button. It is styled as
    * a warning unless `destructive` is false (a choice such as "Share the
@@ -172,6 +218,11 @@ export interface SectionNotes {
   edit(path: string, fn: (current: string) => readonly TextChange[] | null): Promise<void>;
   /** The note opened in an editor with `line` revealed, read then; null (said) when it is gone. */
   goToLine(path: string, line: number): Promise<TargetCapture | null>;
+  /**
+   * A new empty note at `path` (LFCP-03-016): "exists" when a file is
+   * already there, which is never overwritten. Absent: no new note.
+   */
+  create?(path: string): Promise<"created" | "exists">;
 }
 
 /** The section creation journal, as the actions run it (SectionCreation). */
@@ -255,6 +306,11 @@ export interface SectionServices {
   refPlacement(): RefPlacement;
   /** The sections of this vault with a loaded model, or null while starting. */
   sectionChoices(): Promise<SectionChoice[] | null>;
+  /**
+   * The notes that hold a copy of a section Resource (the placement index),
+   * or null while the notes are still being read. Absent: not known.
+   */
+  placements?(resource: Uint8Array): readonly string[] | null;
   /** A 0.1 shared Task as this device holds it now; undefined when it is not here. */
   legacySource(resource: ResourceId, objectId: string): Promise<LegacySource | undefined>;
   /** Watches a section Resource: its model changes start passes, its status is shown. */

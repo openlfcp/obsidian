@@ -234,6 +234,12 @@ export class SectionsHost {
         edit: (path, fn) => this.#edit(path, fn),
         goToLine: async (path, line) =>
           (await this.#goToLine(path, line)) === null ? null : this.#captureOpen(path),
+        // A new empty note for an insertion (LFCP-03-016); a file already there is never overwritten.
+        create: async (path) => {
+          if (this.app.vault.getAbstractFileByPath(path) !== null) return "exists";
+          await this.app.vault.create(path, "");
+          return "created";
+        },
       },
       services: this.#services(),
     });
@@ -1372,6 +1378,10 @@ export class SectionsHost {
       server: () => this.server(),
       refPlacement: () => this.refPlacement(),
       sectionChoices: () => this.#sectionChoices(),
+      placements: (R) =>
+        this.#placements.state === "complete"
+          ? this.#placements.placements(toKey(R)).map((p) => p.path)
+          : null,
       legacySource: (R, objectId) => this.#legacySource(R, objectId),
       watch: (R) => this.#watch(R),
       indexed: (path, text) => this.#index(path, text),

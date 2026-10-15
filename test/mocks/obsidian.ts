@@ -49,6 +49,16 @@ export class Vault {
     this.cachedReads.push(file.path);
     return this.files.get(file.path) ?? "";
   }
+  getAbstractFileByPath(path: string): TFile | null {
+    return this.getFileByPath(path);
+  }
+  /** Creates like Obsidian: refuses a path that is taken, then a create event fires. */
+  async create(path: string, data: string): Promise<TFile> {
+    if (this.files.has(path)) throw new Error("File already exists.");
+    this.files.set(path, data);
+    this.trigger("create", { path });
+    return new TFile(path);
+  }
   /** Writes like Obsidian: the content changes, then a modify event fires. */
   async process(file: TFile, fn: (data: string) => string): Promise<string> {
     const next = fn(this.files.get(file.path) ?? "");

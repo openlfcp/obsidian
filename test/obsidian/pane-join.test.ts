@@ -81,6 +81,8 @@ function fakeSections() {
   const rows: RegistryRow[] = [];
   const listeners = new Set<() => void>();
   const inserts: TargetCapture[] = [];
+  /** The section each insert was given: the pane's subject needs no choice (LFCP-03-016). */
+  const insertKeys: (string | undefined)[] = [];
   const snapshot = (): RegistrySnapshot => ({
     version: 1,
     status: "ready",
@@ -93,6 +95,7 @@ function fakeSections() {
   return {
     rows,
     inserts,
+    insertKeys,
     registry: {
       snapshot,
       onChange: (l: () => void) => {
@@ -117,8 +120,9 @@ function fakeSections() {
       shareResult: () => undefined,
       flows: () => [],
       onFlowsChange: () => () => undefined,
-      insertSection: async (at: TargetCapture) => {
+      insertSection: async (at: TargetCapture, section?: string) => {
         inserts.push(at);
+        insertKeys.push(section);
       },
     },
     noteRenamed: () => undefined,
@@ -320,8 +324,10 @@ describe("Join in the pane (LFCP-03-015)", () => {
     t.primary()?.click();
     await settle();
     expect(t.sections.inserts.map((x) => x.path)).toEqual(["Notes.md"]);
+    // The joined section, the pane's subject: no section choice (LFCP-03-016).
+    expect(t.sections.insertKeys).toEqual([KEY]);
     expect(t.text()).not.toContain("Joining with a link");
-    // Nothing inserted (the picker was left): still listed, still the next step.
+    // Nothing inserted (the preview was left): still listed, still the next step.
     expect(t.text()).toContain("Not inserted yet");
     expect(t.primary()?.textContent).toBe("Insert into a note…");
 

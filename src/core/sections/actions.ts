@@ -46,9 +46,12 @@ import type {
   CardAction,
   CardHandle,
   CardRowActions,
+  InsertDestination,
+  InsertPlace,
   LostBase,
   ModelService,
   ResourceCommands,
+  SectionChoice,
   SectionDialog,
   SectionNotes,
   SectionPrompter,
@@ -63,6 +66,7 @@ import {
   type InsertionEntry,
   type InsertPreview,
   type InsertResult,
+  insertionFits,
   insertRefusalMessage,
   renderSection,
 } from "./insert";
@@ -412,13 +416,17 @@ export class SectionActions {
   }
 
   /**
-   * "Insert shared section…" (LFCP-02-052): a ready, fully loaded section
-   * of this vault, previewed, then written after the block at the cursor
-   * as one complete projection.
+   * "Insert shared section…" (LFCP-02-052), "Insert into a note…"
+   * (LFCP-03-016): a ready, fully loaded section of this vault, previewed,
+   * then written as one complete projection: after the block at the cursor
+   * of the note it started on, or at the end of another note the user
+   * chooses, or into a new note the user names. `section` (a section key)
+   * is the section a surface is about (the pane's joined section): it needs
+   * no choice.
    */
-  insertSection(at: TargetCapture): Promise<void> {
+  insertSection(at: TargetCapture, section?: string): Promise<void> {
     return this.#oneFlow(at.path, "insert", (target, flow) =>
-      this.#insertSection(captured(at), target, flow),
+      this.#insertSection(captured(at), target, flow, section),
     );
   }
 
@@ -427,9 +435,16 @@ export class SectionActions {
    * captured text (LFCP-03-009): the insertion journal places it there when
    * the note is unchanged, at the same anchor line when it changed, or not
    * at all (stale). A note closed meanwhile is written through the file,
-   * with the same check, and the result names it.
+   * with the same check, and the result names it. Another destination is
+   * held from its choice (a rename moves it, a deletion refuses it) and
+   * reserved as this note is while it is written (LFCP-03-016).
    */
-  async #insertSection(at: CapturedTarget, target: NoteTarget, flow: Flow): Promise<void> {
+  async #insertSection(
+    at: CapturedTarget,
+    target: NoteTarget,
+    flow: Flow,
+    section?: string,
+  ): Promise<void> {
     const { prompter, services } = this.env;
     if (!(await this.#startable(at, target, "inserted"))) return;
     const insertion = services.insertion();
@@ -440,22 +455,111 @@ export class SectionActions {
       prompter.notice("Shared Tasks: no shared section on this device yet.");
       return;
     }
-    const pick = prompter.pickSection(choices);
-    this.#showing(flow, pick, "the choice of a section to insert", "captured");
-    const choice = await pick.result;
-    flow.showing(null);
-    if (choice === null) return;
+    let choice: SectionChoice | null =
+      choices.find((c) => section !== undefined && choiceKey(c) === section) ?? null;
+    if (choice === null) {
+      const pick = prompter.pickSection(choices);
+      this.#showing(flow, pick, "the choice of a section to insert", "captured");
+      choice = await pick.result;
+      flow.showing(null);
+      if (choice === null) return;
+    }
     const preview = await insertion.preview(choice.resource as ResourceId, choice.sectionId);
     if ("refused" in preview) {
       prompter.notice(insertRefusalMessage(preview.refused));
       return;
     }
     await services.watch(choice.resource as ResourceId);
-    const dialog = prompter.insertPreview(preview);
-    this.#showing(flow, dialog, "the insert preview");
-    const approved = await dialog.result;
-    flow.showing(null);
-    if (!approved) return;
+    const placements = services.placements?.(choice.resource) ?? null;
+    // Both change in the preview's place.change (a closure): read through these, not narrowed.
+    let destination: InsertDestination = { kind: "here" };
+    /** Another existing note chosen: held while the preview is open (renames followed). */
+    let other: { readonly target: NoteTarget; release(): void } | null = null;
+    const chosenNow = (): InsertDestination => destination;
+    const otherNow = (): { readonly target: NoteTarget; release(): void } | null => other;
+    try {
+      let dialog: SectionDialog<boolean> | null = null;
+      let asking: SectionDialog<InsertDestination | null> | null = null;
+      const choose = prompter.chooseDestination?.bind(prompter);
+      const place: InsertPlace = {
+        get where() {
+          return destinationText(destination, other?.target.path ?? null);
+        },
+        placements,
+        change: async () => {
+          if (choose === undefined) return;
+          // One choice at a time: a second click brings the open one forward.
+          if (asking !== null) {
+            asking.bringForward();
+            return;
+          }
+          const ask = choose({ title: preview.title, current: target.path, placements });
+          asking = ask;
+          this.#showing(flow, ask, "the choice of a note to insert into", "captured");
+          const chosen = await ask.result;
+          asking = null;
+          if (dialog !== null) this.#showing(flow, dialog, "the insert preview");
+          if (chosen === null) return;
+          other?.release();
+          other = null;
+          // The note the insert started on is "here": after the paragraph at its cursor.
+          destination =
+            chosen.kind === "note" && chosen.path === target.path ? { kind: "here" } : chosen;
+          if (destination.kind === "note") other = this.#targets.hold(destination.path);
+        },
+      };
+      dialog = prompter.insertPreview(preview, place);
+      this.#showing(flow, dialog, "the insert preview");
+      const approved = await dialog.result;
+      flow.showing(null);
+      if (!approved) return;
+      const chosen = chosenNow();
+      if (chosen.kind === "here") {
+        await this.#insertHere(at, target, flow, preview);
+        return;
+      }
+      if (chosen.kind === "new") {
+        // Never over a note already there (the name was free when it was chosen).
+        let made: "created" | "exists" | Error | undefined;
+        try {
+          made = await this.env.notes.create?.(chosen.path);
+        } catch (e) {
+          made = e instanceof Error ? e : new Error(String(e));
+        }
+        if (made !== "created") {
+          prompter.notice(
+            made === "exists"
+              ? `Shared Tasks: a note named "${noteName(chosen.path)}" already exists. Nothing was inserted; choose it as an existing note, or another name.`
+              : `Shared Tasks: the note "${noteName(chosen.path)}" could not be created${made === undefined ? "" : ` (${made.message})`}. Nothing was inserted.`,
+          );
+          return;
+        }
+        other = this.#targets.hold(chosen.path);
+      }
+      const path = otherNow()?.target.path ?? null;
+      if (path === null) {
+        prompter.notice(
+          "Shared Tasks: the note was deleted while the preview was open. Nothing was inserted.",
+        );
+        return;
+      }
+      // The other note is reserved as this one is: one share or insert per note (F-03).
+      await this.#oneFlow(path, "insert", (into, intoFlow) =>
+        this.#insertAtEnd(into, intoFlow, preview),
+      );
+    } finally {
+      otherNow()?.release();
+    }
+  }
+
+  /** Into the note the insert started on, after the paragraph at its captured cursor. */
+  async #insertHere(
+    at: CapturedTarget,
+    target: NoteTarget,
+    flow: Flow,
+    preview: InsertPreview,
+  ): Promise<void> {
+    const { prompter } = this.env;
     const path = target.path;
     const now = path === null ? null : await this.#now(path);
     if (path === null || now === null) {
@@ -470,8 +574,56 @@ export class SectionActions {
       prompter.notice(invalidationText(why, "inserted"));
       return;
     }
-    if (this.#refused({}, services.insertion() === null)) return;
-    const entry = await insertion.prepare(path, at.text, at.cursorLine, preview);
+    if (!insertionFits(at.text, at.cursorLine, preview)) {
+      prompter.notice(
+        "Shared Tasks: the section cannot go after the paragraph at the cursor (a code block or a comment is not closed there). Nothing was inserted; choose another place.",
+      );
+      return;
+    }
+    await this.#write(path, at.text, at.cursorLine, flow, preview);
+  }
+
+  /** Into another note, at its end, as it is when the preview was approved. */
+  async #insertAtEnd(target: NoteTarget, flow: Flow, preview: InsertPreview): Promise<void> {
+    const { prompter } = this.env;
+    const path = target.path;
+    const now = path === null ? null : await this.#now(path);
+    if (path === null || now === null) {
+      prompter.notice(
+        "Shared Tasks: the note was deleted while the preview was open. Nothing was inserted.",
+      );
+      return;
+    }
+    if (now.composing) {
+      prompter.notice(invalidationText("composing", "inserted"));
+      return;
+    }
+    const line = Math.max(0, now.text.split("\n").length - 1);
+    if (!insertionFits(now.text, line, preview)) {
+      prompter.notice(
+        `Shared Tasks: the end of "${noteName(path)}" is inside a code block or a comment that is not closed. Nothing was inserted; choose another note.`,
+      );
+      return;
+    }
+    await this.#write(path, now.text, line, flow, preview);
+  }
+
+  /**
+   * Journals the insertion of `preview` into `markdown` after the block at
+   * `line`, then writes it once. An insertion that throws keeps its flow's
+   * note reserved (D12) until a reconcile of the same insertion ID settles it.
+   */
+  async #write(
+    path: string,
+    markdown: string,
+    line: number,
+    flow: Flow,
+    preview: InsertPreview,
+  ): Promise<void> {
+    const { prompter, services } = this.env;
+    const insertion = services.insertion();
+    if (this.#refused({}, insertion === null) || insertion === null) return;
+    const entry = await insertion.prepare(path, markdown, line, preview);
     flow.stage = `section "${preview.title}" is being inserted into this note.`;
     this.#step(flow, "writing");
     let result: InsertResult;
@@ -489,32 +641,35 @@ export class SectionActions {
       );
       return;
     }
-    await this.#inserted(result, entry.path, now.open, preview);
+    await this.#inserted(result, entry, preview);
   }
 
-  /** What became of an insertion, said, and the note indexed and passed when it was written. */
+  /**
+   * What became of an insertion, said with "Open" (LFCP-03-016), and the
+   * note indexed and passed when it was written: an open note through its
+   * editor, a closed one through its file (the host's guarded read-modify-
+   * write), as a share passes it.
+   */
   async #inserted(
     result: InsertResult,
-    path: string,
-    open: boolean,
+    entry: InsertionEntry,
     preview: InsertPreview,
   ): Promise<void> {
-    const { prompter, services } = this.env;
+    const { notes, prompter, services } = this.env;
     this.#notifyInsertion(result);
     if (result.kind !== "inserted") return;
+    const path = entry.path;
     const after = await this.#now(path);
+    let line = entry.target.line;
     if (after !== null) {
       services.indexed(path, after.text);
-      // As 0.4.0: a pass of the open note only. A file pass of the closed
-      // note here, on the text just written, kept a collaborator's later
-      // deletion from reaching the other note (live soak #5).
-      services.pass(path);
+      if (after.open) services.pass(path);
+      else services.pass(path, after.text);
+      line = headingAfter(after.text, entry, line);
     }
-    // U03-12: a note closed meanwhile was written as a file; the result names it.
-    if (!open)
-      prompter.notice(
-        `Shared Tasks: section "${preview.title}" was inserted into "${noteName(path)}", which is not open.`,
-      );
+    const text = `Shared Tasks: section "${preview.title}" inserted into "${noteName(path)}".`;
+    prompter.notice(text, { label: "Open", run: () => void notes.goToLine(path, line) });
+    prompter.announce(text);
   }
 
   /**
@@ -534,12 +689,7 @@ export class SectionActions {
       );
       return "unknown";
     }
-    await this.#inserted(
-      result,
-      current.path,
-      this.env.notes.capture(current.path) !== null,
-      preview,
-    );
+    await this.#inserted(result, current, preview);
     return "settled";
   }
 
@@ -1581,3 +1731,30 @@ const fromKey = (b64: string): ResourceId => fromBase64url(b64) as ResourceId;
 
 /** A note's name as the user sees it: its file name without ".md". */
 const noteName = (path: string): string => (path.split("/").pop() ?? path).replace(/\.md$/i, "");
+
+/** A section choice's key ("<resource base64url>#<section>"), as surfaces name a section. */
+const choiceKey = (c: SectionChoice): string => `${toBase64url(c.resource)}#${c.sectionId}`;
+
+/** Where an insertion's lines go, as its preview says it ("These lines go …"). */
+function destinationText(d: InsertDestination, other: string | null): string {
+  switch (d.kind) {
+    case "here":
+      return "into this note after the paragraph at the cursor";
+    case "note":
+      return other === null
+        ? "into a note that was deleted: choose another"
+        : `at the end of "${noteName(other)}"`;
+    case "new":
+      return `into a new note "${noteName(d.path)}"`;
+  }
+}
+
+/** The heading line of the copy an insertion wrote: the first copy of its section at or after its line. */
+function headingAfter(text: string, entry: InsertionEntry, line: number): number {
+  const ref = {
+    resourceId: fromBase64url(entry.preview.resource),
+    sectionId: entry.preview.sectionId,
+  };
+  const copies = parseSections(text).sections.filter((s) => sameSection(s.ref, ref));
+  return (copies.find((s) => s.heading.line >= line) ?? copies.at(-1))?.heading.line ?? line;
+}

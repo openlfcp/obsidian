@@ -142,6 +142,19 @@ export function insertionLine(markdown: string, line: number): number {
 const occurrences = (markdown: string, ref: SectionRef) =>
   parseSections(markdown).sections.filter((s) => sameSection(s.ref, ref)).length;
 
+/**
+ * Whether `preview`'s block, inserted after the block at `line`, is read
+ * back as one more projection of its section: false where the place is not
+ * a supported block boundary (the end of a note inside an unclosed fence or
+ * comment), so nothing is written there (LFCP-03-016).
+ */
+export function insertionFits(markdown: string, line: number, preview: InsertPreview): boolean {
+  const ref = refOf(preview);
+  const at = insertionLine(markdown, line);
+  const after = applyChanges(markdown, [blockChange(markdown, at, preview.block)]);
+  return occurrences(after, ref) > occurrences(markdown, ref);
+}
+
 export class SectionInsertion {
   constructor(private readonly deps: InsertionDeps) {}
 
@@ -211,6 +224,9 @@ export class SectionInsertion {
       const at = this.#place(current, entry);
       if (at === null) return null;
       const change = blockChange(current, at, entry.preview.block);
+      // A changed note whose place no longer reads back as the section: nothing is written.
+      if (occurrences(applyChanges(current, [change]), ref) <= occurrences(current, ref))
+        return null;
       written = applyChanges(current, [change]);
       return [change];
     });
@@ -304,8 +320,15 @@ function blockChange(markdown: string, at: number, block: string): DocChange {
   if (at >= lines.length) {
     const last = lines.at(-1);
     const end = markdown.length;
+    // An empty note (a new one, LFCP-03-016) starts with the block itself.
     const lead =
-      last === undefined ? "" : last.eol === "" ? `${eol}${eol}` : isBlank(last.text) ? "" : eol;
+      last === undefined || markdown === ""
+        ? ""
+        : last.eol === ""
+          ? `${eol}${eol}`
+          : isBlank(last.text)
+            ? ""
+            : eol;
     return { from: end, to: end, insert: `${lead}${body}` };
   }
   const offset = starts[at] ?? markdown.length;

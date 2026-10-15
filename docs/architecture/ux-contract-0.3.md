@@ -153,6 +153,32 @@ Rules:
   "Repair shared sections in this note" from the card, on a note shown only
   in Reading view, says exactly: "Shared Tasks: open the note for editing
   to repair it (it is in Reading view)." (LFCP-03-009).
+- **T5. Insert destination** (LFCP-03-016, U03-12/13/15). "Insert into a
+  note…" previews the section and says where it goes: by default "into this
+  note after the paragraph at the cursor". "Choose another note…" offers
+  this note, any other Markdown note (the block goes at its end), or a new
+  note named by what the user types, offered only where no note of that
+  name exists. The preview and the choice name the notes that already hold
+  the section ("Already in: …. Inserting adds another copy."; "Looking for
+  copies in your notes…" while the placement index is building); those
+  notes are marked "already has this section". The section the pane is
+  about (a joined one) is not chosen again.
+  - Selected text is never replaced: the block is inserted, never written
+    over a selection.
+  - A new note is created empty when Insert is clicked, never over a file
+    that is already there ("a note named "…" already exists. Nothing was
+    inserted…"). A note whose end is inside an unclosed fence or comment is
+    refused: the block would not read back as the section.
+  - Another note is held from its choice: a rename moves the insertion with
+    it, a deletion refuses it and nothing is created at the old path. It is
+    reserved as the starting note is (one share or insert per note, A4),
+    and a closed note is written through the host's read-modify-write and
+    passed through its file.
+  - The result is a notice "Shared Tasks: section "…" inserted into "…"."
+    with an "Open" button that opens the note at the section's heading.
+  - A write whose result is unknown keeps that note reserved; inserting
+    into it again checks the same insertion and writes nothing new (D12).
+    Once the result is known, a new explicit insertion makes another copy.
 
 ### 4.2 Exact selection
 

@@ -3,15 +3,15 @@
 // reference server, two real plugins. A shares a section and invites; B
 // pastes the one-time link in its pane (masked) and chooses Join: the pane
 // shows the claim, the access and the load, each confirmed; the section is
-// listed as not inserted yet, and "Insert into a note…" runs the existing
-// insert into B's note. The same link pasted again reaches the section
-// without a new claim; a third vault is refused the used link. No palette
+// listed as not inserted yet, and "Insert into a note…" previews that
+// section, without a section choice (LFCP-03-016), and inserts it into B's
+// note. The same link pasted again reaches the section without a new claim; a third vault is refused the used link. No palette
 // command on B's side. Skipped without the server unless
 // LFCP_REQUIRE_LIVE=1 (then an error).
 
-import { toHex } from "@openlfcp/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseSections } from "../../src/core/sections/parser";
+import { PickSectionModal } from "../../src/obsidian/ui/insert-section";
 import { PANE_VIEW, type SharedTasksView } from "../../src/obsidian/ui/pane-view";
 import * as mock from "../mocks/obsidian";
 import { answer, click, SoakPeer } from "../soak/peer";
@@ -112,29 +112,11 @@ describe.skipIf(!live)("share → invite → join from the pane (LFCP-03-015)", 
     expect(joined.text).not.toContain("Shared collaboration");
     expect(B.vault.prompter.pending).toBe(0);
 
-    // Insert into a note…: the existing insert (its section choice, its preview) into B's note.
+    // Insert into a note…: the joined section is the pane's subject and needs no
+    // choice (LFCP-03-016); its preview, then into B's note.
     joined.primary?.click();
-    await until(
-      "the section choice",
-      () => {
-        const open = mock.modals.filter((m) => m.isOpen).at(-1) as
-          | (mock.Modal & {
-              choices?: readonly { resource: Uint8Array }[];
-              onChooseSuggestion?: (c: unknown) => void;
-            })
-          | undefined;
-        const c = open?.choices?.find(
-          (x) => toHex(x.resource) === toHex(Buffer.from(shared.resource, "base64url")),
-        );
-        if (open === undefined || c === undefined || open.onChooseSuggestion === undefined)
-          return undefined;
-        open.onChooseSuggestion(c);
-        open.close();
-        return true;
-      },
-      30_000,
-    );
     await answer("the insert preview", click("Insert"));
+    expect(mock.modals.some((m) => m instanceof PickSectionModal)).toBe(false);
     await until(
       "the section in B's note",
       () => (parseSections(B.vault.read(JOINED)).sections.length === 1 ? true : undefined),

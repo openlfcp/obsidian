@@ -121,9 +121,13 @@ first from "Resource status"."
 
 2. Open the note where the section should go and put the cursor on the
    paragraph it should follow.
-3. Run **"Insert shared section…"** and pick the section. The preview says
-   "These lines go into this note after the paragraph at the cursor.
-   Nothing is sent." Click **Insert**.
+3. Run **"Insert shared section…"** (or **"Insert into a note…"** in the
+   Shared Tasks pane) and pick the section. The preview says "These lines
+   go into this note after the paragraph at the cursor. Nothing is sent."
+   and names the notes that already hold the section. **"Choose another
+   note…"** puts it at the end of another note instead, or into a new note
+   you name (an existing note is never overwritten). Click **Insert**. A
+   notice says where it went, with **Open**.
 
 Or in the Shared Tasks pane: **"Join with a link…"**, paste the link into
 the hidden field (a name on this device is optional), then **Join**. The
