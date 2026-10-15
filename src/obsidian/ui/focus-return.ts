@@ -2,12 +2,20 @@
 // "Escape returns focus to the initiator or a safe fallback"). A dialog
 // opened from a control outside the editor (a pane button, a card's button)
 // gives focus back to that control when it closes, by Escape or by its own
-// buttons. When the pane drew that control again while the dialog was open,
-// focus goes to the control with the same pane key, else to the pane's
-// heading. A dialog opened from the editor leaves focus to Obsidian, which
-// gives the editor back its selection. Nothing is taken when the next
-// dialog of the flow is already open, or when focus went elsewhere on
-// purpose (another control than the editor and the page).
+// buttons.
+//
+// Obsidian's own Modal already gives focus back to the control that opened
+// it while that control is still in the page (native pane-keyboard, run
+// 38768295636, Linux, macOS and Windows). What it cannot do, and this does:
+// - the pane drew that control again while the dialog was open (a status,
+//   a flow step): focus goes to the control with the same pane key, else to
+//   the pane's heading;
+// - a flow's next dialog (the invitation after its role) was opened from
+//   the first one: focus goes back to where the first one was opened.
+// A dialog opened from the editor leaves focus to Obsidian, which gives the
+// editor back its selection. Nothing is taken when the next dialog of the
+// flow is already open, or when focus went elsewhere on purpose (another
+// control than the editor and the page).
 
 import type { Modal } from "obsidian";
 
