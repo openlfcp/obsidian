@@ -196,7 +196,7 @@ touch it either.
 | `specs/smoke.e2e.mjs` | The plugin is enabled, registers its commands, and its runtime reaches `ready` |
 | `specs/host-facts.e2e.mjs` | Obsidian host facts that MVP 0.2 designs rely on; see [obsidian-host-facts.md](obsidian-host-facts.md) |
 | `specs/projection-race.e2e.mjs` | Regression (0.3.2): a collaborator's change arriving right after sharing and editing is not sent back |
-| `specs/adr-0001-spikes.e2e.mjs` | ADR 0001 spikes S1–S6: CodeMirror transactions, undo grouping, several views, external writes, cost, Live Preview; through the test-only plugin `plugins/cm-spike` |
+| `specs/adr-0001-spikes.e2e.mjs` | ADR 0001 spikes S1–S7: CodeMirror transactions, undo grouping, several views, external writes, cost, Live Preview, Obsidian's merge of one view's save into another view's unsaved edit; through the test-only plugin `plugins/cm-spike` |
 | `specs/tasks-plugin.e2e.mjs` | The Obsidian Tasks plugin (8.4.0) next to Shared Tasks: the lines it writes when toggling a Task (plain, inline ref, child-line ref, recurring) and its transactions |
 | `specs/section-metadata.e2e.mjs` | LFCP-02-048 in Shared Tasks itself: a section's binding lines hidden in Live Preview, standalone refs kept, the boundary line, "Show or hide sharing metadata" |
 | `specs/marker-hiding.e2e.mjs` | LFCP-02-048 spike: hiding binding lines in Live Preview with the test-only plugin `plugins/marker-spike` (installed disabled, enabled by this spec); results in [../reports/marker-hiding-spike.md](../reports/marker-hiding-spike.md) |
