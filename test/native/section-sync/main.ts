@@ -6,7 +6,7 @@
 // here), with the same next-problem path and live region as the plugin.
 
 import { fromBase64url, principalId, resourceId, toBase64url } from "@openlfcp/core";
-import { createTask, SharedObjectsReplica } from "@openlfcp/shared-objects";
+import { createTask, initializeAutomerge, SharedObjectsReplica } from "@openlfcp/shared-objects";
 import { MarkdownView, Plugin } from "obsidian";
 import { MemorySectionBaseStore, markdownState } from "../../../src/core/sections/base";
 import { SectionEngine } from "../../../src/core/sections/engine";
@@ -32,7 +32,9 @@ const uuid = (): string => {
 };
 
 export default class SectionSyncHarness extends Plugin {
-  override onload(): void {
+  override async onload(): Promise<void> {
+    // The Task replicas below need Automerge's wasm, as the plugin's runtime does.
+    await initializeAutomerge();
     const port = new FakeSectionPort();
     const me = principalId(new Uint8Array(32).fill(4));
     // The section's Task objects, per Resource, as SectionReplica keeps them:
