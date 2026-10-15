@@ -1061,7 +1061,11 @@ export class SectionActions {
         if (l === undefined) return;
         await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
         services.pass(path);
-        prompter.notice("Shared Tasks: your version of this section is being shared.");
+        // F2: no promise that the held edits go out; the pane and the card show what the next pass did.
+        prompter.notice(
+          "Shared Tasks: this note's version is kept as this copy's base. Whether its edits are sent shows in the pane and on the section card.",
+        );
+        this.#changed();
       }),
       useShared: onNote(async (path, key) => {
         const l = lost.find((x) => x.key === key);
@@ -1089,6 +1093,7 @@ export class SectionActions {
         // the model (CM11). A base saved now could meet the editor's old text
         // and send the very edit the user chose to drop.
         services.pass(path);
+        this.#changed();
         prompter.notice(
           "Shared Tasks: this section shows the shared version now. Your previous text is kept as a recovery copy on this device.",
         );
