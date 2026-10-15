@@ -120,7 +120,12 @@ describe("recovery items (061)", () => {
       ],
     );
     const field = items.find((i) => i.kind === "field");
-    expect(field).toMatchObject({ nodeId: T, field: "title" });
+    // Named by its place, not by one of the two titles in question (F-10, LFCP-03-020).
+    expect(field).toMatchObject({
+      nodeId: T,
+      field: "title",
+      label: "a task at the top of the section",
+    });
     expect(field?.kind === "field" && [...field.values].sort()).toEqual([
       "Prepare contract v2",
       "Prepare the contract",
