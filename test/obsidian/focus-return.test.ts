@@ -5,7 +5,7 @@
 // a flow's next dialog gives it back to the same place.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { returnsFocus } from "../../src/obsidian/ui/focus-return";
+import { returnsFocus, tabStops } from "../../src/obsidian/ui/focus-return";
 
 /** A dialog as Obsidian shows one: a .modal-container while open, onClose on close. */
 class FakeModal {
@@ -187,6 +187,43 @@ describe("focus after a dialog (LFCP-03-022)", () => {
     // Obsidian already took the key: the dialog leaves it alone.
     tab(false, true);
     expect(document.activeElement).toBe(m.input);
+    m.close();
+  });
+
+  it("a radio group is one Tab stop: its checked button, else its first", () => {
+    const m = open();
+    const radio = (name: string, checked = false) => {
+      const r = document.createElement("input");
+      r.type = "radio";
+      r.name = name;
+      r.checked = checked;
+      m.modalEl.insertBefore(r, m.cancel);
+      return r;
+    };
+    // A recovery item's choice with one checked, a repair's with none.
+    radio("keep");
+    const kept = radio("keep", true);
+    radio("keep");
+    const first = radio("repair");
+    radio("repair");
+    m.open();
+    expect(tabStops(m.modalEl)).toEqual([m.input, kept, first, m.cancel, m.share]);
+    const tab = (shiftKey = false) =>
+      (document.activeElement ?? document.body).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
+      );
+    tab();
+    expect(document.activeElement).toBe(kept);
+    tab();
+    expect(document.activeElement).toBe(first);
+    tab();
+    expect(document.activeElement).toBe(m.cancel);
+    tab(true);
+    expect(document.activeElement).toBe(first);
+    // On another button of a group (an arrow moved there): the next stop after the group.
+    (m.modalEl.querySelectorAll('input[name="keep"]')[2] as HTMLInputElement).focus();
+    tab();
+    expect(document.activeElement).toBe(first);
     m.close();
   });
 });
