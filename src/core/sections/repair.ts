@@ -207,7 +207,7 @@ export function compare(local: string, shared: string): ComparedLine[] {
 }
 
 /**
- * "Share my version" of a lost base: the base is the shared state, so the
+ * "Keep my version" of a lost base: the base is the shared state, so the
  * note's differences from it are this vault's edits, sent on the next pass.
  */
 export function adoptedBase(path: string, ref: SectionRef, snap: SectionSnapshot): StoredBase {

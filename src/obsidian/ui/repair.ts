@@ -104,7 +104,7 @@ export class RepairModal extends Modal {
         cls: "setting-item-description",
       });
       const buttons = box.createDiv({ cls: "modal-button-container" });
-      buttons.createEl("button", { text: "Share my version" }).addEventListener("click", () => {
+      buttons.createEl("button", { text: "Keep my version" }).addEventListener("click", () => {
         this.close();
         void this.actions.shareMine(lost.key);
       });
