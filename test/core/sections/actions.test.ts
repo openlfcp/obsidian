@@ -1788,15 +1788,23 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
       openForEditing: async (at) => void host.push(`edit ${at.path}`),
       openSettings: () => void host.push("settings"),
       copyReadable: async (at) => void host.push(`copy ${at.path}`),
+      copySharedSection: async (at) => void host.push(`copy shared ${at.path}:${at.cursorLine}`),
     });
     for (const id of ACTION_IDS) expect(d.handles(id), id).toBe(true);
     const at = t.editor.at();
     await d.run("open-for-editing", { target: at }, "pane");
     await d.run("open-settings", {}, "pane");
     await d.run("copy-readable", { target: at }, "pane");
+    await d.run("copy-shared-section", { target: at }, "pane");
     // No held copy for the section: the note's next problem, as the palette's command.
     await d.run("go-to-problem", { target: at, section: { key: KEY, title: "Launch" } }, "pane");
-    expect(host).toEqual(["edit Plan.md", "settings", "copy Plan.md", "next problem Plan.md"]);
+    expect(host).toEqual([
+      "edit Plan.md",
+      "settings",
+      "copy Plan.md",
+      `copy shared Plan.md:${at.cursorLine}`,
+      "next problem Plan.md",
+    ]);
   });
 
   it("sync details, local changes and removing access open the section's card; discard says when nothing is kept", async () => {
@@ -1921,7 +1929,12 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
       "resource status (choose)",
     ]);
     // Without the host's part (the editor, the clipboard, the settings), those actions have no handler.
-    for (const id of ["open-for-editing", "open-settings", "copy-readable"] as const)
+    for (const id of [
+      "open-for-editing",
+      "open-settings",
+      "copy-readable",
+      "copy-shared-section",
+    ] as const)
       expect(d.handles(id)).toBe(false);
   });
 });

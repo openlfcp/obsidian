@@ -211,6 +211,10 @@ const sharing = (d: Derived): boolean => {
     : ctx.selection.eligibility === "exact";
 };
 
+/** The cursor of the note in view is in the section the pane is about (copy and detach act there). */
+const inSection = (d: Derived): boolean =>
+  d.noteOpen && d.f.context.cursor === "inside-section" && d.f.section !== null;
+
 /** A section-scoped action: hidden without a section in the context. */
 const ofSection =
   (rule: (d: Derived, s: PaneSection) => Availability): Rule =>
@@ -286,10 +290,9 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
   // Setup incomplete; or the share preview's sync server, changed only in the settings (LFCP-03-014).
   "open-settings": (d) => (d.f.setup || sharing(d) ? ENABLED : HIDDEN),
   // D10: an action that does not apply here is hidden, not disabled.
-  "copy-readable": (d) =>
-    d.noteOpen && d.f.context.cursor === "inside-section" && d.f.section !== null
-      ? ENABLED
-      : HIDDEN,
+  "copy-readable": (d) => (inSection(d) ? ENABLED : HIDDEN),
+  // The section at the cursor of the captured note, every binding kept: pasted, another copy of it.
+  "copy-shared-section": (d) => (inSection(d) ? ENABLED : HIDDEN),
   // I4: ready means hosted, with access current; inviting comes from the access list.
   invite: (d) => {
     // A4: the invitation under way (its dialog) is the one; a second one is not started from here.
@@ -386,6 +389,7 @@ export const DESCRIPTOR_ORDER: readonly ActionId[] = [
   "open-for-editing",
   "open-settings",
   "copy-readable",
+  "copy-shared-section",
   "invite",
   "open-details",
   "sync-details",

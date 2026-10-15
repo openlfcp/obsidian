@@ -96,4 +96,40 @@ describe("actions that end in Obsidian (LFCP-03-013)", () => {
       "Shared Tasks: select text, or put the cursor in a shared section.",
     );
   });
+
+  it("LFCP-03-019: Copy shared section copies the copy at the captured cursor, bindings kept; another note in view is not read", async () => {
+    const t = await loaded();
+    const written: string[] = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (s) => {
+      written.push(s);
+    });
+    // Another note is active, with its own section: the action acts on the note the pane captured.
+    const other = new mock.MarkdownView(
+      new mock.TFile("Other.md"),
+      TEXT.replace("- [ ] Alpha", "- [ ] Other copy"),
+    );
+    t.app.workspace.views.push(other);
+    await t.plugin.actions.run("copy-shared-section", { target: capture() }, "pane");
+    expect(written).toEqual([
+      ["## Launch", formatBoundary("start", S), "- [ ] Alpha", formatBoundary("end", S), ""].join(
+        "\n",
+      ),
+    ]);
+    expect(mock.notices.at(-1)).toBe(
+      "Shared Tasks: shared section copied. Pasted into another note, it is another copy of the same section; it gives nobody access.",
+    );
+    // Its readable copy, from the same capture, has no binding.
+    await t.plugin.actions.run("copy-readable", { target: capture() }, "pane");
+    expect(written[1]).toBe("## Launch\n- [ ] Alpha\n");
+    // The cursor in private text: nothing copied, said so.
+    await t.plugin.actions.run(
+      "copy-shared-section",
+      { target: capture({ cursorLine: 1 }) },
+      "pane",
+    );
+    expect(written).toHaveLength(2);
+    expect(mock.notices.at(-1)).toBe(
+      "Shared Tasks: put the cursor in a shared section to copy it.",
+    );
+  });
 });

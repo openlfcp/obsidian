@@ -28,6 +28,7 @@
     { "id": "open-for-editing", "label": "Open for editing", "destructive": false },
     { "id": "open-settings", "label": "Open settings", "destructive": false },
     { "id": "copy-readable", "label": "Copy readable text", "destructive": false },
+    { "id": "copy-shared-section", "label": "Copy shared section", "destructive": false },
     { "id": "remove-access", "label": "Remove access…", "destructive": true },
     { "id": "discard-local-copy", "label": "Discard the local copy…", "destructive": true },
     { "id": "detach-section", "label": "Detach this section", "destructive": true },
@@ -218,6 +219,7 @@
           { "action": "invite", "reason": "Hosted, access current, this vault may invite." },
           { "action": "open-details", "reason": "Details are always available." },
           { "action": "copy-readable", "reason": "The cursor is in a section." },
+          { "action": "copy-shared-section", "reason": "The cursor is in a section." },
           { "action": "detach-section", "reason": "Secondary, with its confirmation." }
         ],
         "disabled": [
