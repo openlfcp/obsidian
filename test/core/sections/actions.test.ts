@@ -1050,6 +1050,46 @@ describe("repair (LFCP-03-008 over 062)", () => {
     expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
   });
 
+  it("P3-4: a repair that throws before its dialog opens gives its note back", async () => {
+    const t = repairSetup(LOST);
+    t.bases.projectionsOf = async () => {
+      throw new Error("store gone");
+    };
+    await expect(t.actions.repairNote(t.editor.at())).rejects.toThrow("store gone");
+    expect(t.prompter.dialogs).toEqual([]);
+    expect(t.actions.heldNotes()).toBe(0);
+  });
+
+  it("P3-4: a dialog closed while a choice runs keeps the note until the choice ends", async () => {
+    const broken = ["## Launch", formatBoundary("start", S), "- [ ] One", "", "## Other", ""].join(
+      "\n",
+    );
+    const t = repairSetup(broken);
+    let finish: () => void = () => undefined;
+    const edit = t.notes.edit.bind(t.notes);
+    t.notes.edit = async (path, fn) => {
+      await new Promise<void>((r) => {
+        finish = r;
+      });
+      return edit(path, fn);
+    };
+    await t.actions.repairNote(t.editor.at());
+    const [items, , actions] = opened(t);
+    const item = items[0];
+    if (item?.kind !== "missing-end") throw new Error(item?.kind);
+    expect(t.actions.heldNotes()).toBe(1);
+    // The modal closes first, then runs the choice (RepairModal: close(), then the action).
+    t.prompter.open("repair")[0]?.answer(undefined);
+    const running = actions.boundary(item, 2);
+    await flush();
+    expect(t.actions.heldNotes()).toBe(1);
+    finish();
+    await running;
+    await flush();
+    expect(t.notes.writes.map((w) => w.path)).toEqual(["Plan.md"]);
+    expect(t.actions.heldNotes()).toBe(0);
+  });
+
   it("keeping this note's version adopts a base for it, and says so", async () => {
     const t = repairSetup(LOST);
     await t.actions.repairNote(t.editor.at());
