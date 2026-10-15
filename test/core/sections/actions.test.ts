@@ -1070,6 +1070,23 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     expect(Object.keys(readOnly.opened()[3])).toEqual(["alias"]);
   });
 
+  it("LFCP-03-012: the card links to the pane once the host gives it an entry", async () => {
+    const t = cardSetup();
+    let opened = 0;
+    t.actions.paneEntry(() => {
+      opened++;
+    });
+    await t.actions.openCard(KEY, "Launch");
+    expect(t.opened()[1].map((a) => a.label)).toEqual([
+      "Invite collaborator…",
+      "Resource status",
+      "Open Shared Tasks pane",
+    ]);
+    t.press("Open Shared Tasks pane");
+    expect(opened).toBe(1);
+    expect(t.prompter.notices).toEqual([]);
+  });
+
   it("T4 (LFCP-03-009): Repair from the card on a note only in Reading view says to open it for editing", async () => {
     const t = cardSetup();
     t.set(card({ held: [{ path: "Plan.md", line: 4, cause: "boundary" }] }));
