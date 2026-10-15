@@ -139,6 +139,14 @@ export const ACCESS_HELD: ReadonlySet<HeldCause> = new Set([
 ]);
 export const REPAIR_HELD: ReadonlySet<HeldCause> = new Set(["boundary", "binding", "base-unknown"]);
 
+/** This vault's access, as the server last said, does not let it change the section. */
+const NOT_ACCEPTED: ReadonlySet<string> = new Set([
+  "revoked",
+  "not-member",
+  "refused",
+  "unavailable-key",
+]);
+
 const BUSY = "A flow is open; finish or cancel it first.";
 const OPEN_TO_SHARE = "Open the note for editing to share from it.";
 
@@ -254,6 +262,9 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
     const v = s.view;
     if (d.running !== null) return disabled(BUSY);
     if (s.canInvite === false) return disabled("You can't invite others to this section.");
+    // The chain this device holds may still grant what the server no longer accepts.
+    if (NOT_ACCEPTED.has(v.access.access))
+      return disabled("Inviting needs the server to accept this vault's access to this section.");
     if (s.hosting === "pending")
       return disabled("Not on its server yet: nobody can join until it is hosted.");
     if (s.canInvite === null || v.access.current !== true || v.access.checking)

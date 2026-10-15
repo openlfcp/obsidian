@@ -13,6 +13,7 @@ import {
   hostPaneRequest,
   NOT_WIRED,
   notWiredReason,
+  type PaneAccess,
   unknownStatus,
   wiredModel,
 } from "../../../src/core/pane/host-facts";
@@ -26,7 +27,7 @@ import type { RegistrySnapshot } from "../../../src/core/sections/registry-view"
 import type { TargetCapture } from "../../../src/core/sections/target";
 import { headingBadge } from "../../../src/core/status/badge";
 import { sectionCard } from "../../../src/core/status/card";
-import { statusView } from "../../../src/core/status/reducer";
+import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
@@ -81,7 +82,7 @@ const registry = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
   ...over,
 });
 
-const current = statusView({
+const currentFacts: StatusFacts = {
   session: "s",
   revision: 1,
   replica: "loaded",
@@ -95,7 +96,8 @@ const current = statusView({
   batches: [],
   acceptanceEvidence: "available",
   projections: [],
-});
+};
+const current = statusView(currentFacts);
 
 describe("pane host facts (LFCP-03-012)", () => {
   it("no note open: the join entry, the registry list, and no invented context", () => {
@@ -137,8 +139,49 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(f.section?.view).toBe(current);
     const m = paneModel(f);
     expect(m.context.lines).toContain("On this device: Work launch");
-    // The access list is not read yet (013): inviting waits, it is never granted by default.
+    // No access list read: inviting waits, it is never granted by default.
     expect(m.secondary.find((a) => a.id === "invite")).toMatchObject({ enabled: false });
+  });
+
+  it("canInvite comes from the access list; unknown is neither a grant nor a denial (M3)", () => {
+    const invite = (access?: PaneAccess, view = current) =>
+      paneModel(
+        hostPaneFacts({
+          note: note(4),
+          registry: registry(),
+          status: () => view,
+          ...(access === undefined ? {} : { access: () => access }),
+        }),
+      );
+    const allowed = invite({ canInvite: true, hosting: "hosted" });
+    expect(allowed.primary).toMatchObject({ id: "invite", enabled: true, reason: null });
+    const all = (m: ReturnType<typeof paneModel>) => [
+      ...(m.primary === null ? [] : [m.primary]),
+      ...m.secondary,
+    ];
+    const not = all(invite({ canInvite: false, hosting: "hosted" })).find((a) => a.id === "invite");
+    expect(not).toMatchObject({
+      enabled: false,
+      reason: "You can't invite others to this section.",
+    });
+    const waits = "Inviting waits until this device has checked access with the server.";
+    for (const unknown of [undefined, { canInvite: null, hosting: "unknown" } as const])
+      expect(all(invite(unknown)).find((a) => a.id === "invite")).toMatchObject({
+        enabled: false,
+        reason: waits,
+      });
+    // I4: a local-only share is not an invitation that is ready.
+    expect(
+      all(invite({ canInvite: true, hosting: "pending" })).find((a) => a.id === "invite"),
+    ).toMatchObject({
+      enabled: false,
+      reason: "Not on its server yet: nobody can join until it is hosted.",
+    });
+    // The chain may still grant what the server no longer accepts: never invite then.
+    const refused = statusView({ ...currentFacts, access: "refused" });
+    expect(
+      all(invite({ canInvite: true, hosting: "hosted" }, refused)).find((a) => a.id === "invite"),
+    ).toMatchObject({ enabled: false });
   });
 
   it("a section with no status yet is the reducer's no-evidence view: never healthy or denied", () => {
