@@ -401,9 +401,9 @@ export async function removeAccessFromA() {
     confirm.click();
     await new Promise((r) => setTimeout(r, 1500));
     const notices = [...document.querySelectorAll(".notice")].map((n) => n.textContent);
-    for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
     return { notices };
   });
+  await closeModals("remove access");
   if (removing.error !== undefined) throw new Error(`no Remove access…: ${removing.error}`);
   return removing;
 }
