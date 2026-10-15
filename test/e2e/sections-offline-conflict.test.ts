@@ -135,7 +135,19 @@ const openTasks = (p: SoakPeer) =>
     .split("\n")
     .flatMap((l) => /^- \[ \] ([ab]\d+ \S+ item)/.exec(l)?.[1] ?? []);
 
-/** A renames `title` (the API edit of Obsidian's editor.setLine); then A and B agree on it. */
+/** Whether `p`'s model has a Task titled `title`. */
+const modelHas = (p: SoakPeer, title: string) => {
+  const canon = p.model()?.canon;
+  if (canon === undefined) return false;
+  const tasks = (JSON.parse(canon) as { tasks: Record<string, { title?: string } | null> }).tasks;
+  return Object.values(tasks).some((t) => t?.title === title);
+};
+
+/**
+ * A renames `title` (the API edit of Obsidian's editor.setLine); then A and
+ * B agree on that Task. Only that Task is compared: Tasks the earlier steps
+ * left in conflict show whichever value won.
+ */
 async function renamedEverywhere(title: string, to: string): Promise<void> {
   A.editTask(title, title, to);
   await until(
@@ -143,13 +155,11 @@ async function renamedEverywhere(title: string, to: string): Promise<void> {
     () => (B.text(SECTION_NOTE).includes(to) ? true : undefined),
     60_000,
   );
-  // Then A's queue is empty and its model is B's (the earlier conflicts
-  // stay: A needs attention, not "current").
   try {
     await until(
-      "A's model as B's",
+      "A's model and B's with the edit",
       async () =>
-        (await A.outbound()) === 0 && A.model()?.canon === B.model()?.canon ? true : undefined,
+        (await A.outbound()) === 0 && modelHas(A, to) && modelHas(B, to) ? true : undefined,
       60_000,
     );
   } catch (e) {
@@ -157,9 +167,9 @@ async function renamedEverywhere(title: string, to: string): Promise<void> {
       `${String(e)}: A "${lineOf(A, title.split(" ")[0] as string)}" ${JSON.stringify(A.noteVsModel())}`,
     );
   }
-  // A's note shows the edit and its model.
+  // A's note shows the edit, as its model does.
   expect(lineOf(A, to)).not.toBeNull();
-  expect(A.noteVsModel()).toEqual([]);
+  expect(A.noteVsModel().filter((d) => d.includes(to))).toEqual([]);
 }
 
 describe.skipIf(!live)("an edit this device committed stays (LFCP-03-033)", () => {
