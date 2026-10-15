@@ -570,7 +570,7 @@ describe.skipIf(skip !== null)("LFCP-02-051 live: invite to and join a shared se
     const again = await owner.collab.invite(R, "read").catch((e: unknown) => e);
     expect((again as CollabError).code).toBe("CONTROL_PENDING");
     expect((again as CollabError).message).toBe(
-      "An earlier access change to this collaboration has not reached the server yet. Invite again once it has.",
+      "An earlier access change to this section has not reached the server yet. Invite again once it has.",
     );
   });
 

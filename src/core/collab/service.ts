@@ -67,7 +67,7 @@ import type { InsertCandidate } from "./batch";
 import { planShare } from "./markdown";
 import { codeOf, plainCode } from "./messages";
 import { DEFAULT_CLAIM_LIMIT, INVITE_PRESETS, type InvitePreset } from "./presets";
-import { refusalNotice } from "./view";
+import { refusalNotice, unnamedResource } from "./view";
 
 /** What the flows need from the plugin runtime (LfcpRuntime implements it). */
 export interface CollabRuntime {
@@ -325,8 +325,8 @@ export function joinUnavailableMessage(reason: string, claimSent: boolean): stri
   if (claimSent)
     return `The server did not confirm the claim (${reason}). It is kept on this device: join again with the same link, or it finishes at the next start.`;
   if (/ was refused: [A-Z_]+$/.test(reason))
-    return `The collaboration's server refused the join (${reason}). The invitation was not used: ask the person who invited you to check that the collaboration is on its server, then join again with the same link.`;
-  return `The collaboration's server could not complete the join (${reason}). Joining needs a connection; try again when online.`;
+    return `The server refused the join (${reason}). The invitation was not used: ask the person who invited you to check that what they shared is on its server, then join again with the same link.`;
+  return `The server could not complete the join (${reason}). Joining needs a connection; try again when online.`;
 }
 const WS_URL = /^wss?:\/\/[^\s/]+/i;
 
@@ -483,7 +483,7 @@ export class Collaboration {
   }
 
   /** Waits until the server has a Snapshot of R's current epoch, when one is needed and this vault may publish it. */
-  async #epochSnapshot(R: ResourceId): Promise<void> {
+  async #epochSnapshot(R: ResourceId, noun: string): Promise<void> {
     const runtime = this.#runtime;
     if (runtime.epochSnapshotState === undefined) return;
     const deadline = Date.now() + this.#o.snapshotTimeoutMs;
@@ -497,14 +497,14 @@ export class Collaboration {
       if (refused !== null)
         throw new CollabError(
           refused.code,
-          `The server refused this collaboration (${refused.code}), so nobody could join it after the change of access. Nothing was created.`,
+          `The server refused this ${noun} (${refused.code}), so nobody could join it after the change of access. Nothing was created.`,
         );
       if (Date.now() > deadline)
         throw new CollabError(
           "SNAPSHOT_PENDING",
           s === "checking"
-            ? "This device has not reached the collaboration's server since it started, so it cannot prepare the collaboration for a new member after the change of access yet. Nothing was created. Invite again once it is connected."
-            : "The collaboration is being prepared for a new member after a change of access. Nothing was created. Invite again in a moment.",
+            ? `This device has not reached the ${noun}'s server since it started, so it cannot prepare the ${noun} for a new member after the change of access yet. Nothing was created. Invite again once it is connected.`
+            : `The ${noun} is being prepared for a new member after a change of access. Nothing was created. Invite again in a moment.`,
         );
       await this.#o.sleep(250);
     }
@@ -515,6 +515,8 @@ export class Collaboration {
     const entry = await this.#entry(R);
     if (entry.state === "control_conflict") throw new CollabError("CONTROL_CONFLICT");
     const section = entry.profile === SECTIONS_PROFILE_ID;
+    // A shared section in the section words (UX contract §2); a 0.1 collaboration as 0.1 said it.
+    const noun = section ? "section" : "collaboration";
     await this.checkInvitable(R);
     const c = this.#context();
     const chain = await loadControlChain(c.storage, R);
@@ -524,7 +526,7 @@ export class Collaboration {
     if (dek === undefined)
       throw new CollabError(
         "KEY_PACKAGE_UNAVAILABLE",
-        "This device does not hold the collaboration's current key yet.",
+        `This device does not hold the ${noun}'s current key yet.`,
       );
     // A grant is signed on the committed Control Head: one made while an
     // earlier record of this device waits for the server would carry the
@@ -532,7 +534,7 @@ export class Collaboration {
     if ((await c.storage.outbound.list(R)).some((i) => i.kind === "control-record"))
       throw new CollabError(
         "CONTROL_PENDING",
-        "An earlier access change to this collaboration has not reached the server yet. Invite again once it has.",
+        `An earlier access change to this ${noun} has not reached the server yet. Invite again once it has.`,
       );
     // After a rotation (Remove access) whoever joins receives only the current
     // epoch's key: the closed epochs reach them through a Snapshot of the
@@ -544,7 +546,7 @@ export class Collaboration {
       await this.#runtime.openSection(R);
       url = chain.state.route.coordinatorUrl;
     } else url = (await this.#runtime.openResource(R)).url;
-    await this.#epochSnapshot(R);
+    await this.#epochSnapshot(R, noun);
     const endpoints = [...chain.state.route.endpoints]
       .sort((a, b) => (a.priority < b.priority ? -1 : a.priority > b.priority ? 1 : 0))
       .map((e) => e.url);
@@ -562,10 +564,7 @@ export class Collaboration {
     } catch (e) {
       const code = codeOf(e);
       throw code === "AUTHORIZATION_FAILED"
-        ? new CollabError(
-            code,
-            "You are not allowed to invite collaborators to this collaboration.",
-          )
+        ? new CollabError(code, `You are not allowed to invite others to this ${noun}.`)
         : e;
     }
     // Send the queued grant and Key Package; the link works once both are ACKed.
@@ -580,7 +579,7 @@ export class Collaboration {
         reject(
           new CollabError(
             code,
-            `The server refused this collaboration (${code}), so the invitation would not work. It is kept on this device and sent if the server accepts the collaboration again.`,
+            `The server refused this ${noun} (${code}), so the invitation would not work. It is kept on this device and sent if the server accepts the ${noun} again.`,
           ),
         );
     });
@@ -733,7 +732,8 @@ export class Collaboration {
         },
       },
     ]);
-    if (!r.ok) throw new CollabError("UNSUPPORTED_VALUE", "The collaboration could not be stored.");
+    if (!r.ok)
+      throw new CollabError("UNSUPPORTED_VALUE", "What the invitation shares could not be stored.");
     // N5: a section joined without a name shows its shared title; a 0.1 collaboration needs one.
     const section = chain.state.dataProfile === SECTIONS_PROFILE_ID;
     const local = name.trim();
@@ -791,7 +791,7 @@ export class Collaboration {
       return {
         kind: "unavailable",
         message:
-          "This device does not know the collaboration's server: join again with the same link.",
+          "This device does not know the server of this invitation: join again with the same link.",
         resourceId: R,
         claimSent: true,
       };
@@ -819,7 +819,7 @@ export class Collaboration {
       case "unavailable":
         return {
           kind: "unavailable",
-          message: `The collaboration's server could not be reached (${settled.reason}). Joining finishes when it can.`,
+          message: `The server could not be reached (${settled.reason}). Joining finishes when it can.`,
           resourceId: R,
           claimSent: true,
         };
@@ -846,10 +846,8 @@ export class Collaboration {
     const refusal = (await this.#runtime.newlyRefused?.(R)) ?? null;
     if (refusal === null) return null;
     if (hosting === "pending" && refusal.code === "RESOURCE_NOT_HOSTED") return null;
-    const name =
-      (await this.#runtime.registry()).find((e) => toHex(e.resourceId) === toHex(R))?.localName ??
-      "a collaboration";
-    return refusalNotice(name, refusal);
+    const entry = (await this.#runtime.registry()).find((e) => toHex(e.resourceId) === toHex(R));
+    return refusalNotice(entry?.localName ?? unnamedResource(entry?.profile), refusal);
   }
 
   /** "Resource status": the non-secret state of a collaboration. */
