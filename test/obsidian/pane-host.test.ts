@@ -89,6 +89,7 @@ function fakeSections() {
       return () => statusListeners.delete(l);
     },
     sectionStatus: () => undefined,
+    paneAccess: () => undefined,
     hostFacts: () => ({ unavailable: null, starting: false, readOnly: false, server: true }),
     actions: { paneEntry: () => undefined },
     // What the plugin's own vault listeners call on it.

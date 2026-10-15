@@ -462,6 +462,7 @@ export default class OpenLfcpPlugin extends Plugin {
         note,
         registry: s?.registry.snapshot() ?? null,
         status: (key) => s?.sectionStatus(key),
+        access: (key) => s?.paneAccess(key),
         host,
       }),
     );
