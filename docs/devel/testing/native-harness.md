@@ -96,8 +96,11 @@ Results:
 ### Known failing
 
 `test/native/known-failing.txt` lists the specs that fail for a known
-reason, each with the task that fixes it (`acceptance-sections
-LFCP-03-033`). The workflow passes each listed spec that the run selected
+reason, each with the task that fixes it. One spec per line: its name
+without `.e2e.mjs`, whitespace, the task ID (`LFCP-NN-NNN`), for example
+`acceptance-sections  LFCP-03-033`. Blank lines and lines starting with
+`#` are ignored. A line without a task ID, or naming no spec, fails the
+run. The workflow passes each listed spec that the run selected
 to WebdriverIO as `--exclude`, so the gating run never sees it. Nothing is
 skipped, and the "No spec skipped" check stays as strict as before. A
 separate step, "Known failing specs (not gating)", then runs only those
@@ -107,6 +110,11 @@ specs with `continue-on-error: true`:
   summary and as a notice; the job stays green;
 - a spec that passes gets the warning "remove it from the list". Remove
   its line in the same change that fixes it.
+
+A limit: the step looks only for the spec's `PASSED` line. So it reports
+`KNOWN FAILING` also when the spec never ran, because the build or the
+harness itself failed. Check `known-failing.log` before you treat that
+line as the spec's own failure.
 
 Its whole output is `known-failing.log` in the run's artifact. Add a line
 only with a task that tracks the failure, never to make a run green.
