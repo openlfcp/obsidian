@@ -111,8 +111,8 @@ first from "Resource status"."
 
 ## 4. Bob joins and places the section
 
-1. Run **"Join collaboration"** and paste the link. Give the collaboration
-   a name, for your eyes only.
+1. Run **"Join collaboration"** and paste the link. A name is optional and
+   for your eyes only; left empty, the section shows its own title.
 
    The progress runs through "Checking the invitation…", "Receiving the
    collaboration's key…", "Claiming access…", "Synchronizing…" and
@@ -124,6 +124,18 @@ first from "Resource status"."
 3. Run **"Insert shared section…"** and pick the section. The preview says
    "These lines go into this note after the paragraph at the cursor.
    Nothing is sent." Click **Insert**.
+
+Or in the Shared Tasks pane: **"Join with a link…"**, paste the link into
+the hidden field (a name on this device is optional), then **Join**. The
+pane shows each step with what confirms it: "The server accepted the
+claim.", "Access: read and write.", "Loaded on this device.". The section
+is listed under "Not inserted yet" and the pane offers **"Insert into a
+note…"** for the note you are in; **Later** keeps it listed. If the link
+was already used, you were removed, or you are offline, the pane says
+which, and keeps the field for another try. If the server never answered
+the claim, **Check the result** settles that same claim; it never spends
+the link twice. Pasting a link to a section you already have takes you to
+it without a new claim.
 
 Bob's other text in that note stays private: only the section is shared.
 A reader (Read only) sees "You can read this section but not edit it:
