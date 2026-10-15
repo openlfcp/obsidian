@@ -15,6 +15,7 @@ import type {
 } from "../../core/sections/action-ports";
 import type { InsertPreview } from "../../core/sections/insert";
 import { insertDisplay } from "../../core/sections/preview-display";
+import { rowLabel } from "../../core/sections/registry-view";
 
 export type { SectionChoice };
 
@@ -35,11 +36,16 @@ export class PickSectionModal extends SuggestModal<SectionChoice> {
 
   override getSuggestions(query: string): SectionChoice[] {
     const q = query.toLowerCase();
-    return this.choices.filter((c) => c.title.toLowerCase().includes(q));
+    return this.choices.filter((c) =>
+      [c.title, c.alias ?? ""].some((t) => t.toLowerCase().includes(q)),
+    );
   }
 
+  /** The shared title, and the name on this device below it when it differs (UX contract §7). */
   override renderSuggestion(choice: SectionChoice, el: HTMLElement): void {
-    el.setText(choice.title);
+    const { primary, alias } = choiceLabel(choice);
+    el.setText(primary);
+    if (alias !== null) el.createEl("small", { text: alias, cls: "openlfcp-choice-alias" });
   }
 
   override onChooseSuggestion(choice: SectionChoice): void {
@@ -120,6 +126,23 @@ export class InsertSectionModal extends Modal {
     this.contentEl.empty();
     this.#done(this.#insert);
   }
+}
+
+/** A section's label in the insert choice (N1–N3): the shared title, then "On this device: …". */
+export function choiceLabel(choice: SectionChoice): {
+  readonly primary: string;
+  readonly alias: string | null;
+} {
+  const l = rowLabel({ sharedTitle: choice.title, localAlias: choice.alias ?? null });
+  return {
+    primary:
+      l.primary === null
+        ? "Untitled section"
+        : l.aliasOnly
+          ? `${l.primary} (name on this device)`
+          : l.primary,
+    alias: l.onThisDevice === null ? null : `On this device: ${l.onThisDevice}`,
+  };
 }
 
 /** The notes that already hold the section, as the insert dialogs say it (UX contract §2). */

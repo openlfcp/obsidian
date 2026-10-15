@@ -75,7 +75,10 @@ export interface NoticeAction {
 export interface SectionChoice {
   readonly resource: Uint8Array;
   readonly sectionId: string;
+  /** The shared title (UX contract N1). */
   readonly title: string;
+  /** The name given on this device, if any (N2); shown only where it differs from the title. */
+  readonly alias?: string | null;
 }
 
 /** A section of a note whose base is lost: the note's lines against the shared ones. */
