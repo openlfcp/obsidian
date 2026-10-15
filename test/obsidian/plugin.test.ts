@@ -30,6 +30,7 @@ describe("plugin", () => {
       sectionComments: "local",
       sectionsDisabled: true,
       developerPanePrototype: false,
+      dismissedHints: [],
       settingsVersion: 2,
     });
   });
@@ -97,6 +98,23 @@ describe("plugin", () => {
     ]);
   });
 
+  it("LFCP-03-021: the tips row shows how many are hidden and brings them back", async () => {
+    const stored = { refPlacement: "inline", dismissedHints: ["first-use", "a-tip-of-0-6"] };
+    const { plugin, host } = await loaded(stored);
+    const tab = host.settingTabs[0] as mock.PluginSettingTab;
+    tab.display();
+    const tips = () =>
+      tab.containerEl.settings.find((x) => x.name === "Tips in the Shared Tasks pane");
+    expect(tips()?.desc).toContain("1 tip is hidden in this vault");
+    expect(tips()?.button?.text).toBe("Show tips again");
+    expect(tips()?.button?.disabled).toBe(false);
+    await tips()?.button?.onClickHandler();
+    expect(plugin.settings.dismissedHints).toEqual([]);
+    // Only the hidden tips changed in data.json.
+    expect(host.stored).toEqual({ ...plugin.settings, refPlacement: "inline", dismissedHints: [] });
+    expect(tips()?.button?.disabled).toBe(true);
+  });
+
   it("settings tab edits and saves the placeholders", async () => {
     const { plugin, host } = await loaded();
     expect(host.settingTabs).toHaveLength(1);
@@ -117,6 +135,7 @@ describe("plugin", () => {
       sectionComments: "local",
       sectionsDisabled: true,
       developerPanePrototype: false,
+      dismissedHints: [],
       settingsVersion: 2,
     });
     expect(server?.text?.value).toBe(PROJECT_SERVER);
@@ -133,6 +152,7 @@ describe("plugin", () => {
       sectionComments: "local",
       sectionsDisabled: true,
       developerPanePrototype: false,
+      dismissedHints: [],
       settingsVersion: 2,
     });
 

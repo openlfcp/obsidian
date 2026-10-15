@@ -39,6 +39,7 @@ import {
 } from "obsidian";
 import type { ActionId } from "../../core/actions/catalog";
 import type { ActionRequest } from "../../core/actions/dispatcher";
+import type { HintId } from "../../core/pane/hints";
 import type { PaneModel } from "../../core/pane/model";
 import { renderPane } from "./pane-renderer";
 
@@ -83,6 +84,14 @@ export interface PaneJoinPort {
   dismiss(generation: number): void;
 }
 
+/** The pane's tips (LFCP-03-021): hidden and shown again in this vault's settings. */
+export interface PaneHintsPort {
+  /** "Hide tip": this tip stays hidden in this vault until "Show tips again". */
+  hide(id: HintId): void;
+  /** "Show tips again": every hidden tip may show again. */
+  reset(): void;
+}
+
 /** What the pane reads and runs, from the plugin. */
 export interface PaneHostPort {
   /** The pane for the note in `target` (null: no Markdown note open), read now. */
@@ -93,6 +102,8 @@ export interface PaneHostPort {
   readonly sources: readonly PaneSource[];
   /** The join field's port; absent: no field is offered. */
   readonly join?: PaneJoinPort;
+  /** The tips' port; absent: tips show without "Hide tip" and "Show tips again". */
+  readonly hints?: PaneHintsPort;
 }
 
 /** Every action a drawing shows, enabled or not. */
@@ -227,6 +238,7 @@ export class SharedTasksView extends ItemView {
     this.#pinned = drawn.pinned;
     const join = this.port.join;
     const joinGeneration = drawn.join ?? null;
+    const hints = this.port.hints;
     renderPane(root, drawn.model, {
       action: (id) => this.#click(generation, drawn, id),
       ...(join === undefined
@@ -248,6 +260,16 @@ export class SharedTasksView extends ItemView {
       },
       chosen: this.#chosen,
       problem: (problemId) => this.#clickProblem(generation, drawn, problemId),
+      ...(hints === undefined
+        ? {}
+        : {
+            hideHint: (id: HintId) => {
+              if (generation === this.#generation) hints.hide(id);
+            },
+            showHints: () => {
+              if (generation === this.#generation) hints.reset();
+            },
+          }),
     });
   }
 

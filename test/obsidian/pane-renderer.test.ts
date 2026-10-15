@@ -255,3 +255,58 @@ describe("prototype flows, walked with the pane's buttons only", () => {
     expect(text()).toContain("Current as last checked with the server.");
   });
 });
+
+describe("the pane's tip (LFCP-03-021)", () => {
+  const healthy = () => {
+    const s = doc.states.find((x) => x.id === "healthy-can-invite");
+    if (s === undefined) throw new Error("fixture missing");
+    return paneFactsOf(s.facts);
+  };
+
+  it("draws one tip with Hide tip, as text; Hide tip hands its ID and runs no action", () => {
+    const hidden: string[] = [];
+    const ran: string[] = [];
+    renderPane(root, paneModel({ ...healthy(), hints: { hidden: [] } }), {
+      action: (id) => ran.push(id),
+      hideHint: (id) => hidden.push(id),
+      showHints: () => undefined,
+    });
+    const tips = root.querySelectorAll<HTMLElement>(".openlfcp-pane-hint");
+    expect(tips.length).toBe(1);
+    expect(tips[0]?.dataset.hint).toBe("invite-link");
+    expect(tips[0]?.getAttribute("aria-label")).toBe("Tip");
+    // A tip is not an alert: no live region takes the reader's attention.
+    expect(tips[0]?.getAttribute("role")).toBeNull();
+    byText("Hide tip").click();
+    expect(hidden).toEqual(["invite-link"]);
+    expect(ran).toEqual([]);
+    expect(root.querySelector(".openlfcp-pane-help")).toBeNull();
+  });
+
+  it("offers Show tips again when some are hidden; focus falls back to the heading after Hide tip", () => {
+    let shown = 0;
+    const draw = (hidden: string[]) =>
+      renderPane(root, paneModel({ ...healthy(), hints: { hidden } }), {
+        action: () => undefined,
+        hideHint: () => undefined,
+        showHints: () => shown++,
+      });
+    draw([]);
+    byText("Hide tip").focus();
+    draw(["invite-link", "section-copy"]);
+    expect(root.querySelector(".openlfcp-pane-hint")).toBeNull();
+    expect(document.activeElement?.classList.contains("openlfcp-pane-title")).toBe(true);
+    byText("Show tips again").click();
+    expect(shown).toBe(1);
+  });
+
+  it("without the handlers, the tip shows with no button", () => {
+    renderPane(root, paneModel({ ...healthy(), hints: { hidden: ["section-copy"] } }), {
+      action: () => undefined,
+    });
+    expect(root.querySelector(".openlfcp-pane-hint")?.textContent).toContain("one-time link");
+    expect(
+      buttons().some((b) => b.textContent === "Hide tip" || b.textContent === "Show tips again"),
+    ).toBe(false);
+  });
+});

@@ -45,6 +45,7 @@ import {
 import { collectDiagnostics } from "../core/diagnostics-collect";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
+import { hideHint } from "../core/pane/hints";
 import { hostPane, paneJoinOf, wiredModel } from "../core/pane/host-facts";
 import { paneModel } from "../core/pane/model";
 import { ConflictRegistry } from "../core/projection/conflicts";
@@ -355,6 +356,11 @@ export default class OpenLfcpPlugin extends Plugin {
         submit: (link, name) => void this.#joins?.submit(link, name),
         dismiss: (generation) => void this.#joins?.dismiss(generation),
       },
+      // LFCP-03-021: hidden tips live in this vault's settings (data.json), nowhere else.
+      hints: {
+        hide: (id) => void this.setDismissedHints(hideHint(this.settings.dismissedHints, id)),
+        reset: () => void this.setDismissedHints([]),
+      },
       sources: [
         (changed) => {
           const off = this.sections?.registry.onChange(() => changed());
@@ -516,7 +522,7 @@ export default class OpenLfcpPlugin extends Plugin {
     });
     // With shared sections off on this device, only joining runs from the pane.
     const model = wiredModel(
-      paneModel(drawing.facts),
+      paneModel({ ...drawing.facts, hints: { hidden: this.settings.dismissedHints } }),
       (id) => this.actions.handles(id) && (s !== null || id === "join-with-link"),
     );
     const flow = drawing.facts.context.flow;
@@ -1090,6 +1096,8 @@ export default class OpenLfcpPlugin extends Plugin {
   // data.json changed outside the plugin, e.g. through vault sync.
   override async onExternalSettingsChange(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
+    // Tips hidden or shown again on another device of this vault.
+    this.#nudgePane();
   }
 
   /** Settles each join a restart interrupted; one that still cannot finish says so, with Retry and Give up. */
@@ -1207,6 +1215,13 @@ export default class OpenLfcpPlugin extends Plugin {
     this.settings.showSharingMetadata = show;
     await this.saveSettings();
     for (const view of this.#sectionViews) view.dispatch({ effects: setShowMetadata.of(show) });
+  }
+
+  /** Hides the pane's tips `ids`, or shows them all again with none (LFCP-03-021); the pane redraws. */
+  async setDismissedHints(ids: readonly string[]): Promise<void> {
+    this.settings.dismissedHints = [...ids];
+    this.#nudgePane();
+    await this.saveSettings();
   }
 
   async saveSettings(): Promise<void> {

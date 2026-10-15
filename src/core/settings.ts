@@ -62,6 +62,13 @@ export interface Settings {
    * release build this flag does nothing.
    */
   developerPanePrototype: boolean;
+  /**
+   * The pane's tips this vault has hidden (LFCP-03-021): their IDs
+   * (core/pane/hints.ts), nothing else. Absent before 0.5: none hidden. IDs
+   * of another plugin version are kept, so a downgrade and an upgrade do not
+   * bring a hidden tip back. "Show tips again" empties it.
+   */
+  dismissedHints: string[];
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */
   settingsVersion: number;
 }
@@ -73,8 +80,23 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   sectionComments: "local",
   sectionsDisabled: false,
   developerPanePrototype: false,
+  dismissedHints: [],
   settingsVersion: SETTINGS_VERSION,
 };
+
+/** A tip ID as stored: short, lowercase words and hyphens. */
+const HINT_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
+/** More hidden tips than this is not data a plugin wrote. */
+const MAX_HIDDEN_HINTS = 64;
+
+/** Stored tip IDs: well-formed strings, each once, in their order; anything else is dropped. */
+function hintIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const x of value)
+    if (typeof x === "string" && HINT_ID.test(x) && !out.includes(x)) out.push(x);
+  return out.slice(0, MAX_HIDDEN_HINTS);
+}
 
 const PLACEMENTS: readonly RefPlacement[] = ["child-line", "inline"];
 
@@ -115,6 +137,7 @@ export function normalizeSettings(stored: unknown): Settings {
     // 0.4.0: the 0.3.x `sectionsPreview` key is dropped; sections are on unless disabled.
     sectionsDisabled: data.sectionsDisabled === true,
     developerPanePrototype: data.developerPanePrototype === true,
+    dismissedHints: hintIds(data.dismissedHints),
     settingsVersion: SETTINGS_VERSION,
   };
 }

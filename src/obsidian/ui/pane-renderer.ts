@@ -13,6 +13,7 @@
 // - Narrow panes: everything wraps; colours and spacing are Obsidian's CSS variables.
 
 import type { ActionId } from "../../core/actions/catalog";
+import type { HintId } from "../../core/pane/hints";
 import type { PaneAction, PaneModel } from "../../core/pane/model";
 import { contentHash } from "../../core/projection/guard";
 
@@ -31,6 +32,10 @@ export interface PaneHandlers {
   readonly chosen?: string | null;
   /** A problem row's action (its problem ID, LFCP-03-018); absent: its action runs as `action`. */
   readonly problem?: (problemId: string) => void;
+  /** "Hide tip" chosen for the tip shown (LFCP-03-021); absent: the tip has no such button. */
+  readonly hideHint?: (id: HintId) => void;
+  /** "Show tips again" chosen; absent: not offered. */
+  readonly showHints?: () => void;
 }
 
 /** The attribute that names a focusable control across redraws. */
@@ -216,6 +221,21 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     n.setAttribute("role", "status");
   }
 
+  // LFCP-03-021: one short tip for what is offered now; a note, not an alert (no live region).
+  const hint = model.hint;
+  if (hint !== null) {
+    const t = section(root, "openlfcp-pane-hint", "Tip");
+    t.dataset.hint = hint.id;
+    el(t, "div", "openlfcp-pane-line", hint.text);
+    const hide = h.hideHint;
+    if (hide !== undefined) {
+      const b = el(t, "button", "openlfcp-pane-secondary openlfcp-pane-hint-hide", hint.hide);
+      b.type = "button";
+      b.setAttribute(KEY, "hint-hide");
+      b.addEventListener("click", () => hide(hint.id));
+    }
+  }
+
   if (model.secondary.length > 0) {
     const s = el(root, "div", "openlfcp-pane-actions");
     for (const a of model.secondary) button(s, a, h, "openlfcp-pane-secondary");
@@ -266,6 +286,15 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     el(u, "h3", "openlfcp-pane-heading", "Unfinished");
     const ul = el(u, "ul", "openlfcp-pane-rows");
     for (const x of model.unfinished) el(ul, "li", "openlfcp-pane-row", `${x.title}: ${x.detail}`);
+  }
+
+  const show = h.showHints;
+  if (model.showHints !== null && show !== undefined) {
+    const help = section(root, "openlfcp-pane-help", "Help");
+    const b = el(help, "button", "openlfcp-pane-secondary", model.showHints);
+    b.type = "button";
+    b.setAttribute(KEY, "hints-show");
+    b.addEventListener("click", () => show());
   }
 
   if (fieldNew && hadFocus && focusKey === "action:join-with-link") {
