@@ -24,6 +24,13 @@
   color: var(--text-error);
 }
 
+/* OpenLFCP: an insert preview's exact lines, markers included, collapsed (LFCP-03-020). */
+.openlfcp-preview-source {
+  margin-top: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+}
+
 /*
  * OpenLFCP: a shared section's status (LFCP-02-058). The double tick means
  * "shared" (decision M8); the sync state has its own icon in a fixed-width

@@ -1,5 +1,7 @@
-// "Insert shared section…" (LFCP-02-052, OBSIDIAN-SHARED-SECTIONS-UX-01
-// §5): which section, then exactly what would be inserted, and where.
+// "Insert into a note…" / "Insert shared section…" (LFCP-02-052,
+// OBSIDIAN-SHARED-SECTIONS-UX-01 §5): which section, then what would be
+// inserted, readable, with its exact lines one click away (LFCP-03-020),
+// and where.
 // Inserting writes the note only; nothing is sent. The place is the note
 // the insert started on, after the paragraph at the cursor, unless the user
 // chooses another existing note or names a new one (LFCP-03-016).
@@ -12,6 +14,7 @@ import type {
   SectionChoice,
 } from "../../core/sections/action-ports";
 import type { InsertPreview } from "../../core/sections/insert";
+import { insertDisplay } from "../../core/sections/preview-display";
 
 export type { SectionChoice };
 
@@ -88,7 +91,20 @@ export class InsertSectionModal extends Modal {
         text: "You can read this section but not edit it: typing in it is not applied, and edits made to the note by other means stay on this device.",
         cls: "setting-item-description",
       });
-    el.createDiv({ text: this.preview.block, cls: "openlfcp-share-content" });
+    // The readable text (UX contract C5): only recognised bindings hidden; the
+    // exact source, markers included, in a collapsed part. Text only: nothing
+    // of the section is rendered as Markdown or HTML (U03-27).
+    const shown = insertDisplay(this.preview.block);
+    if (shown.problem !== null)
+      el.createEl("p", { text: shown.problem, cls: "openlfcp-share-problem" });
+    el.createDiv({ text: shown.readable, cls: "openlfcp-share-content" });
+    const source = el.createEl("details", { cls: "openlfcp-preview-source" });
+    source.createEl("summary", { text: "Technical details: the lines as written" });
+    source.createEl("p", {
+      text: "The note keeps these markers so Shared Tasks knows which line is which item. Leave them in place.",
+      cls: "setting-item-description",
+    });
+    source.createDiv({ text: shown.source, cls: "openlfcp-share-content" });
     const buttons = el.createDiv({ cls: "modal-button-container" });
     buttons.createEl("button", { text: "Insert", cls: "mod-cta" }).addEventListener("click", () => {
       this.#insert = true;
