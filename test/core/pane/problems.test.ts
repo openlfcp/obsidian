@@ -324,6 +324,57 @@ describe("problem hub rows (LFCP-03-018)", () => {
     expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length);
   });
 
+  it("retained work and a node shown again keep their own rows and sources", () => {
+    const rows = paneProblems({
+      view: view(),
+      recovery: [
+        {
+          kind: "retained",
+          key: "retained:n2",
+          nodeId: "n2",
+          label: 'Task "Child"',
+          ancestor: "n1",
+          ancestorLabel: 'Task "Parent"',
+          deleted: ["n1"],
+        },
+        { kind: "reappeared", key: "reappeared:n3", nodeId: "n3", label: 'Task "Gone"' },
+      ],
+      repairs: null,
+    });
+    expect(rows.map((r) => [r.text, r.source, r.ref])).toEqual([
+      [
+        'Task "Child" was changed while Task "Parent", which holds it, was deleted.',
+        "The shared section",
+        { kind: "conflict", key: "retained:n2" },
+      ],
+      [
+        'Task "Gone" is in a note, but it was deleted from the shared section.',
+        "A note on this device",
+        { kind: "conflict", key: "reappeared:n3" },
+      ],
+    ]);
+  });
+
+  it("U03-06: offline with a conflict, refused with held edits: each row, and no Current claim", () => {
+    const offline = view({
+      connection: "offline",
+      connectionQualifier: "lost",
+      problems: [{ kind: "scalar", code: "SCALAR_CONFLICT", nodeIds: ["n1"] }],
+    });
+    const rows = paneProblems({ view: offline, recovery: CONFLICTS.slice(0, 1), repairs: null });
+    expect(rows.map((r) => r.category)).toEqual(["conflict"]);
+    const h = held({ cause: "refused" });
+    const refused = heldView(h, { access: "refused", batches: [] });
+    const r = paneProblems({ view: refused, recovery: [], repairs: null });
+    expect(r.map((x) => [x.category, x.action])).toEqual([
+      ["access", "review-local-changes"],
+      ["access", "review-local-changes"],
+    ]);
+    const texts = r.map((x) => x.text).join(" ");
+    expect(texts).not.toMatch(/Current|synced|delivered/i);
+    expect(refused.sync.current).toBe(false);
+  });
+
   it("a healthy section in a healthy note has no problem row", () => {
     expect(
       paneProblems({ view: view(), recovery: [], repairs: repairsOf("Plan.md", HEALTHY) }),
