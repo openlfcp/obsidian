@@ -23,6 +23,7 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
+import type { HostFacts } from "../core/actions/descriptors";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
@@ -961,6 +962,31 @@ export class SectionsHost {
       : { connection: v.connection, qualifier: v.connectionQualifier, refusal: v.refusal };
   }
 
+  /**
+   * Pane-ready status (LFCP-03-012): one section's whole StatusView, the
+   * one status path the card and the badge read; undefined before its first.
+   */
+  sectionStatus(key: string): StatusView | undefined {
+    return this.#statuses.get(key);
+  }
+
+  /** Called after each status pass that changed a section's status (the pane redraws). */
+  onStatusChange(listener: () => void): () => void {
+    this.#statusListeners.add(listener);
+    return () => this.#statusListeners.delete(listener);
+  }
+  readonly #statusListeners = new Set<() => void>();
+
+  /** The host's running state as the action descriptors read it (the pane's disabled reasons). */
+  hostFacts(): HostFacts {
+    return {
+      unavailable: this.#unavailable,
+      starting: this.#runtime === null,
+      readOnly: this.#runtime?.sectionsReadOnly === true,
+      server: this.server().trim() !== "",
+    };
+  }
+
   /** Pane-ready: every watched section's sync, summed per fact, never across them. */
   syncSummary(): VaultSyncSummary {
     return vaultSyncSummary(this.#statuses.values());
@@ -1085,6 +1111,7 @@ export class SectionsHost {
     });
     if (said.length > 0) this.announce(said.join(" "));
     this.reading.update();
+    for (const l of [...this.#statusListeners]) l();
     await this.actions.refreshCard();
   }
 
