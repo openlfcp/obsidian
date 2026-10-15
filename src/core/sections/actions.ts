@@ -1230,9 +1230,11 @@ export class SectionActions {
    * offers it. False when no copy holds edits (the host then goes to the
    * next problem in the note).
    */
-  async goToHeld(key: string): Promise<boolean> {
+  async goToHeld(key: string, prefer?: string): Promise<boolean> {
+    // The copy in the note the surface is on first, then the one holding the most edits.
     const held = [...this.env.services.held(key)].sort(
-      (a, b) => (b.count ?? 1) - (a.count ?? 1),
+      (a, b) =>
+        Number(b.path === prefer) - Number(a.path === prefer) || (b.count ?? 1) - (a.count ?? 1),
     )[0];
     if (held === undefined) return false;
     await this.env.notes.goToLine(held.path, held.line);
