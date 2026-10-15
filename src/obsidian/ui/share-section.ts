@@ -4,7 +4,12 @@
 // Share is unavailable while a problem is listed.
 
 import { type App, Modal } from "obsidian";
-import { type SharePreview, shareMessages } from "../../core/sections/share";
+import {
+  type SharePolicy,
+  type SharePreview,
+  shareMessages,
+  sharePolicyLines,
+} from "../../core/sections/share";
 
 export class ShareSectionModal extends Modal {
   #done: (share: boolean) => void = () => undefined;
@@ -18,6 +23,8 @@ export class ShareSectionModal extends Modal {
     private readonly preview: SharePreview,
     /** A line above the preview, e.g. after the note changed while it was open. */
     private readonly note?: string,
+    /** The sync server and comments setting it is shared under (LFCP-03-014). */
+    private readonly policy?: SharePolicy,
   ) {
     super(app);
   }
@@ -36,6 +43,9 @@ export class ShareSectionModal extends Modal {
       el.createDiv({ text: this.preview.privateTail, cls: "openlfcp-share-content" });
     }
     for (const w of m.warnings) el.createEl("p", { text: w, cls: "setting-item-description" });
+    if (this.policy !== undefined)
+      for (const line of sharePolicyLines(this.policy, this.preview.warnings))
+        el.createEl("p", { text: line, cls: "setting-item-description" });
     for (const p of m.problems) el.createEl("p", { text: p, cls: "openlfcp-share-problem" });
     const buttons = el.createDiv({ cls: "modal-button-container" });
     const share = buttons.createEl("button", { text: "Share", cls: "mod-cta" });

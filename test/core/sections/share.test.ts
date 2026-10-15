@@ -13,8 +13,10 @@ import {
   preflight,
   proposeRange,
   revalidate,
+  SHARED_COMMENTS_LATER,
   sectionPreview,
   shareMessages,
+  sharePolicyLines,
 } from "../../../src/core/sections/share";
 
 const BEFORE = "PRIVATE_BEFORE_8f3a: budget and personal thoughts.";
@@ -230,5 +232,24 @@ describe("S4 (LFCP-03-009): a damaged boundary's region is never a share boundar
     const range = proposeRange(md, 0);
     if (range === null) throw new Error("no range");
     expect(preflight(md, range).problems).toEqual([]);
+  });
+});
+
+describe("the settings a share runs under, in its preview (LFCP-03-014)", () => {
+  it("names the sync server; says comments added later are shared only under `shared`", () => {
+    const server = "wss://sync.example/v1/ws";
+    const local = ["future-additions", "local-comments"] as const;
+    expect(sharePolicyLines({ server, comments: "local" }, local)).toEqual([
+      `Sync server: ${server}. To use another one, change it in the settings first.`,
+    ]);
+    expect(sharePolicyLines({ server, comments: "shared" }, local)).toEqual([
+      `Sync server: ${server}. To use another one, change it in the settings first.`,
+      SHARED_COMMENTS_LATER,
+    ]);
+    // No comment in the range: nothing to say about comments.
+    expect(sharePolicyLines({ server, comments: "shared" }, ["future-additions"])).toHaveLength(1);
+    expect(sharePolicyLines({ server: " ", comments: "local" }, [])).toEqual([
+      "No sync server is set. Set one in the settings to share a section.",
+    ]);
   });
 });

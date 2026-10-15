@@ -321,6 +321,44 @@ export function shareWarningText(w: ShareWarning): string | null {
   }
 }
 
+/**
+ * The settings a share runs under (LFCP-03-014): the sync server the new
+ * section is hosted on (the default server setting) and the section
+ * comments setting (§4.5). The preview says both, as they are now.
+ */
+export interface SharePolicy {
+  /** The default sync server; "" when none is set. */
+  readonly server: string;
+  readonly comments: "local" | "shared";
+}
+
+/** The sentence that names the sync server a share goes to (UX §5: shown, changed in the settings). */
+export const shareServerText = (server: string): string =>
+  server.trim() === ""
+    ? "No sync server is set. Set one in the settings to share a section."
+    : `Sync server: ${server.trim()}. To use another one, change it in the settings first.`;
+
+/**
+ * Under the `shared` section comments setting the comments in the range
+ * now still stay on this device (the first pass keeps them local), but a
+ * comment added later is shared (§4.5, MS41).
+ */
+export const SHARED_COMMENTS_LATER =
+  "Comments you add to this section later are shared (section comments setting: shared).";
+
+/** What a share's settings add to its preview, in the user's words. */
+export function sharePolicyLines(
+  policy: SharePolicy,
+  warnings: readonly ShareWarning[],
+): readonly string[] {
+  return [
+    shareServerText(policy.server),
+    ...(policy.comments === "shared" && warnings.includes("local-comments")
+      ? [SHARED_COMMENTS_LATER]
+      : []),
+  ];
+}
+
 /** What a preview counts: "2 tasks, 1 paragraph, 0 list items, 2 other blocks". */
 export function shareCounts(c: Omit<SharePreview["counts"], "characters">): string {
   return [

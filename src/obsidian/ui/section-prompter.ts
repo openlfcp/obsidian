@@ -19,7 +19,7 @@ import type { InsertPreview } from "../../core/sections/insert";
 import type { ImportChoices, LegacyPreview } from "../../core/sections/legacy";
 import type { RecoveryChoice, RecoveryItem } from "../../core/sections/recovery";
 import type { RepairItem } from "../../core/sections/repair";
-import type { SharePreview } from "../../core/sections/share";
+import type { SharePolicy, SharePreview } from "../../core/sections/share";
 import type { SectionCard } from "../../core/status/card";
 import { ImportSectionModal } from "./import-section";
 import { InsertSectionModal, PickSectionModal } from "./insert-section";
@@ -33,6 +33,8 @@ export class ObsidianSectionPrompter implements SectionPrompter {
     private readonly app: App,
     /** Says a short text once through the plugin's live region (064). */
     private readonly say: (text: string) => void,
+    /** The settings a share runs under now: its preview says them (LFCP-03-014). */
+    private readonly policy?: () => SharePolicy,
   ) {}
 
   notice(message: string): void {
@@ -44,7 +46,7 @@ export class ObsidianSectionPrompter implements SectionPrompter {
   }
 
   sharePreview(preview: SharePreview, note?: string): SectionDialog<boolean> {
-    return opened(new ShareSectionModal(this.app, preview, note));
+    return opened(new ShareSectionModal(this.app, preview, note, this.policy?.()));
   }
 
   importPreview(title: string, preview: LegacyPreview): SectionDialog<ImportChoices | null> {
