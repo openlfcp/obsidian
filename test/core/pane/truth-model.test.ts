@@ -15,8 +15,16 @@ import { describe, expect, it } from "vitest";
 import { DESCRIPTORS, RUNNING, sectionFacts } from "../../../src/core/actions/descriptors";
 import { type FixtureFacts, paneFactsOf } from "../../../src/core/pane/mock-facts";
 import { type PaneFacts, paneModel, paneTexts } from "../../../src/core/pane/model";
+import type {
+  CardAction,
+  SectionNotes,
+  SectionPrompter,
+  SectionServices,
+} from "../../../src/core/sections/action-ports";
+import { SectionActions } from "../../../src/core/sections/actions";
+import { accessView, type MyAccess } from "../../../src/core/status/access";
 import { headingBadge } from "../../../src/core/status/badge";
-import { heldFact, sectionCard } from "../../../src/core/status/card";
+import { heldFact, type SectionCard, sectionCard } from "../../../src/core/status/card";
 import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 
 const doc = JSON.parse(
@@ -159,4 +167,104 @@ describe("one truth model for pane, card and badge (LFCP-03-013)", () => {
     agree(section(facts, false));
     agree(section(facts, null));
   });
+});
+
+// The card's own path (SectionActions.openCard → #cardFacts): its content
+// built as the host builds it (sectionCard over the access list's
+// AccessView, with its invite fact and hosting), its buttons as the
+// prompter receives them. The pane and the card must agree on Invite and
+// on the connection line in every fixture state.
+describe("the card's real path agrees with the pane (LFCP-03-013)", () => {
+  const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
+  const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
+  const KEY = `${R0}#${SID}`;
+  const CONNECTION =
+    /Connecting to the server|Could not connect|stopped responding|Offline|Not checked with the server/;
+
+  /** This vault's access as the SDK would report it, for the access list to say `invite`. */
+  const mineOf = (invite: boolean | null): MyAccess | null =>
+    invite === null
+      ? null
+      : {
+          allowed: true,
+          current: true,
+          verifiedAt: 1,
+          abilities: invite ? ["data/write", "capability/grant"] : ["data/write"],
+          owner: invite,
+          pendingControl: [],
+        };
+
+  async function cardButtons(content: SectionCard): Promise<readonly CardAction[]> {
+    let shown: readonly CardAction[] = [];
+    const prompter = new Proxy(
+      {},
+      {
+        get: (_t, name) => {
+          if (name === "card")
+            return (_c: SectionCard, actions: readonly CardAction[]) => {
+              shown = actions;
+              return { update: () => undefined, close: () => undefined };
+            };
+          if (name === "notice" || name === "announce") return () => undefined;
+          return () => {
+            throw new Error(`unexpected prompter.${String(name)}`);
+          };
+        },
+      },
+    ) as SectionPrompter;
+    const services = {
+      cardContent: async () => content,
+      held: () => [],
+      recoveryItems: () => [],
+      candidates: () => null,
+      bases: () => null,
+      unavailable: () => null,
+      readOnly: () => false,
+      server: () => "wss://sync.example/v1/ws",
+      known: () => true,
+      commands: () => null,
+    } as unknown as SectionServices;
+    const actions = new SectionActions({ prompter, notes: {} as SectionNotes, services });
+    await actions.openCard(KEY, "Launch");
+    return shown;
+  }
+
+  for (const st of doc.states) {
+    const s = st.facts.section;
+    if (s === null || st.facts.context.flow !== null) continue;
+    it(`agrees on ${st.id}`, async () => {
+      const f = paneFactsOf(st.facts);
+      const section = f.section;
+      if (section === null) throw new Error("no section");
+      const view = section.view;
+      const access = accessView({
+        participants: [],
+        mine: mineOf(s.accessView.canInvite),
+        aliases: {},
+        connected: view.connection === "connected",
+        time: () => "t",
+      });
+      expect(access.invite).toBe(s.accessView.canInvite);
+      const content = sectionCard({
+        title: "Launch",
+        view,
+        resource: R0,
+        sectionId: SID,
+        access,
+        ...(s.hosting === undefined ? {} : { hosting: s.hosting }),
+      });
+      const card = (await cardButtons(content)).find((a) => a.label === "Invite collaborator…");
+      const model = paneModel(f, { time: () => "t" });
+      const pane = [...(model.primary === null ? [] : [model.primary]), ...model.secondary].find(
+        (a) => a.id === "invite",
+      );
+      expect(card === undefined ? "hidden" : (card.disabled ?? "enabled")).toBe(
+        pane === undefined ? "hidden" : pane.enabled ? "enabled" : pane.reason,
+      );
+      // The connection line: the same sentence, or none, on both.
+      const paneLine = model.status.map((l) => l.text).filter((t) => CONNECTION.test(t));
+      const cardLine = content.facts.filter((t) => CONNECTION.test(t));
+      expect(paneLine).toEqual(cardLine);
+    });
+  }
 });
