@@ -307,14 +307,13 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     (chosen === null ? null : rowFocus(rows, (r) => (r.key ?? r.resource) === chosen)) ??
     (joined === null ? null : rowFocus(rows, (r) => r.resource === joined));
   const flows = src.flows ?? [];
-  const held = pickFlow(flows, src.pinned ?? null, note?.path ?? null);
+  const flow = pickFlow(flows, src.pinned ?? null, note?.path ?? null);
   // An invitation under way owns the current area (its dialog is open), unless the
   // pane holds a running share or insert (P5): it is not one of SectionActions' flows.
   const invitation = src.invitation ?? null;
   const inviting =
     invitation !== null &&
-    (held === null || held.generation !== src.pinned || held.outcome !== "running");
-  const flow = held;
+    (flow === null || flow.generation !== src.pinned || flow.outcome !== "running");
   const others = flows.filter((f) => f !== flow);
   const context: PaneContext = {
     editor: note === null ? "none" : note.mode,
