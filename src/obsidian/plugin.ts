@@ -232,6 +232,10 @@ export default class OpenLfcpPlugin extends Plugin {
         () => ui,
         (text) => live.announce(text),
       );
+      // LFCP-03-010: the card's buttons run through the same dispatcher as the palette.
+      this.sections.actions.dispatchThrough((id, request, surface) =>
+        this.actions.run(id, request, surface),
+      );
       this.registerEditorExtension(this.sections.editor.extension);
       // A note switched to Reading view (or back) goes by its file (or its editor).
       this.registerEvent(

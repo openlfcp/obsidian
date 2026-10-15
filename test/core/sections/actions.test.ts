@@ -1102,6 +1102,38 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     expect(t.prompter.notices).toEqual(["Shared Tasks: this section is no longer on this device."]);
   });
 
+  it("LFCP-03-010: the card's buttons run through the dispatcher, to the same handlers", async () => {
+    const t = cardSetup(() => ({
+      recoveryItems: () => [{ kind: "stale-work" } as unknown as RecoveryItem],
+      model: () => ({ snapshot: () => undefined, task: () => undefined }),
+    }));
+    const ran: string[] = [];
+    const d = new ActionDispatcher(
+      coreHandlers({
+        sections: () => t.actions,
+        collab: {
+          joinCollaboration: async () => undefined,
+          inviteCollaborator: async () => undefined,
+          inviteTo: async (r) => void ran.push(`inviteTo ${toBase64url(r)}`),
+        },
+      }),
+    );
+    t.actions.dispatchThrough((id, request, surface) => {
+      ran.push(`${surface} ${id} ${request.section?.key}`);
+      return d.run(id, request, surface);
+    });
+    await t.actions.openCard(KEY, "Launch");
+    t.press("Review conflicts…");
+    t.press("Invite collaborator…");
+    await flush();
+    expect(ran).toEqual([
+      `card review-conflicts ${KEY}`,
+      `card invite ${KEY}`,
+      `inviteTo ${KEY.slice(0, KEY.indexOf("#"))}`,
+    ]);
+    expect(t.prompter.dialogs.filter((x) => x.kind === "review")).toHaveLength(1);
+  });
+
   it("removing access: an unknown outcome says the access list decides; the open card is redrawn", async () => {
     let outcome: () => Promise<RevokeOutcome | null> = () => Promise.reject(new Error("timeout"));
     const t = cardSetup(() => ({ revokeAccess: () => outcome() }));
