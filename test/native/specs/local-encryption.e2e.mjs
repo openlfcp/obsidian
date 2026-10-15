@@ -73,13 +73,25 @@ describe("local state encrypted at rest (LFCP-02-098)", () => {
             else files.push(path.join(d, e.name));
         };
         walk(dir);
-        const hits = (needle) =>
-          files.filter((f) => fs.readFileSync(f).includes(Buffer.from(needle, "latin1")));
+        // Windows: a file Chromium holds locked (LevelDB's LOCK) cannot be read
+        // (EBUSY). It is listed, not read; the control proves the data files were.
+        const busy = new Set();
+        const read = (f) => {
+          try {
+            return fs.readFileSync(f);
+          } catch (e) {
+            if (e?.code !== "EBUSY" && e?.code !== "EPERM") throw e;
+            busy.add(path.relative(dir, f));
+            return Buffer.alloc(0);
+          }
+        };
+        const hits = (needle) => files.filter((f) => read(f).includes(Buffer.from(needle, "latin1")));
         const result = {
           files: files.length,
           canary: hits(canary).map((f) => path.relative(dir, f)),
           name: hits(name).map((f) => path.relative(dir, f)),
           control: hits(control).map((f) => path.relative(dir, f)),
+          busy: [...busy],
           diagnostics,
         };
         await app.plugins.enablePlugin("shared-tasks");
