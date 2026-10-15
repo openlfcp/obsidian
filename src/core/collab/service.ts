@@ -203,7 +203,18 @@ export type JoinOutcome =
    */
   | { readonly kind: "needs-newer-version"; readonly resourceId: ResourceId }
   | { readonly kind: "refused"; readonly code: string; readonly message: string }
-  | { readonly kind: "unavailable"; readonly message: string };
+  | {
+      readonly kind: "unavailable";
+      readonly message: string;
+      /**
+       * The claim was sent and its answer is not known: the SDK keeps it on
+       * this device (LFCP-02-110), and the same link, or a resume, settles
+       * it without spending the invitation twice. Absent: nothing was claimed.
+       */
+      readonly claimSent?: true;
+      /** The invitation's Resource, when the link named one. */
+      readonly resourceId?: ResourceId;
+    };
 
 export interface Participant {
   /** Public Principal ID, shortened for display. */
@@ -652,11 +663,15 @@ export class Collaboration {
       return { kind: "needs-newer-version", resourceId: R };
     if (accepted.kind === "refused")
       return { kind: "refused", code: accepted.code, message: plainCode(accepted.code) };
-    if (accepted.kind === "unavailable")
+    if (accepted.kind === "unavailable") {
+      const claimSent = last === "claiming capability";
       return {
         kind: "unavailable",
-        message: joinUnavailableMessage(accepted.reason, last === "claiming capability"),
+        message: joinUnavailableMessage(accepted.reason, claimSent),
+        resourceId: R,
+        ...(claimSent ? { claimSent: true as const } : {}),
       };
+    }
     return this.#finishJoin(R, accepted.abilities, options.name, stage);
   }
 
@@ -757,6 +772,8 @@ export class Collaboration {
         kind: "unavailable",
         message:
           "This device does not know the collaboration's server: join again with the same link.",
+        resourceId: R,
+        claimSent: true,
       };
     const settled = await resumeInvitationClaim({
       resourceId: R,
@@ -783,6 +800,8 @@ export class Collaboration {
         return {
           kind: "unavailable",
           message: `The collaboration's server could not be reached (${settled.reason}). Joining finishes when it can.`,
+          resourceId: R,
+          claimSent: true,
         };
       default:
         return { kind: "needs-newer-version", resourceId: R };
