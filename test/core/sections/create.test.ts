@@ -202,7 +202,8 @@ describe("creating a shared section", () => {
       newOperationId: env.deps.newOperationId,
       createdBy: env.deps.createdBy,
       newProjectionId: () => "projection",
-      tasks: () => undefined,
+      // The section's Tasks as the host reads them (sections-host.ts).
+      tasks: (r, taskId) => ({ view: env.port.taskView(r, taskId) }),
       newTask: env.deps.newTask,
     });
     const ctx = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
