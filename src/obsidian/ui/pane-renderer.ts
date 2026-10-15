@@ -23,6 +23,8 @@ export interface PaneHandlers {
   readonly row?: (key: string) => void;
   /** The key of the row chosen now, marked as such. */
   readonly chosen?: string | null;
+  /** A problem row's action (its problem ID, LFCP-03-018); absent: its action runs as `action`. */
+  readonly problem?: (problemId: string) => void;
 }
 
 /** The attribute that names a focusable control across redraws. */
@@ -43,14 +45,25 @@ function el<K extends keyof HTMLElementTagNameMap>(
 
 let ids = 0;
 
-function button(parent: HTMLElement, a: PaneAction, h: PaneHandlers, cls: string): HTMLElement {
+function button(
+  parent: HTMLElement,
+  a: PaneAction,
+  h: PaneHandlers,
+  cls: string,
+  problem?: string,
+): HTMLElement {
   const wrap = el(parent, "div", "openlfcp-pane-action");
   const b = el(wrap, "button", cls, a.label);
   b.type = "button";
-  b.setAttribute(KEY, `action:${a.id}`);
+  b.setAttribute(KEY, problem === undefined ? `action:${a.id}` : `problem:${problem}`);
   b.dataset.action = a.id;
+  if (problem !== undefined) b.dataset.problem = problem;
   if (a.destructive) b.classList.add("mod-warning");
-  if (a.enabled) b.addEventListener("click", () => h.action(a.id));
+  const run =
+    problem !== undefined && h.problem !== undefined
+      ? () => h.problem?.(problem)
+      : () => h.action(a.id);
+  if (a.enabled) b.addEventListener("click", run);
   else {
     b.setAttribute("aria-disabled", "true");
     b.classList.add("is-disabled");
@@ -133,6 +146,20 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     const ul = el(root, "ul", "openlfcp-pane-status");
     ul.setAttribute("aria-label", "Status");
     for (const l of model.status) el(ul, "li", `openlfcp-pane-fact is-${l.tone}`, l.text);
+  }
+
+  // The problem hub (LFCP-03-018): each problem, where it comes from, and its resolver.
+  if (model.problems.length > 0) {
+    const p = section(root, "openlfcp-pane-problems", "Problems");
+    el(p, "h3", "openlfcp-pane-heading", "Problems");
+    const ul = el(p, "ul", "openlfcp-pane-rows");
+    for (const x of model.problems) {
+      const li = el(ul, "li", `openlfcp-pane-problem is-${x.category}`);
+      li.dataset.problem = x.id;
+      el(li, "div", "openlfcp-pane-problem-text", x.text);
+      el(li, "div", "openlfcp-pane-row-meta", `Where: ${x.source}`);
+      if (x.action !== null) button(li, x.action, h, "openlfcp-pane-secondary", x.id);
+    }
   }
 
   if (model.preview.length > 0) {

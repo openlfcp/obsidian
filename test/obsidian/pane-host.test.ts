@@ -14,8 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionId } from "../../src/core/actions/catalog";
 import type { ActionRequest, Surface } from "../../src/core/actions/dispatcher";
 import type { PaneAccess } from "../../src/core/pane/host-facts";
+import { contentHash } from "../../src/core/projection/guard";
 import type { ActiveFlow } from "../../src/core/sections/actions";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
+import type { RecoveryItem } from "../../src/core/sections/recovery";
 import type { RegistryRow, RegistrySnapshot } from "../../src/core/sections/registry-view";
 import { type StatusFacts, type StatusView, statusView } from "../../src/core/status/reducer";
 import OpenLfcpPlugin from "../../src/main";
@@ -74,6 +76,7 @@ function fakeSections() {
   const rows: RegistryRow[] = [];
   const statuses = new Map<string, StatusView>();
   const access = new Map<string, PaneAccess>();
+  const recovery = new Map<string, RecoveryItem[]>();
   const snapshot = (): RegistrySnapshot => ({
     version: 1,
     status: "ready",
@@ -91,6 +94,7 @@ function fakeSections() {
     rows,
     statuses,
     access,
+    recovery,
     registry: {
       snapshot,
       onChange: (l: () => void) => {
@@ -104,6 +108,7 @@ function fakeSections() {
     },
     sectionStatus: (key: string) => statuses.get(key),
     paneAccess: (key: string) => access.get(key),
+    recoveryItems: (key: string) => recovery.get(key) ?? [],
     hostFacts: () => ({ unavailable: null, starting: false, readOnly: false, server: true }),
     sharePolicy: () => ({ server: "wss://sync.example/v1/ws", comments: "local" as const }),
     actions: {
@@ -402,6 +407,82 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     // A click that raced the redraw, on the old button: checked against the facts now.
     invite?.click();
     expect(t.runs).toEqual([]);
+  });
+
+  describe("problem hub (LFCP-03-018)", () => {
+    const CONFLICT: RecoveryItem = {
+      kind: "lifecycle",
+      key: "lifecycle:n1",
+      nodeId: "n1",
+      label: 'Task "Alpha"',
+    };
+    const problem = (t: { el: () => HTMLElement }, id: string) =>
+      t.el().querySelector<HTMLButtonElement>(`button[data-problem="${id}"]`);
+
+    it("a conflict row shows its reason and source; its button runs the review on that item", async () => {
+      const t = await open();
+      t.sections.recovery.set(KEY, [CONFLICT]);
+      for (const l of t.sections.statusListeners) l();
+      const row = t.el().querySelector<HTMLElement>('li[data-problem="conflict:lifecycle:n1"]');
+      expect(row?.textContent).toContain('Task "Alpha" was deleted and restored at the same time.');
+      expect(row?.textContent).toContain("Where: The shared section");
+      problem(t, "conflict:lifecycle:n1")?.click();
+      expect(t.runs).toEqual([
+        {
+          id: "review-conflicts",
+          request: {
+            section: { key: KEY, title: "Launch" },
+            problem: { kind: "conflict", key: "lifecycle:n1" },
+          },
+          surface: "pane",
+        },
+      ]);
+      // The click hides nothing: the row stays until the facts drop it.
+      for (const l of t.sections.statusListeners) l();
+      expect(problem(t, "conflict:lifecycle:n1")).not.toBeNull();
+      t.sections.recovery.set(KEY, []);
+      for (const l of t.sections.statusListeners) l();
+      expect(problem(t, "conflict:lifecycle:n1")).toBeNull();
+    });
+
+    it("L2: a row resolved before the click redraws and runs nothing", async () => {
+      const t = await open();
+      t.sections.recovery.set(KEY, [CONFLICT]);
+      for (const l of t.sections.statusListeners) l();
+      const button = problem(t, "conflict:lifecycle:n1");
+      // Resolved elsewhere (another device) before the pane redrew.
+      t.sections.recovery.set(KEY, []);
+      button?.click();
+      expect(t.runs).toEqual([]);
+      expect(problem(t, "conflict:lifecycle:n1")).toBeNull();
+    });
+
+    it("a damaged boundary in the note: its row hands the line key and the revision drawn", async () => {
+      const t = await open({ cursor: 0 });
+      t.note.buffer = TEXT.replace(`${formatBoundary("end", S)}\n`, "");
+      for (const l of t.sections.statusListeners) l();
+      const button = t
+        .el()
+        .querySelector<HTMLButtonElement>(`button[data-problem^="repair:Plan.md:missing-end:"]`);
+      expect(button?.textContent).toBe("Repair shared sections…");
+      const drawn = t.note.buffer;
+      // Typed after the drawing, before the click: the drawn revision goes, the executor reparses.
+      t.note.buffer = `${drawn}More text\n`;
+      button?.click();
+      expect(t.runs).toHaveLength(1);
+      expect(t.runs[0]).toMatchObject({
+        id: "repair-sections",
+        request: {
+          problem: {
+            kind: "repair",
+            path: "Plan.md",
+            key: `missing-end:${KEY}`,
+            line: 3,
+            revision: contentHash(drawn),
+          },
+        },
+      });
+    });
   });
 
   it("L2: a click acts on what was drawn; another note in view now redraws and runs nothing", async () => {
