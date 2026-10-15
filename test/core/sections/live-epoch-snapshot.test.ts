@@ -128,6 +128,39 @@ describe.skipIf(skip !== null)("soak #3: a newcomer after a removal loads the se
     await newcomerLoads(a2, R, link);
   }, 120_000);
 
+  it("the owner restarts once the removal is at the server, before its Snapshot: an invitation at once waits for it", async () => {
+    // LFCP-03-037 (native section-remove-invite, run 38749578805): after a
+    // restart this vault knows it may publish only once its session is LIVE
+    // and its access answered; an invitation made before that went out with
+    // no Snapshot of epoch 1 on the server, and the newcomer loaded nothing.
+    const { a, b, R } = await ownerAndMember();
+    await remove(a, b, R);
+    // The rotation committed and its records ACKed: nothing left for an invitation to wait on but the Snapshot.
+    await waitFor(
+      async () =>
+        (await openEpoch(a, R)) === 1n &&
+        !(await a.runtime.storage?.outbound.list(R))?.some((i) => i.kind === "control-record")
+          ? true
+          : undefined,
+      30_000,
+    );
+    await a.stop();
+    stopping.splice(stopping.indexOf(a), 1);
+    expect((await a.runtime.storage?.snapshots.list(R, { epoch: 1n } as never))?.length ?? 0).toBe(
+      0,
+    );
+    const a2 = await peer(server.url, { device: a.device, local: a.local, files: a.files });
+    stopping.push(a2);
+    // As the plugin's sections host does at its start; invited at once, before the session is LIVE.
+    await a2.runtime.openSection(R);
+    const link = (await a2.collab.invite(R, "read-write")).link.reveal();
+    expect((await a2.runtime.storage?.snapshots.list(R, { epoch: 1n } as never))?.length).toBe(1);
+    expect((await a2.runtime.storage?.outbound.list(R))?.some((i) => i.kind === "snapshot")).toBe(
+      false,
+    );
+    await newcomerLoads(a2, R, link);
+  }, 120_000);
+
   it("invited before the removal, joining after it: loads too", async () => {
     const { a, b, R } = await ownerAndMember();
     const link = (await a.collab.invite(R, "read-write")).link.reveal();
