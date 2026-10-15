@@ -68,7 +68,9 @@ What a run does:
 3. **No skips.** The release assets `specs/upgrade-install.e2e.mjs`
    updates from (0.3.4, 0.4.0-beta.15) are downloaded into the harness
    cache first, and a job whose log reports any skipped test fails.
-4. **Caches.** Obsidian (installer, app, chromedriver) is cached per
+4. **Known failing.** Specs in `test/native/known-failing.txt` are left
+   out of the gating run (below).
+5. **Caches.** Obsidian (installer, app, chromedriver) is cached per
    system and version with `actions/cache`, under the runner's temp
    directory (`OPENLFCP_OBSIDIAN_CACHE`).
 
@@ -79,16 +81,35 @@ the specs (2026-10-15, 40 spec files).
 Results:
 
 - The job summary lists the reporter's totals per spec file.
-- The artifact `native-<os>-<version>` holds `native.log`: the whole
+- The artifact `native-<os>-<version>` holds `native.log` (and
+  `known-failing.log` when the known failing step ran): the whole
   WebdriverIO output with the `METRIC {…}` and `EVIDENCE {…}` lines. Get it
   with `gh run download <run id> -n native-ubuntu-latest-1.14.4`, then
   `grep -E 'METRIC|EVIDENCE' native.log`. Its `screenshots/` folder holds
   the screenshots of `specs/pane-prototype.e2e.mjs` (`LFCP_SCREENSHOT_DIR`).
-  Cite the run id in a PR's
-  evidence. Metrics vary by runner and never gate.
+  Cite the run id in a PR's evidence. Metrics vary by runner and never
+  gate.
 - A failure: `gh run view <run id> --log-failed` shows the failing step;
   the spec reporter's error and stack are in `native.log` (search for
   `✖` or `failing`). Rerun only the failing spec with `-f specs=<name>`.
+
+### Known failing
+
+`test/native/known-failing.txt` lists the specs that fail for a known
+reason, each with the task that fixes it (`acceptance-sections
+LFCP-03-033`). The workflow passes each listed spec that the run selected
+to WebdriverIO as `--exclude`, so the gating run never sees it. Nothing is
+skipped, and the "No spec skipped" check stays as strict as before. A
+separate step, "Known failing specs (not gating)", then runs only those
+specs with `continue-on-error: true`:
+
+- a spec that fails is reported as `KNOWN FAILING (<task>)` in the job
+  summary and as a notice; the job stays green;
+- a spec that passes gets the warning "remove it from the list". Remove
+  its line in the same change that fixes it.
+
+Its whole output is `known-failing.log` in the run's artifact. Add a line
+only with a task that tracks the failure, never to make a run green.
 
 ## What it never touches
 
