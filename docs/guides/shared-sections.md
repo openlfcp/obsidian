@@ -33,6 +33,14 @@ is no longer used. To turn shared sections off, add
 `"sectionsDisabled": true` to `.obsidian/plugins/shared-tasks/data.json`
 while Obsidian is closed.)
 
+The pane shows one short tip next to what it offers: on a vault with no
+shared section, where to start (share from a heading, or join with a
+link); then what sharing, inserting and inviting do. **Hide tip** hides
+that tip in this vault; **Show tips again**, in the pane or in Settings →
+Shared Tasks → "Tips in the Shared Tasks pane", brings them back. Problems,
+edits not sent and what a change does are never tips: they always show.
+Nothing about tips leaves the device, and no tour opens by itself.
+
 A section is created on the **Default server** (Settings → Shared Tasks).
 With no default server, sharing is refused: "set a default sync server in
 the settings to share a section."
