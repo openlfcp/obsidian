@@ -12,6 +12,7 @@
 
 import { splitLines } from "../refs/lines";
 import { parseSections } from "./parser";
+import type { TargetCapture } from "./target";
 
 const LINE_MARKER = /^[ \t]*<!--[ \t]+\/?lfcp-(?:section|node|ref):[^>]*-->[ \t]*$/;
 const INLINE_REF = /[ \t]*<!--[ \t]+lfcp-ref:[^>]*-->/g;
@@ -36,4 +37,33 @@ export function sharedSectionText(markdown: string, line: number): string | null
     .slice(s.heading.line, s.endLine + 1)
     .map((l) => l.text + l.eol)
     .join("");
+}
+
+/** The offset of a (line, ch) position in `markdown` (lines split as the editor counts them). */
+function offsetOf(markdown: string, line: number, ch: number): number {
+  let at = 0;
+  const lines = splitLines(markdown);
+  for (let i = 0; i < line && i < lines.length; i++) {
+    const l = lines[i];
+    if (l !== undefined) at += l.text.length + l.eol.length;
+  }
+  return Math.min(at + ch, markdown.length);
+}
+
+/**
+ * What "Copy readable text" copies from a note as an action captured it
+ * (LFCP-03-013; the palette's command and the pane run the same): its
+ * selected text, else the section at the cursor, without LFCP metadata;
+ * null when there is neither.
+ */
+export function readableCopy(at: TargetCapture): string | null {
+  const parts = at.selections
+    .map((s) => {
+      const a = offsetOf(at.text, s.anchor.line, s.anchor.ch);
+      const h = offsetOf(at.text, s.head.line, s.head.ch);
+      return at.text.slice(Math.min(a, h), Math.max(a, h));
+    })
+    .filter((t) => t !== "");
+  const text = parts.length > 0 ? parts.join("\n") : sharedSectionText(at.text, at.cursorLine);
+  return text === null || text === "" ? null : readableText(text);
 }
