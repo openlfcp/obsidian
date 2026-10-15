@@ -14,6 +14,7 @@
 
 import type { ActionId } from "../../core/actions/catalog";
 import type { PaneAction, PaneModel } from "../../core/pane/model";
+import { contentHash } from "../../core/projection/guard";
 
 export interface PaneHandlers {
   readonly action: (id: ActionId) => void;
@@ -45,6 +46,13 @@ function el<K extends keyof HTMLElementTagNameMap>(
 
 let ids = 0;
 
+/**
+ * A problem's ID as the DOM carries it: a hash, never the ID itself, which
+ * holds a line of the note (a repair's line key). The click handler keeps
+ * the ID in its closure; the attribute only names the control across redraws.
+ */
+export const domKey = (problemId: string): string => contentHash(problemId).slice(0, 16);
+
 function button(
   parent: HTMLElement,
   a: PaneAction,
@@ -55,9 +63,9 @@ function button(
   const wrap = el(parent, "div", "openlfcp-pane-action");
   const b = el(wrap, "button", cls, a.label);
   b.type = "button";
-  b.setAttribute(KEY, problem === undefined ? `action:${a.id}` : `problem:${problem}`);
+  b.setAttribute(KEY, problem === undefined ? `action:${a.id}` : `problem:${domKey(problem)}`);
   b.dataset.action = a.id;
-  if (problem !== undefined) b.dataset.problem = problem;
+  if (problem !== undefined) b.dataset.problem = domKey(problem);
   if (a.destructive) b.classList.add("mod-warning");
   const run =
     problem !== undefined && h.problem !== undefined
@@ -155,7 +163,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     const ul = el(p, "ul", "openlfcp-pane-rows");
     for (const x of model.problems) {
       const li = el(ul, "li", `openlfcp-pane-problem is-${x.category}`);
-      li.dataset.problem = x.id;
+      li.dataset.problem = domKey(x.id);
       el(li, "div", "openlfcp-pane-problem-text", x.text);
       el(li, "div", "openlfcp-pane-row-meta", `Where: ${x.source}`);
       if (x.action !== null) button(li, x.action, h, "openlfcp-pane-secondary", x.id);
