@@ -49,6 +49,11 @@ export class NoteTargets {
     };
   }
 
+  /** How many notes are held now (diagnostics and tests: a hold not given back shows here). */
+  get size(): number {
+    return this.#byPath.size;
+  }
+
   /** The vault renamed a note: its held identity moves with it. */
   renamed(oldPath: string, path: string): void {
     const held = this.#byPath.get(oldPath);

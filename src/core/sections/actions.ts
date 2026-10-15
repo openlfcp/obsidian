@@ -183,6 +183,11 @@ export class SectionActions {
     return Promise.resolve(direct());
   }
 
+  /** How many notes the flows and the repair hold now (diagnostics and tests). */
+  heldNotes(): number {
+    return this.#targets.size;
+  }
+
   /** The vault renamed a note (its event, as it happens): a flow on it follows it. */
   noteRenamed(oldPath: string, path: string): void {
     this.#targets.renamed(oldPath, path);
