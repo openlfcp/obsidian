@@ -4,9 +4,13 @@
 // gives focus back to that control when it closes, by Escape or by its own
 // buttons.
 //
-// Obsidian's own Modal already gives focus back to the control that opened
-// it while that control is still in the page (native pane-keyboard, run
-// 38768295636, Linux, macOS and Windows). What it cannot do, and this does:
+// Obsidian's own Modal gives focus back to the control that opened it only
+// some of the time (native pane-keyboard, Obsidian 1.14.4, probe
+// KEYS-OBSIDIAN-MODAL): on Linux and Windows it did in each run; on macOS
+// it did in run 38768295636 and left focus on the page (BODY) in runs
+// 38769145805 and 38770117321. The plugin does not rely on it: restore()
+// gives focus back whenever it is left on the page, and also where
+// Obsidian cannot:
 // - the pane drew that control again while the dialog was open (a status,
 //   a flow step): focus goes to the control with the same pane key, else to
 //   the pane's heading;
@@ -17,10 +21,12 @@
 // flow is already open, or when focus went elsewhere on purpose (another
 // control than the editor and the page).
 //
-// Tab and Shift+Tab stay in the dialog (a modal trap). Obsidian keeps Tab
-// in its Modal on macOS and Windows, but Shift+Tab left it for the pane on
-// Linux (run 38769145805); the plugin's dialogs keep both, everywhere,
-// unless Obsidian already took the key.
+// Tab and Shift+Tab stay in the dialog (a modal trap). Obsidian kept Tab in
+// its Modal on macOS and Windows, but Shift+Tab left it for the pane on
+// Linux (run 38769145805); the plugin's dialogs keep both, everywhere. The
+// trap listens in the bubble phase, so of Obsidian's own handling it sees
+// only its capture-phase handlers: when one of those took the key, the
+// trap leaves it alone.
 
 import type { Modal } from "obsidian";
 
@@ -138,7 +144,12 @@ export function tabStops(dialog: HTMLElement): HTMLElement[] {
   return stops;
 }
 
-/** Tab and Shift+Tab cycle through `modal`'s Tab stops and never leave it. */
+/**
+ * Tab and Shift+Tab cycle through `modal`'s Tab stops and never leave it.
+ * The listener is on the dialog's container, in the bubble phase: of
+ * Obsidian's own handling it sees only what ran before it (capture-phase
+ * handlers), and leaves the key alone when one of those took it.
+ */
 function trapTab(modal: Modal): void {
   const box = (modal as { containerEl?: HTMLElement }).containerEl;
   const dialog = (modal as { modalEl?: HTMLElement }).modalEl ?? box;
