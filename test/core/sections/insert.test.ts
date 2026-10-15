@@ -19,6 +19,7 @@ import {
   SectionInsertion,
 } from "../../../src/core/sections/insert";
 import { parseSections } from "../../../src/core/sections/parser";
+import { insertDisplay } from "../../../src/core/sections/preview-display";
 import { preflight, proposeRange } from "../../../src/core/sections/share";
 import {
   KeyValueSectionBaseStore,
@@ -183,6 +184,12 @@ describe("inserting a shared section", () => {
     expect(preview.block).toContain("- [ ] Prepare contract");
     expect(preview.block).toContain("Draft the plan.");
     expect(preview.readOnly).toBe(false);
+    // What the preview shows (LFCP-03-020, C5): the section's text, no binding.
+    const shown = insertDisplay(preview.block);
+    expect(shown.readable).toBe(
+      "## Launch\n- [ ] Prepare contract\n  - [ ] Legal review\n\nDraft the plan.\n\n- Venue\n",
+    );
+    expect(shown.problem).toBeNull();
     const queued = await env.outbound();
     const entry = await insertion.prepare("Week.md", TARGET, 2, preview);
     const out = await insertion.run(entry);
