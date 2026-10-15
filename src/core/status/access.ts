@@ -64,6 +64,12 @@ export interface AccessView {
   readonly invitations: readonly string[];
   readonly pending: readonly string[];
   readonly canInvite: boolean;
+  /**
+   * Whether this vault may invite, as the pane and the action descriptors
+   * read it (LFCP-03-013): true or false only from a validated view that
+   * is current; null while unknown or stale, never a denial or a grant.
+   */
+  readonly invite: boolean | null;
   /** Why inviting is not offered, when it is not. */
   readonly inviteNote: string | null;
   /** Why removing access is not available right now, when it would be offered otherwise (UX §7). */
@@ -128,6 +134,7 @@ export function accessView(input: AccessInput): AccessView {
     (mine?.current !== true || !input.connected || mine.pendingControl.length > 0);
   const mayInvite = mine?.abilities.includes("capability/grant") === true;
   const canInvite = !unknown && mayInvite && mine?.current !== false;
+  const waits = unknown || mine?.current === false;
   return {
     heading: "Identities with access",
     freshness,
@@ -136,9 +143,10 @@ export function accessView(input: AccessInput): AccessView {
     invitations,
     pending,
     canInvite,
+    invite: canInvite ? true : waits ? null : false,
     inviteNote: canInvite
       ? null
-      : unknown || mine?.current === false
+      : waits
         ? "Inviting waits until this device has checked access with the server."
         : "You can't invite others to this section.",
     removeNote: !removalWaits
