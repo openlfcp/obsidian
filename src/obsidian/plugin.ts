@@ -15,7 +15,7 @@
 // next save). Conflicts show in the status bar and as an editor line
 // decoration, never in the text.
 
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import {
   apiVersion,
@@ -29,6 +29,7 @@ import {
   type TFile,
 } from "obsidian";
 import type { ActionId } from "../core/actions/catalog";
+import type { HostFacts } from "../core/actions/descriptors";
 import { ActionDispatcher, coreHandlers } from "../core/actions/dispatcher";
 import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
@@ -43,6 +44,8 @@ import {
 import { collectDiagnostics } from "../core/diagnostics-collect";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
+import { hostPaneFacts, hostPaneRequest, wiredModel } from "../core/pane/host-facts";
+import { type PaneModel, paneModel } from "../core/pane/model";
 import { ConflictRegistry } from "../core/projection/conflicts";
 import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
 import { MutationGuard } from "../core/projection/guard";
@@ -50,6 +53,7 @@ import { ProjectionNotices } from "../core/projection/notices";
 import { applyRepair } from "../core/projection/reassociation";
 import { type NoteIO, type NoteOutcome, ProjectionWriter } from "../core/projection/writer";
 import { readableText, sharedSectionText } from "../core/sections/clipboard";
+import type { TargetCapture } from "../core/sections/target";
 import { normalizeSettings, type Settings } from "../core/settings";
 import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
 import { conflictDecorations } from "./conflict-decoration";
@@ -57,10 +61,20 @@ import { obsidianRuntimeEnv } from "./lfcp-env";
 import { LiveRegion } from "./live-region";
 import { filterUiFromCopy } from "./section-clipboard";
 import { sectionPresentationExtension, setShowMetadata } from "./section-presentation";
+import { captureEditor, editorMode } from "./section-target";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
 import { DiagnosticsModal } from "./ui/diagnostics";
 import { registerPanePrototype } from "./ui/pane-prototype-view";
+import {
+  keepOne,
+  OPEN_PANE,
+  PANE_ICON,
+  PANE_VIEW,
+  type PaneHostPort,
+  paneOpener,
+  SharedTasksView,
+} from "./ui/pane-view";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
 
 /** Apply outcomes after which a collaborator may be blocked. */
@@ -328,7 +342,134 @@ export default class OpenLfcpPlugin extends Plugin {
         editorCallback: (editor, ctx) => void this.#runOnNote("insert-into-note", editor, ctx),
       });
     }
+    this.#registerPane();
     this.#starting = this.#startRuntime();
+    // The pane says "still starting" until the runtime ran (or failed).
+    void this.#starting.then(() => this.#nudgePane());
+  }
+
+  /**
+   * Reveals the one Shared Tasks pane (LFCP-03-012): the ribbon icon, the
+   * command, the section card's link and the editor menu all call this.
+   */
+  readonly openPane = paneOpener(() => this.app.workspace);
+
+  /** Pane listeners told of a change no other source reports (cursor moves, the runtime started). */
+  readonly #paneNudges = new Set<() => void>();
+
+  #nudgePane(): void {
+    for (const f of [...this.#paneNudges]) f();
+  }
+
+  /** The Shared Tasks pane and its entries (LFCP-03-012; F-01, F-02; U03-01, U03-20). */
+  #registerPane(): void {
+    const port: PaneHostPort = {
+      model: (view) => this.#paneModel(this.#paneNote(view)),
+      request: (view) => hostPaneRequest({ note: this.#paneNote(view) }),
+      run: (id, request) => this.actions.run(id, request, "pane"),
+      sources: [
+        (changed) => {
+          const off = this.sections?.registry.onChange(() => changed());
+          return () => void off?.();
+        },
+        (changed) => {
+          const off = this.sections?.onStatusChange(changed);
+          return () => void off?.();
+        },
+        (changed) => {
+          this.#paneNudges.add(changed);
+          return () => void this.#paneNudges.delete(changed);
+        },
+      ],
+    };
+    this.registerView(PANE_VIEW, (leaf) => new SharedTasksView(leaf, port));
+    // A cursor or selection moved in an editor: the pane's context may differ (coalesced there).
+    this.registerEditorExtension(
+      EditorView.updateListener.of((u) => {
+        if (u.selectionSet && this.#paneNudges.size > 0) this.#nudgePane();
+      }),
+    );
+    this.addRibbonIcon(PANE_ICON, OPEN_PANE, () => void this.openPane());
+    this.addCommand({
+      id: "open-shared-tasks-pane",
+      name: OPEN_PANE,
+      callback: () => void this.openPane(),
+    });
+    this.sections?.actions.paneEntry(() => void this.openPane());
+    const ws = this.app.workspace;
+    this.registerEvent(
+      ws.on("editor-menu", (menu, editor, info) => {
+        const path = info.file?.path;
+        const sections = this.sections;
+        if (path !== undefined && sections !== null) {
+          // The cursor's next step, as the pane would offer it, on the note captured now.
+          const note = captureEditor(
+            editor,
+            path,
+            editorMode(info instanceof MarkdownView ? info : null, editor),
+          );
+          const primary = this.#paneModel(note).primary;
+          if (primary?.enabled === true)
+            menu.addItem((item) =>
+              item
+                .setTitle(primary.label)
+                .setIcon(PANE_ICON)
+                .onClick(
+                  () => void this.actions.run(primary.id, hostPaneRequest({ note }), "menu"),
+                ),
+            );
+        }
+        menu.addItem((item) =>
+          item
+            .setTitle(OPEN_PANE)
+            .setIcon(PANE_ICON)
+            .onClick(() => void this.openPane()),
+        );
+      }),
+    );
+    // One pane per workspace: a restored or split layout with more keeps the first.
+    ws.onLayoutReady(() => {
+      if (this.#unloaded) return;
+      keepOne(ws);
+      this.registerEvent(ws.on("layout-change", () => keepOne(ws)));
+    });
+  }
+
+  /** The note in a Markdown view, read now; null without one. */
+  #paneNote(view: MarkdownView | null): TargetCapture | null {
+    const path = view?.file?.path;
+    if (view === null || path === undefined) return null;
+    return captureEditor(view.editor, path, editorMode(view, view.editor));
+  }
+
+  /** The pane's model for `note`, from the host's facts; actions this host cannot run are off. */
+  #paneModel(note: TargetCapture | null): PaneModel {
+    const s = this.sections;
+    const base: HostFacts = s?.hostFacts() ?? {
+      unavailable: null,
+      starting: this.runtime === null,
+      readOnly: Platform.isMobile,
+      server: this.settings.defaultServer.trim() !== "",
+    };
+    // A runtime that failed to start is not "still starting".
+    const failed = this.runtimeError;
+    const host: HostFacts =
+      failed === null || base.unavailable !== null
+        ? base
+        : { ...base, starting: false, unavailable: `Shared Tasks: ${failed}` };
+    const model = paneModel(
+      hostPaneFacts({
+        note,
+        registry: s?.registry.snapshot() ?? null,
+        status: (key) => s?.sectionStatus(key),
+        host,
+      }),
+    );
+    // With shared sections off on this device, only joining runs from the pane.
+    return wiredModel(
+      model,
+      (id) => this.actions.handles(id) && (s !== null || id === "join-with-link"),
+    );
   }
 
   /**

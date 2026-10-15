@@ -336,8 +336,9 @@ describe("plugin lifecycle (LFCP-059)", () => {
       await settle(plugin);
       expect(host.statusBar[0]?.text).toBe("Shared Tasks: 1 shared task has a conflict");
       expect(plugin.conflicts.marks("n.md")).toMatchObject([{ fields: ["due"] }]);
-      // The conflict decoration and the shared-section presentation (LFCP-02-048).
-      expect(host.editorExtensions).toHaveLength(2);
+      // The conflict decoration, the shared-section presentation (LFCP-02-048)
+      // and the pane's cursor listener (LFCP-03-012).
+      expect(host.editorExtensions).toHaveLength(3);
       expect(app.vault.files.get("n.md")).not.toMatch(/<{7}|={7}|>{7}|conflict/i);
       host.unload();
       await plugin.stopRuntime();
