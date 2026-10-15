@@ -1100,7 +1100,13 @@ export default class OpenLfcpPlugin extends Plugin {
     this.#nudgePane();
   }
 
-  /** Settles each join a restart interrupted; one that still cannot finish says so, with Retry and Give up. */
+  /**
+   * Settles each join a restart interrupted. One that still cannot finish
+   * is shown in the pane's join flow as unknown (LFCP-03-017, U03-10), with
+   * "Check the result" and "Give up" there and in a notice: the same claim
+   * from its journal, never the link again. A second one meanwhile says so
+   * with Retry and Give up, as before.
+   */
   async #resumeJoins(): Promise<void> {
     const collab = this.#collaboration();
     if (collab === null) return;
@@ -1111,9 +1117,10 @@ export default class OpenLfcpPlugin extends Plugin {
           kind: "unavailable" as const,
           message: e instanceof Error ? e.message : String(e),
         }));
-        if (out.kind === "joined")
+        if (out.kind === "joined") {
           new Notice(`Shared Tasks: joined "${name}". Joining had not finished before.`);
-        else if (out.kind === "not-claimed")
+          if (out.section !== undefined) this.sectionJoined(resourceId);
+        } else if (out.kind === "not-claimed")
           new Notice(
             `Shared Tasks: joining "${name}" did not go through, and the invitation was not used. Join again with the same link.`,
           );
@@ -1122,17 +1129,43 @@ export default class OpenLfcpPlugin extends Plugin {
           new Notice(`Shared Tasks: joining "${name}" was refused. ${out.message}`);
       };
       const ask = (why: string) => {
-        const body = createFragment();
-        body.createDiv({ text: `Shared Tasks: joining "${name}" didn't finish. ${why}` });
-        const buttons = body.createDiv({ cls: "modal-button-container" });
-        const notice = new Notice(body, 0);
+        const joins = this.#joins;
+        const generation = joins?.restore(resourceId, why) ?? null;
+        const notice = new Notice(
+          generation === null
+            ? `Shared Tasks: joining "${name}" didn't finish. ${why}`
+            : `Shared Tasks: joining "${name}" didn't finish. ${why} The Shared Tasks pane shows it.`,
+          0,
+        );
+        const el = (notice as { messageEl?: HTMLElement }).messageEl;
+        if (el === undefined) return;
+        const buttons = el.createDiv({ cls: "modal-button-container" });
         buttons
-          .createEl("button", { text: "Retry", cls: "mod-cta" })
-          .addEventListener("click", () => {
-            void settle(notice);
+          .createEl("button", {
+            text: generation === null ? "Retry" : "Check the result",
+            cls: "mod-cta",
+          })
+          .addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (joins === null || generation === null) {
+              void settle(notice);
+              return;
+            }
+            notice.hide();
+            void this.actions.run("check-result", { join: generation }, "pane").then(() => {
+              const s = joins.state();
+              if (s?.generation === generation && s.stage === "choose-place")
+                new Notice(`Shared Tasks: joined "${name}". Joining had not finished before.`);
+            });
           });
-        buttons.createEl("button", { text: "Give up" }).addEventListener("click", () => {
+        buttons.createEl("button", { text: "Give up" }).addEventListener("click", (e) => {
+          e.stopPropagation();
           notice.hide();
+          if (joins !== null && generation !== null) {
+            // The join flow drops the claim's journal and says so.
+            void joins.dismiss(generation);
+            return;
+          }
           void collab.abandonJoin(resourceId).then(() => {
             new Notice(`Shared Tasks: stopped joining "${name}". Your notes are unchanged.`);
           });

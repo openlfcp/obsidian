@@ -23,6 +23,11 @@
 // One lock for every surface (F-C04): the palette's join holds it from its
 // first dialog, the pane's from its Join button; a second start meanwhile
 // claims nothing.
+//
+// After a restart (LFCP-03-017, U03-10) a claim the start could not settle
+// is shown here again as unknown, from its journal (restore): "Check the
+// result" settles that claim, "Give up" drops its journal. The link is not
+// needed for either, and none is asked for.
 
 import type { ResourceId } from "@openlfcp/core";
 import { toHex } from "@openlfcp/core";
@@ -322,6 +327,28 @@ export class JoinFlow {
     if (resource !== undefined && (s.resource === null || toHex(s.resource) !== toHex(resource)))
       return;
     this.#end(s.generation);
+  }
+
+  /**
+   * A claim of `resource` a restart left unknown (its journal kept, the
+   * start could not settle it), shown as unknown with `why`; its
+   * generation, or null when another join holds the flow (it stays in its
+   * journal and is settled at the next start).
+   */
+  restore(resource: ResourceId, why: string): number | null {
+    if (this.busy() || this.#state !== null) return null;
+    const generation = ++this.#generation;
+    this.#set({
+      generation,
+      stage: "claiming capability",
+      outcome: "unknown",
+      resource,
+      facts: [],
+      problem: why,
+      problemKind: null,
+      checking: false,
+    });
+    return generation;
   }
 
   #stage(generation: number, stage: JoinStage): void {
