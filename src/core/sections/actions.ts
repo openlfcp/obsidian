@@ -639,7 +639,7 @@ export class SectionActions {
     } catch (e) {
       // D12: whether the block was written is unknown. The note stays reserved; the same insertion is checked.
       prompter.notice(
-        `Shared Tasks: inserting section "${preview.title}" stopped (${errorText(e)}); whether it was written is not known yet. Insert shared section… on this note checks it again and inserts nothing new.`,
+        `Shared Tasks: inserting section "${preview.title}" stopped (${errorText(e)}); whether it was written is not known yet. Inserting it into this note again checks it and inserts nothing new.`,
       );
       this.#unresolvedSoon();
       flow.unresolved(

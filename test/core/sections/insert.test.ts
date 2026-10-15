@@ -319,7 +319,7 @@ describe("what Insert shared section… says when it cannot insert yet", () => {
     // The beta.18 acceptance soak: a new member, invited while a structural
     // conflict was open, was told only that the section "has a problem to resolve".
     expect(insertRefusalMessage("not-renderable")).toBe(
-      'Shared Tasks: this section has a conflict to resolve before it can be inserted. Ask a member who already has it in a note to open its details and choose "Review conflicts…", then run "Insert shared section…" again.',
+      'Shared Tasks: this section has a conflict to resolve before it can be inserted. Ask a member who already has it in a note to open its details and choose "Review conflicts…", then insert it again.',
     );
   });
 
