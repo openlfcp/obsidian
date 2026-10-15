@@ -18,6 +18,8 @@ export type SyncIcon =
   | "pending"
   | "receiving"
   | "offline"
+  /** Not connected, and nothing says it is offline: not checked with the server yet. */
+  | "unchecked"
   | "unknown"
   | "attention"
   | "error";
@@ -46,6 +48,17 @@ export interface HeadingBadge {
   readonly accessibleName: string;
 }
 
+/**
+ * The sync icon of a view. Offline with no evidence of it (no session
+ * reported a transition, `connectionQualifier` "no-evidence") is not shown
+ * as offline: its tooltip says "Not checked with the server yet", and the
+ * icon has its own shape (LFCP-03-020, UX contract §6).
+ */
+export function iconOf(view: StatusView): SyncIcon | null {
+  if (view.state === "OFFLINE" && view.connectionQualifier === "no-evidence") return "unchecked";
+  return SYNC_ICON[view.state];
+}
+
 /** The badge after a section's heading. */
 export function headingBadge(title: string, view: StatusView): HeadingBadge {
   const facts: string[] = [];
@@ -68,7 +81,7 @@ export function headingBadge(title: string, view: StatusView): HeadingBadge {
   if (view.readOnly) facts.push("read-only");
   return {
     state: view.state,
-    icon: SYNC_ICON[view.state],
+    icon: iconOf(view),
     tooltip: view.label,
     accessibleName: [`Shared section ${title}`, ...facts, "open details"].join(", "),
   };
