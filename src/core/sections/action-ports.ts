@@ -121,8 +121,15 @@ export interface SectionPrompter {
   }): SectionDialog<boolean>;
   /** A local alias for an identity, or null when cancelled. */
   alias(current: string): Promise<string | null>;
-  /** "Repair shared sections in this note" (062). */
-  repair(items: readonly RepairItem[], lost: readonly LostBase[], actions: RepairActions): void;
+  /**
+   * "Repair shared sections in this note" (062): its result settles when the
+   * dialog closes (the executor holds the note until then, LFCP-03-018).
+   */
+  repair(
+    items: readonly RepairItem[],
+    lost: readonly LostBase[],
+    actions: RepairActions,
+  ): SectionDialog<void>;
   /** "Review conflicts…" (061): `apply` re-reads the model before each choice. */
   review(
     title: string,

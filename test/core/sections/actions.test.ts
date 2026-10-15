@@ -114,8 +114,8 @@ class RecordingPrompter implements SectionPrompter {
   async alias(current: string): Promise<string | null> {
     return this.#open<string | null>("alias", current).result;
   }
-  repair(...args: unknown[]): void {
-    this.#open("repair", ...args);
+  repair(...args: unknown[]) {
+    return this.#open<void>("repair", ...args);
   }
   review(...args: unknown[]): void {
     this.#open("review", ...args);
@@ -986,6 +986,67 @@ describe("repair (LFCP-03-008 over 062)", () => {
     expect(t.notes.files.get("Plan.md")).not.toContain("Draft only here");
     expect(t.calls).toEqual(["pass Plan.md"]);
     expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+  });
+
+  /** The vault renames `from` to `to`: its file moves and the executor hears the event. */
+  const rename = (t: ReturnType<typeof repairSetup>, from: string, to: string) => {
+    t.notes.files.set(to, t.notes.files.get(from) ?? "");
+    t.notes.files.delete(from);
+    t.actions.noteRenamed(from, to);
+  };
+
+  it("F1 (review of 009): a repair left open follows a rename; its choices act at the new path", async () => {
+    const t = repairSetup(LOST);
+    await t.actions.repairNote(t.editor.at());
+    const [, , actions] = opened(t);
+    rename(t, "Plan.md", "Moved.md");
+    await actions.shareMine(KEY);
+    // The base is the renamed note's: a base at the old path would be a lost base again.
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    expect(await t.bases.projectionsOf("Moved.md")).toHaveLength(1);
+    expect(t.calls).toEqual(["pass Moved.md"]);
+    actions.locate(2);
+    await flush();
+    expect(t.notes.located).toEqual([["Moved.md", 2]]);
+  });
+
+  it("F1: a boundary chosen after a rename is placed in the renamed note; after a delete, nowhere", async () => {
+    const broken = ["## Launch", formatBoundary("start", S), "- [ ] One", "", "## Other", ""].join(
+      "\n",
+    );
+    const t = repairSetup(broken);
+    await t.actions.repairNote(t.editor.at());
+    const [items, , actions] = opened(t);
+    const item = items[0];
+    if (item?.kind !== "missing-end") throw new Error(item?.kind);
+    rename(t, "Plan.md", "Moved.md");
+    await actions.boundary(item, 2);
+    expect(t.notes.writes.map((w) => w.path)).toEqual(["Moved.md"]);
+    expect(t.notes.files.get("Moved.md")).toContain(formatBoundary("end", S));
+    expect(t.calls).toEqual(["pass Moved.md"]);
+    // Deleted while the dialog is open: nothing is written, at either path.
+    t.notes.files.set("Moved.md", broken);
+    t.notes.files.delete("Moved.md");
+    t.actions.noteDeleted("Moved.md");
+    t.notes.files.set("Plan.md", broken);
+    await actions.boundary(item, 2);
+    expect(t.notes.writes).toHaveLength(1);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: the note was deleted. Nothing was repaired.",
+    ]);
+  });
+
+  it("F1: the note is held only while the dialog is open: a later note at the old path is another one", async () => {
+    const t = repairSetup(LOST);
+    await t.actions.repairNote(t.editor.at());
+    const [, , actions] = opened(t);
+    const dialog = t.prompter.open("repair")[0];
+    dialog?.answer(undefined);
+    await flush();
+    // Released once closed: the closed dialog no longer follows the note (its hold is given back).
+    rename(t, "Plan.md", "Moved.md");
+    await actions.shareMine(KEY);
+    expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
   });
 
   it("keeping this note's version adopts a base for it, and says so", async () => {

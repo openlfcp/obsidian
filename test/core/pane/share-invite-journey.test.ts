@@ -129,7 +129,9 @@ class Dialogs implements SectionPrompter {
   async alias(): Promise<string | null> {
     return null;
   }
-  repair(): void {}
+  repair() {
+    return { result: Promise.resolve(), bringForward: () => undefined };
+  }
   review(): void {}
   card() {
     return { update: () => undefined, close: () => undefined };

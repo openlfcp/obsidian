@@ -11,6 +11,12 @@ import type { RepairItem } from "../../core/sections/repair";
 export type { LostBase, RepairActions };
 
 export class RepairModal extends Modal {
+  #closed: () => void = () => undefined;
+  /** Settles when the dialog closes (an action it started may still run). */
+  readonly result = new Promise<void>((r) => {
+    this.#closed = r;
+  });
+
   constructor(
     app: App,
     private readonly items: readonly RepairItem[],
@@ -113,5 +119,6 @@ export class RepairModal extends Modal {
 
   override onClose(): void {
     this.contentEl.empty();
+    this.#closed();
   }
 }
