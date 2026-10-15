@@ -589,7 +589,9 @@ preview (MARKDOWN-SECTIONS-01 §8).
   "invitation sent" or "invited".
 - **I4. Ready means hosted.** "Invite collaborator…" is offered only when the
   section is on its server and access is current. A local-only share is
-  not an invitation that is ready.
+  not an invitation that is ready. Every entry (the pane, the card, the
+  command palette) checks this again when it runs: blocked, it opens no
+  role dialog and says the pane's reason (LFCP-03-041).
 - **I5. Explicit join input.** Join takes a link the user pastes into the
   field. There is no clipboard polling and no OS `lfcp://` handler in 0.3.
 - **I6. Join errors from real evidence.** Malformed link, link already used,
