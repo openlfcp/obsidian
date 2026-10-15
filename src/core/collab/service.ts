@@ -720,12 +720,17 @@ export class Collaboration {
       },
     ]);
     if (!r.ok) throw new CollabError("UNSUPPORTED_VALUE", "The collaboration could not be stored.");
-    await this.#runtime.setLocalName(R, name.trim() === "" ? "Shared collaboration" : name.trim());
+    // N5: a section joined without a name shows its shared title; a 0.1 collaboration needs one.
+    const section = chain.state.dataProfile === SECTIONS_PROFILE_ID;
+    const local = name.trim();
+    await this.#runtime.setLocalName(
+      R,
+      local !== "" ? local : section ? null : "Shared collaboration",
+    );
     await this.#runtime.localState.put(hostingKey(R), "hosted");
     await this.#runtime.localState.put(joinNameKey(R), null);
     const abilities = granted.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`);
     stage("synchronizing");
-    const section = chain.state.dataProfile === SECTIONS_PROFILE_ID;
     if (section) await this.#runtime.openSection(R);
     else await this.#runtime.openResource(R);
     // Until the session is live, or the connect timeout: joined either way.
@@ -751,7 +756,8 @@ export class Collaboration {
     for (const j of await pendingInvitationClaims(c.storage)) {
       const R = asResourceId(fromHex(j.resourceId));
       const record = (await this.#runtime.localState.get(joinNameKey(R))) as JoinRecord | undefined;
-      out.push({ resourceId: R, name: record?.name ?? "Shared collaboration" });
+      // A join without a name (N5) is named as the 0.1 commands always named one.
+      out.push({ resourceId: R, name: record?.name.trim() || "Shared collaboration" });
     }
     return out;
   }
