@@ -53,7 +53,7 @@ export function planTaskFields(
 }
 
 /** Whether two Task lines represent the same shared fields (status and owned fields). */
-function sameFields(a: Represented, b: Represented): boolean {
+export function sameFields(a: Represented, b: Represented): boolean {
   const tags = (r: Represented) =>
     r.text.tags
       .map((t) => t.normalize("NFC"))
