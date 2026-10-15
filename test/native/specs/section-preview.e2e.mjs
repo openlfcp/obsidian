@@ -335,7 +335,20 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
       const inside = await at(end - 1);
       const outside = await at(end + 1);
       const heading = await at(lines.indexOf("## Launch"));
-      return { inside, outside, heading, same: view.editor.getValue() === before };
+      const same = view.editor.getValue() === before;
+      // Review F2: a copy of the end line while its cue shows holds the line only,
+      // and an undo after the cue showed undoes the last edit, not a cue.
+      view.editor.replaceRange("X", { line: 0, ch: 0 });
+      await new Promise((r) => setTimeout(r, 300));
+      const shown = await at(end - 1);
+      const dt = new DataTransfer();
+      view.editor.cm.contentDOM.dispatchEvent(
+        new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }),
+      );
+      const copied = { text: dt.getData("text/plain"), html: dt.getData("text/html") };
+      view.editor.undo();
+      await new Promise((r) => setTimeout(r, 300));
+      return { inside, outside, heading, same, shown, copied, undone: view.editor.getValue() === before };
     });
     console.log(`EVIDENCE ${JSON.stringify({ id: "BOUNDARY-CUES", cues })}`);
     expect(cues.inside).toMatchObject({ cue: "inside", label: "Inside the shared section" });
@@ -344,6 +357,12 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(cues.outside.lineText).toBe(cues.outside.docLine);
     expect(cues.heading.cue).toBeNull();
     expect(cues.same).toBe(true);
+    expect(cues.shown.cue).toBe("inside");
+    // The editor copies the whole line for an empty selection.
+    expect([`${cues.shown.docLine}\n`, cues.shown.docLine]).toContain(cues.copied.text);
+    for (const t of [cues.copied.text, cues.copied.html])
+      expect(t).not.toMatch(/Inside the shared section|openlfcp-boundary-cue|data-lfcp-ui/);
+    expect(cues.undone).toBe(true);
   });
 
   it("Invite collaborator refuses a section its server does not hold yet (LFCP-02-051)", async () => {
