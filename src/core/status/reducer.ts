@@ -294,6 +294,9 @@ export const STATE_LABEL: Readonly<Record<StatusState, string>> = {
   READ_ONLY_CURRENT: "Shared section · read-only",
 };
 
+/** Offline with no evidence of it (no session reported a transition): not checked, never "Offline". */
+export const NOT_CHECKED_LABEL = "Not checked with the server yet; local updates will wait";
+
 const accepted = (b: BatchFacts) =>
   b.durable && b.unitIds.length > 0 && b.unitIds.every((u) => b.acceptedUnitIds.includes(u));
 const pending = (b: BatchFacts) =>
@@ -442,7 +445,11 @@ export function statusView(facts: StatusFacts): StatusView {
             ? "Connecting to the server"
             : c[0]?.kind === "offline" && facts.connection === "failed"
               ? "Could not connect to the server; local updates will wait"
-              : STATE_LABEL[state],
+              : c[0]?.kind === "offline" &&
+                  (facts.connectionQualifier === undefined ||
+                    facts.connectionQualifier === "no-evidence")
+                ? NOT_CHECKED_LABEL
+                : STATE_LABEL[state],
     sync: syncFacts(facts, c, state, waiting, held, projections),
     access: {
       access: facts.access,

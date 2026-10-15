@@ -65,7 +65,7 @@ function sources() {
   return { s, src };
 }
 
-const view = (state: StatusView["state"]) => ({ state }) as StatusView;
+const view = (state: StatusView["state"]) => ({ state, label: `label ${state}` }) as StatusView;
 
 describe("U03-02 registry view", () => {
   it("loading, error and empty are three states", async () => {
@@ -177,9 +177,9 @@ describe("U03-02 registry view", () => {
     const v = new SectionRegistryView(src);
     await v.refresh();
     expect(v.snapshot().rows.map((r) => r.status)).toEqual([
-      { watched: false, state: null },
-      { watched: true, state: null },
-      { watched: true, state: "CURRENT" },
+      { watched: false, state: null, label: null },
+      { watched: true, state: null, label: null },
+      { watched: true, state: "CURRENT", label: "label CURRENT" },
     ]);
   });
 

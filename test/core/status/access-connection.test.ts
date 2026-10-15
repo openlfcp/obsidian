@@ -255,7 +255,12 @@ describe("connection facts (F-C06, U03-28)", () => {
     ] as const) {
       const offline = surfaces({ ...quiet, connection: "offline", connectionQualifier: q });
       expect(offline.view.state).toBe("OFFLINE");
-      expect(offline.view.label).toBe("Offline; local updates will wait");
+      // M2: with no evidence the section is not checked yet, never "Offline".
+      expect(offline.view.label).toBe(
+        q === "no-evidence"
+          ? "Not checked with the server yet; local updates will wait"
+          : "Offline; local updates will wait",
+      );
       expect(offline.view.connectionQualifier).toBe(q);
       expect(offline.text).not.toMatch(/fail/i);
       expect(offline.view.sync.current).toBe(false);
@@ -267,13 +272,15 @@ describe("connection facts (F-C06, U03-28)", () => {
   });
 
   it("the reducer and the card agree: one connection line, matching the view", () => {
-    const line = /Connecting to the server|Could not connect|stopped responding|Offline/;
+    const line =
+      /Connecting to the server|Could not connect|stopped responding|Offline|Not checked with the server/;
     const cases: [StatusFacts["connection"], ConnectionQualifier | null, RegExp | null][] = [
       ["connected", null, null],
       ["connecting", null, /^Connecting to the server/],
       ["failed", null, /^Could not connect/],
       ["failed", "not-responding", /^The server stopped responding/],
       ["offline", "lost", /^Offline: local/],
+      ["offline", "no-evidence", /^Not checked with the server yet/],
       ["offline", "not-responding", /^Offline: the server stopped responding/],
       ["offline", "network-offline", /^Offline \(no network\)/],
     ];
