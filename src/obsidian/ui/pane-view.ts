@@ -28,6 +28,10 @@
 //
 // T1: an idle pane follows the last active Markdown note; focus moving into
 // the pane does not change it.
+//
+// U03-18 (LFCP-03-022): its entries are the user's own (a command, the
+// ribbon, a menu, the card's link), so opening the pane puts focus on its
+// heading, from where Tab reaches every control; a redraw never takes focus.
 
 import {
   type EventRef,
@@ -218,6 +222,12 @@ export class SharedTasksView extends ItemView {
     this.#chosen = null;
   }
 
+  /** Focus on the pane's heading (an entry opened it); drawn first if a change waits (L1). */
+  focusHeading(): void {
+    if (this.#stale) this.render();
+    this.#root?.querySelector<HTMLElement>('[data-pane-key="title"]')?.focus();
+  }
+
   /** Draws the pane now from the host's facts; while it is not shown, only notes that it must (L1). */
   render(): void {
     if (this.#root === null) return;
@@ -377,7 +387,7 @@ function currentMarkdown(ws: Workspace): MarkdownView | null {
 
 /**
  * Reveals the one Shared Tasks pane, opening it in the right sidebar when
- * there is none. Leaves of it beyond the first (a restored or split layout)
+ * there is none, with focus on its heading (U03-18). Leaves of it beyond the first (a restored or split layout)
  * are closed, so the workspace keeps one. Calls while one is opening share it.
  */
 export function paneOpener(ws: () => Workspace): () => Promise<WorkspaceLeaf | null> {
@@ -391,6 +401,7 @@ export function paneOpener(ws: () => Workspace): () => Promise<WorkspaceLeaf | n
       await leaf.setViewState({ type: PANE_VIEW, active: true });
     }
     await workspace.revealLeaf(leaf);
+    if (leaf.view instanceof SharedTasksView) leaf.view.focusHeading();
     return leaf;
   };
   return () => {
