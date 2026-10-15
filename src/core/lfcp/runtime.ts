@@ -15,6 +15,7 @@ import {
   createQueuedDataUnit,
   DataUnitApplier,
   dekResolver,
+  intentsHash,
   isEngineTrap,
   loadControlChain,
   OutboundQueue,
@@ -23,6 +24,7 @@ import {
   type ResourcePhase,
   type ResourceRefusal,
   type RevokeAccessResult,
+  receiptOf,
   type Receipt as SectionReceipt,
   type SnapshotBinding,
   type StatusSnapshot,
@@ -75,6 +77,7 @@ import {
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import type { DiscardResult } from "../sections/create";
+import { keepDurable } from "./durable-commit";
 import { historyRows } from "./history";
 import {
   createInstall,
@@ -1443,7 +1446,8 @@ export class LfcpRuntime {
       resourceId: resource,
       applier,
       checkpointer,
-      commit: profile.commitBinding(principal.id) as CommitBinding<unknown>,
+      // LFCP-03-033: a batch stored durably is never reverted in the model.
+      commit: keepDurable(profile.commitBinding(principal.id) as CommitBinding<unknown>),
       // LFCP-02-097: a joiner loads the section's Snapshot and fetches only the tail.
       snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
     };
@@ -1481,7 +1485,15 @@ export class LfcpRuntime {
     if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
-      return this.#session(opened.url).client.commit(resource, intents, options);
+      try {
+        return await this.#session(opened.url).client.commit(resource, intents, options);
+      } catch (e) {
+        // LFCP-03-033: stored, then a later step threw (durable-commit.ts):
+        // the batch is committed and goes out with the next connection.
+        const receipt = await receiptOf(this.#ready().storage, resource, options.operationId);
+        if (receipt === undefined || receipt.intentsHash !== intentsHash(intents)) throw e;
+        return receipt;
+      }
     });
   }
 
