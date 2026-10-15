@@ -24,7 +24,9 @@
 // eligible selection as it is (UX contract 0.3 §4).
 
 import { fromBase64url, type ResourceId, toBase64url } from "@openlfcp/core";
+import type { ActionId } from "../actions/catalog";
 import { type HostNeeds, hostRefusal, hostRefusalNotice } from "../actions/descriptors";
+import type { ActionRequest, Surface } from "../actions/dispatcher";
 import { type Flow, InFlight, type Reconciled } from "../in-flight";
 import { type NoteTarget, NoteTargets } from "../note-targets";
 import { scanRefs } from "../refs";
@@ -98,6 +100,9 @@ type CreationOutcome =
   | { readonly kind: "known"; readonly result: CreationResult }
   | { readonly kind: "unknown"; readonly error: unknown };
 
+/** How a surface runs an action by its ID: the dispatcher's `run` (actions/dispatcher.ts). */
+export type Dispatch = (id: ActionId, request: ActionRequest, surface: Surface) => Promise<void>;
+
 /** Share and import: a new section is hosted from this device. */
 const SHARE_NEEDS: HostNeeds = { writes: true, server: true };
 const SHARE_AGAIN = "Share the section again in a moment.";
@@ -115,7 +120,28 @@ export class SectionActions {
   #card: { readonly key: string; readonly title: string; readonly handle: CardHandle } | null =
     null;
 
+  /** The dispatcher the card's buttons run through (LFCP-03-010); null: their handlers directly. */
+  #dispatch: Dispatch | null = null;
+
   constructor(private readonly env: SectionActionEnv) {}
+
+  /**
+   * The card's buttons run their actions through `dispatch`, as every
+   * other surface does (U03-07). The host sets it once its dispatcher exists.
+   */
+  dispatchThrough(dispatch: Dispatch): void {
+    this.#dispatch = dispatch;
+  }
+
+  /** A card button's action: through the dispatcher when there is one, else `direct`, its handler. */
+  #fromCard(
+    id: ActionId,
+    request: ActionRequest,
+    direct: () => Promise<void> | void,
+  ): Promise<void> {
+    if (this.#dispatch !== null) return this.#dispatch(id, request, "card");
+    return Promise.resolve(direct());
+  }
 
   /** The vault renamed a note (its event, as it happens): a flow on it follows it. */
   noteRenamed(oldPath: string, path: string): void {
@@ -945,6 +971,7 @@ export class SectionActions {
       return;
     }
     const R = fromKey(key.slice(0, key.indexOf("#")));
+    const section = { key, title };
     const still = (run: (c: ResourceCommands) => Promise<void>) => () => {
       const commands = services.commands();
       if (!services.known(key) || commands === null) {
@@ -959,12 +986,25 @@ export class SectionActions {
     const actions: CardAction[] = [
       // Conflicts are resolved one by one, by the user (061).
       ...(conflicts.length > 0
-        ? [{ label: "Review conflicts…", run: () => this.reviewConflicts(key, title) }]
+        ? [
+            {
+              label: "Review conflicts…",
+              run: () =>
+                void this.#fromCard("review-conflicts", { section }, () =>
+                  this.reviewConflicts(key, title),
+                ),
+            },
+          ]
         : []),
       // Inviting is offered by the validated access (060), never by default;
       // never from a device where sections are read-only (the descriptors' guard).
       ...(content.access?.canInvite === true && !this.#mayNot({ writes: true })
-        ? [{ label: "Invite collaborator…", run: still((c) => c.inviteTo(R)) }]
+        ? [
+            {
+              label: "Invite collaborator…",
+              run: still((c) => this.#fromCard("invite", { section }, () => c.inviteTo(R))),
+            },
+          ]
         : []),
       // F-04: where edits are held, and the repair of that note.
       ...(held === undefined

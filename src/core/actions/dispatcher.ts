@@ -3,7 +3,10 @@
 // editor menu, the pane) runs an action by its stable ID through here, and
 // reaches the same handler with the same guards and the same reservation.
 // A surface supplies only what it found: the note as it captured it, the
-// section it is about, or the flow it drew. The palette command IDs stay as
+// section it is about, or the flow it drew. The card's "Review conflicts…"
+// and "Invite collaborator…" come here (SectionActions.dispatchThrough); its
+// other buttons (go to a line, repair from a held note, Resource status,
+// discard a kept copy) have no handler here yet and run their own. The palette command IDs stay as
 // they are; they map to these action IDs.
 //
 // Reservations (OBSIDIAN-UX-ARCHITECTURE-03 §4), held by the handlers:
