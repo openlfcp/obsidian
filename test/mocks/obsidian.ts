@@ -457,7 +457,12 @@ export abstract class SuggestModal<T> extends Modal {
 export class WorkspaceLeaf {
   type: string | null = null;
   view: ItemView | null = null;
+  /** The split the leaf is in (a sidebar): collapsed, nothing in it is shown. */
+  readonly root = { collapsed: false };
   constructor(readonly workspace?: Workspace) {}
+  getRoot(): { collapsed: boolean } {
+    return this.root;
+  }
   get app(): App | undefined {
     return this.workspace?.app;
   }

@@ -9,11 +9,15 @@
 // "pane"). No dialog opens by itself (no wizard); the join entry is always
 // there; nothing claims an OS link handler. Mobile loads it the same way.
 
+import { fromBase64url, type ResourceId } from "@openlfcp/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionId } from "../../src/core/actions/catalog";
 import type { ActionRequest, Surface } from "../../src/core/actions/dispatcher";
+import type { PaneAccess } from "../../src/core/pane/host-facts";
+import type { ActiveFlow } from "../../src/core/sections/actions";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
-import type { RegistrySnapshot } from "../../src/core/sections/registry-view";
+import type { RegistryRow, RegistrySnapshot } from "../../src/core/sections/registry-view";
+import { type StatusFacts, type StatusView, statusView } from "../../src/core/status/reducer";
 import OpenLfcpPlugin from "../../src/main";
 import { OPEN_PANE, PANE_VIEW, SharedTasksView } from "../../src/obsidian/ui/pane-view";
 import * as mock from "../mocks/obsidian";
@@ -65,20 +69,30 @@ async function loaded() {
 function fakeSections() {
   const registryListeners = new Set<() => void>();
   const statusListeners = new Set<() => void>();
-  const snapshot: RegistrySnapshot = {
+  const flowListeners = new Set<() => void>();
+  const flows: ActiveFlow[] = [];
+  const rows: RegistryRow[] = [];
+  const statuses = new Map<string, StatusView>();
+  const access = new Map<string, PaneAccess>();
+  const snapshot = (): RegistrySnapshot => ({
     version: 1,
     status: "ready",
     error: null,
     placementIndex: "complete",
-    rows: [],
-    sections: 0,
-    unplaced: 0,
-  };
+    rows: [...rows],
+    sections: rows.length,
+    unplaced: rows.filter((r) => r.placed === "unplaced").length,
+  });
   return {
     registryListeners,
     statusListeners,
+    flowListeners,
+    flows,
+    rows,
+    statuses,
+    access,
     registry: {
-      snapshot: () => snapshot,
+      snapshot,
       onChange: (l: () => void) => {
         registryListeners.add(l);
         return () => registryListeners.delete(l);
@@ -88,10 +102,17 @@ function fakeSections() {
       statusListeners.add(l);
       return () => statusListeners.delete(l);
     },
-    sectionStatus: () => undefined,
-    paneAccess: () => undefined,
+    sectionStatus: (key: string) => statuses.get(key),
+    paneAccess: (key: string) => access.get(key),
     hostFacts: () => ({ unavailable: null, starting: false, readOnly: false, server: true }),
-    actions: { paneEntry: () => undefined },
+    actions: {
+      paneEntry: () => undefined,
+      flows: () => [...flows],
+      onFlowsChange: (l: () => void) => {
+        flowListeners.add(l);
+        return () => flowListeners.delete(l);
+      },
+    },
     // What the plugin's own vault listeners call on it.
     noteRenamed: () => undefined,
     noteDeleted: () => undefined,
@@ -256,7 +277,7 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     (t.plugin as unknown as { sections: unknown }).sections = null;
   });
 
-  it("a change while open redraws once, coalesced; unload without close gives everything back", async () => {
+  it("changes while open redraw once, coalesced; unload without close gives everything back", async () => {
     const t = await loaded();
     const sections = fakeSections();
     (t.plugin as unknown as { sections: unknown }).sections = sections;
@@ -265,11 +286,18 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     const v = t.view() as SharedTasksView;
     const render = vi.spyOn(v, "render");
     for (const l of sections.registryListeners) l();
-    for (const l of sections.statusListeners) l();
     t.ws.trigger("file-open");
-    t.app.vault.trigger("rename", new mock.TFile("New.md"), "Old.md");
+    t.ws.trigger("editor-change");
     await wait(150);
     expect(render).toHaveBeenCalledTimes(1);
+    // P3: a status, a flow, a rename or a deletion is drawn at once, not coalesced.
+    for (const l of sections.statusListeners) l();
+    expect(render).toHaveBeenCalledTimes(2);
+    for (const l of sections.flowListeners) l();
+    t.app.vault.trigger("rename", new mock.TFile("New.md"), "Old.md");
+    expect(render).toHaveBeenCalledTimes(4);
+    await wait(150);
+    expect(render).toHaveBeenCalledTimes(4);
     // The plugin goes away: Obsidian unloads the view (no close first).
     (v as unknown as mock.Component).unload();
     expect(v.subscriptions).toBe(0);
@@ -277,7 +305,7 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     expect(counts(t.app)).toEqual(before);
     for (const l of sections.statusListeners) l();
     await wait(150);
-    expect(render).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenCalledTimes(4);
     (t.plugin as unknown as { sections: unknown }).sections = null;
   });
 
@@ -297,5 +325,183 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     expect(t.leaves()).toHaveLength(1);
     expect(t.button("Join with a link…")).toBeDefined();
     expect(mock.modals).toEqual([]);
+  });
+});
+
+/** A healthy section, its access verified current with the server. */
+const healthy: StatusFacts = {
+  session: "s",
+  revision: 1,
+  replica: "loaded",
+  access: "writer",
+  accessVerifiedAt: 1,
+  accessCurrent: true,
+  pendingControl: [],
+  connection: "connected",
+  catchUp: "current-at-checkpoint",
+  problems: [],
+  batches: [],
+  acceptanceEvidence: "available",
+  projections: [],
+};
+
+const rowOf = (over: Partial<RegistryRow> = {}): RegistryRow => ({
+  resource: R0,
+  sectionId: SID,
+  key: KEY,
+  sharedTitle: "Launch",
+  localAlias: null,
+  registryState: "available",
+  refusal: null,
+  status: { watched: true, state: "CURRENT", label: "Current" },
+  placements: [{ path: "Plan.md" } as never],
+  placementCount: 1,
+  placed: "placed",
+  ...over,
+});
+
+describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
+  async function open(over: { note?: string; cursor?: number } = {}) {
+    const t = await loaded();
+    const sections = fakeSections();
+    (t.plugin as unknown as { sections: unknown }).sections = sections;
+    const note = new mock.MarkdownView(new mock.TFile(over.note ?? "Plan.md"), TEXT);
+    note.cursorLine = over.cursor ?? 4;
+    t.ws.views.push(note);
+    t.ws.activeView = note;
+    sections.rows.push(rowOf());
+    sections.statuses.set(KEY, statusView(healthy));
+    sections.access.set(KEY, { canInvite: true, hosting: "hosted" });
+    await t.plugin.openPane();
+    const primary = () =>
+      t.el().querySelector<HTMLButtonElement>(".openlfcp-pane-primary button") ?? null;
+    return { ...t, sections, note, primary };
+  }
+
+  it("M3 / I4: with the access list's grant the primary action is Invite, run on that section", async () => {
+    const t = await open();
+    expect(t.primary()?.textContent).toBe("Invite collaborator…");
+    t.primary()?.click();
+    expect(t.runs.at(-1)).toMatchObject({
+      id: "invite",
+      request: { section: { key: KEY, title: "Launch" } },
+      surface: "pane",
+    });
+  });
+
+  it("P3, L2: a revocation disables at once; a click on the button drawn before runs nothing", async () => {
+    const t = await open();
+    const invite = t.primary();
+    expect(invite?.textContent).toBe("Invite collaborator…");
+    // The access was removed: the status pass says so; the pane draws at once, not coalesced.
+    t.sections.statuses.set(KEY, statusView({ ...healthy, access: "revoked" }));
+    for (const l of t.sections.statusListeners) l();
+    expect(t.primary()?.dataset.action).not.toBe("invite");
+    // A click that raced the redraw, on the old button: checked against the facts now.
+    invite?.click();
+    expect(t.runs).toEqual([]);
+  });
+
+  it("L2: a click acts on what was drawn; another note in view now redraws and runs nothing", async () => {
+    const t = await open();
+    const invite = t.primary();
+    // The cursor left the section before the click (no redraw yet): another target.
+    t.note.cursorLine = 0;
+    invite?.click();
+    expect(t.runs).toEqual([]);
+    expect(t.primary()?.textContent).toBe("Share section…");
+  });
+
+  it("D9: a chosen row is the pane's section when the cursor is in no section; the cursor wins", async () => {
+    const t = await open({ cursor: 1 });
+    expect(t.el().textContent).not.toContain("Invite collaborator…");
+    const row = t.el().querySelector<HTMLButtonElement>(`button[data-row="${KEY}"]`);
+    expect(row?.getAttribute("aria-pressed")).toBe("false");
+    row?.click();
+    expect(t.el().querySelector(`button[data-row="${KEY}"]`)?.getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(t.primary()?.textContent).toBe("Invite collaborator…");
+    t.primary()?.click();
+    expect(t.runs.at(-1)).toMatchObject({ id: "invite", request: { section: { key: KEY } } });
+  });
+
+  it("D9: the section just joined is the pane's section until another is under the cursor or chosen", async () => {
+    const t = await open({ cursor: 1 });
+    t.sections.rows.splice(0, 1, rowOf({ placements: [], placementCount: 0, placed: "unplaced" }));
+    t.plugin.sectionJoined(fromBase64url(R0) as ResourceId);
+    await wait(150);
+    expect(t.primary()?.textContent).toBe("Insert into a note…");
+    expect(t.el().textContent).toContain("Not inserted yet");
+  });
+
+  it("P2, T2: a running flow is pinned; its next step goes back to it, not to the note in view", async () => {
+    const t = await open({ note: "Other.md", cursor: 0 });
+    t.sections.flows.push({
+      generation: 3,
+      kind: "share",
+      path: "Plan.md",
+      stage: "",
+      step: "preview",
+      outcome: "running",
+      checking: false,
+    });
+    for (const l of t.sections.flowListeners) l();
+    expect(t.el().textContent).toContain("For Plan.md");
+    // A later flow on the note in view does not take the current area.
+    t.sections.flows.push({
+      generation: 4,
+      kind: "insert",
+      path: "Other.md",
+      stage: "",
+      step: "captured",
+      outcome: "running",
+      checking: false,
+    });
+    for (const l of t.sections.flowListeners) l();
+    expect(t.el().textContent).toContain("For Plan.md");
+    expect(t.el().textContent).toContain("Inserting a shared section");
+    t.primary()?.click();
+    expect(t.runs.at(-1)).toEqual({ id: "share-section", request: { flow: 3 }, surface: "pane" });
+    // The flow ended: a click drawn for it (a late one) runs nothing; the pane holds the other.
+    const late = t.primary();
+    t.sections.flows.splice(0, 1);
+    late?.click();
+    expect(t.runs).toHaveLength(1);
+    expect(t.el().textContent).toContain("For Other.md");
+  });
+
+  it("D12: an unknown result's Check the result names its flow", async () => {
+    const t = await open();
+    t.sections.flows.push({
+      generation: 9,
+      kind: "insert",
+      path: "Plan.md",
+      stage: "",
+      step: "writing",
+      outcome: "unknown",
+      checking: false,
+    });
+    for (const l of t.sections.flowListeners) l();
+    expect(t.primary()?.textContent).toBe("Check the result");
+    t.primary()?.click();
+    expect(t.runs.at(-1)).toEqual({ id: "check-result", request: { flow: 9 }, surface: "pane" });
+  });
+
+  it("L1: while the sidebar is collapsed the pane neither reads nor draws; shown again, it draws once", async () => {
+    const t = await open();
+    const v = t.view() as SharedTasksView;
+    const leaf = t.leaves()[0] as mock.WorkspaceLeaf;
+    leaf.root.collapsed = true;
+    const before = v.drawings;
+    for (const l of t.sections.statusListeners) l();
+    t.ws.trigger("editor-change");
+    await wait(150);
+    expect(v.drawings).toBe(before);
+    leaf.root.collapsed = false;
+    v.onResize();
+    expect(v.drawings).toBe(before + 1);
+    v.onResize();
+    expect(v.drawings).toBe(before + 1);
   });
 });

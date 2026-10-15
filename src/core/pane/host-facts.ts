@@ -1,29 +1,37 @@
-// The pane's facts from the real host (LFCP-03-012): a minimal adapter from
+// The pane's facts from the real host (LFCP-03-012, 013): an adapter from
 // what the plugin already knows to the pane's view model (model.ts). It
 // reads, never writes, and opens nothing:
 //
 //   - the last active Markdown note, as captured now (TargetCapture: its
 //     text, cursor, selections and mode), or none;
 //   - the section registry view (SectionRegistryView, LFCP-03-011);
-//   - each section's status through the one status path (StatusView);
+//   - each section's status through the one status path (StatusView), and
+//     its access list's facts (canInvite, hosting), unknown until read;
+//   - the share and insert flows (SectionActions.flows()): the one the pane
+//     holds (pinned) owns the current area, the others are listed;
+//   - the section chosen in the list and the one just joined (D9);
 //   - the host's running state (HostFacts, the descriptors' guard).
 //
-// What it does not know yet it leaves out rather than invent: no flow, no
-// unfinished list, no section chosen in the list or just joined, no access
-// list (canInvite unknown). LFCP-03-013 adds those (D9, D10, the CTA rows).
+// One drawing gives the facts, what each button hands the dispatcher and
+// an identity of what it acts on, from the same reading (L2): a click is
+// checked against the facts as they are then, never run on another target.
 // Pure: no Obsidian, no DOM.
 
+import type { ActionId } from "../actions/catalog";
 import { type HostFacts, RUNNING } from "../actions/descriptors";
 import type { ActionRequest } from "../actions/dispatcher";
+import type { ActiveFlow } from "../sections/actions";
 import { sectionAtLine } from "../sections/context";
 import type { RegistryRow, RegistrySnapshot } from "../sections/registry-view";
 import { proposeRange } from "../sections/share";
 import { shareScope, type TargetCapture } from "../sections/target";
 import { type StatusView, statusView } from "../status/reducer";
+import { flowAction, stageOf } from "./flows";
 import type {
   PaneAction,
   PaneContext,
   PaneFacts,
+  PaneFlow,
   PaneModel,
   PaneRegistry,
   PaneSection,
@@ -42,6 +50,14 @@ export interface PaneAccess {
 
 /** What the pane host reads, each time the pane redraws. */
 export interface PaneHostSources {
+  /** The share and insert flows running, or whose result is being reconciled (SectionActions.flows()). */
+  readonly flows?: readonly ActiveFlow[];
+  /** The flow the pane holds (its generation): it keeps the current area until it ends (P2, T2). */
+  readonly pinned?: number | null;
+  /** The section the user chose in the list (its key), or null (D9). */
+  readonly chosen?: string | null;
+  /** The section Resource joined last on this device (base64url), or null (D9). */
+  readonly justJoined?: string | null;
   /** The last active Markdown note, read now; null when none is open. */
   readonly note: TargetCapture | null;
   /** The registry view's snapshot; null while shared sections are off on this device. */
@@ -143,7 +159,11 @@ function sectionOf(
   const access = src.access?.(at.key);
   return {
     key: at.key,
-    sharedTitle: row?.sharedTitle ?? (at.title === "" ? null : at.title),
+    // N1-N3: the shared title once loaded; before, the local alias (with its qualifier), and
+    // only without either the heading as this note shows it.
+    sharedTitle:
+      row?.sharedTitle ??
+      (row !== undefined && row.localAlias !== null ? null : at.title === "" ? null : at.title),
     localAlias: row?.localAlias ?? null,
     placements: row?.placementCount ?? null,
     view: src.status(at.key) ?? unknownStatus(),
@@ -153,41 +173,133 @@ function sectionOf(
   };
 }
 
-/** The pane's facts from the host's sources (see the module comment for what is left out). */
-export function hostPaneFacts(src: PaneHostSources): PaneFacts {
+/** One drawing of the pane: its facts, and what each button acts on. */
+export interface PaneDrawing {
+  readonly facts: PaneFacts;
+  /** What a click of action `id` hands the dispatcher. */
+  request(id: ActionId): ActionRequest;
+  /** What action `id` acts on (note, section, flow): a click compares it with the facts then (L2). */
+  identity(id: ActionId): string;
+  /** The flow the pane holds now (its generation), to keep on the next drawing. */
+  readonly pinned: number | null;
+}
+
+/**
+ * The flow that owns the current area (P2, T2): the one the pane holds
+ * while it runs, else one on the note in view, else the latest. It never
+ * moves to another one while it runs.
+ */
+function pickFlow(
+  flows: readonly ActiveFlow[],
+  pinned: number | null,
+  note: string | null,
+): ActiveFlow | null {
+  const held = flows.find((f) => f.generation === pinned);
+  if (held !== undefined) return held;
+  const latest = (xs: readonly ActiveFlow[]) =>
+    xs.reduce<ActiveFlow | null>(
+      (a, f) => (a === null || f.generation > a.generation ? f : a),
+      null,
+    );
+  return latest(flows.filter((f) => f.path !== null && f.path === note)) ?? latest(flows);
+}
+
+const paneFlow = (f: ActiveFlow): PaneFlow => ({
+  kind: f.kind,
+  stage: f.step,
+  outcome: f.outcome,
+  generation: f.generation,
+  ...(f.path === null ? {} : { target: f.path }),
+});
+
+/** The section a row of the registry is about, by key or, before its model is open, by Resource. */
+function rowFocus(
+  rows: readonly RegistryRow[],
+  match: (r: RegistryRow) => boolean,
+): { key: string; title: string } | null {
+  const row = rows.find(match);
+  if (row === undefined) return null;
+  return { key: row.key ?? row.resource, title: row.sharedTitle ?? row.localAlias ?? "" };
+}
+
+/** The pane's facts and requests from the host's sources, from one reading (L2). */
+export function hostPane(src: PaneHostSources): PaneDrawing {
   const note = src.note;
-  // D9: the section under the cursor; the list choice and the just-joined one come with 013.
-  const at = underCursor(note);
+  const rows = src.registry?.rows ?? [];
+  // D9: the section under the cursor, else the one chosen in the list, else the one just joined.
+  const under = underCursor(note);
+  const chosen = src.chosen ?? null;
+  const joined = src.justJoined ?? null;
+  const at =
+    under ??
+    (chosen === null ? null : rowFocus(rows, (r) => (r.key ?? r.resource) === chosen)) ??
+    (joined === null ? null : rowFocus(rows, (r) => r.resource === joined));
+  const flows = src.flows ?? [];
+  const flow = pickFlow(flows, src.pinned ?? null, note?.path ?? null);
+  const others = flows.filter((f) => f !== flow);
   const context: PaneContext = {
     editor: note === null ? "none" : note.mode,
     note: note?.path ?? null,
     cursor:
       note === null
         ? "none"
-        : at !== null
+        : under !== null
           ? "inside-section"
           : proposeRange(note.text, note.cursorLine) !== null
             ? "private-heading"
             : "private-text",
-    selection: note === null || at !== null ? null : selectionOf(note),
-    flow: null,
+    selection: note === null || under !== null ? null : selectionOf(note),
+    flow: flow === null ? null : paneFlow(flow),
   };
-  return {
+  const facts: PaneFacts = {
     context,
     registry: registryOf(src.registry),
-    section: at === null ? null : sectionOf(at, src.registry?.rows ?? [], src),
+    section: at === null ? null : sectionOf(at, rows, src),
+    ...(others.length === 0 ? {} : { unfinished: others.map(paneFlow) }),
     host: src.host ?? RUNNING,
   };
-}
-
-/** What a pane button hands the dispatcher: the note as captured now, and the section it is about. */
-export function hostPaneRequest(src: Pick<PaneHostSources, "note">): ActionRequest {
-  const note = src.note;
-  const at = underCursor(note);
-  return {
+  const base: ActionRequest = {
     ...(note === null ? {} : { target: note }),
     ...(at === null ? {} : { section: at }),
   };
+  const request = (id: ActionId): ActionRequest => {
+    // The running flow's next step goes back to that flow, on its own note (T2), never a new one here.
+    if (
+      flow !== null &&
+      flow.outcome === "running" &&
+      stageOf(flow.kind, flow.step).waits === "user" &&
+      flowAction(flow.kind, flow.step) === id
+    )
+      return { flow: flow.generation };
+    if (id === "check-result" && flow?.outcome === "unknown") return { flow: flow.generation };
+    if (id === "continue-flow") {
+      const next = others[0] ?? flow;
+      return next === null ? {} : { flow: next.generation };
+    }
+    return base;
+  };
+  return {
+    facts,
+    request,
+    identity: (id) => {
+      const r = request(id);
+      return JSON.stringify([r.target?.path ?? null, r.section?.key ?? null, r.flow ?? null]);
+    },
+    pinned: flow?.generation ?? null,
+  };
+}
+
+/** The pane's facts from the host's sources. */
+export function hostPaneFacts(src: PaneHostSources): PaneFacts {
+  return hostPane(src).facts;
+}
+
+/** What a pane button hands the dispatcher: the note as captured now, and the section it is about. */
+export function hostPaneRequest(
+  src: PaneHostSources,
+  id: ActionId = "open-details",
+): ActionRequest {
+  return hostPane(src).request(id);
 }
 
 /** Why a pane button is off while shared sections are off on this device: only joining runs. */

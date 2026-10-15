@@ -114,11 +114,14 @@ export function coreHandlers(env: {
   readonly collab: CollabEntry;
   readonly host?: HostEntry;
 }): Partial<Record<ActionId, ActionHandler>> {
+  // A flow's next step drawn for that flow (the pane, T2) goes back to it, on its own note.
   const withTarget =
     (run: (a: SectionActions, at: TargetCapture) => Promise<void> | void): ActionHandler =>
     async (r) => {
       const a = env.sections();
-      if (a !== null && r.target !== undefined) await run(a, r.target);
+      if (a === null) return;
+      if (r.target !== undefined) await run(a, r.target);
+      else if (r.flow !== undefined) await a.continueFlow(r.flow);
     };
   /** The section's details card: where its sync facts, held edits and access list are. */
   const card: ActionHandler = async (r) => {
@@ -138,6 +141,7 @@ export function coreHandlers(env: {
       if (a === null) return;
       if (r.target !== undefined) await a.repairNote(r.target);
       else if (r.at !== undefined) await a.repairAt(r.at.path);
+      else if (r.flow !== undefined) await a.continueFlow(r.flow);
     },
     "detach-section": withTarget((a, at) => a.detachSectionAt(at)),
     "open-details": card,

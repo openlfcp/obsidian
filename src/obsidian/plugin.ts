@@ -44,8 +44,8 @@ import {
 import { collectDiagnostics } from "../core/diagnostics-collect";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
-import { hostPaneFacts, hostPaneRequest, wiredModel } from "../core/pane/host-facts";
-import { type PaneModel, paneModel } from "../core/pane/model";
+import { hostPane, wiredModel } from "../core/pane/host-facts";
+import { paneModel } from "../core/pane/model";
 import { ConflictRegistry } from "../core/projection/conflicts";
 import { type BaseStore, ProjectionEngine, type ProjectionHost } from "../core/projection/engine";
 import { MutationGuard } from "../core/projection/guard";
@@ -72,6 +72,8 @@ import {
   PANE_ICON,
   PANE_VIEW,
   type PaneHostPort,
+  type PaneSnapshot,
+  type PaneUi,
   paneOpener,
   SharedTasksView,
 } from "./ui/pane-view";
@@ -166,6 +168,8 @@ export default class OpenLfcpPlugin extends Plugin {
       defaultServer: () => this.settings.defaultServer,
       sections: () => !this.settings.sectionsDisabled,
       wrote: (path, markdown) => this.#enqueue(() => this.projection.reindex(path, markdown)),
+      // D9: the pane is about the section just joined, until another one is.
+      joined: (R: ResourceId) => this.sectionJoined(R),
       // F-05: "Resolve shared task conflict" in a section opens the section's own review.
       ...(this.settings.sectionsDisabled
         ? {}
@@ -353,21 +357,26 @@ export default class OpenLfcpPlugin extends Plugin {
   /** The Shared Tasks pane and its entries (LFCP-03-012; F-01, F-02; U03-01, U03-20). */
   #registerPane(): void {
     const port: PaneHostPort = {
-      model: (view) => this.#paneModel(this.#paneNote(view)),
-      request: (view) => hostPaneRequest({ note: this.#paneNote(view) }),
+      snapshot: (view, ui) => this.#pane(this.#paneNote(view), ui),
       run: (id, request) => this.actions.run(id, request, "pane"),
       sources: [
         (changed) => {
           const off = this.sections?.registry.onChange(() => changed());
           return () => void off?.();
         },
+        // P3: a status (a revocation, offline, a refusal) and a flow disable at once, not coalesced.
         (changed) => {
-          const off = this.sections?.onStatusChange(changed);
+          const off = this.sections?.onStatusChange(() => changed(true));
           return () => void off?.();
         },
         (changed) => {
-          this.#paneNudges.add(changed);
-          return () => void this.#paneNudges.delete(changed);
+          const off = this.sections?.actions.onFlowsChange(() => changed(true));
+          return () => void off?.();
+        },
+        (changed) => {
+          const nudge = () => changed();
+          this.#paneNudges.add(nudge);
+          return () => void this.#paneNudges.delete(nudge);
         },
       ],
     };
@@ -397,15 +406,14 @@ export default class OpenLfcpPlugin extends Plugin {
             path,
             editorMode(info instanceof MarkdownView ? info : null, editor),
           );
-          const primary = this.#paneModel(note).primary;
+          const pane = this.#pane(note, { pinned: null, chosen: null });
+          const primary = pane.model.primary;
           if (primary?.enabled === true)
             menu.addItem((item) =>
               item
                 .setTitle(primary.label)
                 .setIcon(PANE_ICON)
-                .onClick(
-                  () => void this.actions.run(primary.id, hostPaneRequest({ note }), "menu"),
-                ),
+                .onClick(() => void this.actions.run(primary.id, pane.request(primary.id), "menu")),
             );
         }
         menu.addItem((item) =>
@@ -431,8 +439,20 @@ export default class OpenLfcpPlugin extends Plugin {
     return captureEditor(view.editor, path, editorMode(view, view.editor));
   }
 
-  /** The pane's model for `note`, from the host's facts; actions this host cannot run are off. */
-  #paneModel(note: TargetCapture | null): PaneModel {
+  /** The section joined last on this device (base64url): the pane is about it until another is (D9). */
+  #justJoined: string | null = null;
+
+  /** A shared section was joined on this device (its Resource): the pane is about it now (D9). */
+  sectionJoined(R: ResourceId): void {
+    this.#justJoined = toBase64url(R);
+    this.#nudgePane();
+  }
+
+  /**
+   * The pane for `note`, from the host's facts read once (L2): its model,
+   * with the actions this host cannot run off, and what each button acts on.
+   */
+  #pane(note: TargetCapture | null, ui: PaneUi): PaneSnapshot {
     const s = this.sections;
     const base: HostFacts = s?.hostFacts() ?? {
       unavailable: null,
@@ -446,20 +466,28 @@ export default class OpenLfcpPlugin extends Plugin {
       failed === null || base.unavailable !== null
         ? base
         : { ...base, starting: false, unavailable: `Shared Tasks: ${failed}` };
-    const model = paneModel(
-      hostPaneFacts({
-        note,
-        registry: s?.registry.snapshot() ?? null,
-        status: (key) => s?.sectionStatus(key),
-        access: (key) => s?.paneAccess(key),
-        host,
-      }),
-    );
+    const drawing = hostPane({
+      note,
+      registry: s?.registry.snapshot() ?? null,
+      status: (key) => s?.sectionStatus(key),
+      access: (key) => s?.paneAccess(key),
+      host,
+      flows: s?.actions.flows() ?? [],
+      pinned: ui.pinned,
+      chosen: ui.chosen,
+      justJoined: this.#justJoined,
+    });
     // With shared sections off on this device, only joining runs from the pane.
-    return wiredModel(
-      model,
+    const model = wiredModel(
+      paneModel(drawing.facts),
       (id) => this.actions.handles(id) && (s !== null || id === "join-with-link"),
     );
+    return {
+      model,
+      request: drawing.request,
+      identity: drawing.identity,
+      pinned: drawing.pinned,
+    };
   }
 
   /**
