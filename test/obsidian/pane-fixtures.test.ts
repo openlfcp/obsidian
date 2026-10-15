@@ -12,17 +12,19 @@
 // call to action, its enabled and disabled actions with their reasons word
 // for word, its claims and none of the forbidden ones.
 //
-// Coverage: 19 states in full, the share previews of selection-exact and
+// Coverage: 20 states in full, the share previews of selection-exact and
 // content-comments-and-table included (LFCP-03-014: the pane's preview is
 // the share dialog's preflight on the note in view, its counts and warnings
-// the fixture's); 2 todo, needing a flow the host cannot produce yet: a
-// join flow (LFCP-03-015) and an unfinished flow read from the journals
+// the fixture's), and the join flow's (LFCP-03-015: the plugin's join flow,
+// CollabCommands.joins, at the fixture's stage); 1 todo, needing a flow the
+// host cannot produce yet: an unfinished flow read from the journals
 // (LFCP-03-017).
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fromBase64url, type ResourceId } from "@openlfcp/core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { JoinFlow, type JoinFlowState } from "../../src/core/collab/join-flow";
 import type { PaneAccess } from "../../src/core/pane/host-facts";
 import { type FixtureFacts, statusFactsOf } from "../../src/core/pane/mock-facts";
 import type { ActiveFlow } from "../../src/core/sections/actions";
@@ -59,11 +61,20 @@ const doc = JSON.parse(
  */
 const HOST_STEP: Readonly<Record<string, string>> = { projected: "writing" };
 
-/** The steps SectionActions reports (actions.ts ActiveFlow.step). */
-const HOST_STEPS = new Set(["preview", "creating", "captured", "writing"]);
+/** The steps SectionActions reports (actions.ts ActiveFlow.step), and the join flow's (join-flow.ts). */
+const HOST_STEPS = new Set([
+  "preview",
+  "creating",
+  "captured",
+  "writing",
+  "link",
+  "claiming capability",
+  "access",
+  "loading",
+  "choose-place",
+]);
 
 const NOT_YET: Readonly<Record<string, string>> = {
-  "unknown-result-join": "a join flow in the pane (LFCP-03-015)",
   "unfinished-insert": "an unfinished flow read from the journals (LFCP-03-017)",
 };
 
@@ -284,6 +295,20 @@ async function drawn(st: State) {
   // D9: a section not under the cursor is the one just joined.
   if (st.facts.section !== null && st.facts.context.cursor !== "inside-section")
     plugin.sectionJoined(fromBase64url(R0) as ResourceId);
+  // A join flow is the plugin's own (CollabCommands.joins), at the fixture's stage.
+  const jf = st.facts.context.flow;
+  vi.restoreAllMocks();
+  if (jf !== null && jf.kind === "join" && jf.outcome !== "unfinished")
+    vi.spyOn(JoinFlow.prototype, "state").mockReturnValue({
+      generation: 1,
+      stage: jf.stage as JoinFlowState["stage"],
+      outcome: jf.outcome,
+      resource: null,
+      facts: [],
+      problem: null,
+      problemKind: null,
+      checking: false,
+    });
   const note = noteOf(st);
   if (note !== null) {
     app.workspace.views.push(note);
