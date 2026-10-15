@@ -30,7 +30,7 @@ import {
 } from "obsidian";
 import type { ActionId } from "../core/actions/catalog";
 import type { HostFacts } from "../core/actions/descriptors";
-import { ActionDispatcher, coreHandlers } from "../core/actions/dispatcher";
+import { ActionDispatcher, coreHandlers, type HostEntry } from "../core/actions/dispatcher";
 import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
 import { Collaboration } from "../core/collab/service";
 import { rehostNotice } from "../core/collab/view";
@@ -52,7 +52,7 @@ import { MutationGuard } from "../core/projection/guard";
 import { ProjectionNotices } from "../core/projection/notices";
 import { applyRepair } from "../core/projection/reassociation";
 import { type NoteIO, type NoteOutcome, ProjectionWriter } from "../core/projection/writer";
-import { readableText, sharedSectionText } from "../core/sections/clipboard";
+import { readableCopy, sharedSectionText } from "../core/sections/clipboard";
 import type { TargetCapture } from "../core/sections/target";
 import { normalizeSettings, type Settings } from "../core/settings";
 import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
@@ -175,7 +175,11 @@ export default class OpenLfcpPlugin extends Plugin {
           }),
     });
     this.actions = new ActionDispatcher(
-      coreHandlers({ sections: () => this.sections?.actions ?? null, collab: ui }),
+      coreHandlers({
+        sections: () => this.sections?.actions ?? null,
+        collab: ui,
+        host: this.#hostEntry(),
+      }),
     );
     const handlers: Readonly<Record<string, () => Promise<void>>> = {
       "share-task-under-cursor": () => ui.shareTaskUnderCursor(),
@@ -186,7 +190,7 @@ export default class OpenLfcpPlugin extends Plugin {
       // The pane's "Join with a link…" and "Invite collaborator…": one handler, one lock.
       "join-collaboration": () => this.actions.run("join-with-link"),
       "invite-collaborator": () => this.actions.run("invite"),
-      "resource-status": () => ui.resourceStatus(),
+      "resource-status": () => this.actions.run("resource-status"),
       "detach-shared-task": () => ui.detachSharedTask(),
       "resolve-shared-conflict": () => ui.resolveConflictUnderCursor(),
       "toggle-sharing-metadata": () =>
@@ -274,20 +278,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "copy-readable-text",
         name: "Copy readable text (without sharing metadata)",
-        editorCallback: (editor) => {
-          const selected = editor.getSelection();
-          const text =
-            selected !== ""
-              ? selected
-              : (sharedSectionText(editor.getValue(), editor.getCursor().line) ?? "");
-          if (text === "") {
-            new Notice("Shared Tasks: select text, or put the cursor in a shared section.");
-            return;
-          }
-          void navigator.clipboard.writeText(readableText(text)).then(() => {
-            new Notice("Shared Tasks: copied without sharing metadata.");
-          });
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("copy-readable", editor, ctx),
       });
       this.addCommand({
         id: "copy-shared-section",
@@ -314,9 +305,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "next-section-problem",
         name: "Go to next shared section problem",
-        editorCallback: (_editor, ctx) => {
-          if (ctx instanceof MarkdownView) this.sections?.nextProblem(ctx);
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("go-to-problem", editor, ctx),
       });
       this.addCommand({
         id: "detach-section",
@@ -471,6 +460,67 @@ export default class OpenLfcpPlugin extends Plugin {
       model,
       (id) => this.actions.handles(id) && (s !== null || id === "join-with-link"),
     );
+  }
+
+  /**
+   * The actions that end in Obsidian (LFCP-03-013): the editor, the
+   * clipboard, the settings. Each acts on the note as the surface captured
+   * it, found again by its path; nothing runs on whichever note is active.
+   */
+  #hostEntry(): HostEntry {
+    const ws = () => this.app.workspace;
+    // The active editor when it shows the note (a note open twice: the one in use), else the first.
+    const viewOf = (path: string): MarkdownView | null => {
+      const active = ws().getActiveViewOfType(MarkdownView);
+      if (active?.file?.path === path) return active;
+      for (const leaf of ws().getLeavesOfType("markdown"))
+        if (leaf.view instanceof MarkdownView && leaf.view.file?.path === path) return leaf.view;
+      return null;
+    };
+    return {
+      nextProblem: (at) => {
+        const view = viewOf(at.path);
+        if (view !== null) this.sections?.nextProblem(view);
+      },
+      // T4: Reading view leaves for the editor; nothing is written on the way.
+      openForEditing: async (at) => {
+        for (const leaf of ws().getLeavesOfType("markdown")) {
+          const view = leaf.view;
+          if (!(view instanceof MarkdownView) || view.file?.path !== at.path) continue;
+          const state = leaf.getViewState();
+          await leaf.setViewState({ ...state, state: { ...state.state, mode: "source" } });
+          ws().setActiveLeaf(leaf, { focus: true });
+          return;
+        }
+        const file = this.app.vault.getFileByPath(at.path);
+        if (file === null) {
+          new Notice("Shared Tasks: that note is no longer in the vault.");
+          return;
+        }
+        await ws()
+          .getLeaf(false)
+          .openFile(file, { state: { mode: "source" }, active: true });
+      },
+      openSettings: () => {
+        // Obsidian's settings modal is not in its typed API.
+        const setting = (
+          this.app as unknown as {
+            setting?: { open(): void; openTabById(id: string): unknown };
+          }
+        ).setting;
+        setting?.open();
+        setting?.openTabById(this.manifest.id);
+      },
+      copyReadable: async (at) => {
+        const text = readableCopy(at);
+        if (text === null) {
+          new Notice("Shared Tasks: select text, or put the cursor in a shared section.");
+          return;
+        }
+        await navigator.clipboard.writeText(text);
+        new Notice("Shared Tasks: copied without sharing metadata.");
+      },
+    };
   }
 
   /**

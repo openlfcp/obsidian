@@ -15,6 +15,7 @@ import type { Task } from "@openlfcp/shared-objects";
 import type { RefPlacement } from "../settings";
 import type { RevokeOutcome } from "../status/access";
 import type { SectionCard } from "../status/card";
+import type { HeldEdits } from "../status/held";
 import type { StoredBase } from "./base";
 import type { CreationEntry, CreationResult } from "./create";
 import type { InsertionEntry, InsertPreview, InsertRefusal, InsertResult } from "./insert";
@@ -267,6 +268,8 @@ export interface SectionServices {
   known(key: string): boolean;
   /** What the card of `key` says now, or null while its status is unknown. */
   cardContent(key: string, title: string): Promise<SectionCard | null>;
+  /** Where section `key`'s copies hold edits not sent (its StatusView.held); empty when unknown. */
+  held(key: string): readonly HeldEdits[];
   /** The review items of section `key`: kept own work, the model's conflicts, reappeared nodes. */
   recoveryItems(key: string): RecoveryItem[];
   /** Applies one review choice of section `key`. */
