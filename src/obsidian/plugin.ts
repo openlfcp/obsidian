@@ -242,8 +242,8 @@ export default class OpenLfcpPlugin extends Plugin {
     this.registerEditorExtension(sections.extension);
     // Shared sections: on unless `sectionsDisabled` (data.json); read-only on mobile.
     if (!this.settings.sectionsDisabled) {
-      // LFCP-02-064: one live region for what is said once.
-      const live = new LiveRegion(document);
+      // LFCP-02-064: one live region for what is said once, in the window in use.
+      const live = new LiveRegion(document, () => activeDocument);
       this.register(() => live.detach());
       this.sections = new SectionsHost(
         this.app,

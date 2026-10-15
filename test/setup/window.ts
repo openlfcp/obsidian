@@ -6,3 +6,5 @@
 const g = globalThis as Record<string, unknown>;
 g.window ??= globalThis;
 g.activeWindow ??= globalThis;
+// Obsidian's `activeDocument`: the DOM test environment's document, where there is one.
+g.activeDocument ??= g.document;
