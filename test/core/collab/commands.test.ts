@@ -377,8 +377,8 @@ describe("LFCP-065 commands", () => {
     expect(shown?.confirmed).toBe(false);
     // A 0.1 collaboration's presets speak of shared tasks; a section's of the section.
     expect(s.prompter.offered.at(-1)).toEqual([
-      "Can see and sync the shared tasks, but not change them. One-time link.",
-      "Can see, sync and change the shared tasks. One-time link.",
+      "Can see and sync the shared tasks, but not change them. One-time link, does not expire; whoever opens it first joins.",
+      "Can see, sync and change the shared tasks. One-time link, does not expire; whoever opens it first joins.",
     ]);
     for (const k of ["read", "read-write"] as const)
       expect(INVITE_PRESETS[k].sectionDescription).toMatch(/shared section/);
