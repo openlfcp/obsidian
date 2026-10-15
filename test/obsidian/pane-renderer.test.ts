@@ -199,6 +199,40 @@ describe("pane focus", () => {
     expect(joined).toEqual(["lfcp://join/synthetic-link"]);
   });
 
+  it("LFCP-03-022: Escape in the join field is its Cancel; focus goes back to Join with a link…", () => {
+    const proto = new PanePrototype(doc.states, "no-note");
+    const draw = () =>
+      renderPane(root, proto.model(), {
+        action: (id) => {
+          proto.act(id);
+          draw();
+        },
+        join: () => undefined,
+        dismiss: () => {
+          proto.control("cancel");
+          draw();
+        },
+      });
+    draw();
+    byText("Join with a link…").focus();
+    byText("Join with a link…").click();
+    const link = root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input");
+    if (link === null) throw new Error("no join field");
+    expect(document.activeElement).toBe(link);
+    link.value = "lfcp://join/half-pasted";
+    // Escape that ends a composition is the IME's.
+    link.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true }),
+    );
+    expect(root.querySelector("form")).not.toBeNull();
+    const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    link.dispatchEvent(esc);
+    expect(esc.defaultPrevented).toBe(true);
+    expect(link.value).toBe("");
+    expect(root.querySelector("form")).toBeNull();
+    expect(document.activeElement?.textContent).toBe("Join with a link…");
+  });
+
   it("never takes focus from outside the pane on an update", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);
