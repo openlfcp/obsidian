@@ -6,7 +6,7 @@
 // here), with the same next-problem path and live region as the plugin.
 
 import { fromBase64url, principalId, resourceId, toBase64url } from "@openlfcp/core";
-import { createTask, initializeAutomerge, SharedObjectsReplica } from "@openlfcp/shared-objects";
+import { createTask, initializeAutomerge, type NewTask, SharedObjectsReplica } from "@openlfcp/shared-objects";
 import { MarkdownView, Plugin } from "obsidian";
 import { MemorySectionBaseStore, markdownState } from "../../../src/core/sections/base";
 import { SectionEngine } from "../../../src/core/sections/engine";
@@ -29,6 +29,26 @@ const uuid = (): string => {
   // UUIDv7-shaped and unique enough for a harness run.
   const hex = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-7${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+};
+
+/** A section Task (planShare's fields, tags as a set) as task.create's input. */
+const newTask = (t: Record<string, unknown>, id: string, createdBy: ReturnType<typeof principalId>): NewTask => {
+  const text = (k: string) => (typeof t[k] === "string" ? { [k]: t[k] } : {});
+  const tags = Array.isArray(t.tags)
+    ? t.tags
+    : t.tags !== null && typeof t.tags === "object"
+      ? Object.keys(t.tags as object)
+      : [];
+  return {
+    ...text("status"),
+    ...text("priority"),
+    ...text("due"),
+    ...text("scheduled"),
+    title: String(t.title),
+    tags,
+    id: id as never,
+    createdBy,
+  } as NewTask;
 };
 
 export default class SectionSyncHarness extends Plugin {
@@ -54,7 +74,7 @@ export default class SectionSyncHarness extends Plugin {
         for (const c of port.changes)
           for (const i of c.intents)
             if (i.intent === "task.create_in_section" && i.task.id === taskId)
-              replica.apply(createTask({ ...i.task, id: taskId as never, createdBy: me }).intent);
+              replica.apply(createTask(newTask(i.task, taskId, me)).intent);
       return { view: replica.task(taskId) };
     };
     port.onTaskIntents = (intents) => {
@@ -138,7 +158,7 @@ export default class SectionSyncHarness extends Plugin {
           for (const n of nodes) {
             if (n.kind === "task" && n.id !== null) {
               const task = newSectionTask(lines[n.lines.from] ?? "", me, n.id);
-              replica.apply(createTask({ ...task, id: n.id as never, createdBy: me }).intent);
+              replica.apply(createTask(newTask(task, n.id, me)).intent);
             }
             walk(n.children);
           }
