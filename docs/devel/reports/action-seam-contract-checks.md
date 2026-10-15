@@ -3,8 +3,9 @@
 The evidence of LFCP-03-023 (M03-4, P0; finding F-C08; cases U03-04…07,
 U03-24…28). It checks, with automated tests, that every surface runs its
 actions through one seam with the same guards, and that the UX contract's
-fixtures and words hold. Written 2026-10-15 on `main` `0deb18d` (tasks
-001–021 merged), SDK `@openlfcp/*` 0.2.0, spec `mvp-0.2-baseline.12`
+fixtures and words hold. Written 2026-10-15. The work started on `main`
+`0deb18d` (tasks 001–021 merged) and was rebased onto `ec4317b` (022 focus
+and keyboard, 039 SDK `@openlfcp/*` 0.2.1). Spec `mvp-0.2-baseline.12`
 (`bf1c78c`), server `138030a` for the live runs.
 
 ## The seam
@@ -28,6 +29,7 @@ is one pure predicate per action (`src/core/actions/descriptors.ts`).
 | P6. UX fixtures match rendering | Model, renderer, plugin pane path (`model-fixtures`, `pane-renderer`, `pane-fixtures`, no state skipped) | — |
 | P7. Words by the vocabulary | Pane, card, badge, catalogue, descriptors, previews | `vocabulary.test.ts` also scans `sections/actions.ts`, `actions/dispatcher.ts`, `collab/join-flow.ts`, `collab/service.ts`, `obsidian/plugin.ts`; each remaining exception has its reason |
 | P8. Every action has a handler | `actions.test.ts` (LFCP-03-013) | Every action reaches something from some request (no dead button) |
+| Dialogs of every surface keep Tab and give focus back (022, U03-18) | `focus-return.test.ts`, native `pane-keyboard` (per dialog) | `action-seam.test.ts`: every Modal and SuggestModal class of the plugin is opened through `returnsFocus` (or the prompter's `opened()`); a bare `new …Modal(` fails it |
 | P9. A key from the pane names one section | None: no row without a key was ever tested | `host-facts.test.ts`, `insert-destination.test.ts`, `dispatcher.test.ts` (obsidian#30) |
 
 The U03 cases of the card are covered by these suites:
