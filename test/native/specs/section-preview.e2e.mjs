@@ -445,7 +445,8 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     // 060: who has access, from the validated Control state.
     expect(card.text).toContain("Identities with access");
     expect(card.text).toContain("You (owner)");
-    expect(card.buttons).toEqual(["Invite collaborator…", "Resource status"]);
+    // LFCP-03-012 (rule A6): the last button opens the Shared Tasks pane.
+    expect(card.buttons).toEqual(["Invite collaborator…", "Resource status", "Open Shared Tasks pane"]);
     const closed = await close();
     expect(closed.open).toBe(false);
     expect(closed.focusBack).toBe(true);
