@@ -282,14 +282,20 @@ export default class OpenLfcpPlugin extends Plugin {
       });
       // LFCP-02-063: no plugin UI in a copy of rendered content, in every
       // window (a popout has its own document, LFCP-03-022); the two copy commands.
-      inEveryWindow(
-        this.app.workspace,
-        document,
-        (ref) => this.registerEvent(ref),
-        (doc) =>
-          this.registerDomEvent(doc, "copy", (e) => {
-            filterUiFromCopy(e, doc);
-          }),
+      // A popout's listener goes with its window, the rest with the plugin.
+      this.register(
+        inEveryWindow(
+          this.app.workspace,
+          document,
+          (ref) => this.registerEvent(ref),
+          (doc) => {
+            const copy = (e: ClipboardEvent) => {
+              filterUiFromCopy(e, doc);
+            };
+            doc.addEventListener("copy", copy);
+            return () => doc.removeEventListener("copy", copy);
+          },
+        ),
       );
       this.addCommand({
         id: "copy-readable-text",
