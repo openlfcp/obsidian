@@ -230,6 +230,13 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(paneModel(facts(undefined, reader)).status.map((l) => l.text)).toContain(
       "You can read this section, not edit it.",
     );
+    // Without the section's key: the problem and the rights say the same thing, nothing promised.
+    const keyless = statusView({ ...currentFacts, access: "unavailable-key" });
+    const keyLines = paneModel(facts(undefined, keyless)).status.map((l) => l.text);
+    expect(keyLines).toContain(
+      "Your edits to this section wait on this device until it holds the section's key.",
+    );
+    expect(keyLines).not.toContain("You can edit this section.");
   });
 
   it("N3: before its shared title loads a section is named by its alias, with the qualifier", () => {
