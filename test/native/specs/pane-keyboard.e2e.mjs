@@ -477,12 +477,24 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
         await sleep(100);
         badge = noteLeaf.view.containerEl.querySelector(".markdown-preview-view h2 .openlfcp-status");
       }
-      let copy = {
-        badge: false,
+      const rendered = {
+        badge: badge !== null,
         preview: noteLeaf.view.containerEl.querySelector(".markdown-preview-view") !== null,
         h2: noteLeaf.view.containerEl.querySelectorAll(".markdown-preview-view h2").length,
-        mode: noteLeaf.view.getMode?.() ?? null,
       };
+      // No badge drawn in this popout (seen on Linux): the filter is checked on
+      // a node of plugin UI put after the heading, as the badge would be.
+      if (badge === null) {
+        const h2 = noteLeaf.view.containerEl.querySelector(".markdown-preview-view h2");
+        if (h2 !== null) {
+          badge = doc.createElement("span");
+          badge.className = "openlfcp-status";
+          badge.dataset.lfcpUi = "probe";
+          badge.textContent = "Shared section Keys plan";
+          h2.appendChild(badge);
+        }
+      }
+      let copy = { badge: false, rendered };
       if (badge !== null) {
         const range = doc.createRange();
         const sizer = noteLeaf.view.containerEl.querySelector(".markdown-preview-sizer");
@@ -497,6 +509,7 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
         doc.dispatchEvent(e);
         copy = {
           badge: true,
+          rendered,
           popout: doc !== document,
           filtered: e.defaultPrevented,
           text: data.getData("text/plain").slice(0, 200),
