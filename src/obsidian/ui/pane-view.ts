@@ -67,6 +67,8 @@ export interface PaneSnapshot {
   request(id: ActionId): ActionRequest;
   /** What `id` acts on: a click compares the drawn one with the one now (L2). */
   identity(id: ActionId): string;
+  /** What a problem row's action hands the dispatcher (LFCP-03-018); null: no such row. */
+  problemRequest?(problemId: string): ActionRequest | null;
   /** The flow this drawing holds. */
   readonly pinned: number | null;
 }
@@ -219,7 +221,34 @@ export class SharedTasksView extends ItemView {
         this.render();
       },
       chosen: this.#chosen,
+      problem: (problemId) => this.#clickProblem(generation, drawn, problemId),
     });
+  }
+
+  /**
+   * A click on a problem row's action (LFCP-03-018, L2): run only when the
+   * facts now still have that problem with the same action, enabled; else
+   * draw what is true now and run nothing. The request is the drawn one: a
+   * repair carries the revision the user saw, and the executor parses the
+   * note again before anything.
+   */
+  #clickProblem(generation: number, drawn: PaneSnapshot, problemId: string): void {
+    if (generation !== this.#generation) return;
+    const now = this.port.snapshot(this.#liveTarget(), this.#ui());
+    const was = drawn.model.problems.find((p) => p.id === problemId);
+    const is = now.model.problems.find((p) => p.id === problemId);
+    const request = drawn.problemRequest?.(problemId) ?? null;
+    if (
+      was === undefined ||
+      was.action === null ||
+      is?.action?.enabled !== true ||
+      is.action.id !== was.action.id ||
+      request === null
+    ) {
+      this.render();
+      return;
+    }
+    void this.port.run(is.action.id, request);
   }
 
   #ui(): PaneUi {

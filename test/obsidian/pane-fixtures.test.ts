@@ -236,6 +236,7 @@ function hostOf(st: State) {
     onStatusChange: () => () => undefined,
     sectionStatus: (key: string) => (key === KEY && view !== null ? view : undefined),
     paneAccess: (key: string) => (key === KEY ? access : undefined),
+    recoveryItems: () => [],
     hostFacts: () => ({ unavailable: null, starting: false, readOnly: false, server: true }),
     sharePolicy: () => ({ server: "wss://sync.example/v1/ws", comments: "local" as const }),
     actions: {

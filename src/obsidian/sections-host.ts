@@ -440,6 +440,11 @@ export class SectionsHost {
     return this.#stale?.diagnostics(resource) ?? null;
   }
 
+  /** The review items of section `key`, read now (the pane's problem hub, LFCP-03-018). */
+  recoveryItems(key: string): RecoveryItem[] {
+    return this.#recoveryItems(key);
+  }
+
   /** The review items of section `key`: the model's conflicts, then nodes notes show again. */
   #recoveryItems(key: string): RecoveryItem[] {
     const b64 = key.slice(0, key.indexOf("#"));

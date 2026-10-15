@@ -502,6 +502,7 @@ export default class OpenLfcpPlugin extends Plugin {
           ...(linkCopied ? { linkCopied } : {}),
         };
       },
+      recovery: (key) => s?.recoveryItems(key) ?? [],
       host,
       flows: s?.actions.flows() ?? [],
       pinned: ui.pinned,
@@ -517,6 +518,7 @@ export default class OpenLfcpPlugin extends Plugin {
       model,
       request: drawing.request,
       identity: drawing.identity,
+      problemRequest: drawing.problemRequest,
       pinned: drawing.pinned,
     };
   }
