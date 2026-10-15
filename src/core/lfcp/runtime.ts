@@ -1525,9 +1525,13 @@ export class LfcpRuntime {
       try {
         return await this.#session(opened.url).client.commit(resource, intents, options);
       } catch (e) {
+        // An engine trap is never a commit's answer: #engine blocks the runtime.
+        if (isEngineTrap(e)) throw e;
         // LFCP-03-033: stored, then a later step threw (durable-commit.ts):
         // the batch is committed and goes out with the next connection.
-        const receipt = await receiptOf(this.#ready().storage, resource, options.operationId);
+        const receipt = await receiptOf(this.#ready().storage, resource, options.operationId).catch(
+          () => undefined,
+        );
         if (receipt === undefined || receipt.intentsHash !== intentsHash(intents)) throw e;
         return receipt;
       }
