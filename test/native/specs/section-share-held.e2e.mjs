@@ -314,6 +314,16 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
     expect(typed.md).toBe(before);
     expect((await notices()).some((t) => t.includes('"From B" is read-only for you. Your typing was not applied'))).toBe(true);
     // An edit from outside the editor (another plugin, a sync tool) is held, not sent.
+    // The edit from outside works on the file: the note's text must be on disk
+    // first (Obsidian saves the editor a moment after; slower on macOS).
+    const savedAt = Date.now();
+    const saved = await browser
+      .waitUntil(
+        () => inA(async ({ app }) => (await app.vault.adapter.read("RO.md")).includes("- [ ] Task of B")),
+        { timeout: 15_000 },
+      )
+      .catch(() => false);
+    evidence("F-04-read-only saved", { saved, ms: Date.now() - savedAt });
     const outside = await inA(async ({ app, obsidian }) => {
       let found = null;
       const written = await app.vault.process(app.vault.getFileByPath("RO.md"), (t) => {
