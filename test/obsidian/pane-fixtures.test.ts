@@ -12,9 +12,10 @@
 // call to action, its enabled and disabled actions with their reasons word
 // for word, its claims and none of the forbidden ones.
 //
-// Coverage: 17 states in full; 2 in part (selection-exact and
-// content-comments-and-table: their share preview's lines, LFCP-03-014,
-// are not claimed); 2 todo, needing a flow the host cannot produce yet: a
+// Coverage: 19 states in full, the share previews of selection-exact and
+// content-comments-and-table included (LFCP-03-014: the pane's preview is
+// the share dialog's preflight on the note in view, its counts and warnings
+// the fixture's); 2 todo, needing a flow the host cannot produce yet: a
 // join flow (LFCP-03-015) and an unfinished flow read from the journals
 // (LFCP-03-017).
 
@@ -27,6 +28,7 @@ import { type FixtureFacts, statusFactsOf } from "../../src/core/pane/mock-facts
 import type { ActiveFlow } from "../../src/core/sections/actions";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
 import type { RegistryRow, RegistrySnapshot } from "../../src/core/sections/registry-view";
+import { shareCounts, shareWarningText } from "../../src/core/sections/share";
 import { type StatusView, statusView } from "../../src/core/status/reducer";
 import OpenLfcpPlugin from "../../src/main";
 import { PANE_VIEW, type SharedTasksView } from "../../src/obsidian/ui/pane-view";
@@ -95,10 +97,61 @@ const PRIVATE = [
   "",
 ].join("\n");
 
+/**
+ * The notes of the states with a share preview, written so the preflight
+ * gives the fixture's facts. selection-exact: lines 4–9 (2 Tasks, a
+ * paragraph under a Task, a closing paragraph), a private paragraph after
+ * them under the same heading. content-comments-and-table: a heading with
+ * a paragraph under a Task, a table, a fence and a %% comment.
+ */
+const PREVIEW_NOTE: Readonly<Record<string, string>> = {
+  "selection-exact": [
+    "# Plan",
+    "Intro.",
+    "",
+    "## Launch",
+    "- [ ] Alpha",
+    "  A note on Alpha.",
+    "- [ ] Beta",
+    "",
+    "Closing paragraph.",
+    "",
+    "Private paragraph.",
+    "",
+    "## Next",
+    "Text.",
+    "",
+  ].join("\n"),
+  "content-comments-and-table": [
+    "# Plan",
+    "Intro.",
+    "",
+    "## Launch",
+    "- [ ] Alpha",
+    "  A note on Alpha.",
+    "- [ ] Beta",
+    "",
+    "| a | b |",
+    "| - | - |",
+    "| 1 | 2 |",
+    "",
+    "```js",
+    "x",
+    "```",
+    "",
+    "%% private comment %%",
+    "",
+    "## Next",
+    "Text.",
+    "",
+  ].join("\n"),
+};
+
 type Sel = { from: { line: number; ch: number }; to: { line: number; ch: number } };
 /** The selection each selection state makes in PRIVATE. */
 const SELECTION: Readonly<Record<string, Sel>> = {
-  exact: { from: { line: 3, ch: 0 }, to: { line: 5, ch: 10 } },
+  // In PREVIEW_NOTE["selection-exact"]: from the heading through "Closing paragraph.".
+  exact: { from: { line: 3, ch: 0 }, to: { line: 8, ch: 18 } },
   "no-heading-start": { from: { line: 4, ch: 0 }, to: { line: 5, ch: 10 } },
   crossing: { from: { line: 3, ch: 0 }, to: { line: 8, ch: 5 } },
   "heading-only": { from: { line: 3, ch: 0 }, to: { line: 3, ch: 9 } },
@@ -184,8 +237,10 @@ function hostOf(st: State) {
     sectionStatus: (key: string) => (key === KEY && view !== null ? view : undefined),
     paneAccess: (key: string) => (key === KEY ? access : undefined),
     hostFacts: () => ({ unavailable: null, starting: false, readOnly: false, server: true }),
+    sharePolicy: () => ({ server: "wss://sync.example/v1/ws", comments: "local" as const }),
     actions: {
       paneEntry: () => undefined,
+      shareResult: () => undefined,
       flows: () => flows,
       onFlowsChange: () => () => undefined,
     },
@@ -199,7 +254,10 @@ function noteOf(st: State): mock.MarkdownView | null {
   const c = st.facts.context;
   if (c.note === null) return null;
   const inside = c.cursor === "inside-section";
-  const v = new mock.MarkdownView(new mock.TFile(c.note), inside ? SHARED : PRIVATE);
+  const v = new mock.MarkdownView(
+    new mock.TFile(c.note),
+    inside ? SHARED : (PREVIEW_NOTE[st.id] ?? PRIVATE),
+  );
   v.mode = c.editor === "reading" ? "preview" : "source";
   v.cursorLine = inside ? 5 : c.cursor === "private-heading" ? 3 : 1;
   const sel = c.selection;
@@ -261,6 +319,8 @@ afterEach(() => {
   mock.modals.length = 0;
 });
 
+type Preview = { counts: Parameters<typeof shareCounts>[0]; warnings: string[] };
+
 describe("the UX 0.3 states on the real host (LFCP-03-013)", () => {
   it("names the states it cannot produce yet; every flow step is one the host reports", () => {
     const ids = new Set(doc.states.map((s) => s.id));
@@ -304,11 +364,26 @@ describe("the UX 0.3 states on the real host (LFCP-03-013)", () => {
         }
       });
 
+      const preview = st.facts.preview as Preview | undefined;
+      if (preview !== undefined)
+        it("draws the share preview of the note in view: the fixture's counts and warnings (LFCP-03-014)", async () => {
+          const d = await drawn(st);
+          const texts = Array.from(
+            d.el.querySelectorAll(".openlfcp-pane-preview .openlfcp-pane-line"),
+          ).map((e) => e.textContent ?? "");
+          expect(texts).toContain(`${shareCounts(preview.counts)}.`);
+          for (const w of preview.warnings) {
+            const t = shareWarningText(w as never);
+            if (t !== null) expect(texts).toContain(t);
+          }
+          // The sync server it would go to, and nothing about the selection being dropped.
+          expect(texts.join(" | ")).toContain("Sync server: wss://sync.example/v1/ws.");
+        });
+
       it("makes its claims, and none of the forbidden ones", async () => {
         const d = await drawn(st);
         const all = d.el.textContent ?? "";
-        if (st.facts.preview === undefined)
-          for (const claim of st.expected.requiredClaims) expect(all, claim).toContain(claim);
+        for (const claim of st.expected.requiredClaims) expect(all, claim).toContain(claim);
         for (const claim of [...st.expected.forbiddenClaims, ...doc.globalForbiddenClaims])
           for (const t of d.texts)
             if (!time.test(t))
