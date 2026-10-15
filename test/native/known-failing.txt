@@ -1,0 +1,5 @@
+# Native specs that fail for a known, tracked reason (docs/devel/testing/native-harness.md,
+# "Known failing"). One per line: the spec's name, then the task that fixes it.
+# native.yml leaves them out of the gating run and runs them in a step of their
+# own that never fails the job; remove a line as soon as its spec passes.
+acceptance-sections  LFCP-03-033

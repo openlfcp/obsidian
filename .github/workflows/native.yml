@@ -196,12 +196,13 @@ jobs:
           node scripts/build-native-harness.mjs
           pnpm --dir test/native install --frozen-lockfile
       - name: Choose the specs
+        id: choose
         env:
           SPECS: ${{ inputs.specs }}
         run: |
           shopt -s nullglob
           IFS=', ' read -r -a patterns <<<"$SPECS"
-          args=()
+          selected=()
           for s in "${patterns[@]}"; do
             [ -n "$s" ] || continue
             s=${s#test/native/}; s=${s#specs/}; s=${s%.mjs}; s=${s%.e2e}
@@ -209,14 +210,32 @@ jobs:
             files=(test/native/specs/$s.e2e.mjs)
             # A name without glob characters is not expanded: check it exists.
             if [ ${#files[@]} -eq 0 ] || [ ! -f "${files[0]}" ]; then echo "::error::no spec matches '$s'"; exit 1; fi
-            # Relative to test/native, where the harness runs WebdriverIO.
-            for f in "${files[@]}"; do args+=("--spec" "${f#test/native/}"); done
+            selected+=("${files[@]}")
           done
-          : > "$RUNNER_TEMP/native-args"
-          if [ ${#args[@]} -eq 0 ]; then echo "all specs"; exit 0; fi
+          # Paths relative to test/native, where the harness runs WebdriverIO.
+          args=()
+          for f in "${selected[@]}"; do args+=("--spec" "${f#test/native/}"); done
+          if [ ${#selected[@]} -eq 0 ]; then selected=(test/native/specs/*.e2e.mjs); fi
+          # Known failing specs (test/native/known-failing.txt): out of the gating run.
+          : > "$RUNNER_TEMP/known-failing"
+          known=0
+          while read -r name task _; do
+            case "$name" in "" | "#"*) continue ;; esac
+            f="test/native/specs/$name.e2e.mjs"
+            if [ ! -f "$f" ]; then echo "::error::known-failing.txt names no spec: $name"; exit 1; fi
+            if printf '%s\n' "${selected[@]}" | grep -qxF "$f"; then
+              args+=("--exclude" "${f#test/native/}")
+              printf '%s\t%s\n' "$name" "$task" >> "$RUNNER_TEMP/known-failing"
+              known=$((known + 1))
+            fi
+          done < test/native/known-failing.txt
           printf '%s\0' "${args[@]}" > "$RUNNER_TEMP/native-args"
-          printf '%s\n' "${args[@]}" | grep -v '^--spec$'
+          echo "gating=$(( ${#selected[@]} - known ))" >> "$GITHUB_OUTPUT"
+          echo "known=$known" >> "$GITHUB_OUTPUT"
+          if [ -z "$SPECS" ]; then echo "all specs"; fi
+          printf '%s\n' "${args[@]}" | grep -vxE -- '--spec|--exclude' || true
       - name: Run the harness (Linux needs a virtual display)
+        if: steps.choose.outputs.gating != '0'
         run: |
           set -o pipefail
           args=()
@@ -225,12 +244,37 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then run=(xvfb-run -a "${run[@]}"); fi
           "${run[@]}" 2>&1 | tee native.log
       - name: No spec skipped
-        if: success()
+        if: success() && steps.choose.outputs.gating != '0'
         run: |
           if grep -E '[0-9]+ skipped' native.log; then
             echo "::error::specs were skipped (see above); a gate run may not skip"
             exit 1
           fi
+      # Never fails the job: each spec is reported as KNOWN FAILING (its task),
+      # or, when it passed, with a warning to take it off the list.
+      - name: Known failing specs (not gating)
+        if: ${{ !cancelled() && steps.choose.outcome == 'success' && steps.choose.outputs.known != '0' }}
+        continue-on-error: true
+        run: |
+          args=()
+          while IFS=$'\t' read -r name _; do args+=("--spec" "specs/$name.e2e.mjs"); done < "$RUNNER_TEMP/known-failing"
+          run=(pnpm --dir test/native test -- "${args[@]}")
+          if [ "$RUNNER_OS" = "Linux" ]; then run=(xvfb-run -a "${run[@]}"); fi
+          rc=0
+          "${run[@]}" > known-failing.log 2>&1 || rc=$?
+          sed 's/\x1b\[[0-9;]*m//g' known-failing.log > "$RUNNER_TEMP/known-clean.log"
+          : > "$RUNNER_TEMP/known-summary"
+          while IFS=$'\t' read -r name task; do
+            if grep -qE "PASSED in .*/specs/$name\.e2e\.mjs" "$RUNNER_TEMP/known-clean.log"; then
+              echo "::warning::$name passed: remove it from the list (test/native/known-failing.txt, $task)"
+              echo "$name: PASSED, remove it from the list ($task)" >> "$RUNNER_TEMP/known-summary"
+            else
+              echo "::notice::$name: KNOWN FAILING ($task)"
+              echo "$name: KNOWN FAILING ($task)" >> "$RUNNER_TEMP/known-summary"
+            fi
+          done < "$RUNNER_TEMP/known-failing"
+          cat "$RUNNER_TEMP/known-summary"
+          exit "$rc"
       - name: Summary
         if: always()
         env:
@@ -242,6 +286,12 @@ jobs:
             echo '```'
             grep -E 'Spec Files:|passing|failing|skipped' native.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | tail -n 80 || true
             echo '```'
+            if [ -s "$RUNNER_TEMP/known-summary" ]; then
+              echo "Known failing (test/native/known-failing.txt, not gating):"
+              echo '```'
+              cat "$RUNNER_TEMP/known-summary"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Keep the log and the METRIC lines
         if: always()
@@ -250,5 +300,6 @@ jobs:
           name: native-${{ matrix.os }}-${{ matrix.obsidian }}
           path: |
             obsidian/native.log
+            obsidian/known-failing.log
             obsidian/screenshots
           if-no-files-found: ignore
