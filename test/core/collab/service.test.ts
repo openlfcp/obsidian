@@ -129,6 +129,45 @@ describe("Invite collaborator (LFCP-065)", () => {
       ).not.toContain("lfcp://");
     });
 
+  it("waits while this vault does not know yet whether it may publish the epoch's Snapshot (LFCP-03-037)", async () => {
+    const { runtime, collab } = await offline();
+    const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
+    // Just started: "checking" until its session is LIVE, then the Snapshot is published.
+    const states = ["checking", "checking", "publishing", "ready"] as const;
+    let asked = 0;
+    vi.spyOn(runtime, "epochSnapshotState").mockImplementation(async () => {
+      const s = states[Math.min(asked, states.length - 1)] ?? "ready";
+      asked++;
+      // The grant is not made while the Snapshot may still be missing.
+      if (s !== "ready") expect(await queuedRecords(runtime, R)).toEqual([]);
+      return s;
+    });
+    await collab.invite(R, "read");
+    expect(asked).toBe(4);
+    expect(await queuedRecords(runtime, R)).toHaveLength(1);
+  });
+
+  it("gives up on a session that never answers: an honest error and nothing created (LFCP-03-037)", async () => {
+    const device = new Device();
+    const runtime = await LfcpRuntime.start(device.env(new FakeLocal()));
+    running.push(runtime);
+    const collab = new Collaboration(runtime, {
+      sleep,
+      connectTimeoutMs: 50,
+      ackTimeoutMs: 50,
+      snapshotTimeoutMs: 300,
+    });
+    const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
+    vi.spyOn(runtime, "epochSnapshotState").mockResolvedValue("checking");
+    const refused = collab.invite(R, "read");
+    await expect(refused).rejects.toMatchObject({ code: "SNAPSHOT_PENDING" });
+    await expect(refused).rejects.toThrow(
+      /Nothing was created\. Invite again once it is connected/,
+    );
+    // No grant made, so no second one under a new ID when the user invites again (D12).
+    expect(await queuedRecords(runtime, R)).toEqual([]);
+  });
+
   it("is refused while the Control Chain is forked", async () => {
     const { runtime, collab } = await offline();
     const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });

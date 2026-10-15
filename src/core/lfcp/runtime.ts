@@ -400,6 +400,12 @@ export class LfcpRuntime {
   #install: Install;
   /** Resources (hex) this vault may publish Snapshots of (POST-007). */
   readonly #publishers = new Set<string>();
+  /**
+   * Resources (hex) whose access a LIVE session has answered since this
+   * start: until then #publishers does not yet say whether this vault may
+   * publish their Snapshots (LFCP-03-037).
+   */
+  readonly #accessKnown = new Set<string>();
   /** This vault's 0.1 units (writeIntent) per Resource (hex) since its last Snapshot (POST-007). */
   readonly #ownUnits = new Map<string, number>();
   /**
@@ -1603,12 +1609,20 @@ export class LfcpRuntime {
    * Snapshot of the Resource's current epoch from this vault's view.
    * "ready": none is needed, or ours is stored and sent; "publishing":
    * this vault publishes one now (the SDK's next tick) or is sending it;
-   * "cannot": one is needed and this vault may not publish it.
+   * "cannot": one is needed and this vault may not publish it;
+   * "checking": one is needed and whether this vault may publish it is not
+   * known yet (after a start, until its session is LIVE and its access
+   * answered): not "cannot", or an invitation made right after a reload
+   * went out before the Snapshot (LFCP-03-037).
    */
-  async epochSnapshotState(resource: ResourceId): Promise<"ready" | "publishing" | "cannot"> {
+  async epochSnapshotState(
+    resource: ResourceId,
+  ): Promise<"ready" | "publishing" | "cannot" | "checking"> {
     const storage = this.#ready().storage;
+    const key = toHex(resource);
     const due = await this.#checkEpochSnapshot(resource);
-    if (due && !this.#publishers.has(toHex(resource))) return "cannot";
+    if (due && !this.#publishers.has(key))
+      return this.#accessKnown.has(key) ? "cannot" : "checking";
     const queued = (await storage.outbound.list(resource)).some((i) => i.kind === "snapshot");
     return due || queued ? "publishing" : "ready";
   }
@@ -1793,6 +1807,7 @@ export class LfcpRuntime {
           .then((a) => {
             if (a.abilities.includes("snapshot/publish")) this.#publishers.add(toHex(e.resourceId));
             else this.#publishers.delete(toHex(e.resourceId));
+            this.#accessKnown.add(toHex(e.resourceId));
           })
           .catch(() => undefined);
     });

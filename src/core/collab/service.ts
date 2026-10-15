@@ -93,7 +93,9 @@ export interface CollabRuntime {
   ): Promise<{ readonly allowed: boolean; readonly reason: string | null }>;
   /** An open section Resource: ready (§12.1), and no change held for a missing dependency. */
   /** Whether the server has a Snapshot of the current epoch (LfcpRuntime.epochSnapshotState). */
-  epochSnapshotState?(resource: ResourceId): Promise<"ready" | "publishing" | "cannot">;
+  epochSnapshotState?(
+    resource: ResourceId,
+  ): Promise<"ready" | "publishing" | "cannot" | "checking">;
   sectionLoad?(
     resource: ResourceId,
   ): { readonly ready: boolean; readonly loaded: boolean } | undefined;
@@ -488,11 +490,14 @@ export class Collaboration {
     for (;;) {
       const s = await runtime.epochSnapshotState(R);
       // "cannot": another member who may publish one does (the same rule runs on their device).
-      if (s !== "publishing") return;
+      // "checking": not known yet whether this vault may (just started): waits for its session.
+      if (s !== "publishing" && s !== "checking") return;
       if (Date.now() > deadline)
         throw new CollabError(
           "SNAPSHOT_PENDING",
-          "The collaboration is being prepared for a new member after a change of access. Invite again in a moment.",
+          s === "checking"
+            ? "This device has not reached the collaboration's server since it started, so it cannot prepare the collaboration for a new member after the change of access yet. Nothing was created. Invite again once it is connected."
+            : "The collaboration is being prepared for a new member after a change of access. Nothing was created. Invite again in a moment.",
         );
       await this.#o.sleep(250);
     }
@@ -525,6 +530,13 @@ export class Collaboration {
     // After a rotation (Remove access) whoever joins receives only the current
     // epoch's key: the closed epochs reach them through a Snapshot of the
     // current one, which this vault publishes first if none is on the server.
+    // Its session opens first: after a start, whether this vault may publish
+    // that Snapshot is known only once the session is LIVE (LFCP-03-037).
+    let url: string | null;
+    if (section) {
+      await this.#runtime.openSection(R);
+      url = chain.state.route.coordinatorUrl;
+    } else url = (await this.#runtime.openResource(R)).url;
     await this.#epochSnapshot(R);
     const endpoints = [...chain.state.route.endpoints]
       .sort((a, b) => (a.priority < b.priority ? -1 : a.priority > b.priority ? 1 : 0))
@@ -574,11 +586,6 @@ export class Collaboration {
       if (wanted.size === 0) resolve();
     });
     try {
-      let url: string | null;
-      if (section) {
-        await this.#runtime.openSection(R);
-        url = chain.state.route.coordinatorUrl;
-      } else url = (await this.#runtime.openResource(R)).url;
       // Refused already (before this invitation): no new refusal will come to wait for.
       const refused = this.#runtime.refusal?.(R) ?? null;
       if (refused !== null) {
