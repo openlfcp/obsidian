@@ -415,6 +415,8 @@ export class LfcpRuntime {
   readonly #pool = new Map<string, Pooled>();
   readonly #opened = new Map<string, Opened>();
   readonly #sections = new Map<string, OpenedSection>();
+  /** Section opens under way, by Resource (hex): one at a time per Resource. */
+  readonly #sectionOpening = new Map<string, Promise<OpenedSection>>();
   readonly #phases = new Map<string, ResourcePhase>();
   readonly #errors = new Map<string, string>();
   /** Terminal refusals by the server (POST-017), per Resource. */
@@ -1350,10 +1352,29 @@ export class LfcpRuntime {
     return true;
   }
 
-  async #openSection(resource: ResourceId): Promise<OpenedSection> {
+  /**
+   * One open per Resource (LFCP-03-033). Two first opens at once (the host,
+   * a status read and a pass right after a start) each built a profile; the
+   * session kept the first one's binding (SyncClient.open keeps the binding
+   * of a Resource it has), while #sections kept the second. Commits and
+   * received units then went to a model nothing read, and the section
+   * stayed as it was at the start: CURRENT, the own edit gone from the
+   * note, the collaborator's never shown.
+   */
+  #openSection(resource: ResourceId): Promise<OpenedSection> {
     const key = toHex(resource);
     const existing = this.#sections.get(key);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) return Promise.resolve(existing);
+    let opening = this.#sectionOpening.get(key);
+    if (opening === undefined) {
+      opening = this.#openSectionNow(resource).finally(() => this.#sectionOpening.delete(key));
+      this.#sectionOpening.set(key, opening);
+    }
+    return opening;
+  }
+
+  async #openSectionNow(resource: ResourceId): Promise<OpenedSection> {
+    const key = toHex(resource);
     const { storage, principal } = this.#ready();
     const row = await storage.resources.get(resource);
     if (row === undefined || (await this.#isDiscarded(resource)))
