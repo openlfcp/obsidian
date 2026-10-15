@@ -9,7 +9,7 @@
 // Keep sends it. Up to 0.4.0-beta.14 the edit was silently undone in A's
 // note. The reference server at LFCP_SERVER_BIN.
 import { peer } from "../peer.bundle.mjs";
-import { evidence, inA, markerProblems, sectionOf, startPeers, titles } from "./support/section-checks.mjs";
+import { closeModals, evidence, inA, markerProblems, sectionOf, startPeers, titles } from "./support/section-checks.mjs";
 
 const bytes = (hex) => Uint8Array.from(Buffer.from(hex, "hex"));
 
@@ -269,16 +269,15 @@ describe("offline edits in vault A across an unrelated removal (§19.1)", () => 
       const keep = await find(() => [...document.querySelectorAll(".openlfcp-recovery-choice")].find((l) => l.textContent.includes("Keep (send again)")));
       if (keep === null) {
         const items = [...document.querySelectorAll(".openlfcp-recovery-item")].map((x) => x.textContent.slice(0, 200));
-        for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
         return { missing: "no Keep", cardText, items };
       }
       const question = keep.closest(".openlfcp-recovery-item")?.textContent ?? "";
       keep.querySelector("input").click();
       keep.closest(".openlfcp-recovery-item").querySelector("button").click();
       const done = await find(() => document.querySelector(".openlfcp-recovery")?.textContent.includes("Nothing needs a choice now") ?? false);
-      for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
       return { cardText, question, done };
     });
+    await closeModals("Review conflicts");
     const got = await browser
       .waitUntil(async () => titlesB(s).includes("Beta by A"), { timeout: 30_000 })
       .catch(() => false);

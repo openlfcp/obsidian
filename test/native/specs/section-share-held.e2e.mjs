@@ -10,6 +10,7 @@
 // changes waiting." or "Current as last checked", offers "Go to line", and
 // the editor marks the held lines; typing into a read-only section is stopped.
 import { peer, restartableServer } from "../peer.bundle.mjs";
+import { closeModals } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
@@ -60,17 +61,10 @@ const pressInCard = (label) =>
     [...modal.querySelectorAll(".modal-button-container button")].find((x) => x.textContent === label).click();
   }, label);
 
-const closeCard = () =>
-  inA(async () => {
-    for (let i = 0; i < 40 && document.querySelector(".openlfcp-section-card") !== null; i++) {
-      for (const m of document.querySelectorAll(".openlfcp-section-card")) {
-        const c = m.closest(".modal-container");
-        (c?.querySelector(".modal-close-button") ?? c?.querySelector(".modal-bg"))?.click();
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    return document.querySelector(".openlfcp-section-card") === null;
-  });
+const closeCard = async () => {
+  await closeModals("section card");
+  return inA(() => document.querySelector(".openlfcp-section-card") === null);
+};
 
 /** An edit of the open note as a user's (replaceRange: a user transaction to the engine). */
 const editA = (fn) =>
@@ -287,8 +281,8 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
     await badgeIs("READ_ONLY_CURRENT", "read-only and current");
     // Typing into it is stopped, and said.
     const before = (await stateA()).md;
+    await closeModals("typing into read-only");
     await inA(async ({ app, obsidian }) => {
-      for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
       const leaf = app.workspace.getLeavesOfType("markdown").find((l) => l.view.file?.path === "RO.md");
       app.workspace.setActiveLeaf(leaf, { focus: true });
       const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
