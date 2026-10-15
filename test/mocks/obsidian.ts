@@ -173,8 +173,21 @@ export class Workspace extends Events {
   }
   getLeavesOfType(type: string): { view: unknown }[] {
     return type === "markdown"
-      ? this.views.map((view) => ({ view }))
+      ? this.views.map((view) => ({
+          view,
+          // A Markdown leaf's view state is its mode: "preview" is Reading view.
+          getViewState: () => ({ type: "markdown", state: { mode: view.mode } }),
+          setViewState: async (s: { state?: { mode?: "source" | "preview" } }) => {
+            view.mode = s.state?.mode ?? view.mode;
+          },
+        }))
       : this.leaves.filter((l) => l.type === type);
+  }
+  /** Every leaf made active (setActiveLeaf), in order. */
+  readonly activated: unknown[] = [];
+  setActiveLeaf(leaf: { view: unknown }): void {
+    this.activated.push(leaf.view);
+    if (leaf.view instanceof MarkdownView) this.activeView = leaf.view;
   }
   /** A new empty leaf in the right sidebar, as Obsidian creates one. */
   getRightLeaf(_split: boolean): WorkspaceLeaf | null {
@@ -261,6 +274,16 @@ export class App {
   secretStorage = new SecretStorage();
   /** Vault-scoped localStorage. */
   readonly local = new Map<string, unknown>();
+  /** Obsidian's settings modal (not in the typed API): the tabs opened, in order. */
+  readonly setting = {
+    opened: [] as string[],
+    open(): void {
+      this.opened.push("(settings)");
+    },
+    openTabById(id: string): void {
+      this.opened.push(id);
+    },
+  };
   loadLocalStorage(key: string): unknown {
     return this.local.get(key) ?? null;
   }

@@ -24,6 +24,7 @@ export const ACTION_IDS = [
   "remove-access",
   "discard-local-copy",
   "detach-section",
+  "resource-status",
 ] as const;
 
 export type ActionId = (typeof ACTION_IDS)[number];
@@ -61,6 +62,7 @@ export const ACTIONS: Readonly<Record<ActionId, ActionSpec>> = {
   "remove-access": spec("remove-access", "Remove access…", true),
   "discard-local-copy": spec("discard-local-copy", "Discard the local copy…", true),
   "detach-section": spec("detach-section", "Detach this section", true),
+  "resource-status": spec("resource-status", "Resource status"),
 };
 
 /** Actions that change the note's source: in Reading view they offer "Open for editing" (T4). */

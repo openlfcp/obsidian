@@ -87,6 +87,7 @@ label differs from the palette name, the table gives both.
 | `remove-access` | Remove access… | — (card, existing) | — | yes |
 | `discard-local-copy` | Discard the local copy… | — (card, existing) | — | yes |
 | `detach-section` | Detach this section | `detach-section` "Detach this section" | — | yes |
+| `resource-status` | Resource status | `resource-status` "Resource status" | — | no (technical details: the card and the palette only, never a pane entry, §2) |
 
 The palette IDs are those registered at `c66a6f5` in
 `src/obsidian/plugin.ts` and `src/core/commands.ts`.
@@ -116,10 +117,18 @@ Rules:
   (`src/obsidian/ui/pane-view.ts`). A second leaf of it is closed. The
   editor menu also offers the pane's primary action for the cursor, through
   the dispatcher (surface `menu`). Opening the pane opens no dialog and runs
-  no action. Temporary until LFCP-03-013: an action the host has no
-  handler for yet is shown disabled with "Not available in the pane yet."
-  Where the action has another real entry (a palette command or a button
-  of the section card), the reason names that entry exactly.
+  no action. Every action of §3 has its handler in the dispatcher
+  (LFCP-03-013), so every enabled button runs. While shared sections are
+  off on this device only "Join with a link…" runs; the others are shown
+  disabled with "Shared sections are off on this device."
+- **A7. The card's buttons are the same actions** (LFCP-03-013). Each button
+  of the section card ("Review conflicts…", "Invite collaborator…", "Go to
+  line N", "Repair shared sections in this note", "Resource status",
+  "Discard the local copy…") runs its action through the dispatcher
+  (surface `card`). The card reads the same descriptors as the pane: an
+  action that applies but is blocked is shown disabled with its reason
+  (A5), for example "Invite collaborator…" while access is not checked
+  with the server.
 
 ## 4. Target and selection
 

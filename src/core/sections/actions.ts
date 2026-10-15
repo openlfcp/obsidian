@@ -25,12 +25,19 @@
 
 import { fromBase64url, type ResourceId, toBase64url } from "@openlfcp/core";
 import type { ActionId } from "../actions/catalog";
-import { type HostNeeds, hostRefusal, hostRefusalNotice } from "../actions/descriptors";
+import {
+  type ActionFacts,
+  DESCRIPTORS,
+  type HostNeeds,
+  hostRefusal,
+  hostRefusalNotice,
+} from "../actions/descriptors";
 import type { ActionRequest, Surface } from "../actions/dispatcher";
 import { type Flow, InFlight, type Reconciled } from "../in-flight";
 import { type NoteTarget, NoteTargets } from "../note-targets";
 import { scanRefs } from "../refs";
 import { REMOVE_CONFIRMATION, type RevokeOutcome, revokeMessage } from "../status/access";
+import type { SectionCard } from "../status/card";
 import type {
   CardAction,
   CardHandle,
@@ -994,6 +1001,10 @@ export class SectionActions {
     const conflicts = services.recoveryItems(key);
     const kept = await this.#keptCopies(key);
     const held = content.held[0];
+    // Inviting is offered by the validated access (060), never by default:
+    // the descriptor the pane reads decides, on the card's own facts
+    // (LFCP-03-013). Blocked, it is shown with its reason (A5, D10).
+    const invite = DESCRIPTORS.invite.availability(this.#cardFacts(key, title, content));
     const actions: CardAction[] = [
       // Conflicts are resolved one by one, by the user (061).
       ...(conflicts.length > 0
@@ -1007,34 +1018,47 @@ export class SectionActions {
             },
           ]
         : []),
-      // Inviting is offered by the validated access (060), never by default;
-      // never from a device where sections are read-only (the descriptors' guard).
-      ...(content.access?.canInvite === true && !this.#mayNot({ writes: true })
-        ? [
+      ...(invite.kind === "hidden"
+        ? []
+        : [
             {
               label: "Invite collaborator…",
+              ...(invite.kind === "disabled" ? { disabled: invite.reason } : {}),
               run: still((c) => this.#fromCard("invite", { section }, () => c.inviteTo(R))),
             },
-          ]
-        : []),
+          ]),
       // F-04: where edits are held, and the repair of that note.
       ...(held === undefined
         ? []
         : [
             {
               label: `Go to line ${held.line + 1}`,
-              run: () => void notes.goToLine(held.path, held.line),
+              run: () =>
+                void this.#fromCard(
+                  "go-to-problem",
+                  { section, at: { path: held.path, line: held.line } },
+                  () => this.goToLine(held.path, held.line),
+                ),
             },
             ...(["unsupported", "binding", "boundary", "base-unknown"].includes(held.cause)
               ? [
                   {
                     label: "Repair shared sections in this note",
-                    run: () => void this.#repairAt(held.path),
+                    run: () =>
+                      void this.#fromCard(
+                        "repair-sections",
+                        { section, at: { path: held.path, line: held.line } },
+                        () => this.repairAt(held.path),
+                      ),
                   },
                 ]
               : []),
           ]),
-      { label: "Resource status", run: still((c) => c.resourceStatusOf(R)) },
+      {
+        label: "Resource status",
+        run: () =>
+          void this.#fromCard("resource-status", { section }, () => this.resourceStatus(key)),
+      },
       // LFCP-03-012: the card is one of the pane's entries.
       ...(this.#openPane === null ? [] : [{ label: PANE_LINK, run: this.#openPane }]),
       // Text kept on this device after a refusal (a local copy, never applied by itself).
@@ -1042,7 +1066,10 @@ export class SectionActions {
         ? [
             {
               label: `Discard ${kept.length === 1 ? "the local copy" : `${kept.length} local copies`}…`,
-              run: () => void this.#discardKept(key, title),
+              run: () =>
+                void this.#fromCard("discard-local-copy", { section }, () =>
+                  this.discardLocalCopies(key, title),
+                ),
             },
           ]
         : []),
@@ -1112,6 +1139,75 @@ export class SectionActions {
     if (card === null) return;
     const content = await this.env.services.cardContent(card.key, card.title);
     if (content !== null) card.handle.update(content);
+  }
+
+  /** The card's facts as the action descriptors read them: the pane's, for this section alone. */
+  #cardFacts(key: string, title: string, content: SectionCard): ActionFacts {
+    const { services } = this.env;
+    return {
+      context: { editor: "none", note: null, cursor: "none", selection: null, flow: null },
+      registry: { status: "ready", placementIndex: "unknown", sections: null, unplaced: null },
+      section: {
+        key,
+        sharedTitle: title,
+        localAlias: null,
+        placements: null,
+        view: content.view,
+        canInvite: content.access?.invite ?? null,
+        ...(content.hosting === undefined ? {} : { hosting: content.hosting }),
+      },
+      host: {
+        unavailable: services.unavailable(),
+        starting: false,
+        readOnly: services.readOnly(),
+        server: services.server().trim() !== "",
+      },
+    };
+  }
+
+  /** "Go to line N" of a held copy (the card, F-04): note `path` opened at `line`. */
+  async goToLine(path: string, line: number): Promise<void> {
+    await this.env.notes.goToLine(path, line);
+  }
+
+  /**
+   * "Go to the problem" of section `key` (UX §3, `go-to-problem`): the
+   * line of the copy that holds the most edits, in its note, as the card
+   * offers it. False when no copy holds edits (the host then goes to the
+   * next problem in the note).
+   */
+  async goToHeld(key: string): Promise<boolean> {
+    const held = [...this.env.services.held(key)].sort(
+      (a, b) => (b.count ?? 1) - (a.count ?? 1),
+    )[0];
+    if (held === undefined) return false;
+    await this.env.notes.goToLine(held.path, held.line);
+    return true;
+  }
+
+  /** "Resource status" of section `key` (technical details): its Resource, still on this device. */
+  async resourceStatus(key: string): Promise<void> {
+    const { prompter, services } = this.env;
+    const commands = services.commands();
+    if (!services.known(key) || commands === null) {
+      prompter.notice("Shared Tasks: this section is no longer on this device.");
+      return;
+    }
+    await commands.resourceStatusOf(fromKey(key.slice(0, key.indexOf("#"))));
+  }
+
+  /**
+   * "Continue" (UX §3, `continue-flow`): flow `generation` brought forward,
+   * its open dialog or where it stands; one whose result is unknown is
+   * checked (the same operation, D12). A flow that closed meanwhile (a late
+   * click) is left alone: false.
+   */
+  async continueFlow(generation: number): Promise<boolean> {
+    const flow = this.#flows.byGeneration(generation);
+    if (flow === undefined) return false;
+    this.#revealFlow(flow);
+    if (flow.unknown) await flow.check();
+    return true;
   }
 
   /** "Open shared section details" (064): the card of the section under the cursor. */
@@ -1191,8 +1287,12 @@ export class SectionActions {
     );
   }
 
-  /** "Repair shared sections in this note" from a card (F-04): the note opened first. */
-  async #repairAt(path: string): Promise<void> {
+  /**
+   * "Repair shared sections in this note" on note `path`, from a surface
+   * that names a note rather than an editor (the card's held copy, F-04):
+   * the note opened first.
+   */
+  async repairAt(path: string): Promise<void> {
     const { notes } = this.env;
     const at = await notes.goToLine(path, notes.capture(path)?.cursorLine ?? 0);
     if (at !== null) await this.repairNote(at);
@@ -1214,11 +1314,18 @@ export class SectionActions {
     return ids;
   }
 
-  /** Discards the kept copies of section `key`, after asking: the note and the section stay. */
-  async #discardKept(key: string, title: string): Promise<void> {
+  /**
+   * "Discard the local copy…" (UX §3): the copies of section `key`'s text
+   * kept on this device after a refusal, discarded after asking; the note
+   * and the section stay.
+   */
+  async discardLocalCopies(key: string, title: string): Promise<void> {
     const { prompter, services } = this.env;
     const ids = await this.#keptCopies(key);
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      prompter.notice(`Shared Tasks: no local copy of "${title}" is kept on this device.`);
+      return;
+    }
     const one = ids.length === 1;
     const ask = prompter.confirm({
       title: `Local copies of "${title}"`,

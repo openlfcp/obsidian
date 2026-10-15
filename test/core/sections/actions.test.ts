@@ -7,7 +7,12 @@
 
 import { toBase64url } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
-import { ActionDispatcher, coreHandlers } from "../../../src/core/actions/dispatcher";
+import { ACTION_IDS } from "../../../src/core/actions/catalog";
+import {
+  ActionDispatcher,
+  coreHandlers,
+  type HostEntry,
+} from "../../../src/core/actions/dispatcher";
 import { SECTIONS_READ_ONLY } from "../../../src/core/lfcp/runtime";
 import type {
   CreationService,
@@ -39,6 +44,7 @@ import type { SharePreview } from "../../../src/core/sections/share";
 import type { EditorMode, TargetCapture, TextSelection } from "../../../src/core/sections/target";
 import type { RevokeOutcome } from "../../../src/core/status/access";
 import type { SectionCard } from "../../../src/core/status/card";
+import { statusView } from "../../../src/core/status/reducer";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const NOTE = ["# Notes", "", "## Plan", "", "- [ ] Alpha", "- [ ] Beta", "", "## Later", ""].join(
@@ -263,6 +269,7 @@ function fakeServices(calls: string[], over: Partial<SectionServices> = {}): Sec
     unavailable: () => null,
     known: () => false,
     cardContent: async () => null,
+    held: () => [],
     recoveryItems: () => [],
     resolveRecovery: unused("resolveRecovery"),
     commands: () => null,
@@ -986,6 +993,22 @@ describe("restore an import (LFCP-03-008 over 054)", () => {
 });
 
 describe("the section card (LFCP-03-008 over 059/060/061)", () => {
+  /** Current, access verified with the server: what lets the card offer Invite. */
+  const current = statusView({
+    session: "s",
+    revision: 1,
+    replica: "loaded",
+    access: "writer",
+    accessVerifiedAt: 1,
+    accessCurrent: true,
+    pendingControl: [],
+    connection: "connected",
+    catchUp: "current-at-checkpoint",
+    problems: [],
+    batches: [],
+    acceptanceEvidence: "available",
+    projections: [],
+  });
   const card = (over: Record<string, unknown> = {}) =>
     ({
       heading: "Launch",
@@ -995,7 +1018,9 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
       shared: [],
       technical: [],
       held: [],
-      access: { canInvite: true },
+      access: { canInvite: true, invite: true },
+      view: current,
+      hosting: "hosted",
       ...over,
     }) as unknown as SectionCard;
   type CardArgs = Parameters<SectionPrompter["card"]>;
@@ -1064,10 +1089,43 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     ]);
     expect(Object.keys(t.opened()[3])).toEqual(["alias", "remove"]);
 
+    // A5, D10: Invite applies but is blocked on a read-only device: shown, disabled, with why.
     const readOnly = cardSetup(() => ({ readOnly: () => true }));
     await readOnly.actions.openCard(KEY, "Launch");
-    expect(readOnly.opened()[1].map((a) => a.label)).toEqual(["Resource status"]);
+    expect(readOnly.opened()[1].map((a) => [a.label, a.disabled])).toEqual([
+      ["Invite collaborator…", `${SECTIONS_READ_ONLY}.`],
+      ["Resource status", undefined],
+    ]);
     expect(Object.keys(readOnly.opened()[3])).toEqual(["alias"]);
+  });
+
+  it("A5/D10: Invite reads the same descriptor as the pane; blocked, it is disabled with its reason", async () => {
+    const invite = async (over: Record<string, unknown>) => {
+      const t = cardSetup();
+      t.set(card(over));
+      await t.actions.openCard(KEY, "Launch");
+      return t.opened()[1].find((a) => a.label === "Invite collaborator…");
+    };
+    expect((await invite({}))?.disabled).toBeUndefined();
+    // Unknown access is neither a grant nor a denial: it waits.
+    expect((await invite({ access: { canInvite: false, invite: null } }))?.disabled).toBe(
+      "Inviting waits until this device has checked access with the server.",
+    );
+    expect((await invite({ access: undefined }))?.disabled).toBe(
+      "Inviting waits until this device has checked access with the server.",
+    );
+    expect((await invite({ access: { canInvite: false, invite: false } }))?.disabled).toBe(
+      "You can't invite others to this section.",
+    );
+    // I4: a local-only share is not ready for an invitation.
+    expect((await invite({ hosting: "pending" }))?.disabled).toBe(
+      "Not on its server yet: nobody can join until it is hosted.",
+    );
+    // A disabled button runs nothing.
+    const t = cardSetup();
+    t.set(card({ access: { canInvite: false, invite: false } }));
+    await t.actions.openCard(KEY, "Launch");
+    expect(t.opened()[1].find((a) => a.label === "Invite collaborator…")?.disabled).toBeDefined();
   });
 
   it("LFCP-03-012: the card links to the pane once the host gives it an entry", async () => {
@@ -1132,6 +1190,7 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
           joinCollaboration: async () => undefined,
           inviteCollaborator: async () => undefined,
           inviteTo: async (r) => void ran.push(`inviteTo ${toBase64url(r)}`),
+          resourceStatus: async () => undefined,
         },
       }),
     );
@@ -1202,6 +1261,64 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     expect(resolved).toEqual(["c1"]);
     expect(t.prompter.notices).toEqual(["Shared Tasks: the local copy was discarded."]);
     expect(t.calls).toEqual(["scheduleStatus"]);
+  });
+
+  it("A7: every card button runs its action through the dispatcher, to the one handler", async () => {
+    const resolved: string[] = [];
+    const kept = [
+      { candidateId: "c1", projectionId: `x#${KEY}#y`, reason: "rejected", sourceText: "t" },
+    ] as PendingCandidate[];
+    const t = cardSetup(() => ({
+      bases: () => new MemorySectionBaseStore(),
+      candidates: () => ({
+        putCandidate: async () => undefined,
+        allCandidates: async () => kept,
+        resolveCandidate: async (id) => {
+          resolved.push(id);
+        },
+      }),
+    }));
+    t.set(card({ held: [{ path: "Plan.md", line: 4, cause: "boundary" }] }));
+    const ran: string[] = [];
+    const d = new ActionDispatcher(
+      coreHandlers({
+        sections: () => t.actions,
+        collab: {
+          joinCollaboration: async () => undefined,
+          inviteCollaborator: async () => undefined,
+          inviteTo: async () => undefined,
+          resourceStatus: async () => undefined,
+        },
+      }),
+    );
+    t.actions.dispatchThrough((id, request, surface) => {
+      ran.push(
+        `${surface} ${id} ${request.at === undefined ? "" : `${request.at.path}:${request.at.line}`}`,
+      );
+      return d.run(id, request, surface);
+    });
+    await t.actions.openCard(KEY, "Launch");
+    t.prompter.script.confirm = [true];
+    for (const label of [
+      "Go to line 5",
+      "Repair shared sections in this note",
+      "Resource status",
+      "Discard the local copy…",
+    ])
+      t.press(label);
+    await flush(30);
+    expect(ran).toEqual([
+      "card go-to-problem Plan.md:4",
+      "card repair-sections Plan.md:4",
+      "card resource-status ",
+      "card discard-local-copy ",
+    ]);
+    // The handlers ran: the line located, then the repair's note opened (its services
+    // are not running here, so it says so), the Resource's status, the copy discarded.
+    expect(t.notes.located.map(([path]) => path)).toEqual(["Plan.md", "Plan.md"]);
+    expect(t.notes.located[0]).toEqual(["Plan.md", 4]);
+    expect(t.commandCalls).toEqual(["resourceStatusOf"]);
+    expect(resolved).toEqual(["c1"]);
   });
 
   it("only the open card is redrawn; a new card closes the previous one", async () => {
@@ -1497,7 +1614,7 @@ describe("stable target and exact selection (LFCP-03-009, U03-03/04/05/12)", () 
 });
 
 describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () => {
-  function dispatch(t: ReturnType<typeof setup>) {
+  function dispatch(t: ReturnType<typeof setup>, host?: HostEntry) {
     const collab: string[] = [];
     const d = new ActionDispatcher(
       coreHandlers({
@@ -1506,11 +1623,88 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
           joinCollaboration: async () => void collab.push("join"),
           inviteCollaborator: async () => void collab.push("invite (choose)"),
           inviteTo: async (r) => void collab.push(`invite ${toBase64url(r)}`),
+          resourceStatus: async () => void collab.push("resource status (choose)"),
         },
+        ...(host === undefined ? {} : { host }),
       }),
     );
     return { d, collab };
   }
+
+  it("LFCP-03-013: every action of the catalogue has its handler; none is a dead button", async () => {
+    const t = setup();
+    const host: string[] = [];
+    const { d } = dispatch(t, {
+      nextProblem: (at) => void host.push(`next problem ${at.path}`),
+      openForEditing: async (at) => void host.push(`edit ${at.path}`),
+      openSettings: () => void host.push("settings"),
+      copyReadable: async (at) => void host.push(`copy ${at.path}`),
+    });
+    for (const id of ACTION_IDS) expect(d.handles(id), id).toBe(true);
+    const at = t.editor.at();
+    await d.run("open-for-editing", { target: at }, "pane");
+    await d.run("open-settings", {}, "pane");
+    await d.run("copy-readable", { target: at }, "pane");
+    // No held copy for the section: the note's next problem, as the palette's command.
+    await d.run("go-to-problem", { target: at, section: { key: KEY, title: "Launch" } }, "pane");
+    expect(host).toEqual(["edit Plan.md", "settings", "copy Plan.md", "next problem Plan.md"]);
+  });
+
+  it("sync details, local changes and removing access open the section's card; discard says when nothing is kept", async () => {
+    const t = setup(() => ({
+      cardContent: async () =>
+        ({
+          heading: "Launch",
+          facts: [],
+          problems: [],
+          held: [],
+          view: statusView({
+            session: "s",
+            revision: 1,
+            replica: "loaded",
+            access: "writer",
+            pendingControl: [],
+            connection: "connected",
+            catchUp: "current-at-checkpoint",
+            problems: [],
+            batches: [],
+            acceptanceEvidence: "available",
+            projections: [],
+          }),
+        }) as never,
+      known: () => true,
+      held: (key) =>
+        key === KEY ? [{ path: "Other.md", line: 7, cause: "read-only" } as never] : [],
+    }));
+    const { d } = dispatch(t);
+    const section = { key: KEY, title: "Launch" };
+    for (const id of ["sync-details", "review-local-changes", "remove-access"] as const)
+      await d.run(id, { section }, "pane");
+    expect(t.prompter.dialogs.filter((x) => x.kind === "card")).toHaveLength(3);
+    await d.run("discard-local-copy", { section }, "pane");
+    expect(t.prompter.notices.at(-1)).toBe(
+      'Shared Tasks: no local copy of "Launch" is kept on this device.',
+    );
+    // Go to the problem: the section's held copy, in its own note.
+    t.notes.files.set("Other.md", "x\n".repeat(10));
+    await d.run("go-to-problem", { section, target: t.editor.at() }, "pane");
+    expect(t.notes.located).toEqual([["Other.md", 7]]);
+  });
+
+  it("continue-flow brings the running flow forward; a late click on a closed flow does nothing", async () => {
+    const t = setup();
+    const { d } = dispatch(t);
+    const first = d.run("share-section", { target: t.editor.at() }, "palette");
+    await flush();
+    const [flow] = t.actions.flows();
+    await d.run("continue-flow", { flow: flow?.generation ?? 0 }, "pane");
+    expect(t.prompter.dialogs[0]?.forward).toBe(1);
+    t.prompter.open("share")[0]?.answer(false);
+    await first;
+    await d.run("continue-flow", { flow: flow?.generation ?? 0 }, "pane");
+    expect(t.prompter.dialogs[0]?.forward).toBe(1);
+    expect(t.prompter.notices).toEqual([]);
+  });
 
   it("palette, menu and pane on one note: one preview, brought forward, nothing created twice", async () => {
     const t = setup();
@@ -1559,8 +1753,17 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
     await d.run("invite", {}, "palette");
     await d.run("join-with-link", {}, "palette");
     await d.run("join-with-link", {}, "pane");
-    expect(collab).toEqual([`invite ${R0}`, `invite ${R0}`, "invite (choose)", "join", "join"]);
-    expect(d.handles("go-to-problem")).toBe(false);
-    await d.run("go-to-problem", {}, "pane");
+    await d.run("resource-status", {}, "palette");
+    expect(collab).toEqual([
+      `invite ${R0}`,
+      `invite ${R0}`,
+      "invite (choose)",
+      "join",
+      "join",
+      "resource status (choose)",
+    ]);
+    // Without the host's part (the editor, the clipboard, the settings), those actions have no handler.
+    for (const id of ["open-for-editing", "open-settings", "copy-readable"] as const)
+      expect(d.handles(id)).toBe(false);
   });
 });
