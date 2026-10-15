@@ -109,6 +109,8 @@ export interface CommandEnv {
    * `note`. Absent while shared sections are off on this device.
    */
   readonly sectionConflicts?: (note: ActiveNote) => void;
+  /** A shared section was joined (its Resource): the pane is about it until another is (D9). */
+  readonly joined?: (resource: ResourceId) => void;
 }
 
 const STAGE_TEXT: Readonly<Record<JoinStage, string>> = {
@@ -355,6 +357,8 @@ export class CollabCommands {
           name,
           onStage: (s) => progress.update(STAGE_TEXT[s]),
         });
+        if (outcome.kind === "joined" && outcome.section !== undefined)
+          this.#env.joined?.(outcome.resourceId);
         p.notice(
           outcome.kind === "joined"
             ? outcome.section !== undefined
