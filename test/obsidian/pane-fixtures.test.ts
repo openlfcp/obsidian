@@ -1,19 +1,22 @@
 // @vitest-environment happy-dom
 // LFCP-03-013 (U03-02, U03-03, U03-06, U03-28): the frozen UX states
-// (test/fixtures/ux-0.3/states.json) on the real host, not the mock facts.
-// Each state becomes what the plugin really reads: a note in a Markdown
-// view (its text, cursor and selection), the registry view's rows, each
-// section's StatusView from the real reducer, its access list's facts, and
-// SectionActions' flows. The real plugin turns them into the pane (host
-// adapter, view model, wired dispatcher) and the real renderer draws it on
-// the recording Obsidian mock. The drawn pane must give the fixture's primary
+// (test/fixtures/ux-0.3/states.json) through the real plugin's pane path,
+// not the mock facts. Each state becomes what the plugin reads: a note in a
+// Markdown view (its text, cursor and selection) on the recording Obsidian
+// mock, and a sections host. The sections host is built by hand here (a
+// fake, not the real SectionsHost): its registry rows, each section's
+// StatusView from the real reducer, its access list's facts and the flows
+// in the shape SectionActions.flows() gives them. The real plugin turns
+// them into the pane (host adapter, view model, wired dispatcher) and the
+// real renderer draws it. The drawn pane must give the fixture's primary
 // call to action, its enabled and disabled actions with their reasons word
 // for word, its claims and none of the forbidden ones.
 //
-// Two states need a flow the host cannot produce yet, and are named here:
-// a join flow (the pane's join journey, LFCP-03-015) and an unfinished flow
-// read from the journals (LFCP-03-017). The share preview's own lines
-// (LFCP-03-014) are not claimed for the states that carry a preview.
+// Coverage: 17 states in full; 2 in part (selection-exact and
+// content-comments-and-table: their share preview's lines, LFCP-03-014,
+// are not claimed); 2 todo, needing a flow the host cannot produce yet: a
+// join flow (LFCP-03-015) and an unfinished flow read from the journals
+// (LFCP-03-017).
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -48,6 +51,15 @@ const doc = JSON.parse(
 ) as { globalForbiddenClaims: string[]; states: State[] };
 
 /** States the host cannot produce yet, and the task that brings them. */
+/**
+ * The fixtures' stage names that SectionActions does not report: it says
+ * "writing" until an insert settles, so an unknown one is at "writing".
+ */
+const HOST_STEP: Readonly<Record<string, string>> = { projected: "writing" };
+
+/** The steps SectionActions reports (actions.ts ActiveFlow.step). */
+const HOST_STEPS = new Set(["preview", "creating", "captured", "writing"]);
+
 const NOT_YET: Readonly<Record<string, string>> = {
   "unknown-result-join": "a join flow in the pane (LFCP-03-015)",
   "unfinished-insert": "an unfinished flow read from the journals (LFCP-03-017)",
@@ -160,7 +172,8 @@ function hostOf(st: State) {
             kind: flow.kind,
             path: flow.target ?? f.context.note,
             stage: "",
-            step: flow.stage,
+            // The step the real host reports: an insert whose result is unknown stopped while writing.
+            step: HOST_STEP[flow.stage] ?? flow.stage,
             outcome: flow.outcome,
             checking: false,
           },
@@ -249,13 +262,22 @@ afterEach(() => {
 });
 
 describe("the UX 0.3 states on the real host (LFCP-03-013)", () => {
-  it("names the states it cannot produce yet, and nothing else", () => {
+  it("names the states it cannot produce yet; every flow step is one the host reports", () => {
     const ids = new Set(doc.states.map((s) => s.id));
     for (const id of Object.keys(NOT_YET)) expect(ids.has(id), id).toBe(true);
+    for (const st of doc.states) {
+      const f = st.facts.context.flow;
+      if (f !== null && NOT_YET[st.id] === undefined)
+        expect(HOST_STEPS.has(HOST_STEP[f.stage] ?? f.stage), `${st.id}: ${f.stage}`).toBe(true);
+    }
   });
 
   for (const st of doc.states) {
-    if (NOT_YET[st.id] !== undefined) continue;
+    const todo = NOT_YET[st.id];
+    if (todo !== undefined) {
+      it.todo(`${st.id}: needs ${todo}`);
+      continue;
+    }
     describe(st.id, () => {
       it("draws the fixture's primary call to action", async () => {
         const d = await drawn(st);
