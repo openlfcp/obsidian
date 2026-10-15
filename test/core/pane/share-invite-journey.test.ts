@@ -16,7 +16,8 @@
 // go through the explicit import only; nothing is widened, nothing is sent
 // by itself.
 
-import { fromBase64url, type ResourceId, toHex } from "@openlfcp/core";
+import { fromBase64url, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import type { ActionId } from "../../../src/core/actions/catalog";
 import { ActionDispatcher, coreHandlers } from "../../../src/core/actions/dispatcher";
@@ -46,6 +47,7 @@ import {
 import type { RegistrySnapshot } from "../../../src/core/sections/registry-view";
 import type { SharePreview } from "../../../src/core/sections/share";
 import type { TargetCapture, TextSelection } from "../../../src/core/sections/target";
+import type { SectionCard } from "../../../src/core/status/card";
 import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -243,6 +245,8 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
   notes.files.set(PATH, NOTE);
   /** What the host knows of the section once created: its access list's facts. */
   let access: PaneAccess | undefined;
+  /** The section's status facts, as the status pass would give them. */
+  let facts: StatusFacts = healthy;
   let created = false;
   const creation: CreationService = {
     async current() {
@@ -305,7 +309,20 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
     scheduleStatus: () => undefined,
     unavailable: () => null,
     known: () => true,
-    cardContent: async () => null,
+    // The card's facts: the same status and access list the pane reads.
+    cardContent: async (key: string, title: string) =>
+      created && key === KEY
+        ? ({
+            heading: title,
+            view: statusView(facts),
+            ...(access === undefined
+              ? {}
+              : {
+                  access: { invite: access.canInvite, remove: null, removeNote: null },
+                  hosting: access.hosting,
+                }),
+          } as unknown as SectionCard)
+        : null,
     held: () => [],
     recoveryItems: () => [],
     resolveRecovery: async () => undefined,
@@ -323,7 +340,21 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
       calls.push(`checkInvitable ${toHex(R).slice(0, 8)}`);
     },
     async status() {
-      return { profile: "lfcp.shared-sections.v1" };
+      return { profile: SECTIONS_PROFILE_ID };
+    },
+    // The palette's list: the section's Resource, once shared.
+    async list() {
+      return created
+        ? [
+            {
+              resourceId: fromBase64url(R0),
+              localName: "Plan",
+              state: "available",
+              routes: [SERVER],
+              profile: SECTIONS_PROFILE_ID,
+            },
+          ]
+        : [];
     },
     async invite(R: ResourceId, preset: string) {
       invites.push({ R: toHex(R), preset });
@@ -338,6 +369,8 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
     placement: () => "child-line",
     defaultServer: () => SERVER,
     sections: () => true,
+    // As the plugin wires it (sections host): the card's invite descriptor, read now (LFCP-03-041).
+    inviteRefusal: (R) => actions.inviteRefusal(`${toBase64url(R)}#${SID}`),
   });
   const dispatcher = new ActionDispatcher(
     coreHandlers({ sections: () => actions, collab: commands }),
@@ -375,7 +408,7 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
     const d = hostPane({
       note: notes.capture(PATH),
       registry: registry(),
-      status: (key) => (created && key === KEY ? statusView(healthy) : undefined),
+      status: (key) => (created && key === KEY ? statusView(facts) : undefined),
       access: (key) => (key === KEY ? access : undefined),
       policy: { server: SERVER, comments: "local" },
       flows: actions.flows(),
@@ -411,7 +444,12 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
       throw new Error(`${id} is not offered enabled: ${JSON.stringify(offered)}`);
     return dispatcher.run(id, p.request(id), "pane");
   };
-  return { calls, dialogs, notes, actions, commands, prompter, invites, pane, click };
+  /** What the section's facts rest on changed: its access list, or its status. */
+  const set = (o: { access?: PaneAccess | undefined; facts?: StatusFacts }) => {
+    if ("access" in o) access = o.access;
+    if (o.facts !== undefined) facts = o.facts;
+  };
+  return { calls, dialogs, notes, actions, commands, prompter, invites, pane, click, set };
 }
 
 const enabled = (m: PaneModel, id: ActionId) =>
@@ -603,5 +641,112 @@ describe("share → invite in the pane (LFCP-03-014)", () => {
     t.dialogs.open("import").answer(null as never);
     await importing;
     expect(t.calls).toEqual([]);
+  });
+});
+
+describe("the palette's Invite collaborator… re-checks access (I4, LFCP-03-041)", () => {
+  /** A shared, hosted section with its access current: the pane offers Invite. */
+  async function shared() {
+    const t = journey();
+    const sharing = t.click("share-section");
+    await flush();
+    t.dialogs.open("share").answer(true);
+    await sharing;
+    expect(t.pane().model.primary?.id).toBe("invite");
+    return t;
+  }
+  /** "Invite collaborator…" from the palette: the section picked; the dialogs it opened after. */
+  async function palette(t: Awaited<ReturnType<typeof shared>>) {
+    const before = t.prompter.choices.length;
+    const run = t.commands.inviteCollaborator();
+    await flush();
+    expect(t.prompter.choices[before]?.map((c) => c.label)).toEqual(["Plan"]);
+    t.prompter.role?.answer(fromBase64url(R0));
+    await flush();
+    return { run, roles: t.prompter.choices.slice(before + 1) };
+  }
+  const reason = (t: Awaited<ReturnType<typeof shared>>) => {
+    const invite = enabled(t.pane().model, "invite");
+    expect(invite?.enabled).toBe(false);
+    return (invite as { reason: string }).reason;
+  };
+
+  const offline: StatusFacts = { ...healthy, connection: "offline", accessCurrent: false };
+  const blocked: readonly [string, { access?: PaneAccess | undefined; facts?: StatusFacts }][] = [
+    // Not read yet (just started, or offline before any check): unknown is no grant.
+    ["access unknown", { access: undefined }],
+    ["access unknown, read", { access: { canInvite: null, hosting: "hosted" } }],
+    // Offline: the access list still says yes, from before; the status says it is not current.
+    ["offline, access as last verified", { facts: offline }],
+    ["no invite right", { access: { canInvite: false, hosting: "hosted" } }],
+    ["not on its server", { access: { canInvite: true, hosting: "pending" } }],
+  ];
+
+  it.each(blocked)("%s: no role dialog; the pane's reason, said once", async (_name, change) => {
+    const t = await shared();
+    t.set(change);
+    const why = reason(t);
+    const { run, roles } = await palette(t);
+    await run;
+    expect(roles).toEqual([]);
+    expect(t.prompter.notices).toEqual([`Shared Tasks: ${why}`]);
+    expect(t.invites).toEqual([]);
+    expect(t.commands.invitation()).toBeNull();
+    expect(t.pane().model.flow).toBeNull();
+  });
+
+  it("offline before any check: says inviting waits for the server's check", async () => {
+    const t = await shared();
+    t.set({ access: undefined, facts: offline });
+    const { run } = await palette(t);
+    await run;
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: Inviting waits until this device has checked access with the server.",
+    ]);
+  });
+
+  it("access current again: the palette opens the role dialog, as the pane offers it", async () => {
+    const t = await shared();
+    t.set({ access: undefined, facts: offline });
+    await (await palette(t)).run;
+    t.set({ access: { canInvite: true, hosting: "hosted" }, facts: healthy });
+    expect(enabled(t.pane().model, "invite")?.enabled).toBe(true);
+    const { run, roles } = await palette(t);
+    expect(roles.map((c) => c.map((x) => x.label))).toEqual([["Read", "Read + write"]]);
+    t.prompter.role?.answer("read");
+    await flush();
+    t.prompter.link?.answer();
+    await run;
+    expect(t.invites).toEqual([{ R: toHex(fromBase64url(R0)), preset: "read" }]);
+  });
+
+  it("the section's card entry (inviteTo) re-checks too: the executor, not the surface", async () => {
+    const t = await shared();
+    t.set({ access: { canInvite: false, hosting: "hosted" } });
+    await t.commands.inviteTo(fromBase64url(R0) as ResourceId);
+    expect(t.prompter.choices).toEqual([]);
+    expect(t.prompter.notices).toEqual(["Shared Tasks: You can't invite others to this section."]);
+  });
+
+  it("no access reading wired: a section is not invited to (fails closed)", async () => {
+    const prompter = new InvitePrompter();
+    const commands = new CollabCommands({
+      collab: () =>
+        ({
+          checkInvitable: async () => undefined,
+          status: async () => ({ profile: SECTIONS_PROFILE_ID }),
+        }) as never,
+      prompter,
+      notes: { active: () => null, rewrite: async () => undefined },
+      guard: {} as never,
+      placement: () => "child-line",
+      defaultServer: () => SERVER,
+      sections: () => true,
+    });
+    await commands.inviteTo(fromBase64url(R0) as ResourceId);
+    expect(prompter.choices).toEqual([]);
+    expect(prompter.notices).toEqual([
+      "Shared Tasks: Inviting waits until this device has checked access with the server.",
+    ]);
   });
 });

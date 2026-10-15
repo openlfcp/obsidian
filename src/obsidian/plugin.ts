@@ -29,7 +29,7 @@ import {
   type TFile,
 } from "obsidian";
 import type { ActionId } from "../core/actions/catalog";
-import type { HostFacts } from "../core/actions/descriptors";
+import { type HostFacts, INVITE_WAITS } from "../core/actions/descriptors";
 import { ActionDispatcher, coreHandlers, type HostEntry } from "../core/actions/dispatcher";
 import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
 import type { JoinFlow } from "../core/collab/join-flow";
@@ -174,6 +174,9 @@ export default class OpenLfcpPlugin extends Plugin {
       wrote: (path, markdown) => this.#enqueue(() => this.projection.reindex(path, markdown)),
       // D9: the pane is about the section just joined, until another one is.
       joined: (R: ResourceId) => this.sectionJoined(R),
+      // I4 (LFCP-03-041): the palette invites to a section only when the pane would.
+      inviteRefusal: (R: ResourceId) =>
+        this.sections?.inviteRefusal(R) ?? Promise.resolve(INVITE_WAITS),
       // F-05: "Resolve shared task conflict" in a section opens the section's own review.
       ...(this.settings.sectionsDisabled
         ? {}

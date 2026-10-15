@@ -167,6 +167,12 @@ const NOT_ACCEPTED: ReadonlySet<string> = new Set([
 ]);
 
 const BUSY = "A flow is open; finish or cancel it first.";
+/**
+ * Why "Invite collaborator…" waits: this device has not checked its access
+ * with the server (unknown, stale, or offline). The pane, the card and the
+ * palette's executor say the same (I4, LFCP-03-041).
+ */
+export const INVITE_WAITS = "Inviting waits until this device has checked access with the server.";
 const OPEN_TO_SHARE = "Open the note for editing to share from it.";
 
 /** What every availability reads off the facts, once. */
@@ -310,7 +316,7 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
     if (s.hosting === "pending")
       return disabled("Not on its server yet: nobody can join until it is hosted.");
     if (s.canInvite === null || v.access.current !== true || v.access.checking)
-      return disabled("Inviting waits until this device has checked access with the server.");
+      return disabled(INVITE_WAITS);
     return guarded({ writes: true }, () => ENABLED)(d);
   },
   "open-details": ofSection(() => ENABLED),
