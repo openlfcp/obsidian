@@ -542,6 +542,38 @@ describe("Insert into a note… with a destination (LFCP-03-016)", () => {
     expect(placed).toEqual([env.R]);
   });
 
+  it("U03-07 (LFCP-03-023): Insert from the pane, then from the palette and the menu on that note: one preview, one copy", async () => {
+    const env = await setup();
+    const dispatcher = new ActionDispatcher(
+      coreHandlers({
+        sections: () => env.actions,
+        collab: {
+          joinCollaboration: async () => undefined,
+          inviteCollaborator: async () => undefined,
+          inviteTo: async () => undefined,
+          resourceStatus: async () => undefined,
+        },
+      }),
+    );
+    const pane = dispatcher.run(
+      "insert-into-note",
+      { target: env.at("Week.md"), section: { key: env.key, title: "Launch" } },
+      "pane",
+    );
+    await flush();
+    const preview = env.prompter.open<boolean>("insert");
+    // The palette's command and the menu's item on the same note bring the open preview forward.
+    await dispatcher.run("insert-into-note", { target: env.at("Week.md") }, "palette");
+    await dispatcher.run("insert-into-note", { target: env.at("Week.md") }, "menu");
+    await flush();
+    expect(env.prompter.dialogs.map((d) => d.kind)).toEqual(["insert"]);
+    expect(preview.forward).toBe(2);
+    preview.answer(true);
+    await pane;
+    expect(env.copies("Week.md")).toHaveLength(1);
+    expect(env.actions.flows()).toEqual([]);
+  });
+
   it("a key naming no section of this device still asks which one", async () => {
     const env = await setup();
     const other = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
