@@ -100,7 +100,10 @@ export class RepairModal extends Modal {
           cls: `openlfcp-diff-${l.kind}`,
         });
       box.createEl("p", {
-        text: "− only in this note · + only in the shared version",
+        text:
+          lost.sharedUnavailable === true
+            ? "This note's version. The shared version cannot be shown here yet."
+            : "− only in this note · + only in the shared version",
         cls: "setting-item-description",
       });
       const buttons = box.createDiv({ cls: "modal-button-container" });
@@ -108,12 +111,13 @@ export class RepairModal extends Modal {
         this.close();
         void this.actions.shareMine(lost.key);
       });
-      buttons
-        .createEl("button", { text: "Use the shared version" })
-        .addEventListener("click", () => {
-          this.close();
-          void this.actions.useShared(lost.key);
-        });
+      if (lost.sharedUnavailable !== true)
+        buttons
+          .createEl("button", { text: "Use the shared version" })
+          .addEventListener("click", () => {
+            this.close();
+            void this.actions.useShared(lost.key);
+          });
     }
   }
 

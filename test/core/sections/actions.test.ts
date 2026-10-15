@@ -5,7 +5,8 @@
 // written or created after a change, a refusal or a failure the executor
 // cannot classify, and a running flow is revealed, never started twice.
 
-import { toBase64url } from "@openlfcp/core";
+import { fromBase64url, principalId, resourceId, toBase64url } from "@openlfcp/core";
+import { createTask, SharedObjectsReplica, type TaskView } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import { ACTION_IDS } from "../../../src/core/actions/catalog";
 import {
@@ -28,9 +29,13 @@ import type {
   TextChange,
 } from "../../../src/core/sections/action-ports";
 import { DETACH_CONFIRMATION, SectionActions } from "../../../src/core/sections/actions";
-import { MemorySectionBaseStore, type SectionState } from "../../../src/core/sections/base";
+import {
+  MemorySectionBaseStore,
+  markdownState,
+  type SectionState,
+} from "../../../src/core/sections/base";
 import type { CreationEntry, CreationResult } from "../../../src/core/sections/create";
-import { applyChanges } from "../../../src/core/sections/engine";
+import { applyChanges, type PassContext, SectionEngine } from "../../../src/core/sections/engine";
 import {
   formatBoundary,
   parseSectionRef,
@@ -42,7 +47,11 @@ import type {
   InsertRefusal,
   InsertResult,
 } from "../../../src/core/sections/insert";
-import type { PendingCandidate } from "../../../src/core/sections/journal";
+import {
+  MemorySectionJournalStore,
+  type PendingCandidate,
+} from "../../../src/core/sections/journal";
+import { parseSections } from "../../../src/core/sections/parser";
 import type { SectionSnapshot } from "../../../src/core/sections/port";
 import type { RecoveryChoice, RecoveryItem } from "../../../src/core/sections/recovery";
 import type { SharePreview } from "../../../src/core/sections/share";
@@ -50,6 +59,7 @@ import type { EditorMode, TargetCapture, TextSelection } from "../../../src/core
 import type { RevokeOutcome } from "../../../src/core/status/access";
 import type { SectionCard } from "../../../src/core/status/card";
 import { statusView } from "../../../src/core/status/reducer";
+import { FakeSectionPort } from "./fake-port";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const NOTE = ["# Notes", "", "## Plan", "", "- [ ] Alpha", "- [ ] Beta", "", "## Later", ""].join(
@@ -847,6 +857,7 @@ const loadedSection = (ready: () => boolean = () => true): Partial<SectionServic
   model: () => ({
     snapshot: () => ({ ready: ready() }) as SectionSnapshot,
     task: () => undefined,
+    taskView: () => undefined,
   }),
 });
 
@@ -994,7 +1005,7 @@ describe("repair (LFCP-03-008 over 062)", () => {
     const kept: PendingCandidate[] = [];
     const t = setup(() => ({
       bases: () => bases,
-      model: () => ({ snapshot: () => MODEL, task: () => undefined }),
+      model: () => ({ snapshot: () => MODEL, task: () => undefined, taskView: () => undefined }),
       candidates: () => ({
         putCandidate: async (c) => {
           kept.push(c);
@@ -1414,7 +1425,11 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
   it("LFCP-03-010: the card's buttons run through the dispatcher, to the same handlers", async () => {
     const t = cardSetup(() => ({
       recoveryItems: () => [{ kind: "stale-work" } as unknown as RecoveryItem],
-      model: () => ({ snapshot: () => undefined, task: () => undefined }),
+      model: () => ({
+        snapshot: () => undefined,
+        task: () => undefined,
+        taskView: () => undefined,
+      }),
     }));
     const ran: string[] = [];
     const d = new ActionDispatcher(
@@ -1612,7 +1627,11 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     let known = false;
     const t = cardSetup(() => ({
       known: () => known,
-      model: () => ({ snapshot: () => undefined, task: () => undefined }),
+      model: () => ({
+        snapshot: () => undefined,
+        task: () => undefined,
+        taskView: () => undefined,
+      }),
       resolveRecovery: async (key) => {
         applied.push(key);
         return { items: [], note: null };
@@ -2098,7 +2117,7 @@ describe("problem hub resolvers (LFCP-03-018, U03-16)", () => {
   function conflictSetup(items: () => RecoveryItem[]) {
     const resolved: string[] = [];
     const t = setup(() => ({
-      model: () => ({ snapshot: () => MODEL, task: () => undefined }),
+      model: () => ({ snapshot: () => MODEL, task: () => undefined, taskView: () => undefined }),
       known: () => true,
       recoveryItems: () => items(),
       resolveRecovery: async (_key, item: RecoveryItem, _choice: RecoveryChoice) => {
@@ -2181,7 +2200,11 @@ describe("problem hub resolvers (LFCP-03-018, U03-16)", () => {
     function repairRowSetup(text: string) {
       const t = setup(() => ({
         bases: () => new MemorySectionBaseStore(),
-        model: () => ({ snapshot: () => undefined, task: () => undefined }),
+        model: () => ({
+          snapshot: () => undefined,
+          task: () => undefined,
+          taskView: () => undefined,
+        }),
         candidates: () => ({
           putCandidate: async () => undefined,
           allCandidates: async () => [],
@@ -2288,5 +2311,149 @@ describe("problem hub resolvers (LFCP-03-018, U03-16)", () => {
       expect(t.calls).toEqual(["pass Plan.md"]);
       expect(changes).toBe(1);
     });
+  });
+});
+
+describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", () => {
+  const T = "019a2f85-7b31-7c42-b85a-fc843e2f4009";
+  const REF = `  <!-- lfcp-ref: lfcp1:${R0}#task:${T} -->`;
+  const me = principalId(new Uint8Array(32).fill(4));
+  const noteWith = (line: string) =>
+    ["## Launch", formatBoundary("start", S), line, REF, formatBoundary("end", S), ""].join("\n");
+  const MODEL_NOTE = noteWith("- [ ] Original 📅 2026-11-01");
+  const CTX: PassContext = { caretLine: null, deletedIds: new Set(), origin: "other" };
+
+  /** A real engine and the repair actions on one base store, the model a fake port and a replica. */
+  function wired(
+    text: string,
+    view: (r: SharedObjectsReplica) => TaskView | undefined = (r) => r.task(T),
+  ) {
+    const { replica } = SharedObjectsReplica.create({
+      resource: resourceId(fromBase64url(R0)),
+      principal: me,
+    });
+    replica.apply(
+      createTask({ id: T as never, title: "Original", createdBy: me, due: "2026-11-01" }).intent,
+    );
+    const port = new FakeSectionPort();
+    const s = parseSections(MODEL_NOTE).sections[0];
+    if (s === undefined) throw new Error("no section");
+    port.host(R0, SID, markdownState(MODEL_NOTE, s).state);
+    port.onTaskIntents = (intents) => {
+      for (const i of intents) replica.apply(i as never);
+    };
+    const bases = new MemorySectionBaseStore();
+    const journal = new MemorySectionJournalStore();
+    const kept: PendingCandidate[] = [];
+    const t = setup(() => ({
+      bases: () => bases,
+      model: () => ({
+        snapshot: (r, sid) => port.snapshot(r, sid),
+        task: (_r, id) => (id === T ? view(replica)?.task : undefined),
+        taskView: (_r, id) => (id === T ? view(replica) : undefined),
+      }),
+      candidates: () => ({
+        putCandidate: async (c) => {
+          kept.push(c);
+        },
+        allCandidates: async () => kept,
+        resolveCandidate: async () => undefined,
+      }),
+    }));
+    t.notes.files.set("Plan.md", text);
+    let op = 0;
+    const engine = new SectionEngine({
+      port,
+      bases,
+      journal,
+      newNodeId: () => T,
+      newOperationId: () => `op-${++op}`,
+      newProjectionId: () => `projection-${op}`,
+      createdBy: me,
+      tasks: (_r, id) => (id === T ? { view: view(replica) } : undefined),
+      newTask: () => ({ id: T, title: "unused" }),
+    });
+    /** Passes on the note as the host would, writing their changes. */
+    const passes = async (n: number) => {
+      for (let i = 0; i < n; i++) {
+        const md = t.notes.files.get("Plan.md") ?? "";
+        const pass = await engine.pass("Plan.md", md, CTX);
+        const out = applyChanges(md, pass.changes);
+        t.notes.files.set("Plan.md", out);
+        await engine.written(pass, out);
+      }
+      return t.notes.files.get("Plan.md") ?? "";
+    };
+    return { ...t, port, replica, bases, kept, passes };
+  }
+  type Repair = Parameters<SectionPrompter["repair"]>;
+  const opened = (t: { prompter: RecordingPrompter }) =>
+    t.prompter.dialogs.find((d) => d.kind === "repair")?.args as Repair;
+
+  it("a Task-only difference is listed; Keep my version sends the note's fields", async () => {
+    const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
+    const t = wired(edited);
+    expect((await t.passes(1)).includes("Local edit")).toBe(true);
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, lost, actions] = opened(t);
+    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, undefined]]);
+    expect(lost[0]?.lines.some((l) => l.kind !== "same")).toBe(true);
+    await actions.shareMine(KEY);
+    expect(await t.passes(3)).toBe(edited);
+    expect(t.replica.task(T)?.task?.title).toBe("Local edit");
+    expect(t.replica.task(T)?.task?.due).toBe("2026-11-05");
+  });
+
+  it("a Task-only difference: Use the shared version shows the model, keeps a copy, then seeds", async () => {
+    const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
+    const t = wired(edited);
+    await t.passes(1);
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, , actions] = opened(t);
+    await actions.useShared(KEY);
+    expect(t.kept.map((c) => c.sourceText)).toEqual([edited.split("\n").slice(0, 5).join("\n")]);
+    const out = await t.passes(2);
+    expect(out).toContain("- [ ] Original");
+    expect(out).toContain("📅 2026-11-01");
+    expect(out).not.toContain("Local edit");
+    expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
+    expect(t.port.changes).toEqual([]);
+  });
+
+  it("a repeated 📅 the engine cannot read as the model's: listed, and Keep my version leaves it waiting no more", async () => {
+    const edited = noteWith("- [ ] Original 📅 2026-11-01 📅 2026-11-02");
+    const t = wired(edited);
+    await t.passes(1);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, lost, actions] = opened(t);
+    expect(lost.map((l) => l.key)).toEqual([KEY]);
+    await actions.shareMine(KEY);
+    await t.passes(2);
+    expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
+  });
+
+  it("a Task whose shared object is not a valid Task: listed with this note's version only; Keep it gives a base", async () => {
+    const t = wired(MODEL_NOTE, () => undefined);
+    await t.passes(1);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, lost, actions] = opened(t);
+    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, true]]);
+    await actions.useShared(KEY);
+    expect(t.notes.writes).toEqual([]);
+    expect(t.prompter.notices.at(-1)).toBe(
+      "Shared Tasks: the shared version cannot be written here yet. Nothing was replaced.",
+    );
+    await actions.shareMine(KEY);
+    expect(await t.passes(2)).toBe(MODEL_NOTE);
+    expect(await t.bases.projectionsOf("Plan.md")).toHaveLength(1);
+  });
+
+  it("a note that shows the model is not listed", async () => {
+    const t = wired(MODEL_NOTE);
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, lost] = opened(t) ?? [[], []];
+    expect(lost ?? []).toEqual([]);
   });
 });

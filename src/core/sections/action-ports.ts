@@ -11,7 +11,7 @@
 // Prompter, NoteAccess, CommandEnv).
 
 import type { ResourceId } from "@openlfcp/core";
-import type { Task } from "@openlfcp/shared-objects";
+import type { Task, TaskView } from "@openlfcp/shared-objects";
 import type { RefPlacement } from "../settings";
 import type { RevokeOutcome } from "../status/access";
 import type { SectionCard } from "../status/card";
@@ -89,6 +89,12 @@ export interface LostBase {
   readonly key: string;
   readonly title: string;
   readonly lines: readonly ComparedLine[];
+  /**
+   * The shared version cannot be written here yet (a Task in it is not
+   * here or not a valid Task, a model problem): only this note's version
+   * can be kept; `lines` are the note's.
+   */
+  readonly sharedUnavailable?: true;
 }
 
 /** What the repair dialog can do; each runs on the note the repair was computed for. */
@@ -288,6 +294,8 @@ export interface CandidateService {
 export interface ModelService {
   snapshot(resource: string, sectionId: string): SectionSnapshot | undefined;
   task(resource: string, taskId: string): Task | undefined;
+  /** A section Task with its conflict metadata (what the engine compares a seed with). */
+  taskView(resource: string, taskId: string): TaskView | undefined;
 }
 
 /** The collaboration commands for one Resource (the card's Invite and Resource status). */
