@@ -44,7 +44,7 @@ import { markdownState, newProjectionId } from "./base";
 import { sectionAtLine, sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
 import { sameState, sharedState } from "./engine";
-import { sameSection } from "./grammar";
+import { type SectionRef, sameSection } from "./grammar";
 import {
   type InsertionEntry,
   type InsertPreview,
@@ -770,6 +770,8 @@ export class SectionActions {
       prompter.notice("Shared Tasks: put the cursor in a shared section to detach it.");
       return;
     }
+    // The descriptor's guard: no detach while the section loads on this device.
+    if (!this.#loaded(found.section)) return;
     const ask = prompter.confirm({
       title: `Detach "${found.title}" in this note`,
       message:
@@ -782,6 +784,8 @@ export class SectionActions {
       prompter.notice("Shared Tasks: the note was deleted. Nothing was detached.");
       return;
     }
+    // Checked again as the effect starts: the section may have been unloaded meanwhile.
+    if (!this.#loaded(found.section)) return;
     let detached = false;
     await notes.edit(path, (current) => {
       // Only the note the confirmation was asked about.
@@ -1094,6 +1098,19 @@ export class SectionActions {
       return;
     }
     this.#openRecovery(key, title);
+  }
+
+  /**
+   * Whether section `ref` has loaded on this device (watched, its model
+   * ready): the executor's side of the descriptors' "loading" guard on
+   * detach. Says so and returns false when not.
+   */
+  #loaded(ref: SectionRef): boolean {
+    const { prompter, services } = this.env;
+    const snap = services.model()?.snapshot(toBase64url(ref.resourceId), ref.sectionId);
+    if (services.known(sectionKey(ref)) && snap?.ready === true) return true;
+    prompter.notice("Shared Tasks: this section is still loading. Try again in a moment.");
+    return false;
   }
 
   /** Whether the host guard refuses `needs` now, without saying so (an entry not offered). */
