@@ -1337,6 +1337,8 @@ export class LfcpRuntime {
         return { kind: "absent" };
       this.#discarded.add(key);
       await this.localState.put(discardedKey(resource), true);
+      // An open under way finishes first, so its session is closed below.
+      await this.#sectionOpening.get(key)?.catch(() => undefined);
       const opened = this.#sections.get(key);
       if (opened !== undefined) {
         this.#session(opened.url).client.close(resource);
