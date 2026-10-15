@@ -711,14 +711,14 @@
       "category": "flow",
       "cases": ["U03-13", "U03-14"],
       "findings": ["F-02"],
-      "description": "An insert into Sprint notes.md was left at its target choice with \"Continue later\"; no note was written. The section is healthy.",
+      "description": "An insert into Sprint notes.md was approved, then Obsidian closed before the note was written: the insertion journal holds it, no note was written (LFCP-03-017). The section is healthy.",
       "facts": {
         "context": {
           "editor": "live-preview",
           "note": "Sprint notes.md",
           "cursor": "private-text",
           "selection": null,
-          "flow": { "kind": "insert", "stage": "captured", "outcome": "unfinished", "target": "Sprint notes.md" }
+          "flow": { "kind": "insert", "stage": "writing", "outcome": "unfinished", "target": "Sprint notes.md" }
         },
         "registry": { "status": "ready", "placementIndex": "complete", "sections": 1, "unplaced": 1 },
         "section": {
