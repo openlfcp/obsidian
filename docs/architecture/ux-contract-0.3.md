@@ -499,6 +499,26 @@ preview (MARKDOWN-SECTIONS-01 §8).
   the pane says so before it opens. "Ready to invite" and "Link copied"
   are kept only for the current session: after a restart the pane says
   only what the hosting and access facts say.
+- **I9. The join flow in the pane** (LFCP-03-015). "Join with a link…" in
+  the pane opens a masked field and an optional "Name on this device"; no
+  dialog, nothing is sent until the user chooses Join. One join flow
+  (`src/core/collab/join-flow.ts`) holds the one join lock for the pane's
+  field and the palette's dialog, and the pane shows its steps: claim,
+  access (only once the server accepted the claim), load, choose a place.
+  Each step done is shown with the fact that confirms it ("The server
+  accepted the claim.", "Access: read and write.", "Loaded on this
+  device."). A stopped join keeps its cause in view (I6) with the field
+  for another link. A Resource this vault already holds is reached without
+  a new claim. Once joined, the section is the pane's subject (D9), listed
+  as not inserted yet, and its next step is "Insert into a note…" through
+  the existing insert, into the note in view (the destination choice is
+  LFCP-03-016); "Later" ends the flow. A claim whose answer was lost offers
+  "Check the result" (the same claim, from its journal) or "Give up" (its
+  journal dropped, as at a restart). A join and an invitation under way
+  share the current area by P5: a running share or insert the pane holds,
+  then the invitation (its dialog is open), then the join; the other is
+  listed. The link is never kept, shown, put in
+  a notice or logged.
 
 ## 10. Scope boundaries
 
@@ -529,7 +549,7 @@ conforms to the spec, the code and the spec win.
 | RC-03 | CTA order: save → boundary → access → unsupported → conflict → flow → ordinary | `statusView` on `main` orders save failure → access and refusal → rejection and stale work → source → held check failed → conflicts → loading and access check → catch-up, local edit, offline, pending → held check pending | P1 rows 1 and 4–11 take the reducer's conditions in that order, so the card's first condition and the pane's primary action never disagree. Flows (rows 2, 3, 12) are outside the reducer and placed by P2 |
 | RC-04 | With no heading, "show creating a title in the preview" | A section starts at an ATX heading with its marker on the next line (§3); `preflight` blocks `NOT_A_HEADING` | S3. 0.3 inserts no heading. Open for the owner (O-02) |
 | RC-05 | "Deleting the copy's text" is ambiguous | Body deletion is a shared delete; removing a whole copy is local only (§10; reproduced in LFCP-03-001) | C6 |
-| RC-06 | D-01 proposes a 7-day expiry and a cancel button | No expiry in the server, no cancel API; claim limit 1 (`DEFAULT_CLAIM_LIMIT`) | The owner's D-01 decision: I1 and §10. The join prompt's "It works once, and only for you" is wrong (anyone holding the link can claim it first). LFCP-03-015/020 replace it with I1 |
+| RC-06 | D-01 proposes a 7-day expiry and a cancel button | No expiry in the server, no cancel API; claim limit 1 (`DEFAULT_CLAIM_LIMIT`) | The owner's D-01 decision: I1 and §10. The join prompt's "It works once, and only for you" is wrong (anyone holding the link can claim it first). LFCP-03-015 replaced it with I1 in the join dialog and the pane |
 | RC-07 | U03-11 lists "expired" among join errors | No server enforces expiry; LFCP-WIRE-01 allows it only as policy | I6: "expired" only from a server refusal that says so |
 | RC-08 | F-08 asks for a neutral shared mark | 0.4 design: ✓✓ means shared, turns green when current, progress has its own icon (`docs/guides/shared-sections.md`) | F1 keeps the 0.4 design. The pilot (§5 of the pilot protocol) asks what ✓✓ means. Open for the owner (O-03) |
 | RC-09 | The code map says no command has a lock | `InFlight` per note for share, import and insert; join and invite guards (`7070d5f`, beta.6) | A4 builds on them (LFCP-03-002, 010) |
@@ -576,9 +596,10 @@ action, the enabled and disabled actions (reasons word for word) and the
 claims. LFCP-03-013 runs the same fixtures through the plugin's pane path:
 the plugin on the recording Obsidian mock, its host adapter, the wired
 dispatcher and the renderer, with a sections host built by hand for each
-state (`test/obsidian/pane-fixtures.test.ts`). Two states are todo, needing
-a flow the host cannot produce yet: a join flow in the pane (LFCP-03-015)
-and an unfinished flow read from the journals (LFCP-03-017). The two with
-a share preview (selection-exact, content-comments-and-table) draw it from
-the note in view and claim its lines (LFCP-03-014).
+state (`test/obsidian/pane-fixtures.test.ts`). The join flow's state runs
+on the plugin's join flow (LFCP-03-015). One state is todo, needing a flow
+the host cannot produce yet: an unfinished flow read from the journals
+(LFCP-03-017). The two with a share preview (selection-exact,
+content-comments-and-table) draw it from the note in view and claim its
+lines (LFCP-03-014).
 LFCP-03-023 runs them in the native harness.
