@@ -46,6 +46,11 @@ the settings to share a section."
    - **The exact text** that will be shared.
    - **"Stays private on this device:"** followed by any text under the
      heading that is not part of the section.
+   - **"Sync server: …"**: the server the section goes to. To use another
+     one, change the default server in the settings first.
+
+   The Shared Tasks pane shows the same summary before you click, for the
+   heading under the cursor or an exact selection.
 3. Click **Share**. The notice says `section "Launch plan" is shared.`
 
 The section always runs from its heading to the next heading of the same or
@@ -82,14 +87,17 @@ exists; to stop sharing it, remove people's access.
    named after the heading), then **Read + write** or **Read**.
 
    You can also open the section's details and click **"Invite
-   collaborator…"**.
+   collaborator…"**, or use the Shared Tasks pane: after a share it says
+   "Shared and on its sync server: ready to invite." and offers **"Invite
+   collaborator…"** as its next step.
 
 2. The invitation dialog says "The server has the invitation: the link
    works now." The link is hidden. Click **Copy link** (or **Show link**),
    then **Done**.
 
-Send the link to Bob privately. **It works once**, and anyone holding it can
-join until it is used.
+Send the link to Bob privately. One-time link, does not expire; whoever
+opens it first joins. Treat it like a password. After **Copy link** the pane
+says "Link copied": the link is not sent for you.
 
 You can only invite once the section is on its server. Until then, the
 dialog says "This section is still being created. Invite once it is ready."
