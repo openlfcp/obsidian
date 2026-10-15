@@ -93,6 +93,44 @@ describe("the insert preview's readable view", () => {
     );
   });
 
+  // Review F1: well-formed markers the parser has a finding on are not read either.
+  const R2 = "AMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
+  const foreign = `<!-- lfcp-ref: lfcp1:${R2}#task:${id(2)} -->`;
+  const problems: readonly [string, readonly string[], readonly string[]][] = [
+    // An item marker with no item above it: nothing to bind.
+    [
+      "an orphan item marker",
+      ["Text.", "", formatNodeMarker("item", id(4))],
+      [formatNodeMarker("item", id(4))],
+    ],
+    // A raw marker right before another marker: the first binds nothing.
+    [
+      "two node markers in a row",
+      [formatNodeMarker("raw", id(5)), formatNodeMarker("paragraph", id(6)), "Text."],
+      [formatNodeMarker("raw", id(5))],
+    ],
+    ["a ref to another Resource", ["- [ ] A", `  ${foreign}`], [foreign]],
+    [
+      "the same Task ref twice",
+      ["- [ ] A", `  ${ref(2)}`, "- [ ] B", `  ${ref(2)}`],
+      [`- [ ] B\n  ${ref(2)}`],
+    ],
+    [
+      "a marker of the wrong kind",
+      [formatNodeMarker("raw", id(7)), "Plain paragraph."],
+      [formatNodeMarker("raw", id(7))],
+    ],
+  ];
+  for (const [name, body, shown] of problems)
+    it(`shows ${name} as it is, with its problem`, () => {
+      const d = insertDisplay(block(body));
+      for (const t of shown) expect(d.readable).toContain(t);
+      expect(d.problem).toMatch(
+        /^Line \d+ has sharing metadata that could not be read\. It is shown as it is\.$/,
+      );
+      expect(d.source).toBe(block(body));
+    });
+
   it("hides nothing when the block's boundary does not read back as one section", () => {
     const open = ["## Launch", formatBoundary("start", S), "- [ ] A", `  ${ref(2)}`, ""].join("\n");
     expect(insertDisplay(open)).toEqual({

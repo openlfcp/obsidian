@@ -51,17 +51,23 @@ export function insertDisplay(block: string): PreviewDisplay {
   if (scan.sections.length !== 1 || scan.damaged.length > 0 || section === undefined)
     return { readable: block, source: block, hidden: 0, problem: BOUNDARY_UNREAD };
   const lines = splitLines(block);
+  // Lines the parser has a finding on: a well-formed marker or ref there is
+  // still a problem (an orphan, a duplicate, another Resource, the wrong
+  // kind), so it is shown, never hidden as if it were read.
+  const findings = scan.diagnostics.filter((d) => UNREAD.has(d.code));
+  const flagged = new Set(findings.map((d) => d.line));
   const drop = new Set<number>([section.startLine, section.endLine]);
   const kinds = lineKinds(lines);
   for (let i = section.startLine + 1; i < section.endLine; i++) {
     // Inside a fence or a multi-line comment a marker is text, not a binding.
-    if (kinds[i] === "literal") continue;
+    if (kinds[i] === "literal" || flagged.has(i)) continue;
     const kind = parseNodeMarker(lines[i]?.text ?? "")?.kind;
     if (kind !== undefined && kind !== "malformed") drop.add(i);
   }
   const inline = new Map<number, { start: number; end: number }>();
   for (const p of scanSectionRefs(block).projections) {
     if (p.taskLine <= section.startLine || p.taskLine >= section.endLine) continue;
+    if (flagged.has(p.taskLine) || flagged.has(p.refLine)) continue;
     if (p.placement === "child") drop.add(p.refLine);
     else inline.set(p.taskLine, { start: p.comment.start, end: p.comment.end });
   }
@@ -75,7 +81,7 @@ export function insertDisplay(block: string): PreviewDisplay {
         : { text: l.text.slice(0, at.start).trimEnd() + l.text.slice(at.end), eol: l.eol },
     );
   });
-  const unread = scan.diagnostics.find((d) => UNREAD.has(d.code));
+  const unread = findings[0];
   return {
     readable: out
       .map((l) => l.text + l.eol)
