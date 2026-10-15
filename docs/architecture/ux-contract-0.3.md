@@ -510,4 +510,9 @@ states and the consistency with the catalogue. A fixture's section must be
 one the reducer can produce: LFCP-03-007 rebuilds its `StatusFacts`, runs
 `statusView` and the pane view model, and checks the view, the primary
 action, the enabled and disabled actions (reasons word for word) and the
-claims. LFCP-03-013 and 023 run the same fixtures through the real hosts.
+claims. LFCP-03-013 runs the same fixtures through the real host: the
+plugin on the recording Obsidian mock, its host adapter, the wired
+dispatcher and the renderer (`test/obsidian/pane-fixtures.test.ts`), except
+two states the host cannot produce yet: a join flow in the pane
+(LFCP-03-015) and an unfinished flow read from the journals (LFCP-03-017).
+LFCP-03-023 runs them in the native harness.
