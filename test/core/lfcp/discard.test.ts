@@ -57,6 +57,21 @@ describe("a section Resource discarded before it was hosted", () => {
     await expect(r.openSection(R)).rejects.toThrow("unknown Resource");
   });
 
+  it("an open under way when it is discarded is closed with it, never left open", async () => {
+    const { device, local, r, R } = await made();
+    await r.stop();
+    const again = await start(device, local);
+    // The host opens the section at its start; a creation gives it up meanwhile.
+    const [opened, discarded] = await Promise.allSettled([
+      again.openSection(R),
+      again.discardUnhosted(R),
+    ]);
+    expect(discarded).toEqual({ status: "fulfilled", value: { kind: "deleted" } });
+    expect(opened.status).toBe("fulfilled");
+    expect(again.sectionProfile(R)).toBeUndefined();
+    expect((await again.registry()).map((e) => toHex(e.resourceId))).not.toContain(toHex(R));
+  });
+
   it("the local Principal's keys stay: another Resource made afterwards works", async () => {
     const { r, R } = await made();
     await r.discardUnhosted(R);
