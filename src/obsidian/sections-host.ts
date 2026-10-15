@@ -23,7 +23,7 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
-import type { HostFacts } from "../core/actions/descriptors";
+import { type HostFacts, INVITE_WAITS } from "../core/actions/descriptors";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
@@ -1040,6 +1040,18 @@ export class SectionsHost {
    */
   paneAccess(key: string): PaneAccess | undefined {
     return this.#paneAccess.get(key);
+  }
+
+  /**
+   * Why the palette's "Invite collaborator…" may not open the role dialog
+   * for the section of Resource `R` now, or null when it may (I4,
+   * LFCP-03-041): the card's and the pane's invite descriptor, on facts
+   * read now. A section with no status yet waits.
+   */
+  inviteRefusal(R: ResourceId): Promise<string | null> {
+    const prefix = `${toBase64url(R)}#`;
+    const key = [...this.#statuses.keys()].find((k) => k.startsWith(prefix));
+    return key === undefined ? Promise.resolve(INVITE_WAITS) : this.actions.inviteRefusal(key);
   }
 
   /** The settings a share runs under now: the default sync server and the comments setting. */

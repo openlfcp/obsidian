@@ -12,6 +12,7 @@ import type { InvitationLink } from "@openlfcp/client";
 import { resourceId as asResourceId, type ResourceId, toHex } from "@openlfcp/core";
 import type { ScalarField, Task } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
+import { INVITE_WAITS } from "../actions/descriptors";
 import { NEEDS_NEWER_VERSION, type RegistryEntry } from "../lfcp/runtime";
 import type { MutationGuard } from "../projection/guard";
 import { renderNewTaskLine } from "../projection/render";
@@ -116,6 +117,13 @@ export interface CommandEnv {
   readonly sectionConflicts?: (note: ActiveNote) => void;
   /** A shared section was joined (its Resource): the pane is about it until another is (D9). */
   readonly joined?: (resource: ResourceId) => void;
+  /**
+   * I4 (LFCP-03-041): why inviting to the shared section of Resource `R` is
+   * not offered now (the invite descriptor's reason, as the pane and the
+   * card read it), or null when it is. Absent: a section is never invited
+   * to (its access cannot be read here).
+   */
+  readonly inviteRefusal?: (R: ResourceId) => Promise<string | null>;
 }
 
 const STAGE_TEXT: Readonly<Record<JoinStage, string>> = {
@@ -725,6 +733,16 @@ export class CollabCommands {
     await collab.checkInvitable(R);
     // A shared section's invitation speaks of the section, not of tasks.
     const section = (await collab.status(R)).profile === SECTIONS_PROFILE_ID;
+    // I4 (LFCP-03-041): a section is invited to only while the pane would
+    // offer it (access current, accepted, on its server): no role dialog
+    // otherwise, and the same reason the pane shows.
+    if (section) {
+      const refusal = await (this.#env.inviteRefusal?.(R) ?? INVITE_WAITS);
+      if (refusal !== null) {
+        p.notice(`Shared Tasks: ${refusal}`);
+        return;
+      }
+    }
     this.#invitationAt({ resource: R, stage: "role", confirmed: null });
     // I2: the role is the user's explicit choice; nothing is preselected above Read.
     const preset = await p.choose<InvitePreset>({

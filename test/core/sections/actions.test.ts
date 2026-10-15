@@ -1336,6 +1336,32 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     expect(t.opened()[1].find((a) => a.label === "Invite collaborator…")?.disabled).toBeDefined();
   });
 
+  it("LFCP-03-041: the executor's inviteRefusal is the card's Invite reason, read now", async () => {
+    const cases: Record<string, unknown>[] = [
+      {},
+      { access: { canInvite: false, invite: null } },
+      { access: undefined },
+      { access: { canInvite: false, invite: false } },
+      { hosting: "pending" },
+    ];
+    for (const over of cases) {
+      const t = cardSetup();
+      t.set(card(over));
+      await t.actions.openCard(KEY, "Launch");
+      const shown = t.opened()[1].find((a) => a.label === "Invite collaborator…")?.disabled;
+      expect(await t.actions.inviteRefusal(KEY)).toBe(shown ?? null);
+    }
+    // Read-only: the host's guard, as the card says it.
+    const readOnly = cardSetup(() => ({ readOnly: () => true }));
+    expect(await readOnly.actions.inviteRefusal(KEY)).toBe(`${SECTIONS_READ_ONLY}.`);
+    // No status yet: it waits; never a grant.
+    const loading = cardSetup();
+    loading.set(null);
+    expect(await loading.actions.inviteRefusal(KEY)).toBe(
+      "Inviting waits until this device has checked access with the server.",
+    );
+  });
+
   it("LFCP-03-012: the card links to the pane once the host gives it an entry", async () => {
     const t = cardSetup();
     let opened = 0;

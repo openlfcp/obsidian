@@ -38,6 +38,7 @@ import {
   type HostNeeds,
   hostRefusal,
   hostRefusalNotice,
+  INVITE_WAITS,
   sectionFacts,
 } from "../actions/descriptors";
 import type { ActionRequest, Surface } from "../actions/dispatcher";
@@ -1579,6 +1580,21 @@ export class SectionActions {
     if (card === null) return;
     const content = await this.env.services.cardContent(card.key, card.title);
     if (content !== null) card.handle.update(content);
+  }
+
+  /**
+   * Why "Invite collaborator…" is not offered for section `key` now, or null
+   * when it is (I4, LFCP-03-041): the invite descriptor on the card's own
+   * facts, read now, as the pane and the card read it. The executor asks
+   * before the role dialog, so the palette offers no invitation the pane
+   * would not. A section whose status is not known yet waits.
+   */
+  async inviteRefusal(key: string): Promise<string | null> {
+    const content = await this.env.services.cardContent(key, "");
+    if (content === null) return INVITE_WAITS;
+    const invite = DESCRIPTORS.invite.availability(this.#cardFacts(key, "", content));
+    if (invite.kind === "disabled") return invite.reason;
+    return invite.kind === "enabled" ? null : INVITE_WAITS;
   }
 
   /** The card's facts as the action descriptors read them: the pane's, for this section alone. */
