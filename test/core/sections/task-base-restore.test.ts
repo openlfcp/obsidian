@@ -241,38 +241,19 @@ describe("a note that shows the model's fields seeds its base (LFCP-03-043)", ()
   });
 });
 
-describe("a Task the base does not know, adopted from the note (LFCP-03-043 review)", () => {
-  it("its fields the note changed are sent, never rendered over", async () => {
-    const replica = replicaWith();
-    const h = setup(() => replica.task(T));
-    h.port.onTaskIntents = (intents) => {
-      for (const i of intents) replica.apply(i as never);
-    };
-    // A base for the section that does not know the Task (a paste kept
-    // while the section waited, then Keep): the model has it active.
-    await h.bases.save("projection-known", {
+describe("a node the base does not know, adopted as the note shows it (LFCP-03-043 review round 2)", () => {
+  /** A base for the section that does not know its node: a crash after the note was written, before written(). */
+  const lostNode = (h: { bases: MemorySectionBaseStore; port: FakeSectionPort }) =>
+    h.bases.save("projection-known", {
       locator: { path: "note.md", section: S },
       state: { title: "Section", nodes: {}, order: {} },
       revision: h.port.snapshot(R, SID)?.revision ?? "",
     });
-    const edited = note("- [ ] Local edit 📅 2026-11-05");
-    let md = edited;
-    for (let i = 0; i < 3; i++) md = (await h.run("note.md", md)).out;
-    expect(md).toBe(edited);
-    expect(replica.task(T)?.task?.title).toBe("Local edit");
-    expect(replica.task(T)?.task?.due).toBe("2026-11-05");
-    const sent = h.port.changes.flatMap((c) => c.intents.map((x) => x.intent));
-    expect(sent).toEqual(expect.arrayContaining(["task.set_title", "task.set_due"]));
-  });
 
   it("a note that shows the adopted Task as the model sends nothing", async () => {
     const replica = replicaWith();
     const h = setup(() => replica.task(T));
-    await h.bases.save("projection-known", {
-      locator: { path: "note.md", section: S },
-      state: { title: "Section", nodes: {}, order: {} },
-      revision: h.port.snapshot(R, SID)?.revision ?? "",
-    });
+    await lostNode(h);
     let md = MODEL;
     for (let i = 0; i < 2; i++) md = (await h.run("note.md", md)).out;
     expect(md).toBe(MODEL);
@@ -280,10 +261,21 @@ describe("a Task the base does not know, adopted from the note (LFCP-03-043 revi
       h.port.changes.flatMap((c) => c.intents).filter((i) => i.intent.startsWith("task.")),
     ).toEqual([]);
   });
-});
 
-describe("a paragraph the base does not know, adopted from the note (LFCP-03-043 review)", () => {
-  it("its Text the note changed is sent, never rendered over", async () => {
+  it("a collaborator's title after the crash reaches the note; it is never sent back", async () => {
+    const replica = replicaWith();
+    const h = setup(() => replica.task(T));
+    await lostNode(h);
+    replica.apply(setTitle(replica.task(T)?.task as Task, "Peer title").intent);
+    h.port.remote(R, () => {});
+    let md = MODEL;
+    for (let i = 0; i < 3; i++) md = (await h.run("note.md", md)).out;
+    expect(md).toBe(note("- [ ] Peer title 📅 2026-11-01"));
+    expect(replica.task(T)?.task?.title).toBe("Peer title");
+    expect(h.port.changes).toEqual([]);
+  });
+
+  it("a collaborator's paragraph Text after the crash reaches the note; it is never sent back", async () => {
     const P = "019a2f85-7b31-7c42-b85a-fc843e2f4010";
     const para = (text: string) =>
       [
@@ -306,15 +298,16 @@ describe("a paragraph the base does not know, adopted from the note (LFCP-03-043
       op: 0,
       projection: 0,
     });
-    await h.bases.save("projection-known", {
-      locator: { path: "note.md", section: S },
-      state: { title: "Section", nodes: {}, order: {} },
-      revision: port.snapshot(R, SID)?.revision ?? "",
+    await lostNode(h);
+    port.remote(R, (x) => {
+      const n = x.state.nodes[P];
+      if (n === undefined) throw new Error("no node");
+      x.state = { ...x.state, nodes: { ...x.state.nodes, [P]: { ...n, text: "Peer text" } } };
     });
-    const edited = para("Local text");
-    let md = edited;
+    let md = model;
     for (let i = 0; i < 3; i++) md = (await h.run("note.md", md)).out;
-    expect(md).toBe(edited);
-    expect(port.sections.get(R)?.state.nodes[P]?.text).toBe("Local text");
+    expect(md).toBe(para("Peer text"));
+    expect(port.sections.get(R)?.state.nodes[P]?.text).toBe("Peer text");
+    expect(port.changes).toEqual([]);
   });
 });
