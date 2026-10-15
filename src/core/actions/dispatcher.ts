@@ -99,6 +99,7 @@ export const PALETTE_COMMAND: Readonly<Partial<Record<ActionId, string>>> = {
   "repair-sections": "repair-shared-sections",
   "go-to-problem": "next-section-problem",
   "copy-readable": "copy-readable-text",
+  "copy-shared-section": "copy-shared-section",
   "detach-section": "detach-section",
   "resource-status": "resource-status",
 };
@@ -136,6 +137,8 @@ export interface HostEntry {
   openSettings(): void;
   /** "Copy readable text": the selection of `at`, else its section, without sharing metadata. */
   copyReadable(at: TargetCapture): Promise<void>;
+  /** "Copy shared section": the whole copy at the cursor of `at`, every binding kept. */
+  copySharedSection(at: TargetCapture): Promise<void>;
 }
 
 /**
@@ -224,6 +227,9 @@ export function coreHandlers(env: {
           "open-settings": async () => host.openSettings(),
           "copy-readable": async (r: ActionRequest) => {
             if (r.target !== undefined) await host.copyReadable(r.target);
+          },
+          "copy-shared-section": async (r: ActionRequest) => {
+            if (r.target !== undefined) await host.copySharedSection(r.target);
           },
         }),
     "review-conflicts": async (r) => {

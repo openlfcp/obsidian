@@ -290,18 +290,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.addCommand({
         id: "copy-shared-section",
         name: "Copy shared section",
-        editorCallback: (editor) => {
-          const text = sharedSectionText(editor.getValue(), editor.getCursor().line);
-          if (text === null) {
-            new Notice("Shared Tasks: put the cursor in a shared section to copy it.");
-            return;
-          }
-          void navigator.clipboard.writeText(text).then(() => {
-            new Notice(
-              "Shared Tasks: shared section copied. Pasted into another note, it is another copy of the same section; it gives nobody access.",
-            );
-          });
-        },
+        editorCallback: (editor, ctx) => void this.#runOnNote("copy-shared-section", editor, ctx),
       });
       // LFCP-02-064: every section action from the keyboard, without a Tab stop per row.
       this.addCommand({
@@ -601,6 +590,18 @@ export default class OpenLfcpPlugin extends Plugin {
         }
         await navigator.clipboard.writeText(text);
         new Notice("Shared Tasks: copied without sharing metadata.");
+      },
+      // LFCP-03-019: the copy at the captured cursor, never the active editor's.
+      copySharedSection: async (at) => {
+        const text = sharedSectionText(at.text, at.cursorLine);
+        if (text === null) {
+          new Notice("Shared Tasks: put the cursor in a shared section to copy it.");
+          return;
+        }
+        await navigator.clipboard.writeText(text);
+        new Notice(
+          "Shared Tasks: shared section copied. Pasted into another note, it is another copy of the same section; it gives nobody access.",
+        );
       },
     };
   }

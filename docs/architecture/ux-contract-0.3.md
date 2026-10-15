@@ -84,6 +84,7 @@ label differs from the palette name, the table gives both.
 | `open-for-editing` | Open for editing | — | Открыть для редактирования | no |
 | `open-settings` | Open settings | — | Открыть настройки | no |
 | `copy-readable` | Copy readable text | `copy-readable-text` "Copy readable text (without sharing metadata)" | — | no |
+| `copy-shared-section` | Copy shared section | `copy-shared-section` "Copy shared section" | — | no |
 | `remove-access` | Remove access… | — (card, existing) | — | yes |
 | `discard-local-copy` | Discard the local copy… | — (card, existing) | — | yes |
 | `detach-section` | Detach this section | `detach-section` "Detach this section" | — | yes |
