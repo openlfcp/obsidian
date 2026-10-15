@@ -380,7 +380,19 @@ describe("MS45 in a pass: the canonical inline form", () => {
   const canonical = `- [ ] Water plants ${REF} 🔁 every week 📅 2026-10-08`;
 
   it("moves an idle line's ref before its Tasks fields; nothing is published", async () => {
-    const h = await seeded(note([late, "", ...BODY]));
+    // The note shows the shared Task's fields: it seeds (LFCP-03-043).
+    const me = principalId(new Uint8Array(32).fill(4));
+    const { replica } = SharedObjectsReplica.create({
+      resource: resourceId(fromBase64url(R)),
+      principal: me,
+    });
+    replica.apply(
+      createTask({ id: T as never, title: "Water plants", createdBy: me, due: "2026-10-08" })
+        .intent,
+    );
+    const h = await seeded(note([late, "", ...BODY]), (_r, taskId) =>
+      taskId === T ? { view: replica.task(T) } : undefined,
+    );
     // Seeding only records the base; the next pass moves the ref, and the one after is empty.
     const { out } = await h.run(note([late, "", ...BODY]));
     expect(out).toBe(note([canonical, "", ...BODY]));

@@ -6,7 +6,8 @@
 // the note, the user's edit kept, the note the model's, nothing left
 // unfinished or held. Against the fake SDK port (mock evidence).
 
-import { principalId } from "@openlfcp/core";
+import { fromBase64url, principalId, resourceId } from "@openlfcp/core";
+import { createTask, SharedObjectsReplica } from "@openlfcp/shared-objects";
 import { describe, expect, it } from "vitest";
 import {
   MemorySectionBaseStore,
@@ -126,6 +127,22 @@ function vault() {
   let nodeId = 100;
   let op = 0;
   let projection = 0;
+  // The section's Tasks: Contract, and each Task a batch created (a base
+  // lost in the stop seeds again only on a note that shows them, LFCP-03-043).
+  const me = principalId(new Uint8Array(32).fill(4));
+  const { replica } = SharedObjectsReplica.create({
+    resource: resourceId(fromBase64url(R)),
+    principal: me,
+  });
+  replica.apply(createTask({ id: T as never, title: "Contract", createdBy: me }).intent);
+  const tasks = (_r: string, taskId: string) => {
+    if (replica.task(taskId) === undefined)
+      for (const c of port.changes)
+        for (const i of c.intents)
+          if (i.intent === "task.create_in_section" && i.task.id === taskId)
+            replica.apply(createTask({ ...i.task, id: taskId as never, createdBy: me }).intent);
+    return { view: replica.task(taskId) };
+  };
   /** A new engine on the same stores: the vault (re)started. */
   const start = () =>
     new SectionEngine({
@@ -136,7 +153,7 @@ function vault() {
       newOperationId: () => `op-${++op}`,
       createdBy: principalId(new Uint8Array(32).fill(4)),
       newProjectionId: () => `projection-${++projection}`,
-      tasks: () => undefined,
+      tasks,
       newTask: (line, taskId) => ({
         id: taskId,
         title: line.replace(/^[ \t]*[-*+][ \t]+\[.\][ \t]*/, "").trim(),
