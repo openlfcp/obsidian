@@ -257,8 +257,9 @@ export function sectionCard(input: CardInput): SectionCard {
       "Not current: offline edits from before an access change are not in the shared version yet.",
     );
   else if (kinds.has("offline")) facts.push(offlineText(v));
-  else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
+  // A connection being made says so while the section loads too, as the pane does (LFCP-03-013).
   else if (kinds.has("connecting")) facts.push(CONNECTING_TEXT);
+  else if (kinds.has("loading")) facts.push("Not checked with the server yet.");
   else if (kinds.has("catching-up")) facts.push("Receiving changes from the server.");
   else if (held.length > 0)
     facts.push(
