@@ -101,11 +101,14 @@ export function offlineText(v: StatusView): string {
         ? "The server stopped responding and connecting again failed; trying again. Local updates wait on this device."
         : "Could not connect to the server; trying again. Local updates wait on this device.";
     default:
-      return v.connectionQualifier === "network-offline"
-        ? "Offline (no network): local updates wait on this device."
-        : v.connectionQualifier === "not-responding"
-          ? "Offline: the server stopped responding, reconnecting. Local updates wait on this device."
-          : "Offline: local updates wait on this device.";
+      // No session reported anything yet (M2): nothing says it is offline, only unchecked.
+      return v.connectionQualifier === "no-evidence"
+        ? NOT_CHECKED_TEXT
+        : v.connectionQualifier === "network-offline"
+          ? "Offline (no network): local updates wait on this device."
+          : v.connectionQualifier === "not-responding"
+            ? "Offline: the server stopped responding, reconnecting. Local updates wait on this device."
+            : "Offline: local updates wait on this device.";
   }
 }
 
@@ -142,6 +145,14 @@ function keptIn(h: HeldEdits): string {
       return "";
   }
 }
+
+/**
+ * Not connected, and no session said why (`connectionQualifier`
+ * "no-evidence": none has reported a transition yet, or there is none):
+ * never "Offline", which would claim a fact nobody observed.
+ */
+export const NOT_CHECKED_TEXT =
+  "Not checked with the server yet. Local updates wait on this device.";
 
 /** The connecting sentence (LFCP-03-005): not checked with the server yet. */
 export const CONNECTING_TEXT =

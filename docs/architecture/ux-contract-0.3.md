@@ -326,7 +326,8 @@ unknown, never as zero.
 | Access `refused` | "The sync server no longer accepts changes from this vault for this section." | "Offline"; "Your access was removed" |
 | Access `not-member` | "This vault is not a member of this section." | "Your access was removed" |
 | Access `revoked` | "Your access to this section was removed. Your local copy stays." | "not a member" |
-| `connection` "offline", `connectionQualifier` "lost" or "no-evidence" (or "not-syncing") | "Offline: local updates wait on this device." | "failed" |
+| `connection` "offline", `connectionQualifier` "lost" or "not-syncing" | "Offline: local updates wait on this device." | "failed" |
+| `connection` "offline", `connectionQualifier` "no-evidence" (no session reported a transition yet, or there is none) | "Not checked with the server yet. Local updates wait on this device."; the label "Not checked with the server yet; local updates will wait" when it is the first condition (LFCP-03-013) | "Offline"; "failed" |
 | `connection` "offline", `connectionQualifier` "network-offline" | "Offline (no network): local updates wait on this device." | "failed"; "The server is down" |
 | `connection` "offline", `connectionQualifier` "not-responding" | "Offline: the server stopped responding, reconnecting. Local updates wait on this device." | "failed" |
 | `connection` "failed" | "Could not connect to the server; trying again. Local updates wait on this device."; with `connectionQualifier` "not-responding": "The server stopped responding and connecting again failed; trying again. Local updates wait on this device." | "Offline" alone; a failure without a failed attempt |

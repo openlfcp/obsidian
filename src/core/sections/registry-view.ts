@@ -57,9 +57,14 @@ export interface RegistryRow {
   /**
    * The section's status from the one status path. `state` is null when it
    * is unknown: the Resource is not watched, or it has no status yet. A
-   * missing status is never healthy.
+   * missing status is never healthy. `label` is the view's own words for
+   * it (StatusView.label: the card's and the badge's), null when unknown.
    */
-  readonly status: { readonly watched: boolean; readonly state: StatusState | null };
+  readonly status: {
+    readonly watched: boolean;
+    readonly state: StatusState | null;
+    readonly label: string | null;
+  };
   /** The notes with a copy found so far, by path (local). */
   readonly placements: readonly NotePlacement[];
   /** The number of notes with a copy; null until the placement index is complete. */
@@ -226,7 +231,11 @@ export class SectionRegistryView {
           localAlias: e.localName,
           registryState: e.state,
           refusal: e.refusal?.code ?? null,
-          status: Object.freeze({ watched, state: view?.state ?? null }),
+          status: Object.freeze({
+            watched,
+            state: view?.state ?? null,
+            label: view?.label ?? null,
+          }),
           placements: Object.freeze(placements),
           placementCount: complete ? placements.length : null,
           placed: placements.length > 0 ? "placed" : complete ? "unplaced" : "unknown",

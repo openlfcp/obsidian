@@ -24,6 +24,8 @@ import {
 } from "../../../src/core/sections/grammar";
 import type { RegistrySnapshot } from "../../../src/core/sections/registry-view";
 import type { TargetCapture } from "../../../src/core/sections/target";
+import { headingBadge } from "../../../src/core/status/badge";
+import { sectionCard } from "../../../src/core/status/card";
 import { statusView } from "../../../src/core/status/reducer";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -64,7 +66,11 @@ const registry = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
       localAlias: "Work launch",
       registryState: "available",
       refusal: null,
-      status: { watched: true, state: "CURRENT" },
+      status: {
+        watched: true,
+        state: "CURRENT",
+        label: "No pending local changes; current as last checked",
+      },
       placements: [{ path: "Plan.md" } as never],
       placementCount: 1,
       placed: "placed",
@@ -148,6 +154,43 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(unknownStatus().state).toBe("LOADING");
     // Its heading in the note names it until the model is open here.
     expect(f.section?.sharedTitle).toBe("Launch");
+  });
+
+  it("M2: no evidence is said as not checked yet, the same on the pane, the card and the badge", () => {
+    const f = hostPaneFacts({
+      note: note(4),
+      registry: registry({ rows: [] }),
+      status: () => undefined,
+    });
+    const view = f.section?.view ?? unknownStatus();
+    const pane = paneTexts(paneModel(f));
+    const card = sectionCard({ title: "Launch", view, resource: R0, sectionId: SID });
+    const badge = headingBadge("Launch", view);
+    const said = "Not checked with the server yet. Local updates wait on this device.";
+    expect(pane).toContain(said);
+    expect(card.facts).toContain(said);
+    for (const t of [...pane, ...card.facts, card.status, badge.tooltip, badge.accessibleName])
+      expect(t, t).not.toMatch(/offline/i);
+    // Loaded, access known, no session yet: the label says it, not "Offline".
+    const quiet = statusView({
+      session: "s",
+      revision: 1,
+      replica: "loaded",
+      access: "writer",
+      pendingControl: [],
+      connection: "offline",
+      connectionQualifier: "no-evidence",
+      catchUp: "not-started",
+      problems: [],
+      batches: [],
+      acceptanceEvidence: "available",
+      projections: [],
+    });
+    expect(quiet.label).toBe("Not checked with the server yet; local updates will wait");
+    expect(headingBadge("Launch", quiet).accessibleName).not.toMatch(/offline/i);
+    expect(sectionCard({ title: "L", view: quiet, resource: R0, sectionId: SID }).facts).toContain(
+      said,
+    );
   });
 
   it("a selection is the executor's own scope rule: exact or refused, never widened", () => {

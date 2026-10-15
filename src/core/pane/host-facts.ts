@@ -87,6 +87,7 @@ function registryOf(s: RegistrySnapshot | null): PaneRegistry {
       notes: r.placements.map((p) => p.path),
       placed: r.placed,
       state: r.status.state,
+      label: r.status.label,
     })),
   };
 }
