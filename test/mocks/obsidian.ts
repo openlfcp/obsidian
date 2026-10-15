@@ -126,10 +126,40 @@ export class MarkdownView {
   }
 }
 
-export class Workspace {
+/** Obsidian's event source (Events): handlers by name, detached by their ref. */
+export class Events {
+  readonly handlers: EventRef[] = [];
+  on(name: string, callback: (...args: unknown[]) => unknown): EventRef {
+    const ref = { name, callback };
+    this.handlers.push(ref);
+    return ref;
+  }
+  offref(ref: EventRef): void {
+    const i = this.handlers.indexOf(ref);
+    if (i >= 0) this.handlers.splice(i, 1);
+  }
+  trigger(name: string, ...args: unknown[]): void {
+    for (const h of this.handlers.filter((x) => x.name === name)) h.callback(...args);
+  }
+  /** How many handlers listen to `name` now. */
+  listeners(name: string): number {
+    return this.handlers.filter((x) => x.name === name).length;
+  }
+}
+
+export class Workspace extends Events {
+  constructor(readonly app?: App) {
+    super();
+  }
   active: TFile | null = null;
   /** Open Markdown editors. */
   readonly views: MarkdownView[] = [];
+  /** Leaves of other view types (LFCP-03-012), in layout order. */
+  readonly leaves: WorkspaceLeaf[] = [];
+  /** View factories by type, as plugins registered them. */
+  readonly viewFactories = new Map<string, (leaf: WorkspaceLeaf) => unknown>();
+  /** Every leaf revealed, in order. */
+  readonly revealed: WorkspaceLeaf[] = [];
   getActiveFile(): TFile | null {
     return this.active;
   }
@@ -138,11 +168,58 @@ export class Workspace {
   getActiveViewOfType<T>(type: new (...args: never[]) => T): T | null {
     return this.activeView instanceof type ? (this.activeView as T) : null;
   }
-  getLeavesOfType(type: string): { view: MarkdownView }[] {
-    return type === "markdown" ? this.views.map((view) => ({ view })) : [];
+  getMostRecentLeaf(): { view: unknown } | null {
+    return this.activeView === null ? null : { view: this.activeView };
+  }
+  getLeavesOfType(type: string): { view: unknown }[] {
+    return type === "markdown"
+      ? this.views.map((view) => ({ view }))
+      : this.leaves.filter((l) => l.type === type);
+  }
+  /** A new empty leaf in the right sidebar, as Obsidian creates one. */
+  getRightLeaf(_split: boolean): WorkspaceLeaf | null {
+    const leaf = new WorkspaceLeaf(this);
+    this.leaves.push(leaf);
+    return leaf;
+  }
+  async revealLeaf(leaf: WorkspaceLeaf): Promise<void> {
+    this.revealed.push(leaf);
   }
   onLayoutReady(callback: () => unknown): void {
     callback();
+  }
+}
+
+/** One item of a context menu, as the plugin builds it. */
+export class MenuItem {
+  title = "";
+  icon = "";
+  onClickHandler: () => unknown = () => undefined;
+  setTitle(title: string): this {
+    this.title = title;
+    return this;
+  }
+  setIcon(icon: string): this {
+    this.icon = icon;
+    return this;
+  }
+  setSection(_section: string): this {
+    return this;
+  }
+  onClick(handler: () => unknown): this {
+    this.onClickHandler = handler;
+    return this;
+  }
+}
+
+/** A context menu (the editor menu): its items, in order. */
+export class Menu {
+  readonly items: MenuItem[] = [];
+  addItem(build: (item: MenuItem) => unknown): this {
+    const item = new MenuItem();
+    build(item);
+    this.items.push(item);
+    return this;
   }
 }
 
@@ -179,7 +256,7 @@ export const apiVersion = "1.13.4";
 
 export class App {
   readonly vault = new Vault();
-  readonly workspace = new Workspace();
+  readonly workspace: Workspace = new Workspace(this);
   /** Device-level, shared by every vault (as in Obsidian). */
   secretStorage = new SecretStorage();
   /** Vault-scoped localStorage. */
@@ -337,14 +414,71 @@ export abstract class SuggestModal<T> extends Modal {
   }
 }
 
-/** A workspace leaf, as a view's constructor gets it (LFCP-03-007). */
-export class WorkspaceLeaf {}
+/**
+ * A workspace leaf (LFCP-03-007, 012): setViewState builds the registered
+ * view and opens it; detach closes and unloads it, as Obsidian does.
+ */
+export class WorkspaceLeaf {
+  type: string | null = null;
+  view: ItemView | null = null;
+  constructor(readonly workspace?: Workspace) {}
+  get app(): App | undefined {
+    return this.workspace?.app;
+  }
+  async setViewState(state: { type: string; active?: boolean }): Promise<void> {
+    const factory = this.workspace?.viewFactories.get(state.type);
+    if (factory === undefined) throw new Error(`no view registered for ${state.type}`);
+    await this.#close();
+    this.type = state.type;
+    const view = factory(this) as ItemView;
+    this.view = view;
+    view.load();
+    await view.onOpen();
+    this.workspace?.trigger("layout-change");
+  }
+  async #close(): Promise<void> {
+    const view = this.view;
+    this.view = null;
+    if (view === null) return;
+    await view.onClose();
+    view.unload();
+  }
+  detach(): void {
+    const ws = this.workspace;
+    if (ws !== undefined) {
+      const i = ws.leaves.indexOf(this);
+      if (i >= 0) ws.leaves.splice(i, 1);
+    }
+    void this.#close().then(() => ws?.trigger("layout-change"));
+  }
+}
+
+/** Obsidian's Component: what it registered is given back on unload. */
+export class Component {
+  #unloads: (() => void)[] = [];
+  loaded = false;
+  load(): void {
+    this.loaded = true;
+  }
+  unload(): void {
+    this.loaded = false;
+    for (const f of this.#unloads.splice(0)) f();
+  }
+  register(fn: () => void): void {
+    this.#unloads.push(fn);
+  }
+}
 
 /** Obsidian's ItemView: its content is a real element when the test has a DOM. */
-export class ItemView {
+export class ItemView extends Component {
   readonly contentEl: unknown =
     typeof document === "undefined" ? new FakeElement("div") : document.createElement("div");
-  constructor(readonly leaf: WorkspaceLeaf) {}
+  constructor(readonly leaf: WorkspaceLeaf) {
+    super();
+  }
+  get app(): App {
+    return this.leaf.app as App;
+  }
   async onOpen(): Promise<void> {}
   async onClose(): Promise<void> {}
 }
@@ -356,6 +490,13 @@ export class Plugin {
   readonly views = new Map<string, (leaf: WorkspaceLeaf) => unknown>();
   registerView(type: string, factory: (leaf: WorkspaceLeaf) => unknown): void {
     this.views.set(type, factory);
+    (this.app as App).workspace.viewFactories?.set(type, factory);
+  }
+  /** Ribbon icons: icon, tooltip and what a click runs. */
+  readonly ribbon: { icon: string; title: string; callback: (evt: unknown) => unknown }[] = [];
+  addRibbonIcon(icon: string, title: string, callback: (evt: unknown) => unknown): FakeElement {
+    this.ribbon.push({ icon, title, callback });
+    return new FakeElement("div");
   }
   readonly settingTabs: PluginSettingTab[] = [];
   /** What saveData stored; what loadData returns. */
@@ -403,7 +544,10 @@ export class Plugin {
 
   /** What Obsidian does on disable: detach registered events, then onunload. */
   unload(): void {
-    for (const ref of this.events.splice(0)) (this.app as App).vault.offref(ref);
+    for (const ref of this.events.splice(0)) {
+      (this.app as App).vault.offref(ref);
+      (this.app as App).workspace.offref?.(ref);
+    }
     this.onunload();
   }
 
