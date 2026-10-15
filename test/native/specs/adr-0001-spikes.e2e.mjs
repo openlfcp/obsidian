@@ -1,4 +1,4 @@
-// ADR 0001 spikes S1–S6 (docs/architecture/decisions/0001-codemirror-transactions-for-sections.md):
+// ADR 0001 spikes S1–S7 (docs/architecture/decisions/0001-codemirror-transactions-for-sections.md):
 // how CodeMirror transactions behave in a real Obsidian, through the spike
 // plugin (test/native/plugins/cm-spike). Each test prints "EVIDENCE {json}"
 // and asserts what the ADR relies on.
@@ -236,5 +236,61 @@ describe("ADR 0001 spikes", () => {
     expect(continued).toBe("## Head\n- [ ] alpha\n- [ ] b\n\n## Next\ntext\n");
     expect(clicked).toContain("- [x] alpha");
     expect(folds.length).toBe(1);
+  });
+
+  // LFCP-03-038: Obsidian's own sync of two views of one note, without any
+  // section. A view mirrors the other's typing through "quick-preview" 10 ms
+  // after it; a save sets the view's data first, so typing it saves within
+  // those 10 ms reaches the other view only through the file. The other view,
+  // with an unsaved edit of its own, then merges the file in (diff-match-patch:
+  // the edit since its last save, applied to the file): text the file already
+  // has from that edit is inserted a second time.
+  it("S7: two views of one note; a save merged into the other view's unsaved edit doubles it", async () => {
+    const note = "- [ ] Alpha\n- [ ] Beta\n- [ ] Gamma\n";
+    await open("s7.md", note);
+    const r = await browser.executeObsidian(async ({ app, obsidian }) => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const file = app.vault.getFileByPath("s7.md");
+      const second = app.workspace.getLeaf("split");
+      await second.openFile(file);
+      await wait(400);
+      const [v0, v1] = app.workspace
+        .getLeavesOfType("markdown")
+        .map((l) => l.view)
+        .filter((v) => v instanceof obsidian.MarkdownView && v.file === file);
+      const notices = [];
+      const watch = new MutationObserver((records) => {
+        for (const x of records)
+          for (const n of x.addedNodes)
+            if (n instanceof HTMLElement && n.classList.contains("notice")) notices.push(n.textContent);
+      });
+      watch.observe(document.body, { childList: true, subtree: true });
+      const end = (e, line) => ({ line, ch: e.getLine(line).length });
+      // The first view types and saves: both views know the file with " one".
+      v0.editor.replaceRange(" one", end(v0.editor, 0));
+      await wait(100);
+      await v0.save();
+      await wait(300);
+      // The second view types: unsaved there, mirrored into the first.
+      v1.editor.replaceRange(" two", end(v1.editor, 1));
+      await wait(100);
+      const mirrored = v0.editor.getValue();
+      // The first view types and saves at once, before its 10 ms mirror.
+      v0.editor.replaceRange(" three", end(v0.editor, 2));
+      await v0.save();
+      await wait(800);
+      watch.disconnect();
+      return {
+        mirrored,
+        first: v0.editor.getValue(),
+        second: v1.editor.getValue(),
+        disk: await app.vault.adapter.read("s7.md"),
+        notices,
+      };
+    });
+    evidence("S7", r);
+    expect(r.mirrored).toBe("- [ ] Alpha one\n- [ ] Beta two\n- [ ] Gamma\n");
+    expect(r.second).toBe("- [ ] Alpha one\n- [ ] Beta two two\n- [ ] Gamma three\n");
+    expect(r.notices.some((n) => n.includes("modified externally, merging changes automatically"))).toBe(true);
   });
 });
