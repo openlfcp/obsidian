@@ -365,11 +365,18 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
     for (const id of kept.inserted) viewHints.inserted.add(id);
     return viewHints;
   };
-  /** What the views of `path` noted since the last pass, taken. */
-  const takeViewHints = (path: string): { deletedIds: Set<string>; inserted: Set<string> } => {
+  /**
+   * What the views of `path` noted since the last pass, taken; with
+   * `showing`, only from the views whose document is that text.
+   */
+  const takeViewHints = (
+    path: string,
+    showing?: string,
+  ): { deletedIds: Set<string>; inserted: Set<string> } => {
     const { deletedIds, inserted } = pending.take(path);
-    for (const st of views.values()) {
+    for (const [view, st] of views) {
       if (st.path !== path) continue;
+      if (showing !== undefined && view.state.doc.toString() !== showing) continue;
       for (const id of st.deletedIds) deletedIds.add(id);
       for (const id of st.inserted) inserted.add(id);
       st.deletedIds = new Set();
@@ -612,9 +619,13 @@ export function sectionEditorExtension(o: SectionEditorOptions): {
       status(path, "error");
       o.onError?.(path, error);
     },
-    // Back to the source last reconciled: nothing the views noted applies
-    // (a refused pass's unsent hints still do).
-    (path) => takeViewHints(path),
+    // Back to the source last reconciled: nothing the views showing it noted
+    // applies (a refused pass's unsent hints still do). A view showing other
+    // text holds an edit its scheduler has not reported yet, and keeps its
+    // hints: a file pass that ended after the note was opened settled the
+    // file's text while the user's deletion waited, and the deletion was
+    // passed as a lost binding, never sent (LFCP-03-016).
+    (path, source) => takeViewHints(path, source),
   );
 
   const pathOf = (view: EditorView) => view.state.field(editorInfoField, false)?.file?.path ?? null;
