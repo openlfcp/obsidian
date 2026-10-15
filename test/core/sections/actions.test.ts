@@ -758,16 +758,58 @@ const BOUND = [
 ].join("\n");
 const EMPTY: SectionState = { title: "Launch", nodes: {}, order: {} } as unknown as SectionState;
 
+/** A section loaded on this device: watched, its model ready (detach's loading guard). */
+const loadedSection = (ready: () => boolean = () => true): Partial<SectionServices> => ({
+  known: () => true,
+  model: () => ({
+    snapshot: () => ({ ready: ready() }) as SectionSnapshot,
+    task: () => undefined,
+  }),
+});
+
 describe("detach (LFCP-03-008 over §10)", () => {
   async function detachSetup() {
     const bases = new MemorySectionBaseStore();
     await bases.save("p1", { locator: { path: "Plan.md", section: S }, state: EMPTY });
     await bases.save("p2", { locator: { path: "Other.md", section: S }, state: EMPTY });
-    const t = setup(() => ({ bases: () => bases }));
+    let ready = true;
+    const t = setup(() => ({ bases: () => bases, ...loadedSection(() => ready) }));
     t.notes.files.set("Plan.md", BOUND);
     t.editor.line = 3;
-    return { ...t, bases };
+    return {
+      ...t,
+      bases,
+      setReady: (r: boolean) => {
+        ready = r;
+      },
+    };
   }
+
+  it("LFCP-03-010: refused while the section loads, as its descriptor says; checked again before writing", async () => {
+    const loading = await detachSetup();
+    loading.setReady(false);
+    await loading.actions.detachSectionAt(loading.editor.at());
+    expect(loading.prompter.dialogs).toEqual([]);
+    expect(loading.prompter.notices).toEqual([
+      "Shared Tasks: this section is still loading. Try again in a moment.",
+    ]);
+
+    // Loaded when asked, unloaded (a reload) while the confirmation was open: nothing written.
+    const t = await detachSetup();
+    const flow = t.actions.detachSectionAt(t.editor.at());
+    await flush();
+    t.setReady(false);
+    t.prompter.open("confirm")[0]?.answer(true);
+    await flow;
+    for (const x of [loading, t]) {
+      expect(x.notes.writes).toEqual([]);
+      expect(x.calls).toEqual([]);
+      expect(await x.bases.projectionsOf("Plan.md")).toEqual(["p1"]);
+    }
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: this section is still loading. Try again in a moment.",
+    ]);
+  });
 
   it("confirmed: the bindings go, this note's base is dropped, nothing else is touched", async () => {
     const t = await detachSetup();
@@ -1390,7 +1432,7 @@ describe("stable target and exact selection (LFCP-03-009, U03-03/04/05/12)", () 
   });
 
   it("detach: a note deleted during the confirmation is not written", async () => {
-    const t = setup();
+    const t = setup(() => loadedSection());
     t.notes.files.set("Plan.md", BOUND);
     t.editor.line = 3;
     const flow = t.actions.detachSectionAt(t.editor.at());
