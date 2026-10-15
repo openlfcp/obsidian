@@ -245,7 +245,7 @@ describe("ADR 0001 spikes", () => {
   // with an unsaved edit of its own, then merges the file in (diff-match-patch:
   // the edit since its last save, applied to the file): text the file already
   // has from that edit is inserted a second time.
-  it("S7: two views of one note; a save merged into the other view's unsaved edit doubles it", async () => {
+  it("S7: two views of one note; a save merged into the other view's unsaved edit can double it (evidence)", async () => {
     const note = "- [ ] Alpha\n- [ ] Beta\n- [ ] Gamma\n";
     await open("s7.md", note);
     const r = await browser.executeObsidian(async ({ app, obsidian }) => {
@@ -288,9 +288,11 @@ describe("ADR 0001 spikes", () => {
         notices,
       };
     });
-    evidence("S7", r);
-    expect(r.mirrored).toBe("- [ ] Alpha one\n- [ ] Beta two\n- [ ] Gamma\n");
-    expect(r.second).toBe("- [ ] Alpha one\n- [ ] Beta two two\n- [ ] Gamma three\n");
-    expect(r.notices.some((n) => n.includes("modified externally, merging changes automatically"))).toBe(true);
+    // Evidence only: whether the save beats the mirror is a race (run
+    // 38760495607 doubled on both versions, run 38760945292 did not), so it
+    // never gates. Doubled: "Beta two two" in the second view, with the notice.
+    const merged = r.notices.some((n) => n.includes("modified externally, merging changes automatically"));
+    evidence("S7", { ...r, merged, doubled: r.second.includes("Beta two two") });
+    expect(r.first).toBe("- [ ] Alpha one\n- [ ] Beta two\n- [ ] Gamma three\n");
   });
 });
