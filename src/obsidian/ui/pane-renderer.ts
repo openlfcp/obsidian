@@ -14,6 +14,8 @@
 //   (a status, a flow step) leaves its text, caret and an IME composition
 //   as they are (U03-18, LFCP-03-022). A submit during a composition (Enter
 //   that ends it) joins nothing; only Join, or Enter outside one, does.
+//   Escape in the field is its Cancel; focus then goes back to "Join with a
+//   link…", the control that opened it.
 // - Narrow panes: everything wraps; colours and spacing are Obsidian's CSS variables.
 
 import type { ActionId } from "../../core/actions/catalog";
@@ -60,8 +62,13 @@ function el<K extends keyof HTMLElementTagNameMap>(
 
 let ids = 0;
 
-/** The join field's form, drawn once while offered: what its submit runs now. */
-const submits = new WeakMap<HTMLFormElement, (link: string, name: string) => void>();
+/** The join field's form, drawn once while offered: what its submit and Escape run now. */
+interface FormHandlers {
+  readonly join: (link: string, name: string) => void;
+  /** The flow's Cancel; null: none now. */
+  readonly cancel: (() => void) | null;
+}
+const forms = new WeakMap<HTMLFormElement, FormHandlers>();
 
 /**
  * A problem's ID as the DOM carries it: a hash, never the ID itself, which
@@ -135,10 +142,14 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
   title.setAttribute(KEY, "title");
   button(header, model.join, h, "openlfcp-pane-join");
 
-  if (kept !== null && h.join !== undefined) submits.set(kept, h.join);
+  const handlers = (join: (link: string, name: string) => void): FormHandlers => ({
+    join,
+    cancel: model.flow?.dismiss === "Cancel" ? (h.dismiss ?? null) : null,
+  });
+  if (kept !== null && h.join !== undefined) forms.set(kept, handlers(h.join));
   else if (model.joinField && h.join !== undefined) {
     const form = el(root, "form", "openlfcp-pane-join-form");
-    submits.set(form, h.join);
+    forms.set(form, handlers(h.join));
     const id = `openlfcp-pane-join-${++ids}`;
     const label = el(form, "label", "openlfcp-pane-label", "Paste the invitation link");
     label.htmlFor = id;
@@ -171,13 +182,22 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     form.addEventListener("compositionend", () => {
       composing = false;
     });
+    form.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || e.isComposing || composing) return;
+      const cancel = forms.get(form)?.cancel ?? null;
+      if (cancel === null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      input.value = "";
+      cancel();
+    });
     form.addEventListener("submit", (e) => {
       e.preventDefault();
       if (composing) return;
       const link = input.value;
       // Out of the page before anything else runs: a redraw keeps no copy of it.
       input.value = "";
-      submits.get(form)?.(link, name.value);
+      forms.get(form)?.join(link, name.value);
     });
   }
 
@@ -318,10 +338,12 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
   if (fieldNew && hadFocus && focusKey === "action:join-with-link") {
     root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input")?.focus();
   } else if (hadFocus && !(kept?.contains(active) ?? false)) {
-    const again =
-      focusKey === null || focusKey === undefined
+    const named = (key: string | null | undefined) =>
+      key === null || key === undefined
         ? null
-        : root.querySelector<HTMLElement>(`[${KEY}="${focusKey}"]`);
-    (again ?? title).focus();
+        : root.querySelector<HTMLElement>(`[${KEY}="${key}"]`);
+    // The join field gone (Cancel, Escape, Join): back to the control that opened it.
+    const opener = focusKey?.startsWith("join-") === true ? named("action:join-with-link") : null;
+    (named(focusKey) ?? opener ?? title).focus();
   }
 }
