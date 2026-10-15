@@ -116,8 +116,10 @@ Rules:
   (`src/obsidian/ui/pane-view.ts`). A second leaf of it is closed. The
   editor menu also offers the pane's primary action for the cursor, through
   the dispatcher (surface `menu`). Opening the pane opens no dialog and runs
-  no action. An action the host has no handler for yet is shown disabled
-  with "Not available from the pane yet: use the command palette."
+  no action. Temporary until LFCP-03-013: an action the host has no
+  handler for yet is shown disabled with "Not available in the pane yet."
+  Where the action has another real entry (a palette command or a button
+  of the section card), the reason names that entry exactly.
 
 ## 4. Target and selection
 

@@ -175,16 +175,37 @@ export function hostPaneRequest(src: Pick<PaneHostSources, "note">): ActionReque
   };
 }
 
-/** Why a button is off when this host has no handler for its action yet. */
-export const NOT_WIRED = "Not available from the pane yet: use the command palette.";
+/** Why a button is off when this host has no handler for its action yet, and no other entry exists. */
+export const NOT_WIRED = "Not available in the pane yet.";
+
+/**
+ * The other entry of an action the pane cannot run yet, named exactly: a
+ * palette command or a button of the section card. Temporary, until
+ * LFCP-03-013 gives these actions their handlers.
+ */
+const ELSEWHERE: Partial<Record<PaneAction["id"], string>> = {
+  "go-to-problem":
+    'Not available in the pane yet. Run "Go to next shared section problem" from the command palette.',
+  "copy-readable":
+    'Not available in the pane yet. Run "Copy readable text (without sharing metadata)" from the command palette.',
+  "remove-access":
+    'Not available in the pane yet. Use "Remove access…" in the section\'s details card.',
+  "discard-local-copy":
+    "Not available in the pane yet. Use the section's details card to discard the local copy.",
+};
+
+/** Why the pane cannot run `id` yet, naming its real entry when it has one. */
+export function notWiredReason(id: PaneAction["id"]): string {
+  return ELSEWHERE[id] ?? NOT_WIRED;
+}
 
 /**
  * The model with every action this host cannot run turned off, with the
- * reason in words (A3): the pane never draws a button that does nothing.
+ * reason in words (A5, A6): the pane never draws a button that does nothing.
  */
 export function wiredModel(m: PaneModel, handles: (id: PaneAction["id"]) => boolean): PaneModel {
   const wire = (a: PaneAction): PaneAction =>
-    !a.enabled || handles(a.id) ? a : { ...a, enabled: false, reason: NOT_WIRED };
+    !a.enabled || handles(a.id) ? a : { ...a, enabled: false, reason: notWiredReason(a.id) };
   return {
     ...m,
     join: wire(m.join),
