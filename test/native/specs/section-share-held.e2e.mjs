@@ -314,14 +314,26 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
     expect(typed.md).toBe(before);
     expect((await notices()).some((t) => t.includes('"From B" is read-only for you. Your typing was not applied'))).toBe(true);
     // An edit from outside the editor (another plugin, a sync tool) is held, not sent.
-    await inA(({ app }) =>
-      app.vault.process(app.vault.getFileByPath("RO.md"), (t) => t.replace("- [ ] Task of B", "- [ ] Task of B, edited outside")),
-    );
+    const outside = await inA(async ({ app, obsidian }) => {
+      let found = null;
+      const written = await app.vault.process(app.vault.getFileByPath("RO.md"), (t) => {
+        found = t.includes("- [ ] Task of B");
+        return t.replace("- [ ] Task of B", "- [ ] Task of B, edited outside");
+      });
+      const view = app.workspace.getActiveViewOfType(obsidian.MarkdownView);
+      return {
+        found,
+        written: written.includes("edited outside"),
+        editorAt0: view.editor.getValue().includes("edited outside"),
+        line: view.editor.getValue().split("\n").find((l) => l.includes("Task of B")) ?? null,
+      };
+    });
     const held = await browser.waitUntil(async () => (await stateA()).badge === "ATTENTION", { timeout: 20_000 }).catch(() => false);
     if (!held) {
       // Diagnostics (mac/Windows, LFCP-03-036): what the note and the status show instead.
       const now = await stateA();
       evidence("F-04-read-only not held", {
+        outside,
         badge: now.badge,
         edited: now.md.includes("edited outside"),
         disk: await inA(async ({ app }) => (await app.vault.read(app.vault.getFileByPath("RO.md"))).includes("edited outside")),
