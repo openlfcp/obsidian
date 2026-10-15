@@ -2441,7 +2441,7 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
     await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
     const [, lost, actions] = opened(t);
-    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, true]]);
+    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, "task-loading"]]);
     await actions.useShared(KEY);
     expect(t.notes.writes).toEqual([]);
     expect(t.prompter.notices.at(-1)).toBe(
@@ -2467,6 +2467,25 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     expect(await t.passes(3)).toBe(edited);
     expect(t.replica.task(T)?.task?.title).toBe("Local edit");
     expect(t.replica.task(T)?.task?.due).toBe("2026-11-05");
+  });
+
+  it("a Task here but not a valid task: Keep guesses no base and promises no loading", async () => {
+    const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
+    const t = wired(edited, (r) => {
+      const v = r.task(T);
+      return v === undefined ? undefined : { ...v, status: "object_id_collision" };
+    });
+    await t.passes(1);
+    await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+    const [, lost, actions] = opened(t);
+    expect(lost.map((l) => [l.key, l.sharedUnavailable])).toEqual([[KEY, "task-unreadable"]]);
+    await actions.shareMine(KEY);
+    const said = t.prompter.notices.at(-1) ?? "";
+    expect(said).toContain("cannot be compared with the shared version");
+    expect(said).not.toContain("loading");
+    expect(await t.passes(2)).toBe(edited);
+    expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
+    expect(t.port.changes).toEqual([]);
   });
 
   it("a Task not here yet that the note shows as the model seeds once it arrives", async () => {

@@ -33,11 +33,42 @@ describe("repair dialog, a section without a base", () => {
     expect(labels).toEqual(["Keep my version", "Use the shared version"]);
   });
 
-  it("only Keep my version when it cannot, and says why", () => {
-    const { el, labels } = buttons({ key: "k", title: "Launch", lines, sharedUnavailable: true });
+  it("only Keep my version when it cannot, and says why: a Task still loading", () => {
+    const { el, labels } = buttons({
+      key: "k",
+      title: "Launch",
+      lines,
+      sharedUnavailable: "task-loading",
+    });
     expect(labels).toEqual(["Keep my version"]);
     expect(el.textContent).toContain(
       "Keep my version keeps this text as it is, and the section asks again once the shared version has loaded.",
     );
+  });
+
+  it("a Task that is not a valid task here: no promise that it loads", () => {
+    const { el, labels } = buttons({
+      key: "k",
+      title: "Launch",
+      lines,
+      sharedUnavailable: "task-unreadable",
+    });
+    expect(labels).toEqual(["Keep my version"]);
+    expect(el.textContent).toContain("cannot be compared with the shared version");
+    expect(el.textContent).toContain("once the shared version is fixed");
+    expect(el.textContent).toContain('"Export diagnostics…"');
+    expect(el.textContent).not.toContain("loaded");
+    expect(el.textContent).not.toMatch(/collaboration/i);
+  });
+
+  it("a model that cannot be drawn: Keep keeps this note's version as the base", () => {
+    const { el, labels } = buttons({
+      key: "k",
+      title: "Launch",
+      lines,
+      sharedUnavailable: "model",
+    });
+    expect(labels).toEqual(["Keep my version"]);
+    expect(el.textContent).toContain("as this copy's base");
   });
 });
