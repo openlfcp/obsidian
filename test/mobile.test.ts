@@ -15,6 +15,9 @@ const SECTION_PATH = [
   "src/core/sections",
   "src/core/status",
   "src/core/lfcp",
+  // LFCP-03-012: the pane, its facts and the actions it runs.
+  "src/core/pane",
+  "src/core/actions",
   "src/core/diagnostics.ts",
   "src/core/diagnostics-collect.ts",
   "src/obsidian/sections-host.ts",

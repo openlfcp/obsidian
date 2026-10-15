@@ -193,8 +193,21 @@ Run **"Open shared section details"**, or click the icon. The card shows:
 - "Identities with access", as last verified with the server;
 - pending invitations, which are listed separately because they are not
   access yet;
-- buttons for "Review conflicts…", "Invite collaborator…" and "Resource
-  status".
+- buttons for "Review conflicts…", "Invite collaborator…", "Resource
+  status" and "Open Shared Tasks pane".
+
+### The Shared Tasks pane
+
+Click the **Shared Tasks** icon in the left ribbon, run **"Open Shared Tasks
+pane"**, or right-click in a note and choose it. The pane opens in the right
+sidebar. Opening it again shows the same pane.
+
+The pane follows the last note you worked in. It shows the shared section
+under the cursor and its status, the next step for that place, and the
+shared sections on this device. **"Join with a link…"** is always at the top.
+
+The right-click menu also offers the next step for the cursor, for example
+"Share section…" on a heading that is not shared yet.
 
 **"Name…"** gives a person a local name that only you see.
 

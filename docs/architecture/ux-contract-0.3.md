@@ -109,6 +109,15 @@ Rules:
 - **A5.** An action that does not apply to the context is hidden. One that
   applies but is blocked is shown disabled with its reason, for example
   "Detach this section" while the section is loading (owner decision D10).
+- **A6. Pane entries (LFCP-03-012).** The ribbon icon (tooltip "Open Shared
+  Tasks pane"), the command `open-shared-tasks-pane` "Open Shared Tasks
+  pane", the section card's "Open Shared Tasks pane" and the editor context
+  menu's "Open Shared Tasks pane" reveal one pane per workspace
+  (`src/obsidian/ui/pane-view.ts`). A second leaf of it is closed. The
+  editor menu also offers the pane's primary action for the cursor, through
+  the dispatcher (surface `menu`). Opening the pane opens no dialog and runs
+  no action. An action the host has no handler for yet is shown disabled
+  with "Not available from the pane yet: use the command palette."
 
 ## 4. Target and selection
 
