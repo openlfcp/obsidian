@@ -356,7 +356,7 @@ describe("the join flow (LFCP-03-015)", () => {
       [
         {
           kind: "unavailable",
-          message: "The collaboration's server could not be reached (offline).",
+          message: "The server could not be reached (offline).",
           resourceId: R,
           claimSent: true,
         },

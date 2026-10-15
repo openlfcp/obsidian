@@ -409,7 +409,7 @@ describe("Join in the pane (LFCP-03-015)", () => {
         {
           kind: "unavailable",
           message:
-            "The collaboration's server could not complete the join (timeout). Joining needs a connection; try again when online.",
+            "The server could not complete the join (timeout). Joining needs a connection; try again when online.",
           resourceId: R,
         },
         "Joining needs a connection; try again when online.",

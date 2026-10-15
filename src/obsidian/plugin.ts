@@ -34,7 +34,7 @@ import { ActionDispatcher, coreHandlers, type HostEntry } from "../core/actions/
 import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
 import type { JoinFlow } from "../core/collab/join-flow";
 import { Collaboration } from "../core/collab/service";
-import { rehostNotice } from "../core/collab/view";
+import { rehostNotice, unnamedResource } from "../core/collab/view";
 import { COMMANDS } from "../core/commands";
 import {
   type DiagnosticInput,
@@ -750,7 +750,7 @@ export default class OpenLfcpPlugin extends Plugin {
       // SPEC-PATCH-10: a checkpoint an earlier version wrote that no longer loads.
       runtime.onCheckpointRebuilt(() => {
         new Notice(
-          "Shared Tasks: the saved state of a collaboration could not be opened, so it is being rebuilt from the changes stored on this device. Changes that are not valid are left out. Your notes are unchanged.",
+          "Shared Tasks: some saved sharing state could not be opened, so it is being rebuilt from the changes stored on this device. Changes that are not valid are left out. Your notes are unchanged.",
           0,
         );
       });
@@ -905,9 +905,8 @@ export default class OpenLfcpPlugin extends Plugin {
         try {
           const fresh = await runtime.newlyBlocked(R);
           if (fresh.length === 0) return;
-          const name =
-            (await runtime.registry()).find((e) => toHex(e.resourceId) === key)?.localName ??
-            "a collaboration";
+          const entry = (await runtime.registry()).find((e) => toHex(e.resourceId) === key);
+          const name = entry?.localName ?? unnamedResource(entry?.profile);
           for (const b of fresh)
             new Notice(
               `Shared Tasks: edits from ${b.principal.slice(0, 8)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
@@ -946,10 +945,10 @@ export default class OpenLfcpPlugin extends Plugin {
       // client hosted it again; a refusal comes as resource-refused below.
       if (e.type === "rehost" && e.outcome === "hosted") {
         this.blockedChecks = this.blockedChecks.then(async () => {
-          const name = (await runtime.registry()).find(
+          const entry = (await runtime.registry()).find(
             (x) => toHex(x.resourceId) === toHex(e.resourceId),
-          )?.localName;
-          new Notice(rehostNotice(name ?? "a collaboration", e.url));
+          );
+          new Notice(rehostNotice(entry?.localName ?? unnamedResource(entry?.profile), e.url));
         });
         return;
       }

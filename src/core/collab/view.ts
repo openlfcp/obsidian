@@ -7,6 +7,7 @@
 // server only relays, this device's identity is a key pair, and the owner
 // is whoever created the collaboration (or received it by transfer).
 
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
 import type { ResourceStatus } from "./service";
 
@@ -55,6 +56,13 @@ export function refusalText(refusal: { readonly code: string; readonly url: stri
       return `Refused by ${refusal.url} (${refusal.code})`;
   }
 }
+
+/**
+ * A Resource without a local name, as a notice names it: a shared section in
+ * the section words (UX contract §2), a 0.1 collaboration as 0.1 named it.
+ */
+export const unnamedResource = (profile: string | undefined): string =>
+  profile === SECTIONS_PROFILE_ID ? "a shared section" : "a collaboration";
 
 /** The quiet notice after the client hosted a collaboration again on a server that had lost it (ADR 0008). */
 export function rehostNotice(name: string, url: string): string {
