@@ -722,4 +722,5 @@ on the plugin's join flow (LFCP-03-015). The unfinished insert is the one
 a restart leaves: approved, its note not written yet (LFCP-03-017). The
 two with a share preview (selection-exact, content-comments-and-table)
 draw it from the note in view and claim its lines (LFCP-03-014).
-LFCP-03-023 runs them in the native harness.
+LFCP-03-023 checks them on the pure and mock suites;
+running them in the native harness is left to LFCP-03-025.
