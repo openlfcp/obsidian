@@ -120,6 +120,20 @@ export interface ActionFacts {
   readonly host?: HostFacts;
 }
 
+/**
+ * The facts of one section with no note around it: what a surface that is
+ * about a section alone (the section card) reads, so that its buttons and
+ * the pane's agree (LFCP-03-013, A7).
+ */
+export function sectionFacts(section: PaneSection, host: HostFacts): ActionFacts {
+  return {
+    context: { editor: "none", note: null, cursor: "none", selection: null, flow: null },
+    registry: { status: "ready", placementIndex: "unknown", sections: null, unplaced: null },
+    section,
+    host,
+  };
+}
+
 /** One action: its stable ID, label, and availability in a context. */
 export interface ActionDescriptor {
   readonly id: ActionId;
