@@ -14,6 +14,7 @@
 
 import { ACTIONS, type ActionId, SOURCE_CHANGING } from "../actions/catalog";
 import { ACCESS_HELD, type ActionFacts, availabilities, REPAIR_HELD } from "../actions/descriptors";
+import { ONE_TIME_LINK } from "../collab/commands";
 import { rowLabel } from "../sections/registry-view";
 import {
   SHARE_SCOPE,
@@ -238,9 +239,6 @@ export function selectionReasonText(s: PaneSelection): string {
   return s.reason === null ? "" : reasonText(s.reason, (s.line ?? s.fromLine) - 1);
 }
 
-/** The invitation's sentence (owner decision D2, UX §9 I1): the pane and the invitation dialog say it. */
-export const INVITE_LINK_TEXT = "One-time link, does not expire; whoever opens it first joins.";
-
 /** After "Copy link" (I3): never "sent" or "invited". */
 export const LINK_COPIED = "Link copied";
 
@@ -428,7 +426,8 @@ function flowLines(flow: PaneFlow): string[] {
     return [`Stopped before: ${stage.label.toLowerCase()}. Continue resumes the same operation.`];
   const lines: string[] = [];
   if (flow.kind === "invite") {
-    lines.push(INVITE_LINK_TEXT);
+    // D2 (UX §9 I1): the same sentence as the invitation dialog's, from one place.
+    lines.push(ONE_TIME_LINK);
     lines.push("Treat it like a password.");
     if (flow.stage === "link")
       lines.push(
