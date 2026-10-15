@@ -92,16 +92,16 @@ async function tabUntil(want, max = 40, keys = ["Tab"]) {
   return { found: false, trail };
 }
 
-/** The DevTools page of the main window, or a reason why not. */
-async function devtools() {
+/**
+ * A DevTools command on the main window through chromedriver
+ * (goog/cdp/execute), or the reason it cannot run.
+ */
+async function cdp(method, params = {}) {
   try {
-    const puppeteer = await browser.getPuppeteer();
-    const pages = await puppeteer.pages();
-    const page = pages.find((p) => !p.url().startsWith("devtools")) ?? pages[0];
-    const cdp = await page.target().createCDPSession();
-    return { page, cdp };
+    await browser.sendCommandAndGetResult(method, params);
+    return null;
   } catch (e) {
-    return { notRun: String(e?.message ?? e).slice(0, 200) };
+    return String(e?.message ?? e).slice(0, 200);
   }
 }
 
@@ -188,12 +188,36 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
     await browser.pause(300);
     const afterEscape = await focus();
     const note = await inA(({ app }, f) => app.vault.cachedRead(app.vault.getFileByPath(f)), FILE);
-    evidence("KEYS-DIALOG", { inDialog, trapped: !walk.found && !back.found, trail: walk.trail.map((f) => f.text), afterEscape, noteUnchanged: note === TEXT });
+    evidence("KEYS-DIALOG", {
+      inDialog,
+      trapped: !walk.found && !back.found,
+      trail: walk.trail.map((f) => f.text),
+      back: back.trail.map((f) => `${f.inModal ? "modal" : f.inPane ? "pane" : f.tag}:${f.key ?? f.text}`),
+      afterEscape,
+      noteUnchanged: note === TEXT,
+    });
     expect(inDialog.inModal).toBe(true);
     expect(walk.found).toBe(false);
     expect(back.found).toBe(false);
     expect(afterEscape).toMatchObject({ inPane: true, key: "action:share-section" });
     expect(note).toBe(TEXT);
+
+    // The pane drawn again while the dialog is open: its button is a new
+    // element, which Obsidian cannot give focus back to by itself.
+    await inA(() => {
+      document.querySelector('.openlfcp-pane [data-pane-key="action:share-section"]').__lfcpOld = 1;
+    });
+    await browser.keys("Enter");
+    await $(".modal-container .modal").waitForExist({ timeout: 10_000 });
+    await urgentChange();
+    const replaced = await inA(() => document.querySelector('.openlfcp-pane [data-pane-key="action:share-section"]')?.__lfcpOld !== 1);
+    await browser.keys("Escape");
+    await browser.waitUntil(() => inA(() => document.querySelector(".modal-container") === null), { timeout: 5_000 });
+    await browser.pause(300);
+    const afterRedraw = await focus();
+    evidence("KEYS-DIALOG-REDRAWN", { replaced, afterRedraw });
+    expect(replaced).toBe(true);
+    expect(afterRedraw).toMatchObject({ inPane: true, key: "action:share-section" });
 
     // Again by Enter; Tab to Share, Enter: the section is made on this device.
     await browser.keys("Enter");
@@ -246,7 +270,13 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
     await browser.keys("Tab");
     await browser.keys("Plan".split(""));
     await inA(() => {
-      document.querySelector(".openlfcp-pane input.openlfcp-pane-join-name").__lfcpMark = 1;
+      const n = document.querySelector(".openlfcp-pane input.openlfcp-pane-join-name");
+      n.__lfcpMark = 1;
+      // What Chromium sends for the composition (real events, not made by the spec).
+      n.__lfcpComposing = [];
+      for (const t of ["compositionstart", "compositionend"])
+        n.addEventListener(t, (e) => n.__lfcpComposing.push(`${t}:${e.isTrusted}`));
+      n.addEventListener("keydown", (e) => n.__lfcpComposing.push(`keydown:${e.key}:${e.isComposing}`));
     });
     await urgentChange();
     const read = () =>
@@ -265,26 +295,30 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
     expect(field).toMatchObject({ inPane: true, key: "join-input" });
     expect(typed).toMatchObject({ same: true, value: "Plan", caret: 4, focused: true });
 
-    const dt = await devtools();
     let ime;
-    if (dt.notRun !== undefined) ime = { notRun: dt.notRun };
+    const notRun = await cdp("Input.imeSetComposition", { text: "かな", selectionStart: 2, selectionEnd: 2 });
+    if (notRun !== null) ime = { notRun };
     else {
-      await dt.cdp.send("Input.imeSetComposition", { text: "かな", selectionStart: 2, selectionEnd: 2 });
+      const events = await inA(() => {
+        const n = document.querySelector(".openlfcp-pane input.openlfcp-pane-join-name");
+        return n === null ? null : (n.__lfcpComposing ?? null);
+      });
       await urgentChange();
       const composing = await read();
       // Enter while the composition is open (Chromium sends it with isComposing).
-      await dt.cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-      await dt.cdp.send("Input.dispatchKeyEvent", { type: "char", text: "\r", key: "Enter" });
-      await dt.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+      await cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+      await cdp("Input.dispatchKeyEvent", { type: "char", text: "\r", key: "Enter" });
+      await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
       await browser.pause(300);
       const afterEnter = await read();
-      await dt.cdp.send("Input.insertText", { text: "仮名" });
+      await cdp("Input.insertText", { text: "仮名" });
       await browser.pause(200);
-      ime = { composing, afterEnter, committed: await read() };
-      await dt.cdp.detach().catch(() => undefined);
+      const all = await inA(() => document.querySelector(".openlfcp-pane input.openlfcp-pane-join-name")?.__lfcpComposing ?? null);
+      ime = { events, all, composing, afterEnter, committed: await read() };
     }
     evidence("KEYS-JOIN-IME", { field, typed, ime });
     if (ime.notRun === undefined) {
+      expect(ime.all).toContain("compositionstart:true");
       expect(ime.composing).toMatchObject({ same: true, focused: true });
       expect(ime.composing.value).toContain("Plan");
       expect(ime.afterEnter).toMatchObject({ fieldOpen: true, malformed: false });
@@ -358,13 +392,14 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
         out.push({ theme, zoom, ...(await measure()) });
       }
     let reduced;
-    const dt = await devtools();
-    if (dt.notRun !== undefined) reduced = { notRun: dt.notRun };
+    const notRun = await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    if (notRun !== null) reduced = { notRun };
     else {
-      await dt.page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
-      reduced = await measure();
-      await dt.page.emulateMediaFeatures([]);
-      await dt.cdp.detach().catch(() => undefined);
+      reduced = {
+        ...(await measure()),
+        matches: await inA(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches),
+      };
+      await cdp("Emulation.setEmulatedMedia", { features: [] });
     }
     await inA(() => {
       require("electron").webFrame.setZoomFactor(1);
@@ -438,11 +473,16 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
       await noteLeaf.openFile(app.vault.getFileByPath(file), { state: { mode: "preview" } });
       const doc = noteLeaf.view.containerEl.doc;
       let badge = null;
-      for (let i = 0; i < 80 && badge === null; i++) {
+      for (let i = 0; i < 200 && badge === null; i++) {
         await sleep(100);
         badge = noteLeaf.view.containerEl.querySelector(".markdown-preview-view h2 .openlfcp-status");
       }
-      let copy = { badge: false };
+      let copy = {
+        badge: false,
+        preview: noteLeaf.view.containerEl.querySelector(".markdown-preview-view") !== null,
+        h2: noteLeaf.view.containerEl.querySelectorAll(".markdown-preview-view h2").length,
+        mode: noteLeaf.view.getMode?.() ?? null,
+      };
       if (badge !== null) {
         const range = doc.createRange();
         const sizer = noteLeaf.view.containerEl.querySelector(".markdown-preview-sizer");
