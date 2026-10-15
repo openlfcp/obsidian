@@ -302,6 +302,8 @@ export class FakeElement {
   hidden = false;
   readonly children: FakeElement[] = [];
   readonly listeners = new Map<string, ((event?: unknown) => unknown)[]>();
+  /** Attributes set on it (setAttribute, or createEl's `attr`). */
+  readonly attrs = new Map<string, string>();
   constructor(readonly tag: string) {}
   createEl(
     tag: string,
@@ -312,9 +314,11 @@ export class FakeElement {
       placeholder?: string;
       value?: string;
       href?: string;
+      attr?: Record<string, string>;
     } = {},
   ): FakeElement {
     const el = new FakeElement(tag);
+    for (const [k, v] of Object.entries(o.attr ?? {})) el.attrs.set(k, v);
     el.text = o.text ?? "";
     el.href = o.href ?? "";
     el.cls = o.cls ?? "";
@@ -339,6 +343,15 @@ export class FakeElement {
   }
   addClass(cls: string): void {
     this.cls = `${this.cls} ${cls}`.trim();
+  }
+  setAttribute(name: string, value: string): void {
+    this.attrs.set(name, value);
+  }
+  getAttribute(name: string): string | null {
+    return this.attrs.get(name) ?? null;
+  }
+  hasAttribute(name: string): boolean {
+    return this.attrs.has(name);
   }
   addEventListener(type: string, fn: (event?: unknown) => unknown): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);

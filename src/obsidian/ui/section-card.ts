@@ -10,6 +10,9 @@ import type { SectionCard } from "../../core/status/card";
 
 export type { CardAction };
 
+/** Distinct IDs for the reasons a disabled button points at. */
+let reasonIds = 0;
+
 export class SectionCardModal extends Modal {
   #card: SectionCard;
   readonly #returnFocus: Element | null;
@@ -93,10 +96,28 @@ export class SectionCardModal extends Modal {
     for (const t of c.technical) ul.createEl("li", { text: t });
     if (this.actions.length > 0) {
       const buttons = el.createDiv({ cls: "modal-button-container" });
-      for (const a of this.actions)
-        buttons.createEl("button", { text: a.label }).addEventListener("click", () => {
+      const reasons: { id: string; text: string }[] = [];
+      for (const a of this.actions) {
+        const b = buttons.createEl("button", { text: a.label });
+        // A5, D10: applies but blocked: shown, focusable, says why; a click does nothing.
+        if (a.disabled !== undefined) {
+          b.setAttribute("aria-disabled", "true");
+          b.addClass("is-disabled");
+          const id = `openlfcp-card-reason-${++reasonIds}`;
+          b.setAttribute("aria-describedby", id);
+          reasons.push({ id, text: `${a.label.replace(/…$/, "")}: ${a.disabled}` });
+          continue;
+        }
+        b.addEventListener("click", () => {
           this.close();
           a.run();
+        });
+      }
+      for (const r of reasons)
+        el.createEl("p", {
+          text: r.text,
+          cls: "setting-item-description openlfcp-card-reason",
+          attr: { id: r.id },
         });
     }
   }
