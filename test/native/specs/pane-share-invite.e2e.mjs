@@ -27,12 +27,12 @@ const clickPrimary = () => inA(() => document.querySelector(".openlfcp-pane .ope
 /** The open modal whose text contains `part`, its text. */
 const modalWith = (part) =>
   browser.waitUntil(
-    () => inA((part) => [...document.querySelectorAll(".modal-container .modal")].map((m) => m.textContent).find((t) => t.includes(part)) ?? false, part),
+    () => inA((_o, part) => [...document.querySelectorAll(".modal-container .modal")].map((m) => m.textContent).find((t) => t.includes(part)) ?? false, part),
     { timeout: 30_000, timeoutMsg: `a dialog with "${part}"` },
   );
 const clickIn = (part, label) =>
   inA(
-    (part, label) => {
+    (_o, part, label) => {
       const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => x.textContent.includes(part));
       const b = m && [...m.querySelectorAll("button")].find((x) => x.textContent === label);
       b?.click();
@@ -75,7 +75,7 @@ describe("LFCP-03-014: share → invite in the pane", () => {
     );
     // The pane, from the ribbon (no palette).
     expect(
-      await inA((label) => {
+      await inA((_o, label) => {
         const icon = document.querySelector(`.side-dock-ribbon-action[aria-label="${label}"]`);
         icon?.click();
         return icon !== null;
