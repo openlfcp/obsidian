@@ -59,11 +59,15 @@ export interface Prompter {
     readonly title: string;
     readonly choices: readonly Choice<T>[];
   }): Promise<T | null>;
-  /** Shows a new invitation with a copy action. The only place a link is revealed. */
+  /**
+   * Shows a new invitation with a copy action. The only place a link is
+   * revealed. `copied` is called after "Copy link" put it on the clipboard.
+   */
   invitation(options: {
     readonly link: InvitationLink;
     readonly preset: string;
     readonly confirmed: boolean;
+    readonly copied?: () => void;
   }): Promise<void>;
   /** The Resource status view; `actions` are offered as buttons. */
   status(status: ResourceStatus, actions: readonly Choice<() => Promise<void>>[]): Promise<void>;
@@ -154,12 +158,32 @@ const refOf = (R: ResourceId, objectId: string): ObjectRef => ({
 
 class Abort extends Error {}
 
+/** The invitation sentence (owner decision D2, UX contract I1). */
+export const ONE_TIME_LINK = "One-time link, does not expire; whoever opens it first joins.";
+
+/**
+ * The invitation being made (LFCP-03-014): its Resource and its step, for
+ * the pane. Its link is never here: only the invitation dialog holds it.
+ */
+export interface InvitationState {
+  readonly resource: ResourceId;
+  /** "role": the choice of Read or Read + write; "creating": the server; "link": its dialog. */
+  readonly stage: "role" | "creating" | "link";
+  /** The server confirmed it; null before it is created. */
+  readonly confirmed: boolean | null;
+}
+
 export class CollabCommands {
   readonly #env: CommandEnv;
   /** An invitation being created: a second "Invite collaborator" meanwhile makes no second one. */
   #inviting = false;
   /** A join running (F-C04): a second "Join collaboration" meanwhile claims no second link. */
   #joining = false;
+  /** The invitation being made, as the pane shows it; null when none is. */
+  #invitation: InvitationState | null = null;
+  /** The Resources (hex) whose last invitation's link was copied in this session (I3). */
+  readonly #copied = new Set<string>();
+  readonly #invitationListeners = new Set<() => void>();
 
   constructor(env: CommandEnv) {
     this.#env = env;
@@ -635,6 +659,27 @@ export class CollabCommands {
     });
   }
 
+  /** The invitation being made now (its Resource and step), or null (the pane, LFCP-03-014). */
+  invitation(): InvitationState | null {
+    return this.#invitation;
+  }
+
+  /** Whether the last invitation to Resource `R` made in this session had its link copied (I3). */
+  linkCopied(R: ResourceId): boolean {
+    return this.#copied.has(toHex(R));
+  }
+
+  /** Calls `listener` when an invitation starts, moves to another step or ends; returns how to stop. */
+  onInvitationChange(listener: () => void): () => void {
+    this.#invitationListeners.add(listener);
+    return () => this.#invitationListeners.delete(listener);
+  }
+
+  #invitationAt(next: InvitationState | null): void {
+    this.#invitation = next;
+    for (const l of [...this.#invitationListeners]) l();
+  }
+
   /** Runs an invitation flow unless one is running: its link comes in its own dialog. */
   #oneInvitation(body: () => Promise<void>): Promise<void> {
     if (this.#inviting) {
@@ -646,6 +691,7 @@ export class CollabCommands {
     this.#inviting = true;
     return this.#run("Creating the invitation", body).finally(() => {
       this.#inviting = false;
+      if (this.#invitation !== null) this.#invitationAt(null);
     });
   }
 
@@ -655,15 +701,18 @@ export class CollabCommands {
     await collab.checkInvitable(R);
     // A shared section's invitation speaks of the section, not of tasks.
     const section = (await collab.status(R)).profile === SECTIONS_PROFILE_ID;
+    this.#invitationAt({ resource: R, stage: "role", confirmed: null });
+    // I2: the role is the user's explicit choice; nothing is preselected above Read.
     const preset = await p.choose<InvitePreset>({
       title: "What may they do?",
       choices: (Object.keys(INVITE_PRESETS) as InvitePreset[]).map((k) => ({
         label: INVITE_PRESETS[k].label,
-        description: `${section ? INVITE_PRESETS[k].sectionDescription : INVITE_PRESETS[k].description} One-time link.`,
+        description: `${section ? INVITE_PRESETS[k].sectionDescription : INVITE_PRESETS[k].description} ${ONE_TIME_LINK}`,
         value: k,
       })),
     });
     if (preset === null) return;
+    this.#invitationAt({ resource: R, stage: "creating", confirmed: null });
     const progress = p.progress("Creating invitation");
     let invitation: Awaited<ReturnType<Collaboration["invite"]>>;
     try {
@@ -672,10 +721,17 @@ export class CollabCommands {
     } finally {
       progress.close();
     }
+    // A new link: "Link copied" is said of this one only once it is copied.
+    this.#copied.delete(toHex(R));
+    this.#invitationAt({ resource: R, stage: "link", confirmed: invitation.confirmed });
     await p.invitation({
       link: invitation.link,
       preset: INVITE_PRESETS[preset].label,
       confirmed: invitation.confirmed,
+      copied: () => {
+        this.#copied.add(toHex(R));
+        this.#invitationAt(this.#invitation);
+      },
     });
   }
 

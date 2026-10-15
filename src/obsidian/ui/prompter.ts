@@ -8,7 +8,13 @@
 
 import type { InvitationLink } from "@openlfcp/client";
 import { type App, MarkdownView, Modal, Notice, SuggestModal } from "obsidian";
-import type { ActiveNote, Choice, NoteAccess, Prompter } from "../../core/collab/commands";
+import {
+  type ActiveNote,
+  type Choice,
+  type NoteAccess,
+  ONE_TIME_LINK,
+  type Prompter,
+} from "../../core/collab/commands";
 import type { Hint } from "../../core/collab/server-notice";
 import type { ResourceStatus } from "../../core/collab/service";
 import { statusView } from "../../core/collab/view";
@@ -134,6 +140,7 @@ class InvitationModal extends Modal {
       readonly link: InvitationLink;
       readonly preset: string;
       readonly confirmed: boolean;
+      readonly copied?: () => void;
     },
     readonly copy: (text: string) => Promise<void>,
   ) {
@@ -144,8 +151,10 @@ class InvitationModal extends Modal {
     const el = this.contentEl;
     el.empty();
     el.createEl("h3", { text: `Invitation (${this.o.preset})` });
+    // D2 (UX contract I1): the one sentence on what the link does, next to "treat it like a password".
+    el.createEl("p", { text: ONE_TIME_LINK });
     el.createEl("p", {
-      text: "Send this link to one person over a channel you trust. It works once and grants access to this collaboration: treat it like a password.",
+      text: "Send it to one person over a channel you trust. It grants access: treat it like a password.",
     });
     el.createEl("p", {
       text: this.o.confirmed
@@ -159,8 +168,12 @@ class InvitationModal extends Modal {
     const buttons = el.createDiv({ cls: "modal-button-container" });
     const copy = buttons.createEl("button", { text: "Copy link", cls: "mod-cta" });
     copy.addEventListener("click", () => {
+      // I3: "Link copied", never "sent" or "invited".
       void this.copy(this.o.link.reveal()).then(
-        () => new Notice("Shared Tasks: invitation link copied."),
+        () => {
+          new Notice("Shared Tasks: link copied.");
+          this.o.copied?.();
+        },
         () => new Notice("Shared Tasks: could not copy; use Show link."),
       );
     });
