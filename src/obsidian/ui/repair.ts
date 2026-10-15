@@ -10,6 +10,20 @@ import type { RepairItem } from "../../core/sections/repair";
 
 export type { LostBase, RepairActions };
 
+/** The line under a lost base's lines: what they show, and why only Keep is offered when it is. */
+function unavailableText(why: LostBase["sharedUnavailable"]): string {
+  switch (why) {
+    case undefined:
+      return "− only in this note · + only in the shared version";
+    case "task-loading":
+      return "This note's version. The shared version cannot be shown here yet: Keep my version keeps this text as it is, and the section asks again once the shared version has loaded.";
+    case "task-unreadable":
+      return 'This note\'s version. A Task in it cannot be compared with the shared version, which is not a valid task here: Keep my version keeps this text as it is, and the choice comes back once the shared version is fixed. "Export diagnostics…" has the details.';
+    case "model":
+      return "This note's version. The shared version cannot be shown here: Keep my version keeps this note's version as this copy's base.";
+  }
+}
+
 export class RepairModal extends Modal {
   #closed: () => void = () => undefined;
   /** Settles when the dialog closes (an action it started may still run). */
@@ -100,10 +114,7 @@ export class RepairModal extends Modal {
           cls: `openlfcp-diff-${l.kind}`,
         });
       box.createEl("p", {
-        text:
-          lost.sharedUnavailable === true
-            ? "This note's version. The shared version cannot be shown here yet: Keep my version keeps this text as it is, and the section asks again once the shared version has loaded."
-            : "− only in this note · + only in the shared version",
+        text: unavailableText(lost.sharedUnavailable),
         cls: "setting-item-description",
       });
       const buttons = box.createDiv({ cls: "modal-button-container" });
@@ -111,7 +122,7 @@ export class RepairModal extends Modal {
         this.close();
         void this.actions.shareMine(lost.key);
       });
-      if (lost.sharedUnavailable !== true)
+      if (lost.sharedUnavailable === undefined)
         buttons
           .createEl("button", { text: "Use the shared version" })
           .addEventListener("click", () => {

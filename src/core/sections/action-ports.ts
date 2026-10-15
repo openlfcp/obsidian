@@ -90,11 +90,17 @@ export interface LostBase {
   readonly title: string;
   readonly lines: readonly ComparedLine[];
   /**
-   * The shared version cannot be written here yet (a Task in it is not
-   * here or not a valid Task, a model problem): only this note's version
-   * can be kept; `lines` are the note's.
+   * The shared version cannot be written here (only this note's version can
+   * be kept; `lines` are the note's), and why:
+   * - `task-loading`: a Task in it is not here yet; Keep guesses no base,
+   *   the choice comes back once it has loaded;
+   * - `task-unreadable`: a Task in it is not a valid Task here (invalid,
+   *   two objects under its ID, deleted); Keep guesses no base, the choice
+   *   comes back once the shared version is fixed;
+   * - `model`: the section model cannot be drawn (a model problem); Keep
+   *   keeps this note's version as the copy's base.
    */
-  readonly sharedUnavailable?: true;
+  readonly sharedUnavailable?: "task-loading" | "task-unreadable" | "model";
 }
 
 /** What the repair dialog can do; each runs on the note the repair was computed for. */
