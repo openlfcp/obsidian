@@ -8,7 +8,7 @@
 // Two real plugins (sections on, a CodeMirror editor for A). Skipped
 // without the server unless LFCP_REQUIRE_LIVE=1 (then an error).
 
-import { toHex } from "@openlfcp/core";
+import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseSections } from "../../src/core/sections/parser";
 import { PANE_VIEW, type SharedTasksView } from "../../src/obsidian/ui/pane-view";
@@ -145,5 +145,15 @@ describe.skipIf(!live)("share → invite → claim from the pane (LFCP-03-014)",
           : undefined,
       60_000,
     );
+    // Privacy canary: what B received holds the section, never A's private text around it.
+    await B.insert(toBase64url(resource));
+    const received = [
+      B.text(SECTION_NOTE),
+      JSON.stringify(B.runtime.sectionProfile(resource as ResourceId)?.replica.toJSON() ?? null),
+    ].join("\n");
+    expect(received).toContain("a1 plan item");
+    expect(received).toContain("a2 draft item");
+    expect(received).not.toContain("Private intro");
+    expect(received).not.toContain("Private tail");
   }, 240_000);
 });
