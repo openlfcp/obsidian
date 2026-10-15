@@ -327,6 +327,23 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
+/* A row is chosen by the user (D9): a native button that reads as the row's name, wrapping. */
+.openlfcp-pane-row button.openlfcp-pane-row-label {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  text-align: start;
+  white-space: normal;
+  background: none;
+  box-shadow: none;
+}
+
+.openlfcp-pane-row.is-chosen {
+  border-inline-start: 2px solid var(--interactive-accent);
+  padding-inline-start: var(--size-4-1);
+}
+
 .openlfcp-pane-join-form {
   display: flex;
   flex-wrap: wrap;

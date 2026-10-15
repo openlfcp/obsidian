@@ -19,6 +19,10 @@ export interface PaneHandlers {
   readonly action: (id: ActionId) => void;
   /** A link pasted in the join field (I5); absent: the field is not offered. */
   readonly join?: (link: string) => void;
+  /** A row of the section list chosen (its key, D9); absent: rows are not choosable. */
+  readonly row?: (key: string) => void;
+  /** The key of the row chosen now, marked as such. */
+  readonly chosen?: string | null;
 }
 
 /** The attribute that names a focusable control across redraws. */
@@ -167,7 +171,18 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     const ul = el(list, "ul", "openlfcp-pane-rows");
     for (const r of g.rows) {
       const li = el(ul, "li", "openlfcp-pane-row");
-      el(li, "div", "openlfcp-pane-row-label", r.label);
+      const pick = h.row;
+      if (pick === undefined) el(li, "div", "openlfcp-pane-row-label", r.label);
+      else {
+        // D9: a row is chosen by the user, never by the pane on its own; a native button.
+        const b = el(li, "button", "openlfcp-pane-row-label", r.label);
+        b.type = "button";
+        b.setAttribute(KEY, `row:${r.key}`);
+        b.dataset.row = r.key;
+        b.setAttribute("aria-pressed", h.chosen === r.key ? "true" : "false");
+        if (h.chosen === r.key) li.classList.add("is-chosen");
+        b.addEventListener("click", () => pick(r.key));
+      }
       if (r.alias !== null) el(li, "div", "openlfcp-pane-row-alias", r.alias);
       el(li, "div", "openlfcp-pane-row-meta", `${r.status} · ${r.places}`);
     }

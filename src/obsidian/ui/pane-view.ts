@@ -6,7 +6,17 @@
 // It draws the pane's view model (core/pane/model.ts) with the shared
 // renderer (pane-renderer.ts) from the host's facts (core/pane/host-facts.ts)
 // and runs every button through the action dispatcher (surface "pane").
-// It decides nothing itself.
+// It decides nothing itself. It keeps only the pane's own state: the flow
+// it holds (P2: a running flow keeps the current area until it ends) and
+// the section chosen in the list (D9).
+//
+// L2: a click is checked against the facts as they are at the click. The
+// action must still be enabled and act on the same note, section and flow
+// as the button that was drawn; otherwise the pane redraws and runs
+// nothing (P3: a revocation, offline or a changed target disables at once).
+// A change of a section's status or of a flow redraws at once, not
+// coalesced. L1: while the pane is not shown (a collapsed sidebar, another
+// tab), it neither reads nor draws; it draws once it is shown again.
 //
 // Lifecycle: every subscription (workspace and vault events, the registry
 // view, the section statuses, the editors' cursor) is taken in onOpen and
@@ -38,19 +48,42 @@ export const PANE_TITLE = "Shared Tasks";
 export const PANE_ICON = "list-checks";
 export const OPEN_PANE = "Open Shared Tasks pane";
 
-/** A source of change: subscribes, and returns how to unsubscribe. */
-export type PaneSource = (changed: () => void) => () => void;
+/**
+ * A source of change: subscribes, and returns how to unsubscribe. `urgent`:
+ * a fact that may disable an action shown now (P3), drawn at once.
+ */
+export type PaneSource = (changed: (urgent?: boolean) => void) => () => void;
+
+/** The pane's own state: the flow it holds and the section chosen in its list. */
+export interface PaneUi {
+  readonly pinned: number | null;
+  readonly chosen: string | null;
+}
+
+/** One drawing of the pane, from one reading of the host's facts. */
+export interface PaneSnapshot {
+  readonly model: PaneModel;
+  /** What a click of `id` hands the dispatcher. */
+  request(id: ActionId): ActionRequest;
+  /** What `id` acts on: a click compares the drawn one with the one now (L2). */
+  identity(id: ActionId): string;
+  /** The flow this drawing holds. */
+  readonly pinned: number | null;
+}
 
 /** What the pane reads and runs, from the plugin. */
 export interface PaneHostPort {
-  /** The pane's model for the note in `target` (null: no Markdown note open), read now. */
-  model(target: MarkdownView | null): PaneModel;
-  /** What a button hands the dispatcher for `target`, read at the click. */
-  request(target: MarkdownView | null): ActionRequest;
+  /** The pane for the note in `target` (null: no Markdown note open), read now. */
+  snapshot(target: MarkdownView | null, ui: PaneUi): PaneSnapshot;
   /** Runs an action through the dispatcher, from the pane. */
   run(id: ActionId, request: ActionRequest): Promise<void>;
-  /** The host's change sources: the registry view, the statuses, the editors' cursor. */
+  /** The host's change sources: the registry view, the statuses, the flows, the editors' cursor. */
   readonly sources: readonly PaneSource[];
+}
+
+/** Every action a drawing shows, enabled or not. */
+function actionsOf(m: PaneModel): PaneModel["secondary"] {
+  return [m.join, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu];
 }
 
 /** Redraws are coalesced over this many milliseconds (a caret event is not a redraw). */
@@ -64,6 +97,13 @@ export class SharedTasksView extends ItemView {
   #root: HTMLElement | null = null;
   /** The last active Markdown view (T1). */
   #target: MarkdownView | null = null;
+  /** The flow the pane holds (P2) and the section chosen in its list (D9). */
+  #pinned: number | null = null;
+  #chosen: string | null = null;
+  /** A change came while the pane was not shown: it draws once shown (L1). */
+  #stale = false;
+  /** How many drawings this pane made (tests: none while hidden). */
+  drawings = 0;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -97,7 +137,8 @@ export class SharedTasksView extends ItemView {
     const ws = this.app.workspace;
     this.#target = currentMarkdown(ws);
     const vault = this.app.vault;
-    const changed = () => this.#schedule(generation);
+    const changed = (urgent = false) =>
+      urgent ? this.#now(generation) : this.#schedule(generation);
     const take = (from: Events, ref: EventRef) => this.#off.push(() => from.offref(ref));
     take(
       ws,
@@ -107,18 +148,40 @@ export class SharedTasksView extends ItemView {
         changed();
       }),
     );
-    // A note opened, a mode switched or a leaf closed; an edit; a note renamed or deleted.
-    take(ws, ws.on("file-open", changed));
-    take(ws, ws.on("layout-change", changed));
-    take(ws, ws.on("editor-change", changed));
-    take(vault, vault.on("rename", changed));
-    take(vault, vault.on("delete", changed));
+    // A note opened, a mode switched or a leaf closed (a sidebar shown again); an edit;
+    // a note renamed or deleted: the target may be another one, at once (P3).
+    take(
+      ws,
+      ws.on("file-open", () => changed()),
+    );
+    take(
+      ws,
+      ws.on("layout-change", () => changed()),
+    );
+    take(
+      ws,
+      ws.on("editor-change", () => changed()),
+    );
+    take(
+      vault,
+      vault.on("rename", () => changed(true)),
+    );
+    take(
+      vault,
+      vault.on("delete", () => changed(true)),
+    );
     for (const subscribe of this.port.sources) this.#off.push(subscribe(changed));
     const root = this.contentEl;
     root.replaceChildren();
     this.#root = root.ownerDocument.createElement("div");
     root.appendChild(this.#root);
+    // Not shown yet (restored in a collapsed sidebar): drawn once it is (L1).
     this.render();
+  }
+
+  /** Shown again or resized (a sidebar expanded): what changed while hidden is drawn now (L1). */
+  override onResize(): void {
+    if (this.#stale) this.render();
   }
 
   override async onClose(): Promise<void> {
@@ -126,21 +189,66 @@ export class SharedTasksView extends ItemView {
     this.contentEl.replaceChildren();
     this.#root = null;
     this.#target = null;
+    this.#pinned = null;
+    this.#chosen = null;
   }
 
-  /** Draws the pane now from the host's facts. */
+  /** Draws the pane now from the host's facts; while it is not shown, only notes that it must (L1). */
   render(): void {
+    if (this.#root === null) return;
+    if (!this.#visible()) {
+      this.#stale = true;
+      return;
+    }
+    this.#draw();
+  }
+
+  #draw(): void {
     const root = this.#root;
     if (root === null) return;
+    this.#stale = false;
+    this.drawings++;
     const generation = this.#generation;
-    const target = this.#liveTarget();
-    renderPane(root, this.port.model(target), {
-      action: (id) => {
-        // A button of a pane drawn before a close does nothing.
+    const drawn = this.port.snapshot(this.#liveTarget(), this.#ui());
+    this.#pinned = drawn.pinned;
+    renderPane(root, drawn.model, {
+      action: (id) => this.#click(generation, drawn, id),
+      row: (key) => {
         if (generation !== this.#generation) return;
-        void this.port.run(id, this.port.request(this.#liveTarget()));
+        this.#chosen = key;
+        this.render();
       },
+      chosen: this.#chosen,
     });
+  }
+
+  #ui(): PaneUi {
+    return { pinned: this.#pinned, chosen: this.#chosen };
+  }
+
+  /**
+   * A click on action `id` of drawing `drawn` (L2): run only when the facts
+   * now still offer it, enabled, on the same note, section and flow; else
+   * draw what is true now and run nothing.
+   */
+  #click(generation: number, drawn: PaneSnapshot, id: ActionId): void {
+    // A button of a pane drawn before a close does nothing.
+    if (generation !== this.#generation) return;
+    const now = this.port.snapshot(this.#liveTarget(), this.#ui());
+    const offered = actionsOf(now.model).find((a) => a.id === id);
+    if (offered?.enabled !== true || now.identity(id) !== drawn.identity(id)) {
+      this.render();
+      return;
+    }
+    void this.port.run(id, now.request(id));
+  }
+
+  /** Draws now, for a change that may disable what is shown (P3). */
+  #now(generation: number): void {
+    if (generation !== this.#generation) return;
+    if (this.#timer !== null) window.clearTimeout(this.#timer);
+    this.#timer = null;
+    this.render();
   }
 
   #schedule(generation: number): void {
@@ -149,6 +257,16 @@ export class SharedTasksView extends ItemView {
       this.#timer = null;
       if (generation === this.#generation) this.render();
     }, COALESCE_MS);
+  }
+
+  /** Whether the pane is on screen: not in a collapsed sidebar, not behind another tab. */
+  #visible(): boolean {
+    const root = (this.leaf as { getRoot?: () => unknown }).getRoot?.() as
+      | { collapsed?: boolean }
+      | undefined;
+    if (root?.collapsed === true) return false;
+    const el = (this as { containerEl?: HTMLElement & { isShown?: () => boolean } }).containerEl;
+    return typeof el?.isShown !== "function" || el.isShown();
   }
 
   /** The target, if its leaf still shows a note; else the workspace's current one. */

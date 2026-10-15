@@ -286,7 +286,16 @@ started. It is in exactly one of three states:
 
 **P3. Immediate invalidation.** A change to the source, the access or the
 target disables an action that is already shown at once. Safety checks are
-never debounced.
+never debounced. In the pane (LFCP-03-013) a status or flow change is drawn
+at once, and a click is checked against the facts at the click: the action
+must still be enabled and act on the same note, section and flow as the
+button that was drawn; otherwise the pane redraws and runs nothing.
+
+**P5. The flow in the current area** (LFCP-03-013). The pane holds the flow
+it shows (share and insert flows, `SectionActions.flows()`): while it runs
+or its result is unknown, a later flow does not take the current area, and
+its next step goes back to that flow on its own note (T2). Other flows are
+listed with where they stand; "Continue" brings the first of them forward.
 
 **P4. No primary action.** When no row gives a primary action, the pane
 says why in one sentence for the user, never in the contract's terms:

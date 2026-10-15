@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  hostPane,
   hostPaneFacts,
   hostPaneRequest,
   type PaneAccess,
@@ -183,6 +184,52 @@ describe("pane host facts (LFCP-03-012)", () => {
     ).toMatchObject({ enabled: false });
   });
 
+  it("N3: before its shared title loads a section is named by its alias, with the qualifier", () => {
+    const rows = registry().rows.map((r) => ({ ...r, sharedTitle: null, localAlias: "Work" }));
+    const m = paneModel(
+      hostPaneFacts({ note: note(4), registry: registry({ rows }), status: () => current }),
+    );
+    expect(m.context.lines).toContain("Work (name on this device)");
+    // No row yet (the registry not read): the heading in this note names it.
+    const bare = hostPaneFacts({
+      note: note(4),
+      registry: registry({ rows: [] }),
+      status: () => undefined,
+    });
+    expect(bare.section?.sharedTitle).toBe("Launch");
+  });
+
+  it("P2: other flows are listed with where they stand; Continue goes to the first of them", () => {
+    const flow = (generation: number, path: string, outcome: "running" | "unknown") => ({
+      generation,
+      kind: "insert" as const,
+      path,
+      stage: "",
+      step: "preview",
+      outcome,
+      checking: false,
+    });
+    const d = hostPane({
+      note: note(1),
+      registry: registry(),
+      status: () => current,
+      flows: [flow(2, "Plan.md", "running"), flow(5, "Other.md", "unknown")],
+      pinned: 2,
+    });
+    expect(d.pinned).toBe(2);
+    const m = paneModel(d.facts);
+    expect(m.unfinished).toEqual([
+      {
+        title: "Inserting a shared section",
+        detail: "Other.md: its result is not known yet; Continue checks it",
+      },
+    ]);
+    expect(d.request("continue-flow")).toEqual({ flow: 5 });
+    // The pinned flow's next step goes back to it.
+    expect(d.request("insert-into-note")).toEqual({ flow: 2 });
+    expect(d.identity("insert-into-note")).not.toBe(d.identity("open-details"));
+  });
+
   it("a section with no status yet is the reducer's no-evidence view: never healthy or denied", () => {
     const f = hostPaneFacts({
       note: note(4),
@@ -267,13 +314,18 @@ describe("pane host facts (LFCP-03-012)", () => {
   });
 
   it("a button hands the dispatcher the note captured now and the section it is about", () => {
-    expect(hostPaneRequest({ note: null })).toEqual({});
+    const src = (n: TargetCapture | null) => ({
+      note: n,
+      registry: registry(),
+      status: () => undefined,
+    });
+    expect(hostPaneRequest(src(null))).toEqual({});
     const n = note(4);
-    expect(hostPaneRequest({ note: n })).toEqual({
+    expect(hostPaneRequest(src(n))).toEqual({
       target: n,
       section: { key: KEY, title: "Launch" },
     });
-    expect(hostPaneRequest({ note: note(0) })).toEqual({ target: note(0) });
+    expect(hostPaneRequest(src(note(0)))).toEqual({ target: note(0) });
   });
 
   it("with shared sections off, every button but joining is off with that reason; nothing else changes", () => {

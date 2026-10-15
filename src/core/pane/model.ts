@@ -51,6 +51,8 @@ export interface PaneFlow {
   readonly outcome: FlowOutcome;
   /** The note the flow captured before its preview (T2): it does not follow the active note. */
   readonly target?: string;
+  /** The flow's number on this host (ActiveFlow.generation): a late click on an ended one does nothing. */
+  readonly generation?: number;
 }
 
 export interface PaneContext {
@@ -608,10 +610,18 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
   const unfinished = [
     ...(f.context.flow?.outcome === "unfinished" ? [f.context.flow] : []),
     ...(f.unfinished ?? []),
-  ].map((x) => ({
-    title: FLOW_TITLE[x.kind],
-    detail: `${x.target === undefined ? "" : `${x.target}: `}stopped before ${stageOf(x.kind, x.stage).label.toLowerCase()}`,
-  }));
+  ].map((x) => {
+    const step = stageOf(x.kind, x.stage).label.toLowerCase();
+    const where = x.target === undefined ? "" : `${x.target}: `;
+    // Another flow than the one in the current area: where it stands, as it is.
+    const detail =
+      x.outcome === "unfinished"
+        ? `stopped before ${step}`
+        : x.outcome === "unknown"
+          ? "its result is not known yet; Continue checks it"
+          : `in progress (${step})`;
+    return { title: FLOW_TITLE[x.kind], detail: `${where}${detail}` };
+  });
   const preview = f.preview;
   return {
     title: "Shared Tasks",
