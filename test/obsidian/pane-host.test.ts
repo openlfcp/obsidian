@@ -168,6 +168,29 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     expect(mock.modals).toEqual([]);
   });
 
+  it("U03-18: an entry puts focus on the pane's heading; a redraw takes none", async () => {
+    const t = await loaded();
+    await t.plugin.openPane();
+    // The pane as Obsidian shows it: in the page.
+    document.body.appendChild(t.el());
+    try {
+      const outside = document.createElement("input");
+      document.body.appendChild(outside);
+      outside.focus();
+      // A change while focus is elsewhere: drawn, focus untouched.
+      t.view()?.render();
+      expect(document.activeElement).toBe(outside);
+      // The command (or the ribbon, a menu, the card's link) again: focus on the heading.
+      t.host.commands.find((c) => c.id === "open-shared-tasks-pane")?.callback?.();
+      await wait(0);
+      expect(document.activeElement?.getAttribute("data-pane-key")).toBe("title");
+      expect(document.activeElement?.textContent).toBe("Shared Tasks");
+      outside.remove();
+    } finally {
+      t.el().remove();
+    }
+  });
+
   it("U03-20: calls at once open one leaf; a restored layout with two keeps one", async () => {
     const t = await loaded();
     await Promise.all([t.plugin.openPane(), t.plugin.openPane(), t.plugin.openPane()]);
