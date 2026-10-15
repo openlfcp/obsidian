@@ -465,6 +465,30 @@ describe("problem hub in the pane (LFCP-03-018)", () => {
     expect(noteRepairs(note(HEALTHY))).toMatchObject({ items: [], revision: "" });
   });
 
+  it("with LFCP-03-014: a share preview and the problem rows are drawn together, each in its place", () => {
+    // A private heading under the cursor (its share preview), and a copy without its end below it.
+    const text = `# Private\n\nMy own line.\n\n${NO_END.replace("# Plan\n", "")}`;
+    const d = hostPane({
+      note: note(text, { cursorLine: 0 }),
+      registry: null,
+      status: () => undefined,
+    });
+    const m = paneModel(d.facts);
+    expect(m.primary?.id).toBe("share-section");
+    expect(m.preview.length).toBeGreaterThan(0);
+    expect(m.problems.map((p) => [p.category, p.action?.id])).toEqual([
+      ["boundary", "repair-sections"],
+    ]);
+    const texts = paneTexts(m);
+    const at = (t: string) => texts.indexOf(t);
+    // The rows come before the preview, as the renderer lays them out; nothing is said twice.
+    expect(at("A shared section has a start marker and no end.")).toBeGreaterThan(-1);
+    expect(at("A shared section has a start marker and no end.")).toBeLessThan(
+      at(m.preview[0] ?? ""),
+    );
+    expect(m.preview.join(" ")).not.toContain("start marker");
+  });
+
   it("T4: in Reading view a repair of that note is disabled with its reason; elsewhere it is not", () => {
     const reading = paneModel(
       hostPane({ note: note(NO_END, { mode: "reading" }), registry: null, status: () => undefined })
