@@ -16,7 +16,7 @@
 // decoration, never in the text.
 
 import { EditorView } from "@codemirror/view";
-import { type ResourceId, toBase64url, toHex } from "@openlfcp/core";
+import { fromBase64url, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import {
   apiVersion,
   type Editor,
@@ -178,6 +178,7 @@ export default class OpenLfcpPlugin extends Plugin {
               this.sections?.reviewConflictsAt(note.text, note.line),
           }),
     });
+    this.#commands = ui;
     this.actions = new ActionDispatcher(
       coreHandlers({
         sections: () => this.sections?.actions ?? null,
@@ -373,6 +374,11 @@ export default class OpenLfcpPlugin extends Plugin {
           const off = this.sections?.actions.onFlowsChange(() => changed(true));
           return () => void off?.();
         },
+        // An invitation started, moved to its link, was copied or ended (LFCP-03-014).
+        (changed) => {
+          const off = this.#commands?.onInvitationChange(() => changed(true));
+          return () => void off?.();
+        },
         (changed) => {
           const nudge = () => changed();
           this.#paneNudges.add(nudge);
@@ -442,6 +448,9 @@ export default class OpenLfcpPlugin extends Plugin {
   /** The section joined last on this device (base64url): the pane is about it until another is (D9). */
   #justJoined: string | null = null;
 
+  /** The collaboration commands (the invitation the pane follows, LFCP-03-014); null before onload. */
+  #commands: CollabCommands | null = null;
+
   /** A shared section was joined on this device (its Resource): the pane is about it now (D9). */
   sectionJoined(R: ResourceId): void {
     this.#justJoined = toBase64url(R);
@@ -466,11 +475,33 @@ export default class OpenLfcpPlugin extends Plugin {
       failed === null || base.unavailable !== null
         ? base
         : { ...base, starting: false, unavailable: `Shared Tasks: ${failed}` };
+    const invitation = this.#commands?.invitation() ?? null;
+    const collab = this.#commands;
     const drawing = hostPane({
       note,
       registry: s?.registry.snapshot() ?? null,
       status: (key) => s?.sectionStatus(key),
       access: (key) => s?.paneAccess(key),
+      ...(s === null ? {} : { policy: s.sharePolicy() }),
+      invitation:
+        invitation === null
+          ? null
+          : {
+              resource: toBase64url(invitation.resource),
+              stage: invitation.stage,
+              confirmed: invitation.confirmed,
+            },
+      // LFCP-03-014: what this device's share and invitation of a section came to.
+      journey: (key) => {
+        const shared = s?.actions.shareResult(key);
+        const at = key.indexOf("#");
+        const linkCopied =
+          collab?.linkCopied(fromBase64url(at < 0 ? key : key.slice(0, at)) as ResourceId) === true;
+        return {
+          ...(shared === undefined ? {} : { shared }),
+          ...(linkCopied ? { linkCopied } : {}),
+        };
+      },
       host,
       flows: s?.actions.flows() ?? [],
       pinned: ui.pinned,

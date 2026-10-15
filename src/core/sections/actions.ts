@@ -1400,8 +1400,28 @@ export class SectionActions {
     services.scheduleStatus();
   }
 
+  /** What each share from this device came to in this session, by section key (LFCP-03-014). */
+  readonly #shared = new Map<string, { kind: "hosted" | "local"; reason: string | null }>();
+
+  /**
+   * What this device's share of section `key` came to in this session:
+   * created on this device only ("local", with why it is not hosted yet), or
+   * on its server ("hosted"). The pane says which (I4: a local-only share
+   * is not ready to invite); whether it is hosted now is the access list's.
+   */
+  shareResult(key: string): { kind: "hosted" | "local"; reason: string | null } | undefined {
+    return this.#shared.get(key);
+  }
+
   /** What became of a creation, in a notice (UX §3). */
   #notifyCreation(entry: CreationEntry, r: CreationResult): void {
+    if (r.kind === "hosted" || r.kind === "local") {
+      this.#shared.set(`${entry.resource}#${entry.sectionId}`, {
+        kind: r.kind,
+        reason: r.kind === "local" ? r.reason : null,
+      });
+      this.#changed();
+    }
     const notice = (m: string) => this.env.prompter.notice(m);
     const title = entry.preview.title;
     if (r.kind === "hosted") notice(`Shared Tasks: section "${title}" is shared.`);

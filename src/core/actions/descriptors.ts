@@ -197,6 +197,15 @@ function derive(f: ActionFacts): Derived {
 
 type Rule = (d: Derived) => Availability;
 
+/** The context offers a share with its preview: a private heading or an exact selection, no flow. */
+const sharing = (d: Derived): boolean => {
+  const ctx = d.f.context;
+  if (d.flow !== null || !d.noteOpen || d.reading || ctx.cursor === "inside-section") return false;
+  return ctx.selection === null
+    ? ctx.cursor === "private-heading"
+    : ctx.selection.eligibility === "exact";
+};
+
 /** A section-scoped action: hidden without a section in the context. */
 const ofSection =
   (rule: (d: Derived, s: PaneSection) => Availability): Rule =>
@@ -230,7 +239,8 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
       return disabled("A share is in progress. Finish it first.");
     if (d.running !== null) return disabled(BUSY);
     if (!d.noteOpen) return disabled("Open a note to share a section from it.");
-    if (sel?.eligibility === "ineligible")
+    // 0.1 shared Tasks: "Share section…" opens the existing explicit import (new identities).
+    if (sel?.eligibility === "ineligible" && sel.reason !== "legacy-tasks")
       return disabled(
         sel.reason === null ? "" : selectionReasonText(sel.reason, (sel.line ?? sel.fromLine) - 1),
       );
@@ -262,7 +272,8 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
   "continue-flow": (d) =>
     d.flow?.outcome === "unfinished" || (d.f.unfinished?.length ?? 0) > 0 ? ENABLED : HIDDEN,
   "open-for-editing": (d) => (d.reading ? ENABLED : HIDDEN),
-  "open-settings": (d) => (d.f.setup ? ENABLED : HIDDEN),
+  // Setup incomplete; or the share preview's sync server, changed only in the settings (LFCP-03-014).
+  "open-settings": (d) => (d.f.setup || sharing(d) ? ENABLED : HIDDEN),
   // D10: an action that does not apply here is hidden, not disabled.
   "copy-readable": (d) =>
     d.noteOpen && d.f.context.cursor === "inside-section" && d.f.section !== null
@@ -270,6 +281,9 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
       : HIDDEN,
   // I4: ready means hosted, with access current; inviting comes from the access list.
   invite: (d) => {
+    // A4: the invitation under way (its dialog) is the one; a second one is not started from here.
+    if (d.flow?.kind === "invite" && d.flow.outcome === "running" && d.flow.dialog === true)
+      return disabled("An invitation is open. Finish it in its dialog.");
     if (d.next === "invite") return ENABLED;
     const s = d.f.section;
     if (s === null) return HIDDEN;

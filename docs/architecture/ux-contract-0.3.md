@@ -315,7 +315,7 @@ what is in progress. The fixtures' `primaryCtaNone` holds these sentences.
 | A healthy section, invite allowed | `invite` |
 | A healthy section, invite not allowed | `open-details` |
 | Offline with updates queued and no other problem | `sync-details` |
-| Setup incomplete (no server, sections off) | `open-settings`, with the exact reason |
+| Setup incomplete (no server, sections off) | `open-settings`, with the exact reason (also a secondary action next to a share preview, to change its sync server, I8) |
 | No open Markdown note | None. "Join with a link…" and the section list stay available |
 | Reading view, source-changing action wanted | `open-for-editing` |
 
@@ -436,6 +436,26 @@ preview (MARKDOWN-SECTIONS-01 §8).
   text says "expired" only when the server reports it.
 - **I7. An unknown claim is reconciled.** It resumes with the same link and
   the same claim. It is never retried as a new join.
+- **I8. Share and invite are one journey in the pane** (LFCP-03-014). With
+  the cursor on a private heading, or an exact eligible selection, the pane
+  shows the share preview of the note as it is now: the same `preflight`
+  as the share dialog (counts, the scope sentence, C3 and H5), the sync
+  server it goes to ("Sync server: <server>. To use another one, change it
+  in the settings first.", with "Open settings" enabled), and, under the
+  `shared` comments setting, that comments added later are shared. The
+  share dialog is the review: it says the same server and comments lines,
+  and a source changed under it is reviewed again (a heading) or refused
+  (an exact selection), never widened (S1). After the share the pane tells
+  "Shared and on its sync server: ready to invite." (inviting enabled) from
+  "Created on this device only: not on its sync server yet, so nobody can
+  join." (I4), and its next step is "Invite collaborator…", run only on a
+  click. The invitation's role choice and link stay in their dialogs; while
+  one is open the pane shows the flow with I1, points to the dialog, and
+  "Invite collaborator…" is disabled with "An invitation is open. Finish it
+  in its dialog." (A4: one invitation at a time). "Link copied" follows
+  "Copy link" (I3). A range with 0.1 shared Tasks is shared only through
+  the existing explicit import, which makes new Tasks with new identities;
+  the pane says so before it opens.
 
 ## 10. Scope boundaries
 
@@ -515,6 +535,7 @@ the plugin on the recording Obsidian mock, its host adapter, the wired
 dispatcher and the renderer, with a sections host built by hand for each
 state (`test/obsidian/pane-fixtures.test.ts`). Two states are todo, needing
 a flow the host cannot produce yet: a join flow in the pane (LFCP-03-015)
-and an unfinished flow read from the journals (LFCP-03-017); two do not
-claim their share preview's lines (LFCP-03-014).
+and an unfinished flow read from the journals (LFCP-03-017). The two with
+a share preview (selection-exact, content-comments-and-table) draw it from
+the note in view and claim its lines (LFCP-03-014).
 LFCP-03-023 runs them in the native harness.

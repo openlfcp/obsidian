@@ -105,8 +105,10 @@ function fakeSections() {
     sectionStatus: (key: string) => statuses.get(key),
     paneAccess: (key: string) => access.get(key),
     hostFacts: () => ({ unavailable: null, starting: false, readOnly: false, server: true }),
+    sharePolicy: () => ({ server: "wss://sync.example/v1/ws", comments: "local" as const }),
     actions: {
       paneEntry: () => undefined,
+      shareResult: () => undefined,
       flows: () => [...flows],
       onFlowsChange: (l: () => void) => {
         flowListeners.add(l);

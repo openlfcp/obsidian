@@ -23,8 +23,8 @@ import type { ActionRequest } from "../actions/dispatcher";
 import type { ActiveFlow } from "../sections/actions";
 import { sectionAtLine } from "../sections/context";
 import type { RegistryRow, RegistrySnapshot } from "../sections/registry-view";
-import { proposeRange } from "../sections/share";
-import { shareScope, type TargetCapture } from "../sections/target";
+import { preflight, proposeRange, type SharePolicy, shareMessages } from "../sections/share";
+import { type ShareScope, shareScope, type TargetCapture } from "../sections/target";
 import { type StatusView, statusView } from "../status/reducer";
 import { flowAction, stageOf } from "./flows";
 import type {
@@ -33,6 +33,7 @@ import type {
   PaneFacts,
   PaneFlow,
   PaneModel,
+  PanePreview,
   PaneRegistry,
   PaneSection,
   PaneSelection,
@@ -46,6 +47,25 @@ import type {
 export interface PaneAccess {
   readonly canInvite: boolean | null;
   readonly hosting: "hosted" | "pending" | "unknown";
+}
+
+/**
+ * The invitation being made in this session (CollabCommands' invitation
+ * lock, LFCP-03-014): its section's Resource (base64url) and its step.
+ */
+export interface PaneInvitation {
+  readonly resource: string;
+  readonly stage: "role" | "creating" | "link";
+  /** The server confirmed it (the link works now); null before it is created. */
+  readonly confirmed: boolean | null;
+}
+
+/** What this device's share or invitation of a section came to, in this session (LFCP-03-014). */
+export interface PaneJourney {
+  /** The share's result: created on this device only, or on its server. */
+  readonly shared?: { readonly kind: "hosted" | "local"; readonly reason: string | null };
+  /** The last invitation's link was copied. */
+  readonly linkCopied?: boolean;
 }
 
 /** What the pane host reads, each time the pane redraws. */
@@ -68,6 +88,12 @@ export interface PaneHostSources {
   readonly host?: HostFacts;
   /** A section's access list facts; absent or undefined: not known yet. */
   readonly access?: (key: string) => PaneAccess | undefined;
+  /** The settings a share runs under now (server, comments); absent: the preview does not say them. */
+  readonly policy?: SharePolicy;
+  /** The invitation being made now, or none. */
+  readonly invitation?: PaneInvitation | null;
+  /** What this device's share or invitation of section `key` came to, in this session. */
+  readonly journey?: (key: string) => PaneJourney | undefined;
 }
 
 /** The registry as the pane shows it while shared sections are off: nothing is claimed. */
@@ -157,6 +183,7 @@ function sectionOf(
 ): PaneSection {
   const row = rows.find((r) => r.key === at.key);
   const access = src.access?.(at.key);
+  const journey = src.journey?.(at.key);
   return {
     key: at.key,
     // N1-N3: the shared title once loaded; before, the local alias (with its qualifier), and
@@ -170,6 +197,48 @@ function sectionOf(
     // The access list's (AccessView, the card's): unknown until read, never a default.
     canInvite: access?.canInvite ?? null,
     ...(access === undefined ? {} : { hosting: access.hosting }),
+    ...(journey?.shared === undefined ? {} : { shared: journey.shared }),
+    ...(journey?.linkCopied === true ? { linkCopied: true } : {}),
+  };
+}
+
+/**
+ * The share preview the pane shows for `note` (LFCP-03-014): the range the
+ * executor would preview, never widened (S1): the heading at or above the
+ * cursor without a selection, or an exact eligible selection as it is, or
+ * the range of a selection with 0.1 shared Tasks (the explicit import).
+ * The same preflight as the share dialog, on the note as it is now: an
+ * edit redraws it, and the dialog checks it again before any effect.
+ */
+function previewOf(
+  note: TargetCapture,
+  scope: ShareScope,
+  policy: SharePolicy | undefined,
+): PanePreview | undefined {
+  const range =
+    scope.kind === "heading" || scope.kind === "exact"
+      ? scope.range
+      : scope.kind === "ineligible" && scope.reason === "legacy-tasks"
+        ? scope.range
+        : null;
+  if (range === null) return undefined;
+  const p = preflight(note.text, range);
+  const legacy = p.problems.flatMap((x) => (x.code === "LEGACY_SHARED_TASKS" ? x.lines : []));
+  const m = shareMessages({
+    ...p,
+    problems: p.problems.filter((x) => x.code !== "LEGACY_SHARED_TASKS"),
+  });
+  return {
+    counts: {
+      tasks: p.counts.tasks,
+      paragraphs: p.counts.paragraphs,
+      items: p.counts.items,
+      raw: p.counts.raw,
+    },
+    warnings: p.warnings,
+    problems: m.problems,
+    ...(policy === undefined ? {} : { policy }),
+    ...(legacy.length === 0 ? {} : { legacy: legacy.length }),
   };
 }
 
@@ -204,6 +273,9 @@ function pickFlow(
   return latest(flows.filter((f) => f.path !== null && f.path === note)) ?? latest(flows);
 }
 
+const confirmedOf = (i: PaneInvitation): { confirmed?: boolean } =>
+  i.confirmed === null ? {} : { confirmed: i.confirmed };
+
 const paneFlow = (f: ActiveFlow): PaneFlow => ({
   kind: f.kind,
   stage: f.step,
@@ -235,7 +307,14 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     (chosen === null ? null : rowFocus(rows, (r) => (r.key ?? r.resource) === chosen)) ??
     (joined === null ? null : rowFocus(rows, (r) => r.resource === joined));
   const flows = src.flows ?? [];
-  const flow = pickFlow(flows, src.pinned ?? null, note?.path ?? null);
+  const held = pickFlow(flows, src.pinned ?? null, note?.path ?? null);
+  // An invitation under way owns the current area (its dialog is open), unless the
+  // pane holds a running share or insert (P5): it is not one of SectionActions' flows.
+  const invitation = src.invitation ?? null;
+  const inviting =
+    invitation !== null &&
+    (held === null || held.generation !== src.pinned || held.outcome !== "running");
+  const flow = held;
   const others = flows.filter((f) => f !== flow);
   const context: PaneContext = {
     editor: note === null ? "none" : note.mode,
@@ -249,14 +328,34 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
             ? "private-heading"
             : "private-text",
     selection: note === null || under !== null ? null : selectionOf(note),
-    flow: flow === null ? null : paneFlow(flow),
+    flow: inviting
+      ? {
+          kind: "invite",
+          stage: invitation.stage,
+          outcome: "running",
+          dialog: true,
+          ...confirmedOf(invitation),
+        }
+      : flow === null
+        ? null
+        : paneFlow(flow),
   };
+  // The share preview, while the context offers a share and no flow owns the area (LFCP-03-014).
+  const preview =
+    note === null ||
+    context.flow !== null ||
+    under !== null ||
+    (context.selection === null && context.cursor !== "private-heading")
+      ? undefined
+      : previewOf(note, shareScope(note.text, note.cursorLine, note.selections), src.policy);
+  const unfinished = inviting && flow !== null ? [flow, ...others] : others;
   const facts: PaneFacts = {
     context,
     registry: registryOf(src.registry),
     section: at === null ? null : sectionOf(at, rows, src),
-    ...(others.length === 0 ? {} : { unfinished: others.map(paneFlow) }),
+    ...(unfinished.length === 0 ? {} : { unfinished: unfinished.map(paneFlow) }),
     host: src.host ?? RUNNING,
+    ...(preview === undefined ? {} : { preview }),
   };
   const base: ActionRequest = {
     ...(note === null ? {} : { target: note }),

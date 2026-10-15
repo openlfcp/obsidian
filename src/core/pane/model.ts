@@ -15,7 +15,14 @@
 import { ACTIONS, type ActionId, SOURCE_CHANGING } from "../actions/catalog";
 import { ACCESS_HELD, type ActionFacts, availabilities, REPAIR_HELD } from "../actions/descriptors";
 import { rowLabel } from "../sections/registry-view";
-import { SHARE_SCOPE, type ShareWarning, shareCounts, shareWarningText } from "../sections/share";
+import {
+  SHARE_SCOPE,
+  type SharePolicy,
+  type ShareWarning,
+  shareCounts,
+  sharePolicyLines,
+  shareWarningText,
+} from "../sections/share";
 import {
   selectionReasonText as reasonText,
   type SelectionReason as TargetSelectionReason,
@@ -53,6 +60,10 @@ export interface PaneFlow {
   readonly target?: string;
   /** The flow's number on this host (ActiveFlow.generation): a late click on an ended one does nothing. */
   readonly generation?: number;
+  /** An invitation's link: whether the server confirmed it (it works now), once created. */
+  readonly confirmed?: boolean;
+  /** Its steps run in its own dialog (the invitation's role choice and link): the pane points there. */
+  readonly dialog?: boolean;
 }
 
 export interface PaneContext {
@@ -104,6 +115,14 @@ export interface PaneSection {
   readonly canInvite: boolean | null;
   /** On its server ("pending": a local-only share, not an invitation that is ready, I4). */
   readonly hosting?: "hosted" | "pending" | "unknown";
+  /**
+   * What this device's share of it came to, in this session (LFCP-03-014):
+   * "hosted" (on its server) or "local" (created on this device only); absent:
+   * not shared from here in this session.
+   */
+  readonly shared?: { readonly kind: "hosted" | "local"; readonly reason: string | null };
+  /** "Link copied": the last invitation to it was copied in this session (I3). */
+  readonly linkCopied?: boolean;
 }
 
 /** A share preview's facts (share.ts SharePreview), for the pane's summary of it. */
@@ -117,6 +136,13 @@ export interface PanePreview {
   readonly warnings: readonly ShareWarning[];
   /** Blocking problems, in the preview's words. */
   readonly problems: readonly string[];
+  /** The settings it would be shared under: the sync server and the comments setting (LFCP-03-014). */
+  readonly policy?: SharePolicy;
+  /**
+   * 0.1 shared Tasks in it (their count): sharing is the existing explicit
+   * import, which makes new Tasks with new identities.
+   */
+  readonly legacy?: number;
 }
 
 /** What the pane shows: the action facts its descriptors read (ActionFacts), and its own. */
@@ -212,6 +238,22 @@ export function selectionReasonText(s: PaneSelection): string {
   return s.reason === null ? "" : reasonText(s.reason, (s.line ?? s.fromLine) - 1);
 }
 
+/** The invitation's sentence (owner decision D2, UX §9 I1): the pane and the invitation dialog say it. */
+export const INVITE_LINK_TEXT = "One-time link, does not expire; whoever opens it first joins.";
+
+/** After "Copy link" (I3): never "sent" or "invited". */
+export const LINK_COPIED = "Link copied";
+
+/** What sharing a range with 0.1 shared Tasks does: the existing explicit import (UX §5). */
+export const LEGACY_IMPORT_TEXT = (n: number): string =>
+  `${n === 1 ? "1 task here is" : `${n} tasks here are`} already shared in another collaboration. Share section… opens the import: it makes new shared tasks with new identities, and the existing collaborations continue separately.`;
+
+/** An invite flow's step that waits in its dialog: what the pane says instead of a button (P1 row 2). */
+const INVITE_WAITS: Readonly<Record<string, string>> = {
+  role: "Choose Read or Read + write in the invitation dialog.",
+  link: "Copy or show the link in the invitation dialog.",
+};
+
 /** What the pane says, to the user, when there is no primary action (contract §5, P4). */
 export const NO_PRIMARY = {
   noNote: "Open a note to share from it, or join with a link.",
@@ -255,7 +297,7 @@ function connectionText(v: StatusView): string | null {
  * Problems first, in the card's words (sectionProblems, heldFact): the pane,
  * the card and the badge say the same thing. Then the separate facts (§6).
  */
-function statusLines(s: PaneSection, o: PaneOptions): PaneLine[] {
+function statusLines(s: PaneSection, o: PaneOptions, invitable: boolean): PaneLine[] {
   const v = s.view;
   const kinds = new Set(v.conditions.map((c) => c.kind));
   const problems: PaneLine[] = sectionProblems(v).map((text) => ({ text, tone: "problem" }));
@@ -263,6 +305,8 @@ function statusLines(s: PaneSection, o: PaneOptions): PaneLine[] {
   for (const h of [...v.held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1)))
     problems.push({ text: heldFact(h), tone: "problem" });
   const info: PaneLine[] = [];
+  const shared = sharedLine(s, invitable);
+  if (shared !== null) info.push(shared);
   const q = v.sync.queue;
   if (q.batches > 0)
     info.push({
@@ -288,7 +332,7 @@ function statusLines(s: PaneSection, o: PaneOptions): PaneLine[] {
   const denied = DENIED.has(v.access.access) || kinds.has("server-refused");
   const connection = denied ? null : connectionText(v);
   if (connection !== null) info.push({ text: connection, tone: "info" });
-  if (s.hosting === "pending")
+  if (s.hosting === "pending" && s.shared === undefined)
     info.push({
       text: "Not on its server yet: nobody can join until it is hosted.",
       tone: "info",
@@ -307,6 +351,28 @@ function statusLines(s: PaneSection, o: PaneOptions): PaneLine[] {
     info.push({ text: `Access as last verified ${time}; it may have changed.`, tone: "info" });
   }
   return [...problems, ...info];
+}
+
+/**
+ * What a share from this device came to (LFCP-03-014, I4): created on this
+ * device only, or on its server; ready to invite only when inviting is
+ * enabled now. The hosting fact read now wins over the creation's result.
+ */
+function sharedLine(s: PaneSection, invitable: boolean): PaneLine | null {
+  if (s.shared === undefined) return null;
+  if (s.hosting === "pending" || (s.shared.kind === "local" && s.hosting !== "hosted"))
+    return {
+      text: `Created on this device only: not on its sync server yet, so nobody can join.${
+        s.shared.reason === null ? "" : ` ${s.shared.reason}`
+      }`,
+      tone: "info",
+    };
+  return {
+    text: invitable
+      ? "Shared and on its sync server: ready to invite."
+      : "Shared and on its sync server.",
+    tone: "info",
+  };
 }
 
 /** "Sprint", "Launch (name on this device)" (N1–N3). */
@@ -362,8 +428,15 @@ function flowLines(flow: PaneFlow): string[] {
     return [`Stopped before: ${stage.label.toLowerCase()}. Continue resumes the same operation.`];
   const lines: string[] = [];
   if (flow.kind === "invite") {
-    lines.push("One-time link, does not expire; whoever opens it first joins.");
+    lines.push(INVITE_LINK_TEXT);
     lines.push("Treat it like a password.");
+    if (flow.stage === "link")
+      lines.push(
+        flow.confirmed === false
+          ? "The server has not confirmed the invitation yet. The link works once this device has synced."
+          : "The server has the invitation: the link works now.",
+        "The link stays hidden until you choose Copy link or Show link in the invitation dialog.",
+      );
   }
   if (stage.waits === "effect") lines.push(`${stage.label}…`);
   return lines;
@@ -480,6 +553,9 @@ function primaryOf(
       };
     const sel = ctx.selection;
     if (sel?.eligibility === "exact") return { id: "share-section", none: null };
+    // 0.1 shared Tasks in the selection: the existing explicit import, through "Share section…".
+    if (sel?.eligibility === "ineligible" && sel.reason === "legacy-tasks")
+      return { id: "share-section", none: null };
     if (sel?.eligibility === "ineligible")
       return sel.fallback === null
         ? { id: null, none: NO_PRIMARY.noSection }
@@ -507,6 +583,9 @@ function primaryOf(
       // The join field's own Join button is this step; the header's entry stays as it is (A2).
       if (flow.kind === "join" && flow.stage === "link")
         return { id: null, none: "Paste the invitation link above and choose Join." };
+      // An invitation's steps are in its own dialog (role, then the link): the pane points there.
+      if (flow.kind === "invite" && flow.dialog === true)
+        return { id: null, none: INVITE_WAITS[flow.stage] ?? `${stage.label}.` };
       return { id: flowAction(flow.kind, flow.stage), none: null };
     }
     // Row 3: an unknown result is checked, never retried as new.
@@ -635,7 +714,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
       f.context.flow === null || f.context.flow.outcome === "unfinished"
         ? null
         : flowView(f.context.flow),
-    status: f.section === null ? [] : statusLines(f.section, o),
+    status: f.section === null ? [] : statusLines(f.section, o, a.get("invite")?.enabled === true),
     preview:
       preview === undefined
         ? []
@@ -646,6 +725,10 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
               const t = shareWarningText(w);
               return t === null ? [] : [t];
             }),
+            ...(preview.policy === undefined
+              ? []
+              : sharePolicyLines(preview.policy, preview.warnings)),
+            ...((preview.legacy ?? 0) > 0 ? [LEGACY_IMPORT_TEXT(preview.legacy ?? 0)] : []),
             ...preview.problems,
           ],
     primary,
@@ -654,7 +737,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
     menu: rest.filter((x) => x.destructive),
     sections: sectionGroups(f),
     unfinished,
-    notice: f.notice ?? null,
+    notice: f.notice ?? (f.section?.linkCopied === true ? LINK_COPIED : null),
   };
 }
 
