@@ -314,6 +314,8 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
       return { batches, outbound, inBatch };
     });
     evidence("C09-sdk-dump", dump);
+    // LFCP-03-033: from here on, A's commits, applies and SDK events are recorded.
+    await recordA();
     const seen = [];
     let afterRestart = null;
     for (let i = 0; i < 30 && afterRestart === null; i++) {
@@ -372,6 +374,146 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
     expect(seenByB).toBe(true);
   });
 
+  /**
+   * LFCP-03-033: what A's model, storage and queue hold for the section, by
+   * Data Unit: each status by actor (A's own, the others'), A's last own
+   * units, the batches, the stale-work state and Task 9's title.
+   */
+  const diagA = (label) =>
+    inA(async ({ app }, label) => {
+      const p = app.plugins.plugins["shared-tasks"];
+      const rt = p.runtime;
+      const R = (await rt.registry()).find((e) => e.profile.includes("section")).resourceId;
+      const hex = (x) => Array.from(x, (v) => v.toString(16).padStart(2, "0")).join("");
+      const me = hex(Object.values(rt.status.principalId));
+      const units = {};
+      const own = [];
+      for (const st of ["seen", "merged", "profile-pending", "profile-held", "held", "quarantined", "equivocation", "local-failure", "profile-unsupported"])
+        for (const u of await rt.storage.dataUnits.withStatus(R, st)) {
+          const who = hex(u.actor) === me ? "A" : hex(u.actor).slice(0, 6);
+          const k = `${who}:${st}${u.accepted ? "" : ":unaccepted"}`;
+          units[k] = (units[k] ?? 0) + 1;
+          if (who === "A") own.push({ seq: Number(u.actorSeq), id: hex(u.unitId).slice(0, 12), st, acc: u.accepted, epoch: Number(u.dataEpoch), detail: u.detail });
+        }
+      own.sort((a, b) => a.seq - b.seq);
+      const replica = rt.sectionProfile(R)?.replica;
+      const snap = replica?.snapshot();
+      const task9 = snap === undefined ? undefined : Object.entries(snap.nodes).find(([, n]) => n.kind === "task" && /Task 9(?!\d)|Task 9 renamed/.test(replica.task(n.taskId ?? "")?.task?.title ?? ""));
+      const view = task9 === undefined ? null : replica.task(task9[1].taskId);
+      let status = null;
+      try {
+        const s = await rt.sectionStatusSnapshot(R);
+        status = { batches: s.batches.map((b) => `${b.status}:${(b.unitIds ?? []).map((u) => (typeof u === "string" ? u : hex(u)).slice(0, 12)).join("+")}`), catchUp: s.catchUp?.state ?? null };
+      } catch (e) {
+        status = String(e?.message ?? e).slice(0, 200);
+      }
+      const ls = rt.localState;
+      return {
+        label,
+        at: new Date().toISOString(),
+        phase: rt.phase(R),
+        units,
+        own: own.slice(-6),
+        outbound: (await rt.storage.outbound.list(R)).map((i) => `${i.kind}:${hex(i.itemId).slice(0, 12)}:${i.attempts}:${i.blocked ? "blocked" : ""}`),
+        status,
+        staleOpen: ((await ls.get("section-stale-open")) ?? []).length,
+        staleToDiscard: (await ls.get("stale-to-discard")) ?? null,
+        title: view?.task?.title ?? null,
+        titleValues: view?.fields?.title?.values ?? null,
+        problems: snap === undefined ? null : Object.fromEntries(Object.entries(snap.problems).map(([k, v]) => [k, v.length])),
+        revision: snap?.revision ?? null,
+        // Units merged by LFCP but waiting in the model for changes they build on.
+        waiting: rt.sectionProfile(R)?.pendingUnits().length ?? null,
+        held: rt.sectionProfile(R)?.heldUnits().length ?? null,
+        line: (await app.vault.adapter.read("Launch plan.md")).split("\n").find((l) => /Task 9(?!\d)/.test(l)) ?? null,
+        badge: document.querySelector(".openlfcp-status")?.dataset.state ?? null,
+      };
+    }, label);
+
+  /**
+   * LFCP-03-033: records, without waiting on anything, what A's runtime does
+   * to the section from now on: its commits (intents, a title they set),
+   * the units its profile applies, a reset or exclusion of its model, a
+   * discard of stale units, and each change of its phase. recordedA() reads
+   * the record.
+   */
+  const recordA = () =>
+    inA(async ({ app }) => {
+      const p = app.plugins.plugins["shared-tasks"];
+      const rt = p.runtime;
+      const R = (await rt.registry()).find((e) => e.profile.includes("section")).resourceId;
+      const hex = (x) => Array.from(x, (v) => v.toString(16).padStart(2, "0")).join("");
+      const log = [];
+      const t0 = Date.now();
+      const at = () => Date.now() - t0;
+      window.__lfcp033 = log;
+      const commit = rt.commitSection.bind(rt);
+      rt.commitSection = (r, intents, o) => {
+        const entry = {
+          t: at(),
+          ev: "commit",
+          op: o?.operationId?.slice(0, 8),
+          intents: intents.slice(0, 6).map((i) => JSON.stringify(i, (k, v) => (v instanceof Uint8Array ? "<bytes>" : v)).slice(0, 200)),
+        };
+        log.push(entry);
+        return commit(r, intents, o).then(
+          (x) => {
+            log.push({ t: at(), ev: "committed", op: entry.op, receipt: JSON.stringify(x, (k, v) => (v instanceof Uint8Array ? hex(v).slice(0, 12) : typeof v === "bigint" ? String(v) : v)).slice(0, 300) });
+            return x;
+          },
+          (e) => {
+            log.push({ t: at(), ev: "commit-failed", op: entry.op, error: String(e?.message ?? e).slice(0, 160) });
+            throw e;
+          },
+        );
+      };
+      const profile = rt.sectionProfile(R);
+      log.push({ t: at(), ev: "start", phase: rt.phase(R), hasProfile: profile !== undefined });
+      if (profile !== undefined) {
+        for (const name of ["apply", "applyBatch", "exclude", "reset"]) {
+          const original = profile[name]?.bind(profile);
+          if (original === undefined) continue;
+          profile[name] = (...a) => {
+            const arg = a[0];
+            log.push({ t: at(), ev: name, n: Array.isArray(arg) ? arg.length : undefined });
+            return original(...a);
+          };
+        }
+      }
+      const discard = rt.discardStaleUnits.bind(rt);
+      rt.discardStaleUnits = (units) => {
+        log.push({ t: at(), ev: "discardStaleUnits", units: units.map((u) => u.slice(0, 12)) });
+        return discard(units);
+      };
+      rt.on((e) => {
+        try {
+          if (e.type === "status" && e.event?.kind === "batch")
+            log.push({ t: at(), ev: "batch", op: e.event.operationId?.slice(0, 8), status: e.event.status });
+          else if (e.type === "status" && e.event?.kind === "received")
+            log.push({ t: at(), ev: "received", fact: e.event.fact, n: e.event.unitIds?.length });
+          else if (e.type === "unit")
+            log.push({ t: at(), ev: "unit", kind: e.outcome?.kind, actor: e.outcome?.actor === undefined ? undefined : hex(e.outcome.actor).slice(0, 6), seq: e.outcome?.seq === undefined ? undefined : String(e.outcome.seq) });
+          else if (e.type === "connection") log.push({ t: at(), ev: "conn", state: e.state });
+          else if (e.type === "resource-state") log.push({ t: at(), ev: "state", state: e.state });
+          else if (e.type !== "status" && e.type !== "ack")
+            log.push({ t: at(), ev: e.type, code: e.code, msg: String(e.message ?? "").slice(0, 200) });
+        } catch {
+          // the record never fails sync
+        }
+      });
+      let phase = rt.phase(R);
+      const timer = setInterval(() => {
+        if (window.__lfcp033 !== log) return clearInterval(timer);
+        const now = rt.phase(R);
+        const same = rt.sectionProfile(R) === profile;
+        if (now !== phase || !same) log.push({ t: at(), ev: "phase", phase: now, sameProfile: same });
+        phase = now;
+        if (log.length > 1500) clearInterval(timer);
+      }, 100);
+    });
+
+  const recordedA = () => inA(() => (window.__lfcp033 ?? []).slice(-400));
+
   it("C10-C11 a conflict on both sides, found by command, resolved once by choice", async () => {
     await server.down();
     await browser.waitUntil(async () => (await badgeOfA())?.state === "OFFLINE", { timeout: 30_000, timeoutMsg: "A offline" });
@@ -391,7 +533,9 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
       if (st?.state === "ATTENTION") attention = st;
       else await new Promise((r) => setTimeout(r, 1500));
     }
+    evidence("C10-record", { log: await recordedA() });
     if (attention === null) {
+      evidence("C10-diag", await diagA("no attention"));
       const facts = await inA(async ({ app }) => {
         const p = app.plugins.plugins["shared-tasks"];
         const R = (await p.runtime.registry()).find((e) => e.profile.includes("section")).resourceId;
