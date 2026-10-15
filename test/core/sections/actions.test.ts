@@ -377,6 +377,37 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     ]);
   });
 
+  it("LFCP-03-013: the pane hears of each step of a flow, and of its end", async () => {
+    const t = setup();
+    let told = 0;
+    const off = t.actions.onFlowsChange(() => {
+      told++;
+    });
+    const steps: string[] = [];
+    t.actions.onFlowsChange(() => {
+      for (const f of t.actions.flows()) steps.push(`${f.kind} ${f.step} ${f.outcome}`);
+    });
+    t.creation.result = () => Promise.reject(new Error("socket closed"));
+    const first = t.actions.share(t.editor.at());
+    await flush();
+    expect(t.actions.flows()).toMatchObject([
+      { kind: "share", step: "preview", outcome: "running" },
+    ]);
+    t.prompter.open("share")[0]?.answer(true);
+    await first;
+    await flush();
+    expect(steps).toContain("share creating running");
+    expect(t.actions.flows()).toMatchObject([{ step: "creating", outcome: "unknown" }]);
+    expect(steps.at(-1)).toBe("share creating unknown");
+    off();
+    const before = told;
+    t.creation.result = (e) => Promise.resolve({ kind: "hosted", entry: e });
+    await t.actions.checkResult(t.actions.flows()[0]?.generation ?? 0);
+    expect(t.actions.flows()).toEqual([]);
+    expect(told).toBe(before);
+    expect(steps.length).toBeGreaterThan(2);
+  });
+
   it("D12: an unknown outcome keeps the note; a repeat checks the same operation, never a new one", async () => {
     const t = setup();
     t.prompter.script.share = [true];

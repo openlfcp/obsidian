@@ -97,6 +97,12 @@ export interface ActiveFlow {
   readonly path: string | null;
   /** Where it stands, in words. */
   readonly stage: string;
+  /**
+   * Its step, as the pane lists the flow's stages (pane/flows.ts
+   * FLOW_STAGES): share "preview" or "creating"; insert "captured",
+   * "preview" or "writing".
+   */
+  readonly step: string;
   /** "unknown": its last effect's result is not known; the note stays reserved until it is. */
   readonly outcome: "running" | "unknown";
   /** A check of the unknown result runs now. */
@@ -124,7 +130,10 @@ export class SectionActions {
   /** Share, import and insert flows, one per note at a time (F-03, F-C04), keyed by its held identity. */
   readonly #flows = new InFlight();
   /** What each running flow is and holds, by generation (the pane's list of flows). */
-  readonly #active = new Map<number, { kind: ActiveFlow["kind"]; target: NoteTarget }>();
+  readonly #active = new Map<
+    number,
+    { kind: ActiveFlow["kind"]; target: NoteTarget; step: string }
+  >();
   /** The notes those flows act on, followed across renames (LFCP-03-002). */
   readonly #targets = new NoteTargets();
   /** The open details card, redrawn when its section's status changes. */
@@ -204,6 +213,7 @@ export class SectionActions {
       const approved = await this.#shareSection(captured(at), target, flow, whole);
       if (approved === null) return;
       flow.stage = `section "${approved.preview.title}" is being shared from this note. Its result shows when it is done.`;
+      this.#step(flow, "creating");
       await this.#createSection(approved.path, approved.text, approved.preview, target, flow);
     });
   }
@@ -274,7 +284,12 @@ export class SectionActions {
       },
       (flow) => {
         generation = flow.generation;
-        this.#active.set(generation, { kind, target: held.target });
+        this.#active.set(generation, {
+          kind,
+          target: held.target,
+          step: kind === "share" ? "preview" : "captured",
+        });
+        this.#changed();
         return body(held.target, flow);
       },
       kind === "share"
@@ -283,6 +298,7 @@ export class SectionActions {
       () => {
         this.#active.delete(generation);
         held.release();
+        this.#changed();
       },
     );
   }
@@ -297,7 +313,7 @@ export class SectionActions {
     const text = `Shared Tasks: ${running.stage}`;
     this.env.prompter.notice(text);
     this.env.prompter.announce(text);
-    if (running.unknown) void running.check();
+    if (running.unknown) void running.check().then(() => this.#changed());
   }
 
   /** The share, import and insert flows running now, or whose result is being reconciled. */
@@ -311,6 +327,7 @@ export class SectionActions {
         kind: a.kind,
         path: a.target.path,
         stage: f.stage,
+        step: a.step,
         outcome: f.unknown ? "unknown" : "running",
         checking: f.checking,
       });
@@ -328,12 +345,45 @@ export class SectionActions {
     const flow = this.#flows.byGeneration(generation);
     if (flow === undefined || !flow.unknown) return false;
     this.#revealFlow(flow);
+    this.#changed();
     await flow.check();
+    this.#changed();
     return true;
   }
 
+  /** Flow `flow` is at step `step` now (the pane's list of its stages). */
+  #step(flow: Flow | undefined, step: string): void {
+    const a = flow === undefined ? undefined : this.#active.get(flow.generation);
+    if (a !== undefined) a.step = step;
+    this.#changed();
+  }
+
+  /** Who is told when a flow starts, moves to another step or ends (the pane). */
+  readonly #flowListeners = new Set<() => void>();
+
+  /** Calls `listener` when a flow starts, moves to another step or ends; returns how to stop. */
+  onFlowsChange(listener: () => void): () => void {
+    this.#flowListeners.add(listener);
+    return () => this.#flowListeners.delete(listener);
+  }
+
+  /** A flow's outcome turns unknown as its body returns: the pane hears of it right after. */
+  #unresolvedSoon(): void {
+    queueMicrotask(() => this.#changed());
+  }
+
+  #changed(): void {
+    for (const l of [...this.#flowListeners]) l();
+  }
+
   /** While `dialog` is open, a repeated start of `flow` brings it forward and says so. */
-  #showing(flow: Flow | undefined, dialog: SectionDialog<unknown>, what: string): void {
+  #showing(
+    flow: Flow | undefined,
+    dialog: SectionDialog<unknown>,
+    what: string,
+    step = "preview",
+  ): void {
+    this.#step(flow, step);
     flow?.showing(() => {
       dialog.bringForward();
       this.env.prompter.announce(`Shared Tasks: ${what} is open. Finish or cancel it first.`);
@@ -370,7 +420,7 @@ export class SectionActions {
       return;
     }
     const pick = prompter.pickSection(choices);
-    this.#showing(flow, pick, "the choice of a section to insert");
+    this.#showing(flow, pick, "the choice of a section to insert", "captured");
     const choice = await pick.result;
     flow.showing(null);
     if (choice === null) return;
@@ -402,6 +452,7 @@ export class SectionActions {
     if (this.#refused({}, services.insertion() === null)) return;
     const entry = await insertion.prepare(path, at.text, at.cursorLine, preview);
     flow.stage = `section "${preview.title}" is being inserted into this note.`;
+    this.#step(flow, "writing");
     let result: InsertResult;
     try {
       result = await insertion.run(entry);
@@ -410,6 +461,7 @@ export class SectionActions {
       prompter.notice(
         `Shared Tasks: inserting section "${preview.title}" stopped (${errorText(e)}); whether it was written is not known yet. Insert shared section… on this note checks it again and inserts nothing new.`,
       );
+      this.#unresolvedSoon();
       flow.unresolved(
         `the result of inserting section "${preview.title}" into this note is being checked. Nothing new is inserted.`,
         () => this.#reconcileInsertion(entry, preview),
@@ -514,6 +566,7 @@ export class SectionActions {
       "share",
       async (target, flow) => {
         flow.stage = `section "${entry.preview.title}" is being shared from this note. Its result shows when it is done.`;
+        this.#step(flow, "creating");
         await this.#settle(entry, target, flow);
       },
       () => void this.#settle(entry),
@@ -535,6 +588,7 @@ export class SectionActions {
     this.env.prompter.notice(
       `Shared Tasks: creating section "${title}" stopped (${errorText(out.error)}); its result is not known yet. Share section… on this note checks it again and creates nothing new; it also goes on at the next start.`,
     );
+    this.#unresolvedSoon();
     flow?.unresolved(
       `the result of sharing section "${title}" from this note is being checked. Nothing new is created.`,
       () => this.#reconcileCreation(entry, target),
@@ -746,6 +800,7 @@ export class SectionActions {
       return;
     }
     if (flow !== undefined) flow.stage = `section "${title}" is being imported from this note.`;
+    this.#step(flow, "creating");
     // The descriptors' guard again, as the effect starts.
     if (this.#refused(SHARE_NEEDS, services.creation() === null)) return;
     let entry: CreationEntry;
@@ -1205,7 +1260,11 @@ export class SectionActions {
     const flow = this.#flows.byGeneration(generation);
     if (flow === undefined) return false;
     this.#revealFlow(flow);
-    if (flow.unknown) await flow.check();
+    if (flow.unknown) {
+      this.#changed();
+      await flow.check();
+      this.#changed();
+    }
     return true;
   }
 
