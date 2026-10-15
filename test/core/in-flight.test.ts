@@ -3,7 +3,7 @@
 // says where it stands (LFCP-03-002); the key is free again once the first
 // settles, also when it threw.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type Flow, InFlight, type Reconciled } from "../../src/core/in-flight";
 
 describe("InFlight", () => {
@@ -181,5 +181,123 @@ describe("InFlight", () => {
         expect(f.byGeneration(next.generation)).toBe(next);
       },
     );
+  });
+
+  it("an unknown outcome's check is bounded: it says so, stays unknown, and a later check joins it (LFCP-03-017)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = new InFlight(1000);
+      let calls = 0;
+      let answer: (r: Reconciled) => void = () => undefined;
+      let kept: Flow | undefined;
+      await f.run(
+        "note:A.md",
+        () => undefined,
+        async (flow) => {
+          kept = flow;
+          flow.unresolved("being checked", () => {
+            calls++;
+            return new Promise<Reconciled>((r) => {
+              answer = r;
+            });
+          });
+        },
+      );
+      const flow = kept as Flow;
+      let late = 0;
+      const first = flow.check(() => late++);
+      expect(flow.checking).toBe(true);
+      await vi.advanceTimersByTimeAsync(1000);
+      await first;
+      // No answer in time: said once, still unknown, the key still held.
+      expect(late).toBe(1);
+      expect(flow.checking).toBe(false);
+      expect(flow.unknown).toBe(true);
+      expect(f.busy("note:A.md")).toBe(true);
+      // A second check while the first reconcile still runs joins it: nothing runs again.
+      const second = flow.check(() => late++);
+      expect(calls).toBe(1);
+      answer("settled");
+      await second;
+      expect(late).toBe(1);
+      expect(flow.closed).toBe(true);
+      expect(f.busy("note:A.md")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a late settle of a timed-out check still frees the key", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = new InFlight(1000);
+      let answer: (r: Reconciled) => void = () => undefined;
+      let kept: Flow | undefined;
+      await f.run(
+        "k",
+        () => undefined,
+        async (flow) => {
+          kept = flow;
+          flow.unresolved(
+            "being checked",
+            () =>
+              new Promise<Reconciled>((r) => {
+                answer = r;
+              }),
+          );
+        },
+      );
+      const flow = kept as Flow;
+      const check = flow.check();
+      await vi.advanceTimersByTimeAsync(1000);
+      await check;
+      expect(flow.unknown).toBe(true);
+      answer("settled");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(flow.closed).toBe(true);
+      expect(f.busy("k")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an unfinished flow holds its key; its resume waits for the user, with no time limit", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = new InFlight(1000);
+      let approve: (r: Reconciled) => void = () => undefined;
+      let kept: Flow | undefined;
+      await f.run(
+        "k",
+        () => undefined,
+        async (flow) => {
+          kept = flow;
+          flow.unresolved(
+            "unfinished",
+            () =>
+              new Promise<Reconciled>((r) => {
+                approve = r;
+              }),
+            "unfinished",
+          );
+        },
+      );
+      const flow = kept as Flow;
+      expect(flow.unfinished).toBe(true);
+      expect(flow.unknown).toBe(false);
+      expect(flow.held).toBe(true);
+      expect(f.busy("k")).toBe(true);
+      let late = 0;
+      const resume = flow.check(() => late++);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(late).toBe(0);
+      expect(flow.checking).toBe(true);
+      approve("settled");
+      await resume;
+      expect(flow.closed).toBe(true);
+      expect(f.busy("k")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
