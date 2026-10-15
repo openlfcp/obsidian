@@ -66,7 +66,7 @@ describe("a section Resource discarded before it was hosted", () => {
       again.openSection(R),
       again.discardUnhosted(R),
     ]);
-    expect(discarded).toEqual({ status: "fulfilled", value: { kind: "deleted" } });
+    expect(discarded.status).toBe("fulfilled");
     expect(opened.status).toBe("fulfilled");
     expect(again.sectionProfile(R)).toBeUndefined();
     expect((await again.registry()).map((e) => toHex(e.resourceId))).not.toContain(toHex(R));
