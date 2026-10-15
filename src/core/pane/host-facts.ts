@@ -30,6 +30,16 @@ import type {
   PaneSelection,
 } from "./model";
 
+/**
+ * What the access list (AccessView, the card's) says of a section, for the
+ * pane (LFCP-03-013): whether this vault may invite (null: not known, never
+ * a denial or a grant) and whether the section is on its server (I4).
+ */
+export interface PaneAccess {
+  readonly canInvite: boolean | null;
+  readonly hosting: "hosted" | "pending" | "unknown";
+}
+
 /** What the pane host reads, each time the pane redraws. */
 export interface PaneHostSources {
   /** The last active Markdown note, read now; null when none is open. */
@@ -40,6 +50,8 @@ export interface PaneHostSources {
   readonly status: (key: string) => StatusView | undefined;
   /** The host's running state; absent: running. */
   readonly host?: HostFacts;
+  /** A section's access list facts; absent or undefined: not known yet. */
+  readonly access?: (key: string) => PaneAccess | undefined;
 }
 
 /** The registry as the pane shows it while shared sections are off: nothing is claimed. */
@@ -125,17 +137,19 @@ function underCursor(note: TargetCapture | null): { key: string; title: string }
 function sectionOf(
   at: { key: string; title: string },
   rows: readonly RegistryRow[],
-  status: (key: string) => StatusView | undefined,
+  src: PaneHostSources,
 ): PaneSection {
   const row = rows.find((r) => r.key === at.key);
+  const access = src.access?.(at.key);
   return {
     key: at.key,
     sharedTitle: row?.sharedTitle ?? (at.title === "" ? null : at.title),
     localAlias: row?.localAlias ?? null,
     placements: row?.placementCount ?? null,
-    view: status(at.key) ?? unknownStatus(),
-    // The access list is the card's (AccessView); the pane reads it in LFCP-03-013.
-    canInvite: null,
+    view: src.status(at.key) ?? unknownStatus(),
+    // The access list's (AccessView, the card's): unknown until read, never a default.
+    canInvite: access?.canInvite ?? null,
+    ...(access === undefined ? {} : { hosting: access.hosting }),
   };
 }
 
@@ -161,7 +175,7 @@ export function hostPaneFacts(src: PaneHostSources): PaneFacts {
   return {
     context,
     registry: registryOf(src.registry),
-    section: at === null ? null : sectionOf(at, src.registry?.rows ?? [], src.status),
+    section: at === null ? null : sectionOf(at, src.registry?.rows ?? [], src),
     host: src.host ?? RUNNING,
   };
 }

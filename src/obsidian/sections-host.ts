@@ -29,6 +29,8 @@ import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
+import { PaneAccessFacts } from "../core/pane/access-facts";
+import type { PaneAccess } from "../core/pane/host-facts";
 import { splitLines } from "../core/refs/lines";
 import type { ReviewResult, SectionChoice, SectionServices } from "../core/sections/action-ports";
 import { SectionActions } from "../core/sections/actions";
@@ -62,7 +64,7 @@ import type { TargetCapture } from "../core/sections/target";
 import { newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
 import { Announcer } from "../core/status/a11y";
-import { accessView } from "../core/status/access";
+import { type AccessView, accessView } from "../core/status/access";
 import { type SectionCard, sectionCard } from "../core/status/card";
 import { collectStatuses } from "../core/status/collect";
 import { observedFacts } from "../core/status/facts";
@@ -790,9 +792,6 @@ export class SectionsHost {
     const b64 = key.slice(0, at);
     const sectionId = key.slice(at + 1);
     const R = fromBase64url(b64) as ResourceId;
-    const status = await this.collab()
-      ?.status(R)
-      .catch(() => undefined);
     // D1: a model that throws when read still gets its card (its problem, no counts).
     let model: Readonly<Record<string, ModelNode>> = {};
     try {
@@ -802,9 +801,33 @@ export class SectionsHost {
     }
     const nodes = Object.values(model).filter((n) => n.lifecycle === "active" && n.hidden !== true);
     const count = (kind: string) => nodes.filter((n) => n.kind === kind).length;
+    const { access, hosting } = await this.#accessList(R);
+    const history = this.#runtime?.sectionHistory(R);
+    return sectionCard({
+      title,
+      view,
+      resource: b64,
+      sectionId,
+      ...(hosting === undefined ? {} : { hosting }),
+      access,
+      counts: { tasks: count("task"), paragraphs: count("paragraph"), items: count("item") },
+      ...(history === undefined ? {} : { history }),
+    });
+  }
+
+  /**
+   * Who has access to Resource `R` (060), from its validated Control state,
+   * and whether it is on its server: the card's access list, and the
+   * pane's inviting fact (paneAccess), from one reading.
+   */
+  async #accessList(
+    R: ResourceId,
+  ): Promise<{ access: AccessView; hosting: "hosted" | "pending" | "unknown" | undefined }> {
+    const status = await this.collab()
+      ?.status(R)
+      .catch(() => undefined);
     const runtime = this.#runtime;
     const mine = await runtime?.sectionAccessState(R).catch(() => undefined);
-    const history = runtime?.sectionHistory(R);
     const aliases = ((await runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>;
     const access = accessView({
       participants: status?.participants ?? [],
@@ -824,16 +847,7 @@ export class SectionsHost {
       connected: runtime?.phase(R) === "LIVE",
       time: (ms) => `at ${new Date(ms).toLocaleTimeString()}`,
     });
-    return sectionCard({
-      title,
-      view,
-      resource: b64,
-      sectionId,
-      ...(status === undefined ? {} : { hosting: status.hosting }),
-      access,
-      counts: { tasks: count("task"), paragraphs: count("paragraph"), items: count("item") },
-      ...(history === undefined ? {} : { history }),
-    });
+    return { access, hosting: status?.hosting };
   }
 
   /**
@@ -977,6 +991,30 @@ export class SectionsHost {
   }
   readonly #statusListeners = new Set<() => void>();
 
+  /** The access list's facts the pane reads, by section key (LFCP-03-013). */
+  readonly #paneAccess = new PaneAccessFacts({
+    load: async (key) => {
+      const { access, hosting } = await this.#accessList(
+        fromBase64url(key.slice(0, key.indexOf("#"))) as ResourceId,
+      );
+      return { canInvite: access.invite, hosting: hosting ?? "unknown" };
+    },
+    readable: (key) => key.includes("#") && this.#statuses.has(key),
+    changed: () => {
+      for (const l of [...this.#statusListeners]) l();
+    },
+  });
+
+  /**
+   * Pane-ready access (LFCP-03-013): whether this vault may invite to
+   * section `key` and whether it is on its server, from the access list the
+   * card shows (AccessView). Undefined until read; the pane redraws when it
+   * is. A change to the section's access, connection or refusal forgets it.
+   */
+  paneAccess(key: string): PaneAccess | undefined {
+    return this.#paneAccess.get(key);
+  }
+
   /** The host's running state as the action descriptors read it (the pane's disabled reasons). */
   hostFacts(): HostFacts {
     return {
@@ -1102,6 +1140,18 @@ export class SectionsHost {
       this.#registryPass();
       return;
     }
+    // The access list's facts the pane holds: forgotten when what they rest on changed.
+    for (const [k, v] of next) {
+      const old = this.#statuses.get(k);
+      if (
+        old === undefined ||
+        JSON.stringify(old.access) !== JSON.stringify(v.access) ||
+        old.connection !== v.connection ||
+        old.refusal !== v.refusal
+      )
+        this.#paneAccess.forget(k);
+    }
+    for (const k of this.#statuses.keys()) if (!next.has(k)) this.#paneAccess.forget(k);
     this.#statuses = next;
     this.#registryPass();
     for (const view of this.status.views) view.dispatch({ effects: setSectionStatuses.of(next) });
