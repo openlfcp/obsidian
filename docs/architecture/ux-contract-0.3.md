@@ -481,7 +481,17 @@ preview (MARKDOWN-SECTIONS-01 §8).
   visible content in a healthy section deletes it for everyone (a retained
   tombstone). Removing a whole copy or deleting the note removes the local
   copy only. Detach strips bindings and changes nothing shared. The pane
-  explains only these meanings.
+  explains only these meanings. With the cursor in a section, the pane says
+  them before the user acts, next to "More actions" (LFCP-03-019, N-05):
+  "Deleting text inside this section deletes it for everyone who has this
+  section." (only where this vault's edits go out: a writer whose access the
+  server accepts), "Removing this whole copy from the note, or deleting the
+  note, removes only this copy.", and, where "Detach this section" is
+  offered, "Detach this section keeps its text here as your own. The shared
+  section, its other copies and everyone's access stay as they are." The
+  card says the first two under "What is shared". The detach confirmation
+  says that the shared section, the other notes, the collaborators and
+  their access are not changed. No new operation is added.
 
 ## 9. Invitations and joining
 

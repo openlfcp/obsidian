@@ -133,6 +133,13 @@ type CreationOutcome =
 /** The card's link to the pane (LFCP-03-012). */
 export const PANE_LINK = "Open Shared Tasks pane";
 
+/**
+ * The confirmation of "Detach this section" (§10; LFCP-03-019): this note
+ * only; nothing shared changes, nobody's access included.
+ */
+export const DETACH_CONFIRMATION =
+  "Its text stays in this note as your own and no longer updates. The shared section, your other notes, your collaborators and their access are not changed.";
+
 /** How a surface runs an action by its ID: the dispatcher's `run` (actions/dispatcher.ts). */
 export type Dispatch = (id: ActionId, request: ActionRequest, surface: Surface) => Promise<void>;
 
@@ -1045,8 +1052,7 @@ export class SectionActions {
     if (!this.#loaded(found.section)) return;
     const ask = prompter.confirm({
       title: `Detach "${found.title}" in this note`,
-      message:
-        "Its text stays in this note as your own and no longer updates. The shared section, your other notes and your collaborators are not changed.",
+      message: DETACH_CONFIRMATION,
       action: "Detach",
     });
     if (!(await ask.result)) return;

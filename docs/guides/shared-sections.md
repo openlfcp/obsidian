@@ -341,12 +341,17 @@ note shows the shared version. Until you choose, your note keeps your edits.
 
 Put the cursor in the section and run **"Detach this section"**. The
 confirmation, `Detach "…" in this note`, says: "Its text stays in this note
-as your own and no longer updates. The shared section, your other notes and
-your collaborators are not changed."
+as your own and no longer updates. The shared section, your other notes,
+your collaborators and their access are not changed."
 
 After detaching, the markers are gone and the text is yours. The notice
 says `"…" is no longer shared in this note. The shared section itself is
 unchanged.`
+
+Detaching is not deleting. Deleting text inside a shared section deletes it
+for everyone who has the section. Removing the whole copy from a note, or
+deleting the note, removes only that copy. The Shared Tasks pane says this
+next to "Detach this section", and the section card under "What is shared".
 
 ## 11. If something goes wrong
 

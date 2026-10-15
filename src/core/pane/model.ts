@@ -38,6 +38,8 @@ import {
 } from "../sections/target";
 import {
   CONNECTING_TEXT,
+  changeEffects,
+  DETACH_TEXT,
   heldFact,
   offlineText,
   rightsFact,
@@ -275,6 +277,12 @@ export interface PaneModel {
   readonly secondary: readonly PaneAction[];
   /** Destructive actions: a menu, each with its existing confirmation (A1). */
   readonly menu: readonly PaneAction[];
+  /**
+   * What a change does to the section at the cursor (C6, N-05): deleting
+   * text, removing the whole copy, detaching. Empty when the cursor is not
+   * in a section.
+   */
+  readonly effects: readonly string[];
   readonly sections: { readonly summary: string | null; readonly groups: readonly PaneGroup[] };
   readonly unfinished: readonly { readonly title: string; readonly detail: string }[];
   readonly notice: string | null;
@@ -778,6 +786,16 @@ function contextArea(f: PaneFacts): { heading: string; lines: string[] } {
   };
 }
 
+/**
+ * What a change does to the section at the cursor (C6, N-05), before the
+ * user acts: the card's sentences, and detaching where it is offered.
+ */
+function effectsOf(f: PaneFacts, a: ReadonlyMap<ActionId, Avail>): string[] {
+  const s = f.section;
+  if (s === null || f.context.editor === "none" || f.context.cursor !== "inside-section") return [];
+  return [...changeEffects(s.view), ...(a.has("detach-section") ? [DETACH_TEXT] : [])];
+}
+
 /** What the pane shows for these facts. */
 export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
   const a = availability(f);
@@ -837,6 +855,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
     primaryNone: p.none,
     secondary: rest.filter((x) => !x.destructive),
     menu: rest.filter((x) => x.destructive),
+    effects: effectsOf(f, a),
     sections: sectionGroups(f),
     unfinished,
     notice: f.notice ?? (f.section?.linkCopied === true ? LINK_COPIED : null),
@@ -866,6 +885,7 @@ export function paneTexts(m: PaneModel): string[] {
     ...(m.primary === null ? [] : act(m.primary)),
     ...m.secondary.flatMap(act),
     ...m.menu.flatMap(act),
+    ...m.effects,
     ...(m.sections.summary === null ? [] : [m.sections.summary]),
     ...m.sections.groups.flatMap((g) => [
       g.title,
