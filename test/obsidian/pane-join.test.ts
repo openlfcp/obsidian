@@ -83,6 +83,8 @@ function fakeSections() {
   const inserts: TargetCapture[] = [];
   /** The section each insert was given: the pane's subject needs no choice (LFCP-03-016). */
   const insertKeys: (string | undefined)[] = [];
+  /** Whether an insert gets as far as its journal (else its preview is left, nothing written). */
+  const journaled = { value: false };
   const snapshot = (): RegistrySnapshot => ({
     version: 1,
     status: "ready",
@@ -96,6 +98,7 @@ function fakeSections() {
     rows,
     inserts,
     insertKeys,
+    journaled,
     registry: {
       snapshot,
       onChange: (l: () => void) => {
@@ -120,9 +123,14 @@ function fakeSections() {
       shareResult: () => undefined,
       flows: () => [],
       onFlowsChange: () => () => undefined,
-      insertSection: async (at: TargetCapture, section?: string) => {
+      insertSection: async (
+        at: TargetCapture,
+        section?: string,
+        started?: (key: string) => void,
+      ) => {
         inserts.push(at);
         insertKeys.push(section);
+        if (journaled.value && section !== undefined) started?.(section);
       },
     },
     noteRenamed: () => undefined,
@@ -320,16 +328,24 @@ describe("Join in the pane (LFCP-03-015)", () => {
     );
     expect(t.primary()?.textContent).toBe("Insert into a note…");
 
-    // Insert…: the existing insert, into the note in view; the join flow hands over.
+    // Insert…: the existing insert, into the note in view. Its preview left, nothing
+    // journaled: the join flow stays at its place choice (LFCP-03-017).
     t.primary()?.click();
     await settle();
     expect(t.sections.inserts.map((x) => x.path)).toEqual(["Notes.md"]);
     // The joined section, the pane's subject: no section choice (LFCP-03-016).
     expect(t.sections.insertKeys).toEqual([KEY]);
-    expect(t.text()).not.toContain("Joining with a link");
-    // Nothing inserted (the preview was left): still listed, still the next step.
+    expect(t.text()).toContain("Joined. Choose a note to insert it into, now or later.");
+    // Nothing inserted: still listed, still the next step.
     expect(t.text()).toContain("Not inserted yet");
     expect(t.primary()?.textContent).toBe("Insert into a note…");
+
+    // Again, approved: once the insertion is journaled, the join flow hands over.
+    t.sections.journaled.value = true;
+    t.primary()?.click();
+    await settle();
+    expect(t.sections.insertKeys).toEqual([KEY, KEY]);
+    expect(t.text()).not.toContain("Joining with a link");
 
     expect(t.page()).not.toContain(SECRET);
     expect(t.page()).not.toContain(LINK.slice(0, 40));

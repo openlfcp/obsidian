@@ -79,8 +79,11 @@ export interface CollabEntry {
   openJoin?(): void;
   /** "Check the result" of join flow `generation`: the same claim, from its journal (I7). */
   checkJoin?(generation: number): Promise<void>;
-  /** A joined section's next step was taken (an insert started): the join flow ends. */
-  joinPlaced?(): void;
+  /**
+   * A joined section's next step was taken (its insertion journaled, LFCP-03-017):
+   * the join flow of that Resource ends.
+   */
+  joinPlaced?(resource: ResourceId): void;
   /** "Invite collaborator" with a choice of Resource (the palette). */
   inviteCollaborator(): Promise<void>;
   /** "Invite collaborator" for one Resource (the card, the pane). */
@@ -174,12 +177,12 @@ export function coreHandlers(env: {
   return {
     "share-section": withTarget((a, at) => a.share(at)),
     "share-whole-section": withTarget((a, at) => a.shareWholeSection(at)),
-    "insert-into-note": withTarget((a, at, r) => {
-      // A joined section's next step (LFCP-03-015): the join flow hands over to the insert.
-      env.collab.joinPlaced?.();
-      // The section a surface is about (the pane's joined section) needs no choice (LFCP-03-016).
-      return a.insertSection(at, r.section?.key);
-    }),
+    // The section a surface is about (the pane's joined section) needs no choice (LFCP-03-016).
+    // A joined section's next step (LFCP-03-015): the join flow hands over to the insert once
+    // the insertion is journaled, not before its guards and preview (LFCP-03-017).
+    "insert-into-note": withTarget((a, at, r) =>
+      a.insertSection(at, r.section?.key, (key) => env.collab.joinPlaced?.(resourceOf(key))),
+    ),
     // On the note captured, else on the note a surface names (the card's held copy).
     "repair-sections": async (r) => {
       const a = env.sections();

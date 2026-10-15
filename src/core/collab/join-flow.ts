@@ -312,10 +312,16 @@ export class JoinFlow {
     if (s.stage === "link" || s.stage === "choose-place") this.#end(generation);
   }
 
-  /** The joined section's next step was taken (an insert started): the flow ends. */
-  placed(): void {
+  /**
+   * The joined section's next step was taken (its insertion journaled): the
+   * flow ends. With `resource`, only when it is that join's Resource.
+   */
+  placed(resource?: ResourceId): void {
     const s = this.#state;
-    if (s?.stage === "choose-place") this.#end(s.generation);
+    if (s?.stage !== "choose-place") return;
+    if (resource !== undefined && (s.resource === null || toHex(s.resource) !== toHex(resource)))
+      return;
+    this.#end(s.generation);
   }
 
   #stage(generation: number, stage: JoinStage): void {

@@ -349,4 +349,16 @@ describe("the join flow (LFCP-03-015)", () => {
     expect(all).not.toContain(SECRET);
     expect(all).not.toContain(LINK.slice(0, 40));
   });
+
+  it("an insert of another section does not end the join waiting for its place", async () => {
+    const s = scripted([joinedSection()]);
+    const { f } = flow(s.collab);
+    f.open();
+    await f.submit(LINK);
+    expect(f.state()?.stage).toBe("choose-place");
+    f.placed(new Uint8Array(32).fill(1) as ResourceId);
+    expect(f.state()?.stage).toBe("choose-place");
+    f.placed(R);
+    expect(f.state()).toBeNull();
+  });
 });
