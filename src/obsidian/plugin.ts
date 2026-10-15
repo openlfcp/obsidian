@@ -531,13 +531,16 @@ export default class OpenLfcpPlugin extends Plugin {
       },
       openSettings: () => {
         // Obsidian's settings modal is not in its typed API.
-        const setting = (
-          this.app as unknown as {
-            setting?: { open(): void; openTabById(id: string): unknown };
-          }
-        ).setting;
-        setting?.open();
-        setting?.openTabById(this.manifest.id);
+        const setting = (this.app as unknown as { setting?: Partial<Record<string, unknown>> })
+          .setting;
+        const open = setting?.open;
+        const tab = setting?.openTabById;
+        if (typeof open !== "function" || typeof tab !== "function") {
+          new Notice("Shared Tasks: open Settings, then Shared Tasks, to change its settings.");
+          return;
+        }
+        open.call(setting);
+        tab.call(setting, this.manifest.id);
       },
       copyReadable: async (at) => {
         const text = readableCopy(at);

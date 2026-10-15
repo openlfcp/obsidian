@@ -72,6 +72,12 @@ describe("actions that end in Obsidian (LFCP-03-013)", () => {
     const t = await loaded();
     await t.plugin.actions.run("open-settings", {}, "pane");
     expect(t.app.setting.opened).toEqual(["(settings)", "shared-tasks"]);
+    // Obsidian without its (untyped) settings API: said, never a TypeError.
+    (t.app as unknown as { setting: unknown }).setting = undefined;
+    await t.plugin.actions.run("open-settings", {}, "pane");
+    expect(mock.notices.at(-1)).toBe(
+      "Shared Tasks: open Settings, then Shared Tasks, to change its settings.",
+    );
   });
 
   it("Copy readable text from the pane copies the section without its metadata; the palette's is the same", async () => {
