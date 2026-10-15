@@ -424,6 +424,9 @@ export class LfcpRuntime {
   readonly #sections = new Map<string, OpenedSection>();
   /** Section opens under way, by Resource (hex): one at a time per Resource. */
   readonly #sectionOpening = new Map<string, Promise<OpenedSection>>();
+  /** 0.1 Resources being restored (#local) and opened on a session (#openResource), by Resource (hex). */
+  readonly #localOpening = new Map<string, Promise<Opened>>();
+  readonly #resourceOpening = new Map<string, Promise<OpenResource>>();
   readonly #phases = new Map<string, ResourcePhase>();
   readonly #errors = new Map<string, string>();
   /** Terminal refusals by the server (POST-017), per Resource. */
@@ -799,7 +802,16 @@ export class LfcpRuntime {
     return this.#engine(() => this.#openResource(resource));
   }
 
-  async #openResource(resource: ResourceId): Promise<OpenResource> {
+  /**
+   * One open per Resource (LFCP-03-033, as #openSection): two at once each
+   * made an applier and a binding; the session kept the first binding and
+   * the Resource the second.
+   */
+  #openResource(resource: ResourceId): Promise<OpenResource> {
+    return once(this.#resourceOpening, toHex(resource), () => this.#openResourceNow(resource));
+  }
+
+  async #openResourceNow(resource: ResourceId): Promise<OpenResource> {
     const local = await this.#local(resource);
     if (local.applier !== null) {
       // Refused for good (POST-017): the session does not ask again on its
@@ -905,10 +917,19 @@ export class LfcpRuntime {
   }
 
   /** A stored Resource's Shared Objects state, local only (no session). */
-  async #local(resource: ResourceId): Promise<Opened> {
+  /**
+   * One restore per Resource (LFCP-03-033, as #openSection): two at once each
+   * built a profile; a session opened on the first while #opened kept the
+   * second, so its changes went to a model nothing read.
+   */
+  #local(resource: ResourceId): Promise<Opened> {
+    const existing = this.#opened.get(toHex(resource));
+    if (existing !== undefined) return Promise.resolve(existing);
+    return once(this.#localOpening, toHex(resource), () => this.#localNow(resource));
+  }
+
+  async #localNow(resource: ResourceId): Promise<Opened> {
     const key = toHex(resource);
-    const existing = this.#opened.get(key);
-    if (existing !== undefined) return existing;
     const { storage, principal } = this.#ready();
     const row = await storage.resources.get(resource);
     if (row === undefined) throw new Error("unknown Resource");
@@ -1412,12 +1433,7 @@ export class LfcpRuntime {
     const key = toHex(resource);
     const existing = this.#sections.get(key);
     if (existing !== undefined) return Promise.resolve(existing);
-    let opening = this.#sectionOpening.get(key);
-    if (opening === undefined) {
-      opening = this.#openSectionNow(resource).finally(() => this.#sectionOpening.delete(key));
-      this.#sectionOpening.set(key, opening);
-    }
-    return opening;
+    return once(this.#sectionOpening, key, () => this.#openSectionNow(resource));
   }
 
   async #openSectionNow(resource: ResourceId): Promise<OpenedSection> {
@@ -1934,6 +1950,19 @@ const LOCK_RETRY_MS = 100;
 
 /** Local state: own stale units (hex) whose outbound items wait to be discarded (#toDiscard). */
 const STALE_TO_DISCARD = "stale-to-discard";
+
+/** `work` run once per key at a time: a call meanwhile gets the same promise. */
+function once<T>(
+  running: Map<string, Promise<T>>,
+  key: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const current = running.get(key);
+  if (current !== undefined) return current;
+  const started = work().finally(() => running.delete(key));
+  running.set(key, started);
+  return started;
+}
 
 const hexList = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
