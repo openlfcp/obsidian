@@ -126,9 +126,14 @@ export class ActionDispatcher {
   }
 }
 
-/** A section key's Resource ("<resource base64url>#<section>"). */
-const resourceOf = (key: string): ResourceId =>
-  fromBase64url(key.slice(0, key.indexOf("#"))) as ResourceId;
+/**
+ * A section key's Resource ("<resource base64url>#<section>"); a pane row
+ * whose model has not named its section yet is keyed by the Resource alone.
+ */
+const resourceOf = (key: string): ResourceId => {
+  const at = key.indexOf("#");
+  return fromBase64url(at < 0 ? key : key.slice(0, at)) as ResourceId;
+};
 
 /** What only the host can do, for the handlers that end there (Obsidian's editor, clipboard, settings). */
 export interface HostEntry {
