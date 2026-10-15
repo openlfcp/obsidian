@@ -123,11 +123,17 @@ const inState = (p: SoakPeer, s: string) => async () =>
 const closed = (p: SoakPeer) => () =>
   p.runtime.phase(fromBase64url(p.resource) as ResourceId) === "CLOSED" ? true : undefined;
 const connected = (p: SoakPeer) => () => (closed(p)() === true ? undefined : true);
-const lineOf = (p: SoakPeer, needle: string) =>
+/**
+ * The Task line whose title starts with `start`. Only Task lines: a binding
+ * comment's ID can end in the same characters (`…#task:…b4 -->`).
+ */
+const lineOf = (p: SoakPeer, start: string) =>
   p
     .text(SECTION_NOTE)
     .split("\n")
-    .find((l) => l.includes(needle)) ?? null;
+    .find(
+      (l) => /^\s*- \[.\] /.exec(l) !== null && l.replace(/^\s*- \[.\] /, "").startsWith(start),
+    ) ?? null;
 /** The note's unchecked top-level Tasks, in order. */
 const openTasks = (p: SoakPeer) =>
   p
