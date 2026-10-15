@@ -65,8 +65,10 @@ export interface Settings {
   /**
    * The pane's tips this vault has hidden (LFCP-03-021): their IDs
    * (core/pane/hints.ts), nothing else. Absent before 0.5: none hidden. IDs
-   * of another plugin version are kept, so a downgrade and an upgrade do not
-   * bring a hidden tip back. "Show tips again" empties it.
+   * this version does not know (a newer version's) are kept. 0.4.x ignores
+   * the key without failing, but drops it the next time it saves its
+   * settings: after that, an upgrade shows the hidden tips again. "Show
+   * tips again" empties it.
    */
   dismissedHints: string[];
   /** {@link SETTINGS_VERSION}, stored so a later empty `defaultServer` stays empty. */

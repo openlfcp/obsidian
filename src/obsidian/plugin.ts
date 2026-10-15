@@ -358,8 +358,8 @@ export default class OpenLfcpPlugin extends Plugin {
       },
       // LFCP-03-021: hidden tips live in this vault's settings (data.json), nowhere else.
       hints: {
-        hide: (id) => void this.setDismissedHints(hideHint(this.settings.dismissedHints, id)),
-        reset: () => void this.setDismissedHints([]),
+        hide: (id) => this.#saveHints(hideHint(this.settings.dismissedHints, id)),
+        reset: () => this.#saveHints([]),
       },
       sources: [
         (changed) => {
@@ -1215,6 +1215,15 @@ export default class OpenLfcpPlugin extends Plugin {
     this.settings.showSharingMetadata = show;
     await this.saveSettings();
     for (const view of this.#sectionViews) view.dispatch({ effects: setShowMetadata.of(show) });
+  }
+
+  /** From the pane: a failed save says so, never rejects unhandled (the pane already shows the change). */
+  #saveHints(ids: readonly string[]): void {
+    this.setDismissedHints(ids).catch(() => {
+      new Notice(
+        "Shared Tasks: the tip setting could not be saved. It may change back after a restart.",
+      );
+    });
   }
 
   /** Hides the pane's tips `ids`, or shows them all again with none (LFCP-03-021); the pane redraws. */

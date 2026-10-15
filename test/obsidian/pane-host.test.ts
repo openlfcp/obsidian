@@ -260,6 +260,26 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     (t.plugin as unknown as { sections: unknown }).sections = null;
   });
 
+  it("LFCP-03-021: a tip setting that cannot be saved says so, with no unhandled rejection", async () => {
+    const t = await loaded();
+    (t.plugin as unknown as { sections: unknown }).sections = fakeSections();
+    await t.plugin.openPane();
+    const save = vi.spyOn(t.plugin, "saveData").mockRejectedValue(new Error("disk full /x/y"));
+    const unhandled: unknown[] = [];
+    const on = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", on);
+    t.button("Hide tip").click();
+    await wait(150);
+    process.off("unhandledRejection", on);
+    expect(save).toHaveBeenCalled();
+    expect(unhandled).toEqual([]);
+    expect(mock.notices).toContain(
+      "Shared Tasks: the tip setting could not be saved. It may change back after a restart.",
+    );
+    expect(mock.notices.some((n) => n.includes("disk full"))).toBe(false);
+    (t.plugin as unknown as { sections: unknown }).sections = null;
+  });
+
   it("T1: the pane follows the last Markdown note; focus in the pane keeps it", async () => {
     const t = await loaded();
     const sections = fakeSections();
