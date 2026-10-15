@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Collaboration } from "../../../src/core/collab/service";
 import {
   LfcpRuntime,
+  NEEDS_RESTART,
   SectionsReadOnlyError,
   UnsupportedProfileError,
 } from "../../../src/core/lfcp/runtime";
@@ -95,6 +96,34 @@ describe("shared-sections Resources in the runtime", () => {
       operationId: "rename",
     });
     expect(again.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch v2");
+  });
+
+  it("an engine trap after a section commit is stored rejects it and blocks the runtime (needs-restart)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createSectionResource({
+      name: "Launch",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    await r.openSection(R);
+    const heard: string[] = [];
+    r.onNeedsRestart((m) => heard.push(m));
+    // A listener of the batch's report traps, as a terminated wasm module does.
+    r.on((e) => {
+      if (e.type === "status" && (e.event as { kind?: string }).kind === "batch")
+        throw new WebAssembly.RuntimeError("unreachable executed");
+    });
+    await expect(
+      r.commitSection(
+        R,
+        [{ intent: "section.create", sectionId: SECTION, title: "Launch", createdBy: me(r) }],
+        { operationId: "create" },
+      ),
+    ).rejects.toThrow(NEEDS_RESTART);
+    expect(r.status).toMatchObject({ kind: "needs-restart" });
+    expect(heard).toHaveLength(1);
   });
 
   it("a checkpoint that does not load: rebuilt from the stored units, never reusing a sequence (SPEC-PATCH-10)", async () => {
