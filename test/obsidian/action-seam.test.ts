@@ -5,8 +5,10 @@
 // and name, and runs that action through the one dispatcher, surface
 // "palette", on the note of the editor it was given. The contract's table,
 // the dispatcher's map and the registered commands are the same list.
+// Every dialog an action opens, from any surface, is opened through
+// returnsFocus (LFCP-03-022, U03-18): Tab kept in it, focus given back.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ActionId } from "../../src/core/actions/catalog";
@@ -131,5 +133,46 @@ describe("the palette's actions (LFCP-03-023, U03-07)", () => {
       if (command?.editorCallback !== undefined)
         expect(request, id).toMatchObject({ target: { path: "Plan.md", text: view.buffer } });
     }
+  });
+});
+
+/** The plugin's source files, by path from the repository. */
+function sources(dir = "src"): string[] {
+  return readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory()
+      ? sources(`${dir}/${e.name}`)
+      : e.name.endsWith(".ts")
+        ? [`${dir}/${e.name}`]
+        : [],
+  );
+}
+
+describe("the dialogs of the actions (LFCP-03-023 over LFCP-03-022, U03-18)", () => {
+  it("every dialog the plugin opens goes through returnsFocus: Tab kept in it, focus given back", () => {
+    const files = sources().map((f) => [f, readFileSync(join(ROOT, f), "utf8")] as const);
+    const modals = files.flatMap(([, src]) =>
+      [...src.matchAll(/class (\w+)(?:<[^>]*>)? extends (?:Suggest)?Modal\b/g)].map(
+        (m) => m[1] ?? "",
+      ),
+    );
+    expect(modals.length).toBeGreaterThan(12);
+    const bare: string[] = [];
+    const made = new Set<string>();
+    for (const [file, src] of files)
+      for (const name of modals)
+        for (const line of src.split("\n").filter((l) => l.includes(`new ${name}(`))) {
+          made.add(name);
+          if (new RegExp(`(?:returnsFocus|opened)\\(new ${name}\\(`).test(line)) continue;
+          const v = new RegExp(`(?:const|let) (\\w+) = new ${name}\\(`).exec(line)?.[1];
+          if (v !== undefined && src.includes(`returnsFocus(${v})`)) continue;
+          bare.push(`${file}: ${line.trim()}`);
+        }
+    expect(bare).toEqual([]);
+    // Every dialog class is opened somewhere, so none escapes the check by being made elsewhere.
+    expect(modals.filter((m) => !made.has(m))).toEqual([]);
+    // The section prompter's helper wraps what it opens.
+    const prompter = readFileSync(join(ROOT, "src/obsidian/ui/section-prompter.ts"), "utf8");
+    const opened = /function opened<T>[\s\S]*?\n\}\n/.exec(prompter)?.[0] ?? "";
+    expect(opened).toContain("returnsFocus(modal).open()");
   });
 });
