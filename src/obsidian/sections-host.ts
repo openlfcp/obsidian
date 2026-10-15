@@ -1043,6 +1043,8 @@ export class SectionsHost {
   #registryPass(): void {
     if (this.#registryDue) {
       this.#registryDue = false;
+      // A Resource came, went or was hosted: whether it is on its server may differ now.
+      this.#paneAccess.forgetAll();
       void this.registry.refresh();
     } else this.registry.update();
   }

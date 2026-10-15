@@ -42,6 +42,11 @@ export class PaneAccessFacts {
     this.#epoch.set(key, (this.#epoch.get(key) ?? 0) + 1);
   }
 
+  /** Every section's facts forgotten (the registry changed: a section hosted, added or gone). */
+  forgetAll(): void {
+    for (const key of new Set([...this.#known.keys(), ...this.#reading])) this.forget(key);
+  }
+
   async #read(key: string): Promise<void> {
     this.#reading.add(key);
     const epoch = this.#epoch.get(key) ?? 0;

@@ -72,6 +72,20 @@ describe("pane access facts (LFCP-03-013)", () => {
     expect(t.facts.get("k")).toEqual(DENIED);
   });
 
+  it("forgetAll: a hosting change forgets every section, a read in flight included", async () => {
+    const t = setup();
+    t.facts.get("a");
+    t.facts.get("b");
+    t.loads[0]?.d.resolve({ canInvite: true, hosting: "pending" });
+    await flush();
+    t.facts.forgetAll();
+    t.loads[1]?.d.resolve(ALLOWED);
+    await flush();
+    expect(t.facts.get("a")).toBeUndefined();
+    expect(t.facts.get("b")).toBeUndefined();
+    expect(t.loads).toHaveLength(4);
+  });
+
   it("a failed read is unknown, neither a grant nor a denial, and is not retried in a loop", async () => {
     const t = setup();
     t.facts.get("k");
