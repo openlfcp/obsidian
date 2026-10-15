@@ -330,9 +330,9 @@ to each problem, not a second precedence.
 | Problem | Source shown | Row action and what it carries |
 | --- | --- | --- |
 | Conflict or kept work (`RecoveryItem`) | "The shared section"; "Kept on this device" (stale work); "A note on this device" (reappeared) | `review-conflicts` with the item's `RecoveryItem.key`: the review re-reads its items and opens on that one; an item no longer there opens nothing and says so |
-| Damaged boundary or binding in the note in view (`repairItems`) | The note and its line | `repair-sections` with the item's line key, its line and the note's revision: the executor parses the note again and finds the item by its key (the nearest to its old line), then opens the repair on it; gone, nothing opens and nothing is written |
-| Unsupported content or a damaged line in the note in view | The note and its line | `go-to-problem` with the same line key and revision: the line as the note is now |
-| Held edits in another note (`StatusView.held`) | That note and its line | By cause: `repair-sections` (boundary, binding, base unknown), `go-to-problem` (unsupported), `review-local-changes` (read-only, revoked, refused, rejected) |
+| A start marker without its end, or an end marker without its start, in the note in view (`repairItems`: `missing-end`, `missing-start`) | The note and its line | `repair-sections` with the item's line key, its line and the note's revision. The executor parses the note again: at the same revision the item must be at that line; at another revision it is found by its key, the nearest to its old line. Then the repair opens with that item first. Gone, nothing opens and nothing is written |
+| Any other repair item in the note in view (`repairItems` `locate`: a mismatched or overlapping boundary, a misplaced start marker, an unreadable marker, a binding that cannot be matched, unsupported content) | The note and its line | `go-to-problem` with the same line key and revision, found again as above: the cursor goes to its line as the note is now; nothing is written |
+| Held edits (`StatusView.held`), in any note; a copy held for a boundary, a binding or unsupported content in the note in view is shown by that note's repair rows instead when it has any | That note and its line, as the last pass found it | By cause: `repair-sections` (boundary, binding, base unknown: the note opened, then its repair), `go-to-problem` (unsupported), `review-local-changes` (read-only, revoked, refused, rejected) |
 | Access or refusal (`access`, `server-refused`) | "The sync server", "This vault's access, as this device last verified it" (or "as checked with the server"), "This device" | `review-local-changes` when edits are held, else `open-details` |
 
 Rules:
@@ -354,6 +354,11 @@ Rules:
   repair carries the revision the user saw.
 - **H5. Read-only, revoked, not-member and refused** keep their own row
   text and source (F3).
+- **H6. Lost base (owner decision D15).** The repair's choice for a copy
+  whose base is lost is "Keep my version" or "Use the shared version".
+  Keeping it makes the shared version the copy's base, so the next pass
+  sends the note's differences as this vault's edits; it says that the
+  pane and the card show whether they were sent, and promises nothing more.
 
 ## 6. Status facts and what may be said
 
