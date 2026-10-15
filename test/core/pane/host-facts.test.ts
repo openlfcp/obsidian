@@ -12,6 +12,7 @@ import {
   hostPaneFacts,
   hostPaneRequest,
   NOT_WIRED,
+  notWiredReason,
   unknownStatus,
   wiredModel,
 } from "../../../src/core/pane/host-facts";
@@ -199,6 +200,20 @@ describe("pane host facts (LFCP-03-012)", () => {
       if (a.id !== "join-with-link") expect(a.enabled).toBe(false);
     expect(wired.join.enabled).toBe(true);
     expect(paneTexts(wired)).toContain(NOT_WIRED);
+    // A reason names a real entry only where one exists (a palette command or a card button).
+    expect(notWiredReason("go-to-problem")).toContain('"Go to next shared section problem"');
+    expect(notWiredReason("copy-readable")).toContain(
+      '"Copy readable text (without sharing metadata)"',
+    );
+    expect(notWiredReason("remove-access")).toContain("details card");
+    for (const id of [
+      "sync-details",
+      "review-local-changes",
+      "open-for-editing",
+      "open-settings",
+      "continue-flow",
+    ] as const)
+      expect(notWiredReason(id)).toBe(NOT_WIRED);
     expect(wiredModel(m, () => true)).toEqual(m);
   });
 
