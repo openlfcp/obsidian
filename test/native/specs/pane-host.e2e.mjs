@@ -8,6 +8,9 @@
 // - A second leaf of the pane (as a restored or split layout makes it) is
 //   closed at the next layout change: one pane per workspace.
 // - Closed and opened again, the pane draws once more (no stale view).
+// - LFCP-03-021: on a vault with no shared section the pane leads to share
+//   and join, with the first-use tip; "Hide tip" keeps only its ID in the
+//   plugin's settings, "Show tips again" brings it back; no dialog opens.
 
 const VIEW = "shared-tasks-pane";
 const TOOLTIP = "Open Shared Tasks pane";
@@ -52,6 +55,42 @@ describe("LFCP-03-012: Shared Tasks pane host", () => {
     const modals = await browser.execute(() => document.querySelectorAll(".modal").length);
     expect(modals).toBe(0);
     evidence("pane-host-ribbon", { leaves: 1, modals });
+  });
+
+  it("LFCP-03-021: first use leads to share and join; a tip hides and comes back", async () => {
+    const tip = () =>
+      browser.execute(
+        () => document.querySelector(".openlfcp-pane .openlfcp-pane-hint")?.dataset.hint ?? null,
+      );
+    await browser.waitUntil(async () => (await tip()) !== null, {
+      timeout: 15_000,
+      timeoutMsg: "no tip in the pane",
+    });
+    const text = await paneText();
+    expect(text).toContain("No shared sections on this device yet. Share one from a note, or join one with a link.");
+    expect(await tip()).toBe("first-use");
+    const settings = () =>
+      browser.executeObsidian(({ app }) => {
+        const p = app.plugins.plugins["shared-tasks"];
+        return { ...p.settings, dismissedHints: [...p.settings.dismissedHints] };
+      });
+    const before = await settings();
+    const click = (label) =>
+      browser.execute((l) => {
+        const b = [...document.querySelectorAll(".openlfcp-pane button")].find((x) => x.textContent === l);
+        b?.click();
+        return b !== undefined;
+      }, label);
+    expect(await click("Hide tip")).toBe(true);
+    await browser.waitUntil(async () => (await tip()) === null, { timeout: 5_000 });
+    const hidden = await settings();
+    expect(hidden.dismissedHints).toEqual(["first-use"]);
+    expect({ ...hidden, dismissedHints: before.dismissedHints }).toEqual(before);
+    expect(await click("Show tips again")).toBe(true);
+    await browser.waitUntil(async () => (await tip()) === "first-use", { timeout: 5_000 });
+    expect((await settings()).dismissedHints).toEqual([]);
+    expect(await browser.execute(() => document.querySelectorAll(".modal").length)).toBe(0);
+    evidence("pane-first-use-tip", { hidden: hidden.dismissedHints, restored: true });
   });
 
   it("keeps one pane when a second leaf of it appears", async () => {
