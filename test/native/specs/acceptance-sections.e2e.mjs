@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { peer, restartableServer, waitFor } from "../peer.bundle.mjs";
+import { closeModals } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const A_CANARY = `A_PRIVATE_${Date.now().toString(36)}`;
@@ -477,9 +478,9 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
       choice.querySelector("input").click();
       choice.closest(".openlfcp-recovery-item").querySelector("button").click();
       const done = await find(() => document.querySelector(".openlfcp-recovery")?.textContent.includes("Nothing needs a choice now") ?? false);
-      document.querySelector(".openlfcp-recovery .modal-close-button")?.click();
       return { choices, done };
     });
+    await closeModals("C resolve");
     const once = (text) => (text.match(/Task 9 renamed by/g) ?? []).length;
     const aText = await browser.waitUntil(
       async () => {
@@ -800,9 +801,9 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
         m = [...document.querySelectorAll(".modal")].find((x) => x.classList.contains("openlfcp-section-card"));
       }
       const t = m?.textContent ?? "";
-      m?.querySelector(".modal-close-button")?.click();
       return t;
     });
+    await closeModals("C card");
     const copyLine = (card.match(/One copy of this section[^.]*\./) ?? [null])[0];
     await inA(({ app }) => app.commands.executeCommandById("shared-tasks:repair-shared-sections"));
     const repaired = await inA(async () => {

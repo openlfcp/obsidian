@@ -8,7 +8,7 @@
 // silently: while A's badge is CURRENT, A's section shows what B's does,
 // and nothing that was there before is gone. The reference server at
 // LFCP_SERVER_BIN.
-import { editorA, evidence, inA, lineOf, markerProblems, sectionOf, shareAndJoin, startPeers } from "./support/section-checks.mjs";
+import { closeModals, editorA, evidence, inA, lineOf, markerProblems, sectionOf, shareAndJoin, startPeers } from "./support/section-checks.mjs";
 
 const badge = () =>
   inA(({ app, obsidian }) => app.workspace.getActiveViewOfType(obsidian.MarkdownView)?.containerEl.querySelector(".openlfcp-status")?.dataset.state ?? null);
@@ -101,10 +101,10 @@ describe("other plugins changing a shared section", () => {
               m = document.querySelector(".modal-container .modal");
             }
             const text = m?.textContent ?? "";
-            for (const x of document.querySelectorAll(".modal-container .modal-close-button")) x.click();
             return text.slice(0, 600);
           })
         : null;
+    if (card !== null) await closeModals("details card");
     const out = {
       badge: last,
       a,

@@ -22,6 +22,7 @@ import {
   evidence,
   inA,
   installNetSwitch,
+  closeModals,
   inviteFromA,
   markerProblems,
   removeAccessFromA,
@@ -58,9 +59,7 @@ describe("access removed while the member's work is pending", () => {
 
   afterEach(async () => {
     net?.on();
-    await inA(() => {
-      for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
-    });
+    await closeModals("afterEach");
   });
 
   after(async () => {
@@ -354,9 +353,9 @@ describe("vault A loses its access while its own edit is pending", () => {
         modal = document.querySelector(".modal-container .modal");
       }
       const text = modal?.textContent ?? null;
-      for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click();
       return text;
     });
+    await closeModals("ACCESS3 card");
     await ctx.b.pass(ctx.bFile);
     const { problems } = markerProblems(a.md);
     evidence("ACCESS3 A back", { work, badge: a.badge, card: card?.slice(0, 400), titlesA: titles(sectionOf(a.md)), problems, titlesB: titles(sectionOf(ctx.b.files.get(ctx.bFile))) });
