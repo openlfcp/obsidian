@@ -90,6 +90,32 @@ const selectTask = (i, title) =>
 const paneTexts = () => inA(() => window.__panes.map((l) => l.view.editor.getValue()));
 /** The Task ID of each title of A's note. */
 const idsByTitle = (md, ids) => Object.fromEntries(titles(sectionOf(md)).map((t, k) => [t, ids[k]]));
+/**
+ * From now on, the notices A shows and each save of a note by Obsidian
+ * (vault "modify"), with the time: Obsidian merges a note saved by one pane
+ * into the other pane's unsaved edit, and says so ("modified externally,
+ * merging changes automatically"); that merge can insert text twice
+ * (adr-0001-spikes S7, LFCP-03-038).
+ */
+const watchObsidian = () =>
+  inA(({ app }) => {
+    window.__panesLog = [];
+    const t0 = Date.now();
+    new MutationObserver((records) => {
+      for (const r of records)
+        for (const n of r.addedNodes)
+          if (n instanceof HTMLElement && n.classList.contains("notice"))
+            window.__panesLog.push({ t: Date.now() - t0, notice: n.textContent });
+    }).observe(document.body, { childList: true, subtree: true });
+    app.vault.on("modify", (f) => window.__panesLog.push({ t: Date.now() - t0, modify: f.path }));
+  });
+/** What watchObsidian saw since the last call. */
+const obsidianLog = () =>
+  inA(() => {
+    const log = window.__panesLog ?? [];
+    window.__panesLog = [];
+    return log;
+  });
 
 describe("one shared section in two panes", () => {
   const ctx = {};
@@ -97,6 +123,7 @@ describe("one shared section in two panes", () => {
 
   before(async () => {
     ({ server, b: ctx.b } = await startPeers());
+    await watchObsidian();
   });
 
   after(async () => {
@@ -108,6 +135,7 @@ describe("one shared section in two panes", () => {
   const step = async (label) => {
     const s = await checkStep(label, ctx);
     const texts = await paneTexts();
+    evidence(`${label} obsidian`, { log: await obsidianLog() });
     expect(new Set(texts).size).toBe(1);
     return s;
   };
