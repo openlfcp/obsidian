@@ -104,6 +104,7 @@ describe("the section card", () => {
   it("pending: counted in updates, evidence unavailable said plainly, offline kept", () => {
     const c = card({
       connection: "offline",
+      connectionQualifier: "lost",
       batches: [1, 2].map((n) => ({
         id: `b${n}`,
         nodeIds: ["n"],

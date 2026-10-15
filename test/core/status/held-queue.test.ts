@@ -222,6 +222,7 @@ describe("U03-06: combinations", () => {
     const s = surfaces({
       ...accepted,
       connection: "offline",
+      connectionQualifier: "lost",
       problems: [{ kind: "scalar", code: "SCALAR_CONFLICT", nodeIds: ["n1"] }],
     });
     expect(s.view.state).toBe("ATTENTION");

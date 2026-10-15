@@ -74,6 +74,8 @@ export interface PaneRow {
   readonly placed: "placed" | "unplaced" | "unknown";
   /** null: unknown, never healthy. */
   readonly state: StatusState | null;
+  /** The status in the view's own words (StatusView.label), as the card and the badge say it. */
+  readonly label?: string | null;
 }
 
 export interface PaneRegistry {
@@ -401,7 +403,7 @@ function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGrou
       key: row.key,
       label: l.label,
       alias: l.alias,
-      status: row.state === null ? "Status not known yet" : STATE_LABEL[row.state],
+      status: row.state === null ? "Status not known yet" : (row.label ?? STATE_LABEL[row.state]),
       places:
         row.placed === "unplaced"
           ? "Not inserted yet"
