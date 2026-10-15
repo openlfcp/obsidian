@@ -1002,29 +1002,8 @@ export class SectionEngine {
     const adoptedMoves = restoredMoves(note.state, adopted).filter(
       (mv) => snap.nodes[mv.nodeId]?.parent !== mv.parent || modelBefore(mv.nodeId) !== mv.after,
     );
-    // A restored node's base is what the restore brings back, the model's
-    // content in the note's place: what the user typed on it since (the
-    // pasted Task's title edited before this pass) stays an edit to send,
-    // never overwritten by the model's older text (a Task: its line rendered
-    // from the model in the note's format).
-    const restoredAs = (id: string, n: NodeState): NodeState => {
-      if (n.kind === "task") {
-        const at = taskLineOf(section0, id);
-        const line =
-          at === undefined
-            ? undefined
-            : modelTaskLine(md0, at, id, (taskId) => this.deps.tasks(resource, taskId));
-        return line === undefined ? n : { ...n, line };
-      }
-      const text = snap.nodes[id]?.text;
-      return text === undefined ? n : { ...n, text };
-    };
-    // An adopted node's base is the model's, as for a restore: fields or
-    // Text the note shows otherwise are the user's edit, sent on the next
-    // pass, never rendered over (LFCP-03-043 review: a Task taken with the
-    // note's line as its base lost its title to the model's).
     const adoptedBase =
-      adopted.length === 0 ? baseState : withRestored(baseState, note.state, adopted, restoredAs);
+      adopted.length === 0 ? baseState : withRestored(baseState, note.state, adopted);
     const removedHere = (id: string) => ctx.deletedIds.has(id) || vanished.has(id);
     const deletes = [...new Set([...comp.deletes, ...comp.lost.filter(removedHere)])];
     const lost = comp.lost.filter((id) => !removedHere(id));
@@ -1075,6 +1054,23 @@ export class SectionEngine {
       ...note.unbound.filter((u) => !transient.has(u.line)),
       ...sharedComments,
     ].sort((a, b) => a.line - b.line);
+    // A restored node's base is what the restore brings back, the model's
+    // content in the note's place: what the user typed on it since (the
+    // pasted Task's title edited before this pass) stays an edit to send,
+    // never overwritten by the model's older text (a Task: its line rendered
+    // from the model in the note's format).
+    const restoredAs = (id: string, n: NodeState): NodeState => {
+      if (n.kind === "task") {
+        const at = taskLineOf(section0, id);
+        const line =
+          at === undefined
+            ? undefined
+            : modelTaskLine(md0, at, id, (taskId) => this.deps.tasks(resource, taskId));
+        return line === undefined ? n : { ...n, line };
+      }
+      const text = snap.nodes[id]?.text;
+      return text === undefined ? n : { ...n, text };
+    };
     // §6: a placement follows a visible child of its parent. A sibling the
     // note still shows may be deleted in the model by now (a collaborator's
     // deletion, the note's copy kept): the batch would be refused
