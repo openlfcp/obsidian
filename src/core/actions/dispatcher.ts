@@ -26,6 +26,21 @@ import type { SectionActions } from "../sections/actions";
 import type { TargetCapture } from "../sections/target";
 import type { ActionId } from "./catalog";
 
+/**
+ * A problem a surface names (the pane's problem hub, LFCP-03-018): a
+ * conflict by its RecoveryItem.key, or a repair item of a note by its line
+ * key, with its line and the note's revision as the surface read them.
+ */
+export type ProblemTarget =
+  | { readonly kind: "conflict"; readonly key: string }
+  | {
+      readonly kind: "repair";
+      readonly path: string;
+      readonly key: string;
+      readonly line: number;
+      readonly revision: string;
+    };
+
 /** What a surface hands an action: only what it found, never a live editor. */
 export interface ActionRequest {
   /** The note as the surface captured it (palette and menu: the editor; pane: its context's note). */
@@ -36,6 +51,11 @@ export interface ActionRequest {
   readonly flow?: number;
   /** A place the surface points at (the card's held copy): a note and its 0-based line. */
   readonly at?: { readonly path: string; readonly line: number };
+  /**
+   * A problem row of the pane (LFCP-03-018): a conflict by its
+   * RecoveryItem.key, or a repair item by its line key and the note's revision.
+   */
+  readonly problem?: ProblemTarget;
 }
 
 /** A surface an action is run from; it changes nothing about the handler (U03-07). */
@@ -139,7 +159,8 @@ export function coreHandlers(env: {
     "repair-sections": async (r) => {
       const a = env.sections();
       if (a === null) return;
-      if (r.target !== undefined) await a.repairNote(r.target);
+      if (r.problem?.kind === "repair") await a.repairProblem(r.problem);
+      else if (r.target !== undefined) await a.repairNote(r.target);
       else if (r.at !== undefined) await a.repairAt(r.at.path);
       else if (r.flow !== undefined) await a.continueFlow(r.flow);
     },
@@ -158,6 +179,7 @@ export function coreHandlers(env: {
     "go-to-problem": async (r) => {
       const a = env.sections();
       if (a === null) return;
+      if (r.problem?.kind === "repair") return a.repairProblem(r.problem);
       if (r.at !== undefined) return a.goToLine(r.at.path, r.at.line);
       if (r.section !== undefined && (await a.goToHeld(r.section.key, r.target?.path))) return;
       if (r.target !== undefined) host?.nextProblem(r.target);
@@ -185,7 +207,12 @@ export function coreHandlers(env: {
     "review-conflicts": async (r) => {
       const a = env.sections();
       if (a === null) return;
-      if (r.section !== undefined) a.reviewConflicts(r.section.key, r.section.title);
+      if (r.section !== undefined)
+        a.reviewConflicts(
+          r.section.key,
+          r.section.title,
+          r.problem?.kind === "conflict" ? r.problem.key : undefined,
+        );
       else if (r.target !== undefined) a.reviewConflictsAt(r.target.text, r.target.cursorLine);
     },
     "check-result": async (r) => {

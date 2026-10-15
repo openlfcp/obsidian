@@ -36,6 +36,7 @@ import {
 import type { ActionRequest, Surface } from "../actions/dispatcher";
 import { type Flow, InFlight, type Reconciled } from "../in-flight";
 import { type NoteTarget, NoteTargets } from "../note-targets";
+import { contentHash } from "../projection/guard";
 import { scanRefs } from "../refs";
 import { REMOVE_CONFIRMATION, type RevokeOutcome, revokeMessage } from "../status/access";
 import type { SectionCard } from "../status/card";
@@ -68,7 +69,15 @@ import {
 import { type LegacySource, legacyPreflight } from "./legacy";
 import { type ParsedSection, parseSections } from "./parser";
 import type { SectionSnapshot } from "./port";
-import { adoptedBase, boundaryRepair, compare, repairItems, sharedVersionChange } from "./repair";
+import {
+  adoptedBase,
+  boundaryRepair,
+  compare,
+  findRepair,
+  keyedRepairs,
+  repairItems,
+  sharedVersionChange,
+} from "./repair";
 import { detachAt } from "./rules";
 import { preflight, revalidate, type SharePreview, type ShareRange } from "./share";
 import {
@@ -364,7 +373,11 @@ export class SectionActions {
   /** Who is told when a flow starts, moves to another step or ends (the pane). */
   readonly #flowListeners = new Set<() => void>();
 
-  /** Calls `listener` when a flow starts, moves to another step or ends; returns how to stop. */
+  /**
+   * Calls `listener` when a flow starts, moves to another step or ends, and
+   * when a repair or a review choice ran (the pane reads its problems
+   * again, LFCP-03-018); returns how to stop.
+   */
   onFlowsChange(listener: () => void): () => void {
     this.#flowListeners.add(listener);
     return () => this.#flowListeners.delete(listener);
@@ -938,7 +951,7 @@ export class SectionActions {
    * saves its base at the note's path at that moment, following a rename;
    * once the note is deleted it writes nothing.
    */
-  async repairNote(at: TargetCapture): Promise<void> {
+  async repairNote(at: TargetCapture, focus?: number): Promise<void> {
     const { prompter, services } = this.env;
     const refused = captureRefusal(at);
     if (refused !== null) {
@@ -953,7 +966,7 @@ export class SectionActions {
     const held = this.#targets.hold(at.path);
     let open: { dialog: SectionDialog<void>; running: ReadonlySet<Promise<void>> } | null = null;
     try {
-      open = await this.#repair(at, held.target, model, bases, journal);
+      open = await this.#repair(at, held.target, model, bases, journal, focus);
     } finally {
       if (open === null) held.release();
     }
@@ -969,10 +982,14 @@ export class SectionActions {
     model: ModelService,
     bases: BaseService,
     journal: CandidateService,
+    focus: number | undefined,
   ): Promise<{ dialog: SectionDialog<void>; running: ReadonlySet<Promise<void>> }> {
     const { prompter, notes, services } = this.env;
     const md = at.text;
-    const items = repairItems(md);
+    // The problem a surface named (its line in this text) first; the others after it, as they are.
+    const items = repairItems(md).sort(
+      (a, b) => Number(b.line === focus) - Number(a.line === focus),
+    );
     const known = new Set<string>();
     for (const id of await bases.projectionsOf(at.path)) {
       const b = await bases.load(id);
@@ -1030,6 +1047,8 @@ export class SectionActions {
           return [boundaryRepair(current, item, line)];
         });
         services.pass(path);
+        // The pane reads the note and its facts again: what the repair left is shown, not assumed.
+        this.#changed();
       }),
       // The repaired note, where it is now: never whichever note the tab shows.
       locate: (line) => {
@@ -1345,15 +1364,20 @@ export class SectionActions {
     this.reviewConflicts(at.key, at.title);
   }
 
-  /** "Review conflicts…" of section `key` (the card's button, the pane's), once it has loaded. */
-  reviewConflicts(key: string, title: string): void {
+  /**
+   * "Review conflicts…" of section `key` (the card's button, the pane's),
+   * once it has loaded. `focus` (a pane's problem row, LFCP-03-018) is the
+   * RecoveryItem.key to open on: the items are read again, and an item no
+   * longer there (resolved meanwhile) opens nothing.
+   */
+  reviewConflicts(key: string, title: string, focus?: string): void {
     const { prompter, services } = this.env;
     if (this.#refused({}, false)) return;
     if (services.model() === null || !services.known(key)) {
       prompter.notice("Shared Tasks: this section is still loading. Try again in a moment.");
       return;
     }
-    this.#openRecovery(key, title);
+    this.#openRecovery(key, title, focus);
   }
 
   /**
@@ -1386,11 +1410,27 @@ export class SectionActions {
   }
 
   /** "Review conflicts…" (061): each conflict, its alternatives, one choice at a time. */
-  #openRecovery(key: string, title: string): void {
+  #openRecovery(key: string, title: string, focus?: string): void {
     const { prompter, services } = this.env;
     if (services.model() === null) return;
-    prompter.review(title, services.recoveryItems(key), (item, choice) =>
-      services.resolveRecovery(key, item, choice),
+    const items = services.recoveryItems(key);
+    const item = focus === undefined ? undefined : items.find((i) => i.key === focus);
+    if (focus !== undefined && item === undefined) {
+      prompter.notice(
+        "Shared Tasks: this conflict is no longer there; nothing needs a choice for it now.",
+      );
+      this.#changed();
+      return;
+    }
+    prompter.review(
+      title,
+      item === undefined ? items : [item, ...items.filter((i) => i !== item)],
+      async (chosen, choice) => {
+        const r = await services.resolveRecovery(key, chosen, choice);
+        // The pane reads the items and the facts again: a choice never hides a row by itself.
+        this.#changed();
+        return r;
+      },
     );
   }
 
@@ -1405,6 +1445,48 @@ export class SectionActions {
     if (at !== null) await this.repairNote(at);
     // Shown only in Reading view: not open for editing (T4). A note gone was said by goToLine.
     else if ((await notes.read(path)) !== null) this.env.prompter.notice(REPAIR_OPEN_FOR_EDITING);
+  }
+
+  /**
+   * A repair problem of the pane (LFCP-03-018): an item of note `p.path`,
+   * by its line key, as the note was at `p.revision`. The note is parsed
+   * again first and the item found by its key (the nearest to its old line):
+   * a line number alone is never trusted after an edit. Gone, nothing
+   * opens and nothing is written. A problem to locate goes to its line now;
+   * a boundary opens the repair on it. Nothing is written without a choice
+   * in the repair dialog, which checks the note again.
+   */
+  async repairProblem(p: {
+    readonly path: string;
+    readonly key: string;
+    readonly line: number;
+    readonly revision: string;
+  }): Promise<void> {
+    const { prompter, notes } = this.env;
+    const now = await this.#now(p.path);
+    if (now === null) {
+      prompter.notice("Shared Tasks: the note is gone. Nothing was repaired.");
+      this.#changed();
+      return;
+    }
+    const keyed = keyedRepairs(now.text);
+    // At the same revision the line is exact; else the key finds where the item is now.
+    const found =
+      contentHash(now.text) === p.revision
+        ? keyed.find((k) => k.key === p.key && k.item.line === p.line)
+        : findRepair(keyed, p.key, p.line);
+    if (found === undefined) {
+      prompter.notice(
+        "Shared Tasks: this problem is no longer in the note (it changed meanwhile). Nothing was changed.",
+      );
+      this.#changed();
+      return;
+    }
+    const at = await notes.goToLine(p.path, found.item.line);
+    if (found.item.kind === "locate") return;
+    if (at !== null) await this.repairNote(at, found.item.line);
+    // Reading view: not open for editing (T4). A note gone was said by goToLine.
+    else if ((await notes.read(p.path)) !== null) prompter.notice(REPAIR_OPEN_FOR_EDITING);
   }
 
   /** The copies of section `key`'s text kept on this device after a refusal (not shared). */
