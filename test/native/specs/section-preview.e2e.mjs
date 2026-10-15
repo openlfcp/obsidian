@@ -91,9 +91,15 @@ describe("shared sections preview in Shared Tasks (real SDK, no server)", () => 
       timeout: 8000,
       timeoutMsg: "committed into the replica",
     });
-    const text = await browser.executeObsidian(({ app, obsidian }) =>
-      app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getValue(),
-    );
+    // The node's binding line is written by the pass after the commit, a moment later.
+    const noteText = () =>
+      browser.executeObsidian(({ app, obsidian }) =>
+        app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.getValue(),
+      );
+    await browser
+      .waitUntil(async () => /<!-- lfcp-node: paragraph:[0-9a-f-]{36} -->\nDraft\n/.test(await noteText()), { timeout: 8000 })
+      .catch(() => false);
+    const text = await noteText();
     console.log(`EVIDENCE ${JSON.stringify({ id: "SECTIONS-PREVIEW", text })}`);
     expect(text).toMatch(/<!-- lfcp-node: paragraph:[0-9a-f-]{36} -->\nDraft\n/);
     expect(text.startsWith("Private intro.\n")).toBe(true);
