@@ -1585,9 +1585,10 @@ export class SectionActions {
   /**
    * Why "Invite collaborator…" is not offered for section `key` now, or null
    * when it is (I4, LFCP-03-041): the invite descriptor on the card's own
-   * facts, read now, as the pane and the card read it. The executor asks
-   * before the role dialog, so the palette offers no invitation the pane
-   * would not. A section whose status is not known yet waits.
+   * facts (the access list read now, the status of the last status pass),
+   * as the pane and the card read it. The executor asks before the role
+   * dialog, so the palette offers no invitation the pane would not. A
+   * section whose status is not known yet waits.
    */
   async inviteRefusal(key: string): Promise<string | null> {
     const content = await this.env.services.cardContent(key, "");

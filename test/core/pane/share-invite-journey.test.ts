@@ -720,6 +720,24 @@ describe("the palette's Invite collaborator… re-checks access (I4, LFCP-03-041
     expect(t.invites).toEqual([{ R: toHex(fromBase64url(R0)), preset: "read" }]);
   });
 
+  it("access removed after an invitation: the next palette Invite is refused", async () => {
+    const t = await shared();
+    const first = await palette(t);
+    expect(first.roles).toHaveLength(1);
+    t.prompter.role?.answer("read");
+    await flush();
+    t.prompter.link?.answer();
+    await first.run;
+    expect(t.invites).toHaveLength(1);
+    // This vault's invite right is gone (removed on another device): no second dialog.
+    t.set({ access: { canInvite: false, hosting: "hosted" } });
+    const second = await palette(t);
+    await second.run;
+    expect(second.roles).toEqual([]);
+    expect(t.invites).toHaveLength(1);
+    expect(t.prompter.notices).toEqual(["Shared Tasks: You can't invite others to this section."]);
+  });
+
   it("the section's card entry (inviteTo) re-checks too: the executor, not the surface", async () => {
     const t = await shared();
     t.set({ access: { canInvite: false, hosting: "hosted" } });

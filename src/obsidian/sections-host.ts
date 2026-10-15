@@ -23,7 +23,7 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
-import { type HostFacts, INVITE_WAITS } from "../core/actions/descriptors";
+import type { HostFacts } from "../core/actions/descriptors";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
@@ -39,6 +39,7 @@ import { SectionCreation } from "../core/sections/create";
 import { applyChanges, type NotePass, SectionEngine } from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
 import { SectionInsertion } from "../core/sections/insert";
+import { inviteCheck } from "../core/sections/invite-check";
 import { abandonOnce } from "../core/sections/journal";
 import type { LegacySource } from "../core/sections/legacy";
 import { parseSections, type SectionScan } from "../core/sections/parser";
@@ -1042,16 +1043,43 @@ export class SectionsHost {
     return this.#paneAccess.get(key);
   }
 
+  /** The keys of the sections with a status now (`<resource>#<sectionId>`). */
+  sectionKeys(): string[] {
+    return [...this.#statuses.keys()];
+  }
+
   /**
-   * Why the palette's "Invite collaborator…" may not open the role dialog
-   * for the section of Resource `R` now, or null when it may (I4,
-   * LFCP-03-041): the card's and the pane's invite descriptor, on facts
-   * read now. A section with no status yet waits.
+   * Why "Invite collaborator…" may not open the role dialog for the section
+   * of Resource `R`, or null when it may (I4, LFCP-03-041): the card's and
+   * the pane's invite descriptor, on the section's facts. While its status
+   * or its access check has not caught up (just shared, just started), it
+   * waits for them a few seconds; offline it says so at once.
    */
-  inviteRefusal(R: ResourceId): Promise<string | null> {
-    const prefix = `${toBase64url(R)}#`;
-    const key = [...this.#statuses.keys()].find((k) => k.startsWith(prefix));
-    return key === undefined ? Promise.resolve(INVITE_WAITS) : this.actions.inviteRefusal(key);
+  inviteRefusal(R: ResourceId, waitMs?: number): Promise<string | null> {
+    return inviteCheck(
+      {
+        keys: () => this.sectionKeys(),
+        refusal: (key) => this.actions.inviteRefusal(key),
+        offline: (key) => {
+          const c = this.sectionStatus(key)?.connection;
+          return c === "offline" || c === "failed";
+        },
+        refresh: () => this.scheduleStatus(),
+        next: (ms) =>
+          new Promise<void>((resolve) => {
+            const done = () => {
+              off();
+              window.clearTimeout(timer);
+              resolve();
+            };
+            const off = this.onStatusChange(done);
+            const timer = window.setTimeout(done, ms);
+          }),
+        now: () => Date.now(),
+      },
+      toBase64url(R),
+      waitMs,
+    );
   }
 
   /** The settings a share runs under now: the default sync server and the comments setting. */
