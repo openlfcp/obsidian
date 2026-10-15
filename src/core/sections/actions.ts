@@ -467,9 +467,14 @@ export class SectionActions {
    * is the section a surface is about (the pane's joined section): it needs
    * no choice.
    */
-  insertSection(at: TargetCapture, section?: string): Promise<void> {
+  insertSection(
+    at: TargetCapture,
+    section?: string,
+    /** Called once the insertion is journaled (its effect starts), with the section's key. */
+    started?: (section: string) => void,
+  ): Promise<void> {
     return this.#oneFlow(at.path, "insert", (target, flow) =>
-      this.#insertSection(captured(at), target, flow, section),
+      this.#insertSection(captured(at), target, flow, section, started),
     );
   }
 
@@ -487,6 +492,7 @@ export class SectionActions {
     target: NoteTarget,
     flow: Flow,
     section?: string,
+    started?: (section: string) => void,
   ): Promise<void> {
     const { prompter, services } = this.env;
     if (!(await this.#startable(at, target, "inserted"))) return;
@@ -507,6 +513,8 @@ export class SectionActions {
       flow.showing(null);
       if (choice === null) return;
     }
+    const key = choiceKey(choice);
+    const start = started === undefined ? undefined : () => started(key);
     const preview = await insertion.preview(choice.resource as ResourceId, choice.sectionId);
     if ("refused" in preview) {
       prompter.notice(insertRefusalMessage(preview.refused));
@@ -558,7 +566,7 @@ export class SectionActions {
       if (!approved) return;
       const chosen = chosenNow();
       if (chosen.kind === "here") {
-        await this.#insertHere(at, target, flow, preview);
+        await this.#insertHere(at, target, flow, preview, start);
         return;
       }
       if (chosen.kind === "new") {
@@ -588,7 +596,7 @@ export class SectionActions {
       }
       // The other note is reserved as this one is: one share or insert per note (F-03).
       await this.#oneFlow(path, "insert", (into, intoFlow) =>
-        this.#insertAtEnd(into, intoFlow, preview),
+        this.#insertAtEnd(into, intoFlow, preview, start),
       );
     } finally {
       otherNow()?.release();
@@ -601,6 +609,7 @@ export class SectionActions {
     target: NoteTarget,
     flow: Flow,
     preview: InsertPreview,
+    started?: () => void,
   ): Promise<void> {
     const { prompter } = this.env;
     const path = target.path;
@@ -623,11 +632,16 @@ export class SectionActions {
       );
       return;
     }
-    await this.#write(path, at.text, at.cursorLine, flow, preview);
+    await this.#write(path, at.text, at.cursorLine, flow, preview, started);
   }
 
   /** Into another note, at its end, as it is when the preview was approved. */
-  async #insertAtEnd(target: NoteTarget, flow: Flow, preview: InsertPreview): Promise<void> {
+  async #insertAtEnd(
+    target: NoteTarget,
+    flow: Flow,
+    preview: InsertPreview,
+    started?: () => void,
+  ): Promise<void> {
     const { prompter } = this.env;
     const path = target.path;
     const now = path === null ? null : await this.#now(path);
@@ -648,7 +662,7 @@ export class SectionActions {
       );
       return;
     }
-    await this.#write(path, now.text, line, flow, preview);
+    await this.#write(path, now.text, line, flow, preview, started);
   }
 
   /**
@@ -662,11 +676,13 @@ export class SectionActions {
     line: number,
     flow: Flow,
     preview: InsertPreview,
+    started?: () => void,
   ): Promise<void> {
     const { services } = this.env;
     const insertion = services.insertion();
     if (this.#refused({}, insertion === null) || insertion === null) return;
     const entry = await insertion.prepare(path, markdown, line, preview);
+    started?.();
     await this.#run(entry, flow);
   }
 

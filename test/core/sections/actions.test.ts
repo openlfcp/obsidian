@@ -736,6 +736,28 @@ describe("insert (LFCP-03-008 over 052)", () => {
     expect(t.calls).toContain("run ins-2");
   });
 
+  it("tells the caller the insert started only once it is journaled, not at its preview (LFCP-03-017)", async () => {
+    const t = insertSetup();
+    const started: string[] = [];
+    t.prompter.script.pick = [choice, choice];
+    t.prompter.script.insert = [false, true];
+    await t.actions.insertSection(t.editor.at(), undefined, (key) => {
+      started.push(key);
+      t.calls.push("started");
+    });
+    expect(started).toEqual([]);
+    await t.actions.insertSection(t.editor.at(), undefined, (key) => {
+      started.push(key);
+      t.calls.push("started");
+    });
+    expect(started).toEqual([`${toBase64url(choice.resource)}#s1`]);
+    expect(t.calls.slice(-5, -2)).toEqual([
+      `prepare Plan.md line ${PLAN} rev ${NOTE.length}`,
+      "started",
+      "run ins-1",
+    ]);
+  });
+
   it("stale: the note changed where the block would go; nothing indexed, said once; the insertion ends", async () => {
     const t = insertSetup();
     t.prompter.script.pick = [choice];

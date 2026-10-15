@@ -374,9 +374,9 @@ export class CollabCommands {
     return this.joins.checkResult(generation);
   }
 
-  /** The joined section's next step was taken (an insert started): the join flow ends. */
-  joinPlaced(): void {
-    this.joins.placed();
+  /** The joined section's next step was taken (its insertion journaled): its join flow ends. */
+  joinPlaced(resource?: ResourceId): void {
+    this.joins.placed(resource);
   }
 
   #join(): Promise<void> {
