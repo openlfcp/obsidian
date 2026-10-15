@@ -24,6 +24,7 @@ import {
 } from "../../../src/core/sections/engine";
 import {
   formatBoundary,
+  formatNodeMarker,
   parseSectionRef,
   type SectionRef,
 } from "../../../src/core/sections/grammar";
@@ -237,5 +238,83 @@ describe("a note that shows the model's fields seeds its base (LFCP-03-043)", ()
 
   it("an unowned glyph is the user's presentation, not a status", async () => {
     await seeds(note("- [>] Original 📅 2026-11-01"));
+  });
+});
+
+describe("a Task the base does not know, adopted from the note (LFCP-03-043 review)", () => {
+  it("its fields the note changed are sent, never rendered over", async () => {
+    const replica = replicaWith();
+    const h = setup(() => replica.task(T));
+    h.port.onTaskIntents = (intents) => {
+      for (const i of intents) replica.apply(i as never);
+    };
+    // A base for the section that does not know the Task (a paste kept
+    // while the section waited, then Keep): the model has it active.
+    await h.bases.save("projection-known", {
+      locator: { path: "note.md", section: S },
+      state: { title: "Section", nodes: {}, order: {} },
+      revision: h.port.snapshot(R, SID)?.revision ?? "",
+    });
+    const edited = note("- [ ] Local edit 📅 2026-11-05");
+    let md = edited;
+    for (let i = 0; i < 3; i++) md = (await h.run("note.md", md)).out;
+    expect(md).toBe(edited);
+    expect(replica.task(T)?.task?.title).toBe("Local edit");
+    expect(replica.task(T)?.task?.due).toBe("2026-11-05");
+    const sent = h.port.changes.flatMap((c) => c.intents.map((x) => x.intent));
+    expect(sent).toEqual(expect.arrayContaining(["task.set_title", "task.set_due"]));
+  });
+
+  it("a note that shows the adopted Task as the model sends nothing", async () => {
+    const replica = replicaWith();
+    const h = setup(() => replica.task(T));
+    await h.bases.save("projection-known", {
+      locator: { path: "note.md", section: S },
+      state: { title: "Section", nodes: {}, order: {} },
+      revision: h.port.snapshot(R, SID)?.revision ?? "",
+    });
+    let md = MODEL;
+    for (let i = 0; i < 2; i++) md = (await h.run("note.md", md)).out;
+    expect(md).toBe(MODEL);
+    expect(
+      h.port.changes.flatMap((c) => c.intents).filter((i) => i.intent.startsWith("task.")),
+    ).toEqual([]);
+  });
+});
+
+describe("a paragraph the base does not know, adopted from the note (LFCP-03-043 review)", () => {
+  it("its Text the note changed is sent, never rendered over", async () => {
+    const P = "019a2f85-7b31-7c42-b85a-fc843e2f4010";
+    const para = (text: string) =>
+      [
+        "## Section",
+        formatBoundary("start", S),
+        formatNodeMarker("paragraph", P),
+        text,
+        formatBoundary("end", S),
+        "",
+      ].join("\n");
+    const port = new FakeSectionPort();
+    const model = para("Original text");
+    const s = parseSections(model).sections[0];
+    if (s === undefined) throw new Error("no section");
+    port.host(R, SID, markdownState(model, s).state);
+    const h = setup(() => undefined, {
+      port,
+      bases: new MemorySectionBaseStore(),
+      journal: new MemorySectionJournalStore(),
+      op: 0,
+      projection: 0,
+    });
+    await h.bases.save("projection-known", {
+      locator: { path: "note.md", section: S },
+      state: { title: "Section", nodes: {}, order: {} },
+      revision: port.snapshot(R, SID)?.revision ?? "",
+    });
+    const edited = para("Local text");
+    let md = edited;
+    for (let i = 0; i < 3; i++) md = (await h.run("note.md", md)).out;
+    expect(md).toBe(edited);
+    expect(port.sections.get(R)?.state.nodes[P]?.text).toBe("Local text");
   });
 });
