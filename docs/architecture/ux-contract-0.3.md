@@ -324,6 +324,26 @@ or its result is unknown, a later flow does not take the current area, and
 its next step goes back to that flow on its own note (T2). Other flows are
 listed with where they stand; "Continue" brings the first of them forward.
 
+**P6. After a restart** (LFCP-03-017). A flow is a view over the journals
+that already exist; a restart reads them again and adds no journal of its
+own. Nothing is deleted, revoked or detached on the way.
+
+| Flow | Read at start | Where it stopped | After the restart |
+| --- | --- | --- | --- |
+| Share | The creation journal | Any phase | It goes on by itself and holds its note until its result is known. An unknown result is checked again under the same operation; no second Resource is created |
+| Insert | The insertion journal (an insertion still `prepared`) | Before the note was written | Listed as unfinished on its note. "Continue", or a new insert on that note, shows the same preview at the place chosen before. Insert writes it once under the same insertion ID; Cancel ends it and writes nothing. A changed place writes nothing and ends it |
+| Insert | The same | The note written, the copy not registered | The copy is registered at start, with no second block; a notice says so |
+| Insert | The same | The note is gone | It ends; nothing is written; a notice says so |
+| Join | The claim journal and the join record (the server and the name, never the link) | The claim sent, its answer lost | Settled at start. If the server cannot be reached, the pane shows the claim as unknown: "Check the result" settles the same claim, "Give up" drops its journal. The link is not asked for again |
+| Invite | None | — | Nothing to resume: the invitation exists or it does not, and the card lists it |
+
+A check of an unknown result waits at most 60 seconds. Then the pane
+says the result is still not known, and "Check the result" is enabled
+again. A check meanwhile joins the one still running; nothing is started
+again. A share or insert that wrote nothing ends, so the next start does
+not offer it. Closing the pane changes no flow: flows belong to the
+plugin, and the pane shows them again when it opens.
+
 **P4. No primary action.** When no row gives a primary action, the pane
 says why in one sentence for the user, never in the contract's terms:
 "Open a note to share from it, or join with a link." (no note);
@@ -698,9 +718,8 @@ claims. LFCP-03-013 runs the same fixtures through the plugin's pane path:
 the plugin on the recording Obsidian mock, its host adapter, the wired
 dispatcher and the renderer, with a sections host built by hand for each
 state (`test/obsidian/pane-fixtures.test.ts`). The join flow's state runs
-on the plugin's join flow (LFCP-03-015). One state is todo, needing a flow
-the host cannot produce yet: an unfinished flow read from the journals
-(LFCP-03-017). The two with a share preview (selection-exact,
+on the plugin's join flow (LFCP-03-015). The unfinished insert is the one
+a restart leaves: approved, its note not written yet (LFCP-03-017). The two with a share preview (selection-exact,
 content-comments-and-table) draw it from the note in view and claim its
 lines (LFCP-03-014).
 LFCP-03-023 runs them in the native harness.
