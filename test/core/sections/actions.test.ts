@@ -14,6 +14,7 @@ import {
   type HostEntry,
 } from "../../../src/core/actions/dispatcher";
 import { SECTIONS_READ_ONLY } from "../../../src/core/lfcp/runtime";
+import { contentHash } from "../../../src/core/projection/guard";
 import type {
   CreationService,
   InsertionService,
@@ -1866,5 +1867,232 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
     // Without the host's part (the editor, the clipboard, the settings), those actions have no handler.
     for (const id of ["open-for-editing", "open-settings", "copy-readable"] as const)
       expect(d.handles(id)).toBe(false);
+  });
+});
+
+describe("problem hub resolvers (LFCP-03-018, U03-16)", () => {
+  const ITEMS: RecoveryItem[] = [
+    { kind: "title", key: "title", values: ["Launch", "Go-live"] },
+    {
+      kind: "lifecycle",
+      key: "lifecycle:n1",
+      nodeId: "n1",
+      label: 'Task "Alpha"',
+    },
+  ];
+  const MODEL: SectionSnapshot = {
+    revision: "r1",
+    title: "Launch",
+    ready: true,
+    nodes: {},
+    order: { "": [] },
+    problems: [],
+  };
+  const handlers = (actions: SectionActions) =>
+    new ActionDispatcher(
+      coreHandlers({
+        sections: () => actions,
+        collab: {
+          joinCollaboration: async () => undefined,
+          inviteCollaborator: async () => undefined,
+          inviteTo: async () => undefined,
+          resourceStatus: async () => undefined,
+        },
+      }),
+    );
+
+  function conflictSetup(items: () => RecoveryItem[]) {
+    const resolved: string[] = [];
+    const t = setup(() => ({
+      model: () => ({ snapshot: () => MODEL, task: () => undefined }),
+      known: () => true,
+      recoveryItems: () => items(),
+      resolveRecovery: async (_key, item: RecoveryItem, _choice: RecoveryChoice) => {
+        resolved.push(item.key);
+        // Applied, but the model has not changed yet: the item is still there.
+        return { items: items(), note: null };
+      },
+    }));
+    let changes = 0;
+    t.actions.onFlowsChange(() => changes++);
+    return { ...t, resolved, changes: () => changes };
+  }
+  type Review = Parameters<SectionPrompter["review"]>;
+  /** The arguments of the dialog of `kind` that was opened; throws when none was. */
+  const argsOf = <T>(t: { prompter: RecordingPrompter }, kind: string): T => {
+    const d = t.prompter.dialogs.find((x) => x.kind === kind);
+    if (d === undefined) throw new Error(`no ${kind} dialog`);
+    return d.args as T;
+  };
+
+  it("a conflict row opens the review on its RecoveryItem.key, that item first", async () => {
+    const t = conflictSetup(() => ITEMS);
+    await handlers(t.actions).run(
+      "review-conflicts",
+      {
+        section: { key: KEY, title: "Launch" },
+        problem: { kind: "conflict", key: "lifecycle:n1" },
+      },
+      "pane",
+    );
+    const [title, items] = argsOf<Review>(t, "review");
+    expect(title).toBe("Launch");
+    expect(items.map((i) => i.key)).toEqual(["lifecycle:n1", "title"]);
+  });
+
+  it("stale choice: a conflict resolved meanwhile opens nothing and says so", async () => {
+    const t = conflictSetup(() => ITEMS.slice(0, 1));
+    t.actions.reviewConflicts(KEY, "Launch", "lifecycle:n1");
+    expect(t.prompter.dialogs).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: this conflict is no longer there; nothing needs a choice for it now.",
+    ]);
+    // The pane reads its rows again.
+    expect(t.changes()).toBe(1);
+  });
+
+  it("after a choice the pane reads the facts again; the item stays until the model drops it", async () => {
+    let items = ITEMS;
+    const t = conflictSetup(() => items);
+    t.actions.reviewConflicts(KEY, "Launch", "title");
+    const [, , apply] = argsOf<Review>(t, "review");
+    const first = await apply(ITEMS[0] as RecoveryItem, { value: "Launch" });
+    expect(t.resolved).toEqual(["title"]);
+    // Nothing hides it: the review shows the items as the model has them.
+    expect(first.items.map((i) => i.key)).toEqual(["title", "lifecycle:n1"]);
+    expect(t.changes()).toBe(1);
+    items = ITEMS.slice(1);
+    const second = await apply(ITEMS[1] as RecoveryItem, { keep: true });
+    expect(second.items.map((i) => i.key)).toEqual(["lifecycle:n1"]);
+    expect(t.changes()).toBe(2);
+  });
+
+  describe("repair rows", () => {
+    const BROKEN = [
+      "# Notes",
+      "## Launch",
+      formatBoundary("start", S),
+      "- [ ] One",
+      "",
+      "## Other",
+      "",
+    ].join("\n");
+    const ref = (text: string, line = 2) => ({
+      kind: "repair" as const,
+      path: "Plan.md",
+      key: `missing-end:${KEY}`,
+      line,
+      revision: contentHash(text),
+    });
+    function repairRowSetup(text: string) {
+      const t = setup(() => ({
+        bases: () => new MemorySectionBaseStore(),
+        model: () => ({ snapshot: () => undefined, task: () => undefined }),
+        candidates: () => ({
+          putCandidate: async () => undefined,
+          allCandidates: async () => [],
+          resolveCandidate: async () => undefined,
+        }),
+      }));
+      t.notes.files.set("Plan.md", text);
+      return t;
+    }
+    type Repair = Parameters<SectionPrompter["repair"]>;
+
+    it("same revision: the repair opens on the item at its line, nothing written", async () => {
+      const t = repairRowSetup(BROKEN);
+      await handlers(t.actions).run("repair-sections", { problem: ref(BROKEN) }, "pane");
+      const [items] = argsOf<Repair>(t, "repair");
+      expect(items.map((i) => [i.kind, i.line])).toEqual([["missing-end", 2]]);
+      expect(t.notes.located).toEqual([["Plan.md", 2]]);
+      expect(t.notes.writes).toEqual([]);
+    });
+
+    it("stale revision: the note is parsed again and the item found at its new line, nothing written", async () => {
+      const t = repairRowSetup(BROKEN);
+      const drawn = ref(BROKEN);
+      // Two lines typed above the section after the pane drew the row.
+      const moved = BROKEN.replace("# Notes\n", "# Notes\nNew line\nAnother\n");
+      t.notes.files.set("Plan.md", moved);
+      await t.actions.repairProblem(drawn);
+      const [items, , actions] = argsOf<Repair>(t, "repair");
+      expect(items.map((i) => [i.kind, i.line])).toEqual([["missing-end", 4]]);
+      expect(t.notes.located).toEqual([["Plan.md", 4]]);
+      expect(t.notes.writes).toEqual([]);
+      expect(t.prompter.notices).toEqual([]);
+      // Its candidates are the note's as it is now: a choice writes the marker there.
+      const item = items[0];
+      if (item?.kind !== "missing-end") throw new Error(item?.kind);
+      expect(item.candidates.map((c) => c.afterLine)).toContain(5);
+      await actions.boundary(item, 5);
+      expect(t.notes.files.get("Plan.md")?.split("\n")[6]).toBe(formatBoundary("end", S));
+    });
+
+    it("changed/gone: a problem fixed meanwhile opens nothing and writes nothing", async () => {
+      const t = repairRowSetup(BROKEN);
+      const drawn = ref(BROKEN);
+      t.notes.files.set(
+        "Plan.md",
+        BROKEN.replace("- [ ] One\n", `- [ ] One\n${formatBoundary("end", S)}\n`),
+      );
+      let changes = 0;
+      t.actions.onFlowsChange(() => changes++);
+      await t.actions.repairProblem(drawn);
+      expect(t.prompter.dialogs).toEqual([]);
+      expect(t.notes.writes).toEqual([]);
+      expect(t.notes.located).toEqual([]);
+      expect(t.prompter.notices).toEqual([
+        "Shared Tasks: this problem is no longer in the note (it changed meanwhile). Nothing was changed.",
+      ]);
+      expect(changes).toBe(1);
+    });
+
+    it("same revision, another line: an item is never taken by its key alone at the same text", async () => {
+      const t = repairRowSetup(BROKEN);
+      await t.actions.repairProblem({ ...ref(BROKEN), line: 5 });
+      expect(t.prompter.dialogs).toEqual([]);
+      expect(t.notes.writes).toEqual([]);
+    });
+
+    it("a problem to locate goes to its line as the note is now; the note gone, nothing", async () => {
+      const inside = [
+        "## Launch",
+        formatBoundary("start", S),
+        "### Inside",
+        formatBoundary("end", S),
+        "",
+      ].join("\n");
+      const t = repairRowSetup(inside);
+      const key = `locate:This content cannot be shared by this version yet: edit it, or end the section before it.:### Inside`;
+      const drawn = {
+        kind: "repair" as const,
+        path: "Plan.md",
+        key,
+        line: 2,
+        revision: contentHash(inside),
+      };
+      t.notes.files.set("Plan.md", `Intro\n${inside}`);
+      await handlers(t.actions).run("go-to-problem", { problem: drawn }, "pane");
+      expect(t.notes.located).toEqual([["Plan.md", 3]]);
+      expect(t.prompter.dialogs).toEqual([]);
+      t.notes.files.delete("Plan.md");
+      t.notes.open.delete("Plan.md");
+      await t.actions.repairProblem(drawn);
+      expect(t.prompter.notices).toEqual(["Shared Tasks: the note is gone. Nothing was repaired."]);
+      expect(t.notes.writes).toEqual([]);
+    });
+
+    it("post-repair: a placed boundary tells the pane to read the facts again", async () => {
+      const t = repairRowSetup(BROKEN);
+      let changes = 0;
+      t.actions.onFlowsChange(() => changes++);
+      await t.actions.repairProblem(ref(BROKEN));
+      const [items, , actions] = argsOf<Repair>(t, "repair");
+      const item = items[0];
+      if (item?.kind !== "missing-end") throw new Error(item?.kind);
+      await actions.boundary(item, 3);
+      expect(t.calls).toEqual(["pass Plan.md"]);
+      expect(changes).toBe(1);
+    });
   });
 });
