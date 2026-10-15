@@ -98,6 +98,36 @@ describe("shared-sections Resources in the runtime", () => {
     expect(again.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch v2");
   });
 
+  it("a listener that fails after a section commit is stored keeps the batch in the model (SDK 0.2.1, LFCP-03-034)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createSectionResource({
+      name: "Launch",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    await r.openSection(R);
+    r.on((e) => {
+      if (e.type === "status" && (e.event as { kind?: string }).kind === "batch")
+        throw new Error("a listener fails");
+    });
+    const receipt = await r.commitSection(
+      R,
+      [{ intent: "section.create", sectionId: SECTION, title: "Launch", createdBy: me(r) }],
+      { operationId: "create" },
+    );
+    expect(receipt.operationId).toBe("create");
+    expect(r.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch");
+    expect(await receiptOf(r.storage as LfcpStorage, R, "create")).toEqual(receipt);
+    expect(r.status).not.toMatchObject({ kind: "needs-restart" });
+    // The next batch builds on it: nothing was rewound.
+    await r.commitSection(R, [{ intent: "section.set_title", title: "Launch v2" }], {
+      operationId: "rename",
+    });
+    expect(r.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch v2");
+  });
+
   it("an engine trap after a section commit is stored rejects it and blocks the runtime (needs-restart)", async () => {
     const device = new Device();
     const local = new FakeLocal();

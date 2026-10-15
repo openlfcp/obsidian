@@ -3,10 +3,10 @@
 // The native acceptance run's C10 failed now and then: A renamed a Task
 // offline, the rename reached B (a conflict there), and A showed CURRENT
 // with the old title in its note and model, and never applied B's later
-// changes. The SDK's commit reverts the staged change in the model when a
-// step after the durable store throws (src/core/lfcp/durable-commit.ts),
-// e.g. the send on a connection that dropped meanwhile; the stored units
-// still go out. Here: the C08-C11 sequence (an edit waiting across a restart
+// changes. SDK 0.2.0's commit reverted the staged change in the model when
+// a step after the durable store threw, e.g. the send on a connection that
+// dropped meanwhile, while the stored units still went out; SDK 0.2.1 keeps
+// a stored batch (LFCP-03-034), with no guard in the plugin. Here: the C08-C11 sequence (an edit waiting across a restart
 // and the server's absence, then both sides renaming the same Task offline),
 // and the two ways a step after the store fails, made deterministic. Two
 // real plugins (sections on, a CodeMirror editor each) on the reference
