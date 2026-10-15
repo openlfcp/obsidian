@@ -27,7 +27,7 @@ import type {
   SectionServices,
   TextChange,
 } from "../../../src/core/sections/action-ports";
-import { SectionActions } from "../../../src/core/sections/actions";
+import { DETACH_CONFIRMATION, SectionActions } from "../../../src/core/sections/actions";
 import { MemorySectionBaseStore, type SectionState } from "../../../src/core/sections/base";
 import type { CreationEntry, CreationResult } from "../../../src/core/sections/create";
 import { applyChanges } from "../../../src/core/sections/engine";
@@ -895,6 +895,37 @@ describe("detach (LFCP-03-008 over §10)", () => {
     ]);
   });
 
+  it("LFCP-03-019: from the pane, the copy the pane captured; the other copy and everyone's access untouched", async () => {
+    const t = await detachSetup();
+    // Another note holds a copy too, and is the one in view meanwhile: the captured note is detached.
+    t.notes.files.set("Other.md", BOUND);
+    t.notes.open.add("Other.md");
+    const d = new ActionDispatcher(
+      coreHandlers({
+        sections: () => t.actions,
+        collab: {
+          joinCollaboration: async () => undefined,
+          inviteCollaborator: async () => undefined,
+          inviteTo: async () => undefined,
+          resourceStatus: async () => undefined,
+        },
+      }),
+    );
+    const at = t.editor.at();
+    t.prompter.script.confirm = [true];
+    await d.run("detach-section", { target: at, section: { key: KEY, title: "Launch" } }, "pane");
+    // The user saw what happens before it did: this note only, nobody's access.
+    expect(t.prompter.dialogs.map((x) => x.args[0])).toEqual([
+      { title: 'Detach "Launch" in this note', message: DETACH_CONFIRMATION, action: "Detach" },
+    ]);
+    expect(DETACH_CONFIRMATION).toContain("their access are not changed");
+    expect(t.notes.files.get("Plan.md")).not.toContain("lfcp-section");
+    expect(t.notes.files.get("Other.md")).toBe(BOUND);
+    expect(await t.bases.projectionsOf("Other.md")).toEqual(["p2"]);
+    // No access change, no Control action, nothing sent: revokeAccess would throw, commands is null.
+    expect(t.calls).toEqual(["indexed Plan.md", `forget ${KEY} p1`, "pass Plan.md"]);
+  });
+
   it("cancelled, or the cursor outside a section: nothing written", async () => {
     const t = await detachSetup();
     t.prompter.script.confirm = [false];
@@ -1409,6 +1440,45 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     expect(resolved).toEqual(["c1"]);
     expect(t.prompter.notices).toEqual(["Shared Tasks: the local copy was discarded."]);
     expect(t.calls).toEqual(["scheduleStatus"]);
+  });
+
+  it("LFCP-03-019: discard stays secondary, with the same exact confirmation from the pane and the card", async () => {
+    const kept = [
+      { candidateId: "c1", projectionId: `x#${KEY}#y`, reason: "rejected", sourceText: "t" },
+    ] as PendingCandidate[];
+    const t = cardSetup(() => ({
+      bases: () => new MemorySectionBaseStore(),
+      candidates: () => ({
+        putCandidate: async () => undefined,
+        allCandidates: async () => kept,
+        resolveCandidate: async () => undefined,
+      }),
+    }));
+    const d = new ActionDispatcher(
+      coreHandlers({
+        sections: () => t.actions,
+        collab: {
+          joinCollaboration: async () => undefined,
+          inviteCollaborator: async () => undefined,
+          inviteTo: async () => undefined,
+          resourceStatus: async () => undefined,
+        },
+      }),
+    );
+    t.prompter.script.confirm = [false, false];
+    await d.run("discard-local-copy", { section: { key: KEY, title: "Launch" } }, "pane");
+    await t.actions.openCard(KEY, "Launch");
+    t.press("Discard the local copy…");
+    await flush(20);
+    const asked = t.prompter.dialogs.filter((x) => x.kind === "confirm").map((x) => x.args[0]);
+    const exact = {
+      title: 'Local copies of "Launch"',
+      message:
+        "One copy of this section's text was kept on this device when the sync server refused it. It is not shared. Discard it? Your note and the shared section are not changed.",
+      action: "Discard",
+    };
+    expect(asked).toEqual([exact, exact]);
+    expect(t.prompter.notices).toEqual([]);
   });
 
   it("A7: every card button runs its action through the dispatcher, to the one handler", async () => {

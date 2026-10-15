@@ -3,7 +3,12 @@
 // user's words, technical identifiers last, markup kept as plain text.
 
 import { describe, expect, it } from "vitest";
-import { HISTORY_ADVICE_AT, sectionCard } from "../../../src/core/status/card";
+import {
+  BODY_DELETE_TEXT,
+  HISTORY_ADVICE_AT,
+  sectionCard,
+  WHOLE_COPY_TEXT,
+} from "../../../src/core/status/card";
 import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 
 const base: StatusFacts = {
@@ -239,5 +244,19 @@ describe("own offline work cut off by an access change (§19.1)", () => {
     expect(card({ staleWork: { pending: 0, review: 0 } }).technical[0]).not.toBe(
       "State: ATTENTION",
     );
+  });
+});
+
+describe("LFCP-03-019 (N-05): what deleting does, before it is done", () => {
+  it("a writer is told a body deletion goes to everyone, and a whole copy removed is local", () => {
+    expect(card({}).shared).toEqual(expect.arrayContaining([BODY_DELETE_TEXT, WHOLE_COPY_TEXT]));
+  });
+
+  it("where this vault's edits do not go out, no shared delete is promised", () => {
+    for (const access of ["reader", "refused", "revoked", "not-member"] as const) {
+      const c = card({ access });
+      expect(c.shared, access).not.toContain(BODY_DELETE_TEXT);
+      expect(c.shared, access).toContain(WHOLE_COPY_TEXT);
+    }
   });
 });

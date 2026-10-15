@@ -229,6 +229,12 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     for (const a of model.menu) button(d, a, h, "openlfcp-pane-secondary");
   }
 
+  // C6, N-05: what deleting, removing the copy and detaching do, before the user acts.
+  if (model.effects.length > 0) {
+    const e = section(root, "openlfcp-pane-effects", "What changes do here");
+    for (const line of model.effects) el(e, "div", "openlfcp-pane-line", line);
+  }
+
   const list = section(root, "openlfcp-pane-sections", "Shared sections");
   el(list, "h3", "openlfcp-pane-heading", "Shared sections");
   if (model.sections.summary !== null)

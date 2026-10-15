@@ -212,6 +212,34 @@ export function rightsFact(v: StatusView): string {
   return v.readOnly ? "You can read this section, not edit it." : "You can edit this section.";
 }
 
+/**
+ * What a change does to a shared section (UX contract C6; MARKDOWN-SECTIONS-01
+ * §10, as LFCP-03-001 reproduced it; N-05): deleting visible text inside a
+ * healthy section is a shared delete; removing a whole copy, or the note,
+ * removes that copy only; detaching keeps the text as private text and
+ * changes nothing shared, nobody's access included. Said before the user
+ * acts, on the pane and the card; no new operation.
+ */
+export const BODY_DELETE_TEXT =
+  "Deleting text inside this section deletes it for everyone who has this section.";
+export const WHOLE_COPY_TEXT =
+  "Removing this whole copy from the note, or deleting the note, removes only this copy.";
+export const DETACH_TEXT =
+  "Detach this section keeps its text here as your own. The shared section, its other copies and everyone's access stay as they are.";
+
+/**
+ * What deleting does here, for this vault (C6, N-05): the shared delete
+ * only where this vault's edits go out (it may write, the server accepts
+ * them); a whole copy removed is local either way.
+ */
+export function changeEffects(v: StatusView): string[] {
+  const sends =
+    v.access.access === "writer" &&
+    !v.readOnly &&
+    !v.conditions.some((c) => c.kind === "access" || c.kind === "server-refused");
+  return sends ? [BODY_DELETE_TEXT, WHOLE_COPY_TEXT] : [WHOLE_COPY_TEXT];
+}
+
 /** The card's content. */
 export function sectionCard(input: CardInput): SectionCard {
   const v = input.view;
@@ -308,6 +336,8 @@ export function sectionCard(input: CardInput): SectionCard {
   const shared = [
     "Everything between this section's start and end markers is shared, including future additions.",
     "Text after the end marker, and anywhere else in the note, stays on this device.",
+    // LFCP-03-019 (N-05): before a body deletion goes to everyone.
+    ...changeEffects(v),
   ];
   // LFCP-02-117: the history only grows; past about 200,000 a new section is suggested (no action taken).
   if (input.history !== undefined) {

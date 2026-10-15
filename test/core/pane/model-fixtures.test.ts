@@ -18,7 +18,12 @@ import {
   paneModel,
   paneTexts,
 } from "../../../src/core/pane/model";
-import { sectionCard } from "../../../src/core/status/card";
+import {
+  BODY_DELETE_TEXT,
+  DETACH_TEXT,
+  sectionCard,
+  WHOLE_COPY_TEXT,
+} from "../../../src/core/status/card";
 import { statusView } from "../../../src/core/status/reducer";
 
 interface Expected {
@@ -185,6 +190,27 @@ describe("pane view model rules beyond the fixtures", () => {
     const detach = find(state("loading"), "detach-section");
     expect(detach?.enabled).toBe(false);
     expect(detach?.reason).toBe("Detaching waits until this section has loaded on this device.");
+  });
+
+  it("LFCP-03-019 (C6, N-05): deleting, removing the copy and detaching are told apart before acting", () => {
+    const m = (id: string) => paneModel(state(id), { time });
+    expect(m("healthy-can-invite").effects).toEqual([
+      BODY_DELETE_TEXT,
+      WHOLE_COPY_TEXT,
+      DETACH_TEXT,
+    ]);
+    // A reader's deletions are held, not sent: no shared delete is promised.
+    expect(m("healthy-read-only").effects).toEqual([WHOLE_COPY_TEXT, DETACH_TEXT]);
+    expect(m("access-refused-held").effects).not.toContain(BODY_DELETE_TEXT);
+    // Not in a section: nothing to say.
+    expect(m("no-editor").effects).toEqual([]);
+    expect(m("selection-exact").effects).toEqual([]);
+    // The card says the same, in the same words.
+    const s = state("healthy-can-invite").section;
+    if (s === null) throw new Error("no section");
+    const card = sectionCard({ title: "Launch", view: s.view, resource: "R", sectionId: "S" });
+    expect(card.shared).toEqual(expect.arrayContaining([BODY_DELETE_TEXT, WHOLE_COPY_TEXT]));
+    expect(paneTexts(m("healthy-can-invite"))).toContain(DETACH_TEXT);
   });
 
   it("D9: the section under the cursor, else the one chosen, else the one just joined", () => {

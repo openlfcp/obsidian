@@ -117,6 +117,20 @@ describe("pane focus", () => {
     expect(document.activeElement?.textContent).toBe("Detach this section");
   });
 
+  it("LFCP-03-019: says what deleting, removing the copy and detaching do, beside the menu", () => {
+    const s = doc.states.find((x) => x.id === "healthy-can-invite");
+    if (s === undefined) throw new Error("no state");
+    const model = paneModel(paneFactsOf(s.facts));
+    renderPane(root, model, { action: () => undefined });
+    const block = root.querySelector(".openlfcp-pane-effects");
+    expect(block?.getAttribute("aria-label")).toBe("What changes do here");
+    expect(
+      Array.from(block?.querySelectorAll(".openlfcp-pane-line") ?? []).map((x) => x.textContent),
+    ).toEqual([...model.effects]);
+    // Shown with the menu closed: the user reads it before opening "More actions".
+    expect(root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open).toBe(false);
+  });
+
   it("never takes focus from outside the pane on an update", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);

@@ -226,7 +226,13 @@
         "disabled": [
           { "action": "share-section", "reason": "The cursor is inside a shared section." }
         ],
-        "requiredClaims": ["Current as last checked with the server. This does not mean others have seen it.", "In 2 notes"],
+        "requiredClaims": [
+          "Current as last checked with the server. This does not mean others have seen it.",
+          "In 2 notes",
+          "Deleting text inside this section deletes it for everyone who has this section.",
+          "Removing this whole copy from the note, or deleting the note, removes only this copy.",
+          "everyone's access stay as they are"
+        ],
         "forbiddenClaims": ["On this device:", "everyone has it", "synced with everyone"]
       }
     },
@@ -273,7 +279,7 @@
           { "action": "invite", "reason": "You can't invite others to this section." }
         ],
         "requiredClaims": ["You can read this section, not edit it."],
-        "forbiddenClaims": ["You can edit this section.", "access was removed", "not a member"]
+        "forbiddenClaims": ["You can edit this section.", "access was removed", "not a member", "deletes it for everyone"]
       }
     },
     {
