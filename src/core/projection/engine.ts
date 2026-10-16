@@ -277,7 +277,7 @@ export class ProjectionEngine {
           note(
             p,
             "RESOURCE_UNSUPPORTED",
-            "This collaboration needs a newer version of Shared Tasks; nothing is sent.",
+            "This needs a newer version of Shared Tasks; nothing is sent.",
           );
         continue;
       }

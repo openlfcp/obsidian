@@ -52,7 +52,8 @@ const MESSAGES: Partial<Record<SectionDiagnostic["code"], string>> = {
   NODE_BINDING_LOST: "Cannot safely match this text to its shared item: the task's line is gone.",
   NODE_KIND_MISMATCH: "Cannot safely match this text to its shared item: its kind changed.",
   NODE_BINDING_DUPLICATE: "Cannot safely match this text to its shared item: it appears twice.",
-  FOREIGN_RESOURCE_REF: "This task belongs to another collaboration: move it out of the section.",
+  // Its ref names another shared section or a 0.1 shared task: neutral, as either reads it.
+  FOREIGN_RESOURCE_REF: "This task is shared elsewhere: move it out of the section.",
 };
 
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]|$)/;
