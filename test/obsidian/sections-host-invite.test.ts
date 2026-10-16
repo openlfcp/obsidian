@@ -117,9 +117,14 @@ describe("SectionsHost.inviteRefusal (LFCP-03-041)", () => {
     await vi.advanceTimersByTimeAsync(10);
     const reads = t.reads.length;
     const passes = t.schedule.mock.calls.length;
+    // The pane's status listener is not woken by the stop: only the waiting check is.
+    let pane = 0;
+    const offPane = t.h.onStatusChange(() => pane++);
     t.h.stop();
     await vi.advanceTimersByTimeAsync(0);
     expect(await check).toBe(INVITE_STOPPED);
+    expect(pane).toBe(0);
+    offPane();
     expect(t.reads.length).toBe(reads);
     expect(t.schedule.mock.calls.length).toBe(passes);
     expect(t.listening()).toBe(0);
