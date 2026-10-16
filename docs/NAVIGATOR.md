@@ -15,7 +15,7 @@
 | [demos/two-vault-demo.md](demos/two-vault-demo.md) | everyone | The canonical two-vault demo in real Obsidian, step by step with expected results (LFCP-072) |
 | [assets/shared-tasks-demo.gif](assets/shared-tasks-demo.gif) | everyone | The demo animation shown in the README: a task ticked in one vault updates in the other (synthetic notes) |
 | [guides/user-guide.md](guides/user-guide.md) | everyone | Step-by-step user guide: install, create, share, invite, join, many tasks at once, offline, conflicts, troubleshooting |
-| [guides/shared-sections.md](guides/shared-sections.md) | everyone | Shared sections (preview): turn it on, share, invite, join and insert, what the marks mean, offline, conflicts, copying, removing access, detaching, repair, limits |
+| [guides/shared-sections.md](guides/shared-sections.md) | everyone | Shared sections: share, invite, join and insert, what the marks mean, offline, conflicts, copying, removing access, detaching, repair, limits |
 | [guides/choosing-a-server.md](guides/choosing-a-server.md) | everyone | Choosing a sync server: the project server wss://sync.openlfcp.org as the default, why the choice is permanent, running your own |
 | [devel/testing/mobile-sections-checklist.md](devel/testing/mobile-sections-checklist.md) | developers, owner | Manual checks of read-only shared sections on one mobile device (LFCP-02-095, V3) |
 | [devel/testing/two-obsidian-beta-check.md](devel/testing/two-obsidian-beta-check.md) | release | One-page manual check of a 0.4 beta on two real Obsidian vaults: invitation, editing together, offline, a conflict, removing access |
