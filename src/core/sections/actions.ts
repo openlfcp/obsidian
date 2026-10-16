@@ -66,7 +66,7 @@ import type {
   SectionServices,
   TaskWait,
 } from "./action-ports";
-import { markdownState, newProjectionId } from "./base";
+import { markdownState, newProjectionId, type StoredBase } from "./base";
 import { sectionAtLine, sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
 import { heldPasted, pastedBase, showsModel } from "./engine";
@@ -166,6 +166,13 @@ const SHARE_AGAIN = "Share the section again in a moment.";
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** What Keep my version did for a section whose Task cannot be compared (no base guessed). */
+/** Review N1: a section twice in the note, each copy holding pasted lines (LFCP-03-047). */
+const PASTED_TWICE =
+  "This section is in this note twice, and both copies hold pasted lines that differ from the shared version: remove one copy, then repair again.";
+/** Review N3: Use the shared version found no base to change (LFCP-03-047). */
+const PASTED_GONE =
+  "Shared Tasks: your text is kept as a recovery copy on this device, but this copy's state changed meanwhile. Nothing was replaced: open the repair again.";
+
 const KEPT_WAITING: Record<TaskWait, string> = {
   "task-loading":
     "Shared Tasks: this note's version is kept as it is. A Task in it is still loading; once it has, the section asks again if the two versions differ.",
@@ -1318,13 +1325,12 @@ export class SectionActions {
       (a, b) => Number(b.line === focus) - Number(a.line === focus),
     );
     const known = new Set<string>();
-    /** Sections whose base holds pasted nodes (LFCP-03-047), by key: the projection. */
-    const holding = new Map<string, string>();
+    /** The note's bases in the store's order: the engine matches them to sections in it (LFCP-03-047). */
+    const stored: { readonly id: string; readonly base: StoredBase }[] = [];
     for (const id of await bases.projectionsOf(at.path)) {
       const b = await bases.load(id);
       if (b !== undefined) known.add(sectionKey(b.locator.section));
-      if (b !== undefined && (b.pasted ?? []).length > 0)
-        holding.set(sectionKey(b.locator.section), id);
+      if (b !== undefined) stored.push({ id, base: b });
     }
     const lost: (LostBase & {
       section: ParsedSection;
@@ -1402,23 +1408,44 @@ export class SectionActions {
       });
     }
     // LFCP-03-047: a section with a base that holds nodes the user pasted,
-    // shown otherwise than the model: only those nodes are compared. A
-    // section twice in the note is not (review F4): its bases cannot be told
-    // apart by key, and its bindings are duplicates the repair lists anyway.
-    const scanned = parseSections(md).sections;
-    const twice = (key: string) => scanned.filter((x) => sectionKey(x.ref) === key).length > 1;
-    for (const s of scanned) {
-      const key = sectionKey(s.ref);
-      if (twice(key)) continue;
-      const projectionId = holding.get(key);
-      const stored = projectionId === undefined ? undefined : await bases.load(projectionId);
-      if (projectionId === undefined || stored === undefined) continue;
+    // shown otherwise than the model: only those nodes are compared. Each
+    // occurrence of a section takes its base as the engine gives it one (the
+    // first unused base of that section, in the store's order); one without
+    // a base holds nothing. A section twice in the note, each occurrence
+    // holding pasted nodes, cannot be told apart by its key: the repair says
+    // so (review N1), it does not open empty.
+    const used = new Set<string>();
+    const holds: {
+      s: ParsedSection;
+      projectionId: string;
+      stored: StoredBase;
+      snap: SectionSnapshot;
+      ids: string[];
+    }[] = [];
+    for (const s of parseSections(md).sections) {
+      const k = stored.find((x) => !used.has(x.id) && sameSection(x.base.locator.section, s.ref));
+      if (k === undefined) continue;
+      used.add(k.id);
+      if ((k.base.pasted ?? []).length === 0) continue;
       const b64 = toBase64url(s.ref.resourceId);
       const snap = model.snapshot(b64, s.ref.sectionId);
       if (snap === undefined || !snap.ready) continue;
+      const ids = heldPasted(k.base, md, s, snap, (id) => ({ view: model.taskView(b64, id) }));
+      if (ids.length > 0) holds.push({ s, projectionId: k.id, stored: k.base, snap, ids });
+    }
+    const twice = (key: string) => holds.filter((h) => sectionKey(h.s.ref) === key).length > 1;
+    for (const h of holds)
+      if (twice(sectionKey(h.s.ref)))
+        items.push({
+          kind: "locate",
+          line: h.s.heading.line,
+          message: PASTED_TWICE,
+        });
+    for (const { s, projectionId, snap, ids } of holds) {
+      const key = sectionKey(s.ref);
+      if (twice(key)) continue;
+      const b64 = toBase64url(s.ref.resourceId);
       const tasks = (id: string) => ({ view: model.taskView(b64, id) });
-      const ids = heldPasted(stored, md, s, snap, tasks);
-      if (ids.length === 0) continue;
       const note = markdownState(md, s).state;
       const local: string[] = [];
       const shared: string[] = [];
@@ -1564,10 +1591,14 @@ export class SectionActions {
           });
           const { projectionId, ids } = l.pasted;
           const stored = await bases.load(projectionId);
+          if (stored === undefined) {
+            prompter.notice(PASTED_GONE);
+            return;
+          }
           // Again right before the base is saved: the awaits above let the
           // note change, and a base of its older text would send the newer
           // as an edit (review F3).
-          if (stored === undefined || (await changed())) return;
+          if (await changed()) return;
           await bases.save(projectionId, pastedBase(stored, md, l.section, l.snap, "shared", ids));
           await journal.resolveCandidate(`pasted:${projectionId}`);
           services.pass(path);

@@ -2678,6 +2678,88 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       expect((await t.bases.load("projection-known"))?.pasted).toEqual([T]);
     });
 
+    it("review F3: a note changed while Use the shared version runs keeps its hold", async () => {
+      const { t, actions } = await held();
+      const load = t.bases.load.bind(t.bases);
+      t.bases.load = async (id) => {
+        // Between the first check and the base's save: the user types.
+        t.notes.files.set("Plan.md", edited.replace("Local edit", "Newer edit"));
+        return load(id);
+      };
+      await actions.useShared(KEY);
+      expect(t.prompter.notices.at(-1)).toBe(
+        "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
+      );
+      expect((await load("projection-known"))?.pasted).toEqual([T]);
+    });
+
+    it("review N3: Use the shared version with the base gone says the copy is kept and what to do", async () => {
+      const { t, actions } = await held();
+      await t.bases.save("projection-known", null);
+      await actions.useShared(KEY);
+      expect(t.kept).toHaveLength(1);
+      expect(t.prompter.notices.at(-1)).toBe(
+        "Shared Tasks: your text is kept as a recovery copy on this device, but this copy's state changed meanwhile. Nothing was replaced: open the repair again.",
+      );
+    });
+
+    /** `edited` and a second copy of the section after it, held as one with the paste. */
+    async function heldWithCopy(copy: string) {
+      const both = `${edited}${copy}`;
+      const t = wired(both);
+      await unknownBase(t);
+      await t.passes(2, PASTED);
+      expect((await t.bases.load("projection-known"))?.pasted).toEqual([T]);
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [, lost, actions] = opened(t);
+      return { t, lost, actions, both };
+    }
+
+    it("review N1: a second, empty copy of the section: the pasted Task is still offered", async () => {
+      const { t, lost, actions } = await heldWithCopy(
+        ["## Launch copy", formatBoundary("start", S), formatBoundary("end", S), ""].join("\n"),
+      );
+      expect(lost.map((l) => l.key)).toContain(KEY);
+      await actions.shareMine(KEY);
+      await t.passes(3);
+      expect(t.replica.task(T)?.task?.title).toBe("Local edit");
+    });
+
+    it("review N1: a second copy that shows the Task as the model: the pasted one is still offered", async () => {
+      const { t, lost, actions } = await heldWithCopy(
+        noteWith("- [ ] Original 📅 2026-11-01").replace("## Launch", "## Launch copy"),
+      );
+      const row = lost.find((l) => l.key === KEY);
+      expect(row?.lines.map((l) => [l.kind, l.text])).toEqual([
+        ["local", "- [ ] Local edit 📅 2026-11-05"],
+        ["shared", "- [ ] Original 📅 2026-11-01"],
+      ]);
+      await actions.useShared(KEY);
+      expect((await t.bases.load("projection-known"))?.pasted).toBeUndefined();
+    });
+
+    it("review N1: both copies hold pasted lines: the repair says so, never opens empty", async () => {
+      const both = `${edited}${edited.replace("## Launch", "## Launch copy")}`;
+      const t = wired(both);
+      const base = (id: string) =>
+        t.bases.save(id, {
+          locator: { path: "Plan.md", section: S },
+          state: { title: "Launch", nodes: {}, order: {} },
+          revision: t.port.snapshot(R0, SID)?.revision ?? "",
+          pasted: [T],
+        });
+      await base("projection-a");
+      await base("projection-b");
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [items, lost] = opened(t);
+      expect(lost.filter((l) => l.key === KEY)).toEqual([]);
+      expect(
+        items.filter(
+          (i) => i.kind === "locate" && i.message.startsWith("This section is in this note twice"),
+        ),
+      ).toHaveLength(2);
+    });
+
     it("review F1: a collaborator's change after the comparison stays theirs under Keep my version (Task)", async () => {
       const { t, actions } = await held();
       t.replica.apply(complete(t.replica.task(T)?.task as Task).intent);
