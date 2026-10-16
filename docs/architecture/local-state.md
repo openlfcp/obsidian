@@ -10,7 +10,7 @@ it syncs with the vault.
 
 | State | Where | Synced with the vault? |
 | --- | --- | --- |
-| Control Records, Data Units, Key Packages, Snapshots, outbound queue, sequence counters, profile checkpoints (plaintext Shared Objects state), Resource rows and labels | IndexedDB database `openlfcp-v1-<installId>` (`@openlfcp/storage-idb`) in Obsidian's profile directory | No |
+| Control Records, Data Units, Key Packages, Snapshots, outbound queue, sequence counters, profile checkpoints (Shared Objects state, sealed at rest since 0.4.0), Resource rows and labels | IndexedDB database `openlfcp-v1-<installId>` (`@openlfcp/storage-idb`) in Obsidian's profile directory | No |
 | Principal private keys, Resource DEKs | `app.secretStorage`, slots `openlfcp-<installId>-<hash of the SecretRef>` | No (device-level, shared by all vaults) |
 | Install marker: install ID, Principal, high-water mark of every sequence counter | `app.secretStorage` slot `openlfcp-<installId>-marker` | No |
 | Install ID of this vault on this device | `app.saveLocalStorage("openlfcp-install")`, vault-scoped | No |
@@ -54,10 +54,15 @@ why writing stopped.
 
 ## Plaintext at rest
 
-Profile checkpoints are the decrypted Shared Objects state. They are as safe
-as the OS user's profile directory, the same exposure as the CLI's 0600
-SQLite file. Follow-up (not in LFCP-059): wrap checkpoints in AEAD with a
-device key kept in `app.secretStorage`.
+Until 0.3.x, profile checkpoints (the decrypted Shared Objects state) were
+stored in plaintext, as safe as the OS user's profile directory. Since
+Shared Tasks 0.4.0 (LFCP-02-098) the profile checkpoints and the plugin's own
+`plugin:` rows in the meta store are sealed at rest under a local state key
+kept in `app.secretStorage`; an older plugin's plaintext rows are sealed on
+first start, and "Rotate key" replaces the key (`src/core/lfcp/local-seal.ts`,
+[0.4.0 release notes](../releases/0.4.0.md),
+[0.4 compatibility](../releases/0.4-compatibility.md)). The notes themselves
+stay plain Markdown in the vault.
 
 ## Automerge wasm
 
