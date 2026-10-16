@@ -1334,8 +1334,8 @@ export class SectionActions {
       /** A Task the model cannot be drawn for here yet: no base is guessed for it. */
       /** A Task the model cannot be drawn for here: no base is guessed for it. */
       waiting: TaskWait | null;
-      /** A section with a base holding pasted nodes (LFCP-03-047): its projection. */
-      pasted?: string;
+      /** A section with a base holding pasted nodes (LFCP-03-047): its projection and the nodes compared. */
+      pasted?: { readonly projectionId: string; readonly ids: readonly string[] };
     })[] = [];
     const lines = md.split(/\r?\n/);
     for (const s of parseSections(md).sections) {
@@ -1402,9 +1402,14 @@ export class SectionActions {
       });
     }
     // LFCP-03-047: a section with a base that holds nodes the user pasted,
-    // shown otherwise than the model: only those nodes are compared.
-    for (const s of parseSections(md).sections) {
+    // shown otherwise than the model: only those nodes are compared. A
+    // section twice in the note is not (review F4): its bases cannot be told
+    // apart by key, and its bindings are duplicates the repair lists anyway.
+    const scanned = parseSections(md).sections;
+    const twice = (key: string) => scanned.filter((x) => sectionKey(x.ref) === key).length > 1;
+    for (const s of scanned) {
       const key = sectionKey(s.ref);
+      if (twice(key)) continue;
       const projectionId = holding.get(key);
       const stored = projectionId === undefined ? undefined : await bases.load(projectionId);
       if (projectionId === undefined || stored === undefined) continue;
@@ -1417,6 +1422,7 @@ export class SectionActions {
       const note = markdownState(md, s).state;
       const local: string[] = [];
       const shared: string[] = [];
+      const taskLines: Record<string, string> = {};
       let waiting: TaskWait | null = null;
       const lineOf = (nodes: ParsedSection["nodes"], id: string): number | undefined => {
         for (const n of nodes) {
@@ -1440,6 +1446,7 @@ export class SectionActions {
           comparableView(view) && at !== undefined ? modelTaskLine(md, at, id, tasks) : undefined;
         if (line !== undefined) {
           shared.push(line);
+          taskLines[id] = line;
           continue;
         }
         // As for a lost base: the reason that lasts longest wins.
@@ -1460,9 +1467,9 @@ export class SectionActions {
         section: s,
         snap,
         block: null,
-        taskLines: {},
+        taskLines,
         waiting,
-        pasted: projectionId,
+        pasted: { projectionId, ids },
       });
     }
     const running = new Set<Promise<void>>();
@@ -1512,17 +1519,16 @@ export class SectionActions {
         if (l.pasted !== undefined) {
           // Only the pasted nodes: the model's content is their base, so the
           // note's goes out as an edit (LFCP-03-047).
-          const stored = await bases.load(l.pasted);
-          const b64 = toBase64url(l.section.ref.resourceId);
-          const snap = model.snapshot(b64, l.section.ref.sectionId) ?? l.snap;
+          // The model as compared when the dialog opened, never as it is
+          // now: a collaborator's change since stays theirs (review F1).
+          const { projectionId, ids } = l.pasted;
+          const stored = await bases.load(projectionId);
           if (stored !== undefined)
             await bases.save(
-              l.pasted,
-              pastedBase(stored, md, l.section, snap, "mine", (id) => ({
-                view: model.taskView(b64, id),
-              })),
+              projectionId,
+              pastedBase(stored, md, l.section, l.snap, "mine", ids, l.taskLines),
             );
-          await journal.resolveCandidate(`pasted:${l.pasted}`);
+          await journal.resolveCandidate(`pasted:${projectionId}`);
         } else
           await bases.save(
             newProjectionId(),
@@ -1542,29 +1548,28 @@ export class SectionActions {
           // The pasted nodes as the note shows them are their base: the next
           // pass renders the model over them. The note's text is kept first,
           // and only the note the comparison was made on (LFCP-03-047).
-          const now = notes.capture(path)?.text ?? (await notes.read(path));
-          if (now !== md) {
+          const changed = async () => {
+            if ((notes.capture(path)?.text ?? (await notes.read(path))) === md) return false;
             prompter.notice(
               "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
             );
-            return;
-          }
+            return true;
+          };
+          if (await changed()) return;
           await journal.putCandidate({
             candidateId: `repair:${crypto.randomUUID()}`,
             projectionId: `repair:${path}`,
             reason: "base-unknown",
             sourceText: lines.slice(l.section.heading.line, l.section.endLine + 1).join("\n"),
           });
-          const stored = await bases.load(l.pasted);
-          const b64 = toBase64url(l.section.ref.resourceId);
-          if (stored !== undefined)
-            await bases.save(
-              l.pasted,
-              pastedBase(stored, md, l.section, l.snap, "shared", (id) => ({
-                view: model.taskView(b64, id),
-              })),
-            );
-          await journal.resolveCandidate(`pasted:${l.pasted}`);
+          const { projectionId, ids } = l.pasted;
+          const stored = await bases.load(projectionId);
+          // Again right before the base is saved: the awaits above let the
+          // note change, and a base of its older text would send the newer
+          // as an edit (review F3).
+          if (stored === undefined || (await changed())) return;
+          await bases.save(projectionId, pastedBase(stored, md, l.section, l.snap, "shared", ids));
+          await journal.resolveCandidate(`pasted:${projectionId}`);
           services.pass(path);
           this.#changed();
           prompter.notice(
