@@ -1532,6 +1532,7 @@ export class SectionsHost {
       const unchecked = this.#heldChecks.deleted(c.path);
       if (this.#projectionFacts.damaged(c.path, new Set()) || unchecked) this.scheduleStatus();
       this.editor.deleted(c.path);
+      await this.#dropBases(c.path);
       return;
     }
     if (c.kind === "rename") {
@@ -1555,6 +1556,21 @@ export class SectionsHost {
     if (!known && !text.includes(SECTION_MARK)) return;
     this.#index(c.path, text);
     this.editor.fileChanged(c.path, text);
+  }
+
+  /**
+   * A note was deleted (LFCP-03-046): its projections went with it, so their
+   * bases leave the local state too. A note made again at that path is a
+   * new copy: its sections are reconciled from no base.
+   */
+  async #dropBases(path: string): Promise<void> {
+    const bases = this.#bases;
+    if (bases === null) return;
+    for (const id of await bases.projectionsOf(path)) {
+      const b = await bases.load(id);
+      await bases.save(id, null);
+      if (b !== undefined) this.#projectionFacts.forget(sectionKey(b.locator.section), id);
+    }
   }
 
   #index(path: string, text: string): void {
