@@ -10,7 +10,7 @@ import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CollabCommands, type Prompter } from "../../../src/core/collab/commands";
-import { REMOVED_REJOIN } from "../../../src/core/collab/messages";
+import { ALREADY_HELD, REMOVED_REJOIN } from "../../../src/core/collab/messages";
 import { Collaboration, type CollabRuntime } from "../../../src/core/collab/service";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { MutationGuard } from "../../../src/core/projection/guard";
@@ -137,7 +137,7 @@ describe("what Join collaboration says to a removed member", () => {
 });
 
 describe("what Join collaboration says to a member already holding it (LFCP-03-042)", () => {
-  const said = async (profile: string): Promise<string | undefined> => {
+  const said = async (profile: string | null): Promise<string | undefined> => {
     const R = new Uint8Array(32) as ResourceId;
     const notices: string[] = [];
     const texts = ["lfcp://join/x", ""];
@@ -150,7 +150,10 @@ describe("what Join collaboration says to a member already holding it (LFCP-03-0
       collab: () =>
         ({
           join: async () => ({ kind: "already-member", resourceId: R }),
-          list: async () => [{ resourceId: R, profile }],
+          list: async () => {
+            if (profile === null) throw new Error("registry unavailable");
+            return [{ resourceId: R, profile }];
+          },
         }) as unknown as Collaboration,
       prompter,
       notes: {} as never,
@@ -169,5 +172,7 @@ describe("what Join collaboration says to a member already holding it (LFCP-03-0
     expect(await said(PROFILE_ID)).toBe(
       "Shared Tasks: this device is already in that collaboration.",
     );
+    // The registry could not be read: its kind is unknown, so neither.
+    expect(await said(null)).toBe(`Shared Tasks: ${ALREADY_HELD}`);
   });
 });

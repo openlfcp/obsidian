@@ -9,6 +9,12 @@ import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
 export const REMOVED_REJOIN =
   "You were removed from this section. Rejoining a section you were removed from isn't supported yet; your local copy stays on this device.";
 
+/**
+ * A join of a Resource this vault already holds, when its kind is not known
+ * (the registry could not be read): neither section nor 0.1 words (LFCP-03-042).
+ */
+export const ALREADY_HELD = "This vault had already joined it. No new claim was made.";
+
 const WIRE: Readonly<Record<string, string>> = {
   PROTOCOL_UNSUPPORTED: "The server does not speak a compatible version of LFCP.",
   MALFORMED_MESSAGE: "The server rejected a malformed request. Update the plugin and try again.",

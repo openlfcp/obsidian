@@ -34,7 +34,7 @@ import { toHex } from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { parseInviteUri } from "@openlfcp/wire";
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
-import { codeOf, plainCode, plainError, REMOVED_REJOIN } from "./messages";
+import { ALREADY_HELD, codeOf, plainCode, plainError, REMOVED_REJOIN } from "./messages";
 import type { Collaboration, JoinOutcome, JoinStage } from "./service";
 
 /** What the join flow needs of the collaboration flows (service.ts). */
@@ -397,8 +397,13 @@ export class JoinFlow {
           (e) => toHex(e.resourceId) === toHex(R),
         );
         if (entry?.profile !== SECTIONS_PROFILE_ID) {
+          // A 0.1 Resource as 0.1 said it; neutral when its profile cannot be read.
           if (from === "pane")
-            this.#env.notice("Shared Tasks: this device is already in that collaboration.");
+            this.#env.notice(
+              entry === undefined
+                ? `Shared Tasks: ${ALREADY_HELD}`
+                : "Shared Tasks: this device is already in that collaboration.",
+            );
           this.#end(generation);
           return;
         }
