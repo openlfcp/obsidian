@@ -2380,10 +2380,10 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       newTask: () => ({ id: T, title: "unused" }),
     });
     /** Passes on the note as the host would, writing their changes. */
-    const passes = async (n: number) => {
+    const passes = async (n: number, ctx: PassContext = CTX) => {
       for (let i = 0; i < n; i++) {
         const md = t.notes.files.get("Plan.md") ?? "";
-        const pass = await engine.pass("Plan.md", md, CTX);
+        const pass = await engine.pass("Plan.md", md, i === 0 ? ctx : CTX);
         const out = applyChanges(md, pass.changes);
         t.notes.files.set("Plan.md", out);
         await engine.written(pass, out);
@@ -2613,6 +2613,60 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       [["here", "loading", "here"], "task-loading"],
     ] as const)("%j: %s", async (waits, named) => {
       expect(await listed(waits)).toEqual([named]);
+    });
+  });
+
+  describe("a pasted Task its section's base does not know (LFCP-03-047)", () => {
+    const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
+    const PASTED: PassContext = { ...CTX, inserted: new Set([T]) };
+    /** The note with the pasted Task, held by a base that does not know it. */
+    async function held() {
+      const t = wired(edited);
+      await t.bases.save("projection-known", {
+        locator: { path: "Plan.md", section: S },
+        state: { title: "Launch", nodes: {}, order: {} },
+        revision: t.port.snapshot(R0, SID)?.revision ?? "",
+      });
+      expect(await t.passes(2, PASTED)).toBe(edited);
+      expect((await t.bases.load("projection-known"))?.pasted).toEqual([T]);
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [, lost, actions] = opened(t);
+      expect(lost.map((l) => [l.key, l.sharedUnavailable, l.taskWait])).toEqual([
+        [KEY, undefined, undefined],
+      ]);
+      // Only the pasted node is compared.
+      expect(lost[0]?.lines.map((l) => l.kind)).toEqual(["local", "shared"]);
+      return { t, actions };
+    }
+
+    it("is listed; Keep my version sends the note's fields", async () => {
+      const { t, actions } = await held();
+      await actions.shareMine(KEY);
+      expect(await t.passes(3)).toBe(edited);
+      expect(t.replica.task(T)?.task?.title).toBe("Local edit");
+      expect(t.replica.task(T)?.task?.due).toBe("2026-11-05");
+      expect((await t.bases.load("projection-known"))?.pasted).toBeUndefined();
+    });
+
+    it("is listed; Use the shared version keeps a copy and shows the model, nothing sent", async () => {
+      const { t, actions } = await held();
+      await actions.useShared(KEY);
+      expect(t.kept).toHaveLength(1);
+      expect(t.kept[0]?.sourceText).toContain("Local edit");
+      const out = await t.passes(2);
+      expect(out).toBe(MODEL_NOTE);
+      expect(t.port.changes).toEqual([]);
+      expect(t.replica.task(T)?.task?.title).toBe("Original");
+    });
+
+    it("Use the shared version on a note changed since the comparison replaces nothing", async () => {
+      const { t, actions } = await held();
+      t.notes.files.set("Plan.md", edited.replace("Local edit", "Newer edit"));
+      await actions.useShared(KEY);
+      expect(t.prompter.notices.at(-1)).toBe(
+        "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
+      );
+      expect((await t.bases.load("projection-known"))?.pasted).toEqual([T]);
     });
   });
 });
