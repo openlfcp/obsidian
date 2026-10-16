@@ -74,6 +74,6 @@ after it.
   (`src/core/note-targets.ts`) is not needed here.
 - A copy of a Resource that is not in the registry (pasted from elsewhere)
   is in the index but has no row.
-- The join flow still stores "Shared collaboration" as the local name when
-  the name is empty. That shows as a different alias until the join flow
-  changes (contract N5, RC-13).
+- A section joined with an empty name stores no local name: its row shows
+  the shared title, with no alias (contract N5, RC-13). Only a 0.1
+  Resource joined that way is stored as "Shared collaboration".
