@@ -2,6 +2,7 @@
 // good — the "Resource status" Sync row and the one notice. The flow against
 // the reference server is in live.test.ts.
 
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import type { ResourceStatus } from "../../../src/core/collab/service";
 import {
@@ -70,6 +71,25 @@ describe("a collaboration the server refused (POST-017)", () => {
   it("words the notice as Shared Tasks, with the collaboration's name", () => {
     expect(refusalNotice("Team", { code: "RESOURCE_NOT_HOSTED", url: URL })).toBe(
       `Shared Tasks: "Team" stopped syncing. Not hosted by ${URL}: the server no longer has this collaboration (RESOURCE_NOT_HOSTED). Your tasks stay on this device; see "Resource status".`,
+    );
+  });
+
+  it("says section for a shared section, collaboration for a 0.1 Resource (LFCP-03-042)", () => {
+    const section = status({ profile: SECTIONS_PROFILE_ID, localName: null });
+    expect(syncRow(section)).toBe(
+      `Not hosted by ${URL}: the server no longer has this section (RESOURCE_NOT_HOSTED)`,
+    );
+    expect(statusView(section).title).toBe("Shared section");
+    expect(statusView({ ...section, blocked: true }).banner).toMatch(
+      /^This section's history has forked/,
+    );
+    expect(
+      refusalNotice("Plan", { code: "AUTHORIZATION_FAILED", url: URL }, SECTIONS_PROFILE_ID),
+    ).toContain("may no longer read this section (AUTHORIZATION_FAILED)");
+    const legacy = status({ localName: null });
+    expect(statusView(legacy).title).toBe("Collaboration");
+    expect(statusView({ ...legacy, blocked: true }).banner).toMatch(
+      /^This collaboration's history has forked/,
     );
   });
 

@@ -34,6 +34,7 @@ import { plainError, REMOVED_REJOIN } from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
 import { type Hint, serverHint } from "./server-notice";
 import type { Collaboration, JoinStage, ResourceStatus } from "./service";
+import { resourceNoun } from "./view";
 
 export interface Choice<T> {
   readonly label: string;
@@ -127,9 +128,9 @@ export interface CommandEnv {
 }
 
 const STAGE_TEXT: Readonly<Record<JoinStage, string>> = {
-  connecting: "Connecting to the collaboration's server…",
+  connecting: "Connecting to the sync server…",
   "validating invitation": "Checking the invitation…",
-  "retrieving key": "Receiving the collaboration's key…",
+  "retrieving key": "Receiving the encryption key…",
   "claiming capability": "Claiming access…",
   synchronizing: "Synchronizing…",
   "loading section": "Loading the shared section…",
@@ -296,7 +297,11 @@ export class CollabCommands {
   ): Promise<ResourceId | null> {
     const entries = await collab.list();
     const choices: Choice<ResourceId | "new">[] = entries.map((e) => ({
-      label: e.localName ?? "(unnamed collaboration)",
+      label:
+        e.localName ??
+        (e.profile === SECTIONS_PROFILE_ID
+          ? "(unnamed shared section)"
+          : "(unnamed collaboration)"),
       description: `${STATE_TEXT[e.state]} · ${e.routes[0] ?? "no server"}`,
       value: e.resourceId,
     }));
@@ -319,7 +324,7 @@ export class CollabCommands {
     }
     if (entry?.state === "control_conflict" && options.blockedOk !== true) {
       this.#env.prompter.notice(
-        'Shared Tasks: this collaboration\'s history has forked. Sharing and invitations are blocked until it is resolved; see "Resource status".',
+        `Shared Tasks: this ${resourceNoun(entry.profile)}'s history has forked. Sharing and invitations are blocked until it is resolved; see "Resource status".`,
       );
       return null;
     }
@@ -393,7 +398,7 @@ export class CollabCommands {
       if (collab === null) return;
       const p = this.#env.prompter;
       const link = await p.text({
-        title: "Join collaboration",
+        title: "Join with a link",
         description: `Paste the invitation link (lfcp://join/…). ${ONE_TIME_LINK} Treat it like a password.`,
         placeholder: "lfcp://join/…",
         masked: true,
@@ -401,13 +406,13 @@ export class CollabCommands {
       if (link === null || link.trim() === "") return;
       // N5: optional; empty, a shared section shows its own title.
       const name = await p.text({
-        title: "Name this collaboration",
+        title: "Name on this device",
         description:
           "Optional: a name for it on this device. Only you see it. Leave it empty to use the shared section's own title.",
         placeholder: "Shared tasks",
       });
       if (name === null) return;
-      const progress = p.progress("Joining collaboration");
+      const progress = p.progress("Joining with a link");
       try {
         // The pane follows the same join (its stages, the section joined: D9).
         const outcome = await this.joins.run(link, {
@@ -415,13 +420,21 @@ export class CollabCommands {
           from: "palette",
           onStage: (s) => progress.update(STAGE_TEXT[s]),
         });
+        // Already held: a section in the section words, a 0.1 Resource as 0.1 said it.
+        const heldSection =
+          outcome.kind === "already-member" &&
+          (await collab.list().catch(() => [])).find(
+            (e) => toHex(e.resourceId) === toHex(outcome.resourceId),
+          )?.profile === SECTIONS_PROFILE_ID;
         p.notice(
           outcome.kind === "joined"
             ? outcome.section !== undefined
               ? `Shared Tasks: joined the shared section${name.trim() === "" ? "" : ` "${name.trim()}"`} (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}). ${outcome.section.loaded ? 'Use "Insert shared section…" to place it in a note.' : 'It is still arriving: use "Insert shared section…" once it has loaded.'}`
               : `Shared Tasks: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
             : outcome.kind === "already-member"
-              ? "Shared Tasks: this device is already in that collaboration."
+              ? heldSection
+                ? "Shared Tasks: this vault had already joined this section. No new claim was made."
+                : "Shared Tasks: this device is already in that collaboration."
               : outcome.kind === "removed"
                 ? `Shared Tasks: ${REMOVED_REJOIN}`
                 : outcome.kind === "needs-newer-version"

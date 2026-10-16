@@ -1128,6 +1128,8 @@ export default class OpenLfcpPlugin extends Plugin {
     const collab = this.#collaboration();
     if (collab === null) return;
     for (const { resourceId, name } of await collab.pendingJoins().catch(() => [])) {
+      // Unnamed (N5): what it joins is not known until it settles (LFCP-03-042).
+      const what = name === null ? "with the invitation link" : `"${name}"`;
       const settle = async (notice: Notice | null) => {
         notice?.hide();
         const out = await collab.resumeJoin(resourceId).catch((e: unknown) => ({
@@ -1135,23 +1137,23 @@ export default class OpenLfcpPlugin extends Plugin {
           message: e instanceof Error ? e.message : String(e),
         }));
         if (out.kind === "joined") {
-          new Notice(`Shared Tasks: joined "${name}". Joining had not finished before.`);
+          new Notice(`Shared Tasks: joined ${what}. Joining had not finished before.`);
           if (out.section !== undefined) this.sectionJoined(resourceId);
         } else if (out.kind === "not-claimed")
           new Notice(
-            `Shared Tasks: joining "${name}" did not go through, and the invitation was not used. Join again with the same link.`,
+            `Shared Tasks: joining ${what} did not go through, and the invitation was not used. Join again with the same link.`,
           );
         else if (out.kind === "unavailable") ask(out.message);
         else if (out.kind === "refused")
-          new Notice(`Shared Tasks: joining "${name}" was refused. ${out.message}`);
+          new Notice(`Shared Tasks: joining ${what} was refused. ${out.message}`);
       };
       const ask = (why: string) => {
         const joins = this.#joins;
         const generation = joins?.restore(resourceId, why) ?? null;
         const notice = new Notice(
           generation === null
-            ? `Shared Tasks: joining "${name}" didn't finish. ${why}`
-            : `Shared Tasks: joining "${name}" didn't finish. ${why} The Shared Tasks pane shows it.`,
+            ? `Shared Tasks: joining ${what} didn't finish. ${why}`
+            : `Shared Tasks: joining ${what} didn't finish. ${why} The Shared Tasks pane shows it.`,
           0,
         );
         const el = (notice as { messageEl?: HTMLElement }).messageEl;
@@ -1172,7 +1174,7 @@ export default class OpenLfcpPlugin extends Plugin {
             void this.actions.run("check-result", { join: generation }, "pane").then(() => {
               const s = joins.state();
               if (s?.generation === generation && s.stage === "choose-place")
-                new Notice(`Shared Tasks: joined "${name}". Joining had not finished before.`);
+                new Notice(`Shared Tasks: joined ${what}. Joining had not finished before.`);
             });
           });
         buttons.createEl("button", { text: "Give up" }).addEventListener("click", (e) => {
@@ -1184,7 +1186,7 @@ export default class OpenLfcpPlugin extends Plugin {
             return;
           }
           void collab.abandonJoin(resourceId).then(() => {
-            new Notice(`Shared Tasks: stopped joining "${name}". Your notes are unchanged.`);
+            new Notice(`Shared Tasks: stopped joining ${what}. Your notes are unchanged.`);
           });
         });
       };

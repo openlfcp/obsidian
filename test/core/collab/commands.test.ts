@@ -438,8 +438,8 @@ describe("LFCP-065 commands", () => {
     expect(s.prompter.described.join(" ")).not.toContain("only for you");
     expect(s.prompter.described[1]).toMatch(/^Optional:/);
     expect(s.prompter.progressLines).toEqual([
-      "Joining collaboration",
-      "Connecting to the collaboration's server…",
+      "Joining with a link",
+      "Connecting to the sync server…",
     ]);
     expect(s.prompter.notices.at(-1)).toMatch(
       /^Shared Tasks: could not join\. .*needs a connection/,
@@ -464,7 +464,7 @@ describe("LFCP-065 commands", () => {
     await first;
     // The second start asked nothing: its answers are still there.
     expect(s.prompter.texts).toEqual([link, "Again"]);
-    expect(s.prompter.progressLines.filter((l) => l === "Joining collaboration")).toHaveLength(1);
+    expect(s.prompter.progressLines.filter((l) => l === "Joining with a link")).toHaveLength(1);
   });
 
   it("Resource status: the view with a host action while hosting is pending", async () => {

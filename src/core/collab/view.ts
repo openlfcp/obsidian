@@ -31,8 +31,15 @@ const SYNC: Readonly<Record<ResourceStatus["state"], string>> = {
   refused: "Not syncing: refused by the server",
   recovering: "Waiting for the server to recover access",
   control_conflict: "Blocked",
-  unsupported: "Not syncing: this version of Shared Tasks cannot read this collaboration",
+  unsupported: "Not syncing: this version of Shared Tasks cannot read it",
 };
+
+/**
+ * What a Resource is called in a sentence (LFCP-03-042): a shared section in
+ * the section words (UX contract §2), a 0.1 Resource as 0.1 named it.
+ */
+export const resourceNoun = (profile: string | undefined): string =>
+  profile === SECTIONS_PROFILE_ID ? "section" : "collaboration";
 
 /**
  * What a server's terminal refusal (POST-017) means for the user, in one
@@ -40,13 +47,17 @@ const SYNC: Readonly<Record<ResourceStatus["state"], string>> = {
  * collaboration stops (no retries) until Obsidian restarts; the tasks stay
  * on this device either way.
  */
-export function refusalText(refusal: { readonly code: string; readonly url: string }): string {
+export function refusalText(
+  refusal: { readonly code: string; readonly url: string },
+  profile?: string,
+): string {
+  const noun = resourceNoun(profile);
   switch (refusal.code) {
     case "RESOURCE_NOT_HOSTED":
     case "RESOURCE_NOT_FOUND":
-      return `Not hosted by ${refusal.url}: the server no longer has this collaboration (${refusal.code})`;
+      return `Not hosted by ${refusal.url}: the server no longer has this ${noun} (${refusal.code})`;
     case "AUTHORIZATION_FAILED":
-      return `No access on ${refusal.url}: this device's identity may no longer read this collaboration (${refusal.code})`;
+      return `No access on ${refusal.url}: this device's identity may no longer read this ${noun} (${refusal.code})`;
     case "RESOURCE_TOMBSTONED":
       return `Deleted on ${refusal.url} (${refusal.code})`;
     // ADR 0008: the server lost the collaboration and does not let this device host it again.
@@ -73,11 +84,13 @@ export function rehostNotice(name: string, url: string): string {
 export function refusalNotice(
   name: string,
   refusal: { readonly code: string; readonly url: string },
+  profile?: string,
 ): string {
-  return `Shared Tasks: "${name}" stopped syncing. ${refusalText(refusal)}. Your tasks stay on this device; see "Resource status".`;
+  return `Shared Tasks: "${name}" stopped syncing. ${refusalText(refusal, profile)}. Your tasks stay on this device; see "Resource status".`;
 }
 
 export function statusView(s: ResourceStatus): StatusView {
+  const section = s.profile === SECTIONS_PROFILE_ID;
   const you = s.participants.find((p) => p.you);
   const owner = s.participants.find((p) => p.owner);
   const people = s.participants
@@ -102,7 +115,7 @@ export function statusView(s: ResourceStatus): StatusView {
             ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
             : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
               ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
-              : refusalText(s.refusal),
+              : refusalText(s.refusal, s.profile),
     },
     {
       label: "Hosting",
@@ -161,9 +174,9 @@ export function statusView(s: ResourceStatus): StatusView {
         ]),
   ];
   return {
-    title: s.localName ?? "Collaboration",
+    title: s.localName ?? (section ? "Shared section" : "Collaboration"),
     banner: s.blocked
-      ? "This collaboration's history has forked (control conflict). It is NOT in sync: sharing, invitations and other changes to who can access it are blocked until the owner resolves it."
+      ? `This ${resourceNoun(s.profile)}'s history has forked (control conflict). It is NOT in sync: sharing, invitations and other changes to who can access it are blocked until the owner resolves it.`
       : s.state === "unsupported"
         ? `${NEEDS_NEWER_VERSION}. Its data stays on this device, untouched.`
         : null,
