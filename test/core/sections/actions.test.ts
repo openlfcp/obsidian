@@ -2545,4 +2545,74 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     const [, lost] = opened(t) ?? [[], []];
     expect(lost ?? []).toEqual([]);
   });
+  describe("several Tasks waiting: the reason that lasts longest is named (LFCP-03-046)", () => {
+    const IDS = [
+      "019a2f85-7b31-7c42-b85a-fc843e2f4011",
+      "019a2f85-7b31-7c42-b85a-fc843e2f4012",
+      "019a2f85-7b31-7c42-b85a-fc843e2f4013",
+    ] as const;
+    type Wait = "loading" | "deleted" | "unreadable" | "here";
+    const three = (titles: readonly string[]) =>
+      [
+        "## Launch",
+        formatBoundary("start", S),
+        ...IDS.flatMap((id, i) => [
+          `- [ ] ${titles[i]}`,
+          `  <!-- lfcp-ref: lfcp1:${R0}#task:${id} -->`,
+        ]),
+        formatBoundary("end", S),
+        "",
+      ].join("\n");
+
+    /** Repair's listing of a note whose three Tasks are each as `waits` says. */
+    async function listed(waits: readonly [Wait, Wait, Wait]) {
+      const { replica } = SharedObjectsReplica.create({
+        resource: resourceId(fromBase64url(R0)),
+        principal: me,
+      });
+      for (const [i, id] of IDS.entries())
+        replica.apply(createTask({ id: id as never, title: `Task ${i}`, createdBy: me }).intent);
+      const model = three(IDS.map((_, i) => `Task ${i}`));
+      const port = new FakeSectionPort();
+      const sec = parseSections(model).sections[0];
+      if (sec === undefined) throw new Error("no section");
+      port.host(R0, SID, markdownState(model, sec).state);
+      const view = (id: string): TaskView | undefined => {
+        const v = replica.task(id);
+        const w = waits[IDS.indexOf(id as (typeof IDS)[number])];
+        if (v === undefined || w === "loading") return undefined;
+        if (w === "deleted")
+          return { ...v, task: { ...(v.task as Task), lifecycle: "deleted" } } as TaskView;
+        if (w === "unreadable") return { ...v, status: "object_id_collision" } as TaskView;
+        return v;
+      };
+      const t = setup(() => ({
+        bases: () => new MemorySectionBaseStore(),
+        model: () => ({
+          snapshot: (r, sid) => port.snapshot(r, sid),
+          task: (_r, id) => view(id)?.task,
+          taskView: (_r, id) => view(id),
+        }),
+        candidates: () => ({
+          putCandidate: async () => undefined,
+          allCandidates: async () => [],
+          resolveCandidate: async () => undefined,
+        }),
+      }));
+      t.notes.files.set("Plan.md", three(IDS.map((_, i) => `Local ${i}`)));
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      return opened(t)[1].map((l) => l.taskWait);
+    }
+
+    it.each([
+      [["loading", "deleted", "unreadable"], "task-unreadable"],
+      [["unreadable", "deleted", "loading"], "task-unreadable"],
+      [["deleted", "unreadable", "here"], "task-unreadable"],
+      [["loading", "deleted", "here"], "task-deleted"],
+      [["deleted", "loading", "here"], "task-deleted"],
+      [["here", "loading", "here"], "task-loading"],
+    ] as const)("%j: %s", async (waits, named) => {
+      expect(await listed(waits)).toEqual([named]);
+    });
+  });
 });
