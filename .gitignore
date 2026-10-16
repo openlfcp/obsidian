@@ -30,6 +30,8 @@ pnpm-debug.log*
 /test/native/plugins/section-sync/main.js
 # Native acceptance peer bundle (LFCP-02-066, same script)
 /test/native/peer.bundle.mjs
+# Native UX fixture host bundle (LFCP-03-025, same script)
+/test/native/fixture-host.bundle.js
 # Release assets (scripts/release-assets.mjs)
 /release/
 
