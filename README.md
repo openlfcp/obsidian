@@ -16,11 +16,14 @@ Website: [openlfcp.org](https://openlfcp.org)
 
 1. **Install.** In Obsidian 1.13.4 or later, open Settings → Community
    plugins → Browse, search for "Shared Tasks", install it and enable it.
-2. **Share.** Run "Shared Tasks: Create collaboration". Put the cursor on
-   a task and run "Shared Tasks: Share task under cursor".
+2. **Share.** Put the cursor on a heading and run "Shared Tasks: Share
+   section…" to share it with everything under it. Or share single tasks:
+   run "Shared Tasks: Create collaboration", put the cursor on a task and
+   run "Shared Tasks: Share task under cursor".
 3. **Invite.** Run "Shared Tasks: Invite collaborator" and send the
    one-time link privately. The other person runs "Join collaboration",
-   then "Insert shared object".
+   then "Insert shared section…" (for a section) or "Insert shared object"
+   (for a task).
 
 Step by step, with everyday use and troubleshooting:
 **[the user guide](docs/guides/user-guide.md)**.
@@ -36,10 +39,9 @@ Step by step, with everyday use and troubleshooting:
 - **Markdown stays Markdown.** A shared task is an ordinary task line in
   the Obsidian Tasks syntax (`📅 2026-10-20`, `✅`), with a small
   `<!-- lfcp-ref: … -->` comment that links it.
-- **Shared sections (preview).** Share a heading with everything under it:
+- **Shared sections.** Share a heading with everything under it:
   tasks, subtasks, paragraphs and lists, in order. Whatever is added to the
-  section later is shared too. This is off by default; see
-  [Shared sections](#shared-sections-preview).
+  section later is shared too. See [Shared sections](#shared-sections).
 
 ## Install
 
@@ -124,7 +126,7 @@ nothing and says so. A list shared this way is not itself shared: its
 order and heading, and tasks added to it later, stay local in each note.
 To share a section as a whole, use a shared section (below).
 
-## Shared sections (preview)
+## Shared sections
 
 A shared section is a heading and everything under it, down to the next
 heading of the same or a higher level. Everyone in it keeps the section in
@@ -132,8 +134,13 @@ their own note, edits it, and sees the others' changes. Its order, nesting
 and paragraphs are shared, and so is whatever is added inside it later.
 Each section has its own collaboration and its own key.
 
-Shared sections are a preview for Shared Tasks 0.4, off by default. Turn
-them on with `"sectionsPreview": true` in the plugin's `data.json`. The
+Shared sections are on since Shared Tasks 0.4.0: there is nothing to turn
+on. Put the cursor on a heading, or under it, and run "Shared Tasks: Share
+section…"; a preview shows exactly what will be shared and what stays
+private. The 0.3 setting `"sectionsPreview"` no longer does anything. To
+turn sections off, quit Obsidian, add `"sectionsDisabled": true` to
+`.obsidian/plugins/shared-tasks/data.json` and start it again; shared
+tasks work either way. The
 [shared sections guide](docs/guides/shared-sections.md) covers sharing,
 inviting, joining and inserting, what the marks mean, conflicts, removing
 access, detaching and repair.
@@ -197,25 +204,30 @@ and the value to keep; both notes then show it.
 ## Compatibility
 
 - Obsidian 1.13.4 or later.
-- Tested by hand on macOS with Obsidian 1.14.4: the two-vault demo, on a
-  build before 0.2.0
-  ([record](docs/devel/testing/platform-smoke-runs.md)); the 0.2.0 BRAT
-  install was checked on 2026-10-07.
+- Before 0.4.0, automated runs in real Obsidian 1.13.4 and 1.14.4 (on
+  Linux) checked a fresh install, updates from 0.3.4 and from a 0.4 beta,
+  turning the plugin off and on, light and dark theme in Source, Live
+  Preview and Reading view, and running with the Tasks plugin on and off
+  ([support matrix](docs/devel/testing/support-matrix-0.2.md)).
 - The automated platform smoke (build, tests and the two-vault E2E against
-  the real server) passes on macOS, Windows and Linux for 0.2.0. Windows
-  and Linux have not been tested by hand yet.
-- Mobile (iOS, Android) is not tested.
+  the real server) runs on macOS, Windows and Linux. The plugin has not
+  been tried by hand on Windows, nor with an input method (IME) for
+  languages such as Chinese, Japanese or Korean.
+- Mobile (iOS, Android): the plugin is not desktop-only, and on mobile it
+  opens shared sections read-only (see "Limitations"). Automated tests
+  cover that read-only path; it has not been tested on a phone or tablet.
 - Tasks use the Obsidian Tasks plugin's emoji syntax for dates, priority
-  and completion, and the projection tests cover it. Running together with
-  the Tasks plugin itself has not been tested.
+  and completion. Some Tasks tokens (🔁 🛫 ➕ ❌ 🔼) stay local to your
+  note; the share preview shows them.
 
 ## Limitations
 
 Beta software. **Not for data you need to protect yet.**
 
 - Data on the public server can be lost, including recent changes after
-  the server is restored from a backup; keep your vault, which holds the
-  full data of every collaboration.
+  the server is restored from a backup; keep your vault, whose notes hold
+  the text of everything you share, and keep this device's sync data (see
+  [Where your data is kept](#where-your-data-is-kept)).
 - A collaboration cannot move to another server.
 - Invitations offer "Read" and "Read + write" only. For tasks shared one
   by one, there is no member management in the plugin yet. For a shared
@@ -223,15 +235,50 @@ Beta software. **Not for data you need to protect yet.**
   access; copies they already received cannot be erased.
 - An invitation is a link (no QR code); a copied link stays on the
   clipboard.
-- Decrypted shared tasks are stored unencrypted on each device, like the
-  rest of your vault, and Obsidian's secret storage is shared by every
-  plugin on the device.
+- Shared text in your notes is ordinary Markdown, readable by anyone who
+  can read the vault; only the sync data is encrypted on the device (see
+  [Where your data is kept](#where-your-data-is-kept)). Obsidian's secret
+  storage, which holds the keys, is shared by every plugin on the device.
+- **Mobile.** Shared sections are read-only on mobile: they arrive and are
+  shown, and edits made there stay on the device. "Share section…",
+  inviting and removing access are not offered there; shared tasks are
+  not restricted. None of this has been tested on a real device yet.
+- **Section size.** About 200 tasks with their notes is the qualified size
+  of a section. A much larger one works, but each edit blocks the editor
+  for seconds. A section after many thousands of edits gets slower.
+- **No headings inside a section:** sharing offers to split it into
+  sections.
+- **No going back to 0.3.x** on a device once 0.4 has upgraded its sync
+  data; downgrade only to 0.4.x or later
+  ([details](docs/releases/0.4-compatibility.md)).
 
-All known limitations, verified: the release notes of
-[Shared Tasks](docs/releases/),
+All known limitations: the release notes of
+[Shared Tasks](docs/releases/) (for 0.4, [0.4.0](docs/releases/0.4.0.md)
+and [0.4.1](docs/releases/0.4.1.md)),
+[OpenLFCP MVP 0.2](https://github.com/openlfcp/.github/blob/main/docs/release/mvp-0.2-release-notes.md),
 [OpenLFCP MVP 0.1](https://github.com/openlfcp/.github/blob/main/docs/release/mvp-0.1-release-notes.md)
 and
 [server 0.2.0](https://github.com/openlfcp/.github/blob/main/docs/release/server-0.2.0-release-notes.md).
+
+## Where your data is kept
+
+- **Your notes are plain Markdown.** Shared tasks and sections are ordinary
+  text in your notes, with small `lfcp-` comments that link them. They are
+  stored like the rest of your vault, readable and not encrypted by Shared
+  Tasks; whoever can read your vault can read them.
+- **The sync data is encrypted on the device.** Since 0.4.0, Shared Tasks
+  keeps its local sync state (the collaborations' changes, the outgoing
+  queue) encrypted at rest, under a key kept on that device. Settings →
+  Shared Tasks → "Local encryption" → "Rotate key" replaces that key. This
+  is a separate layer from the end-to-end encryption of what goes to the
+  server.
+- **Keys and sync state are outside the vault.** Your identity, the
+  collaborations' keys and the sync data live in Obsidian's own storage on
+  this device (IndexedDB and secret storage), not in the vault folder.
+  A copy or backup of the vault holds your notes but not your place in
+  the collaborations: opened on another device, through Obsidian Sync,
+  iCloud or Git, Shared Tasks starts there as a new identity that is not a
+  member of them. The plugin's `data.json` holds only settings.
 
 ## Network use
 
@@ -260,8 +307,9 @@ payment.
   save it, holds no note text or secrets, and is never sent.
 - **The network,** only `wss://` connections to the servers of your
   collaborations (see "Network use").
-- **Local storage on this device:** IndexedDB for the sync state, and
-  Obsidian's secret storage for the keys; neither is inside the vault.
+- **Local storage on this device:** IndexedDB for the sync state,
+  encrypted at rest, and Obsidian's secret storage for the keys; neither
+  is inside the vault.
 - **Bundled WebAssembly.** The plugin ships Automerge (the CRDT engine) as
   WebAssembly inside `main.js`, stored compressed and decoded when the
   plugin starts. Nothing is downloaded at run time.
