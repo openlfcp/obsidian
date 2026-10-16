@@ -1013,6 +1013,15 @@ export class SectionsHost {
   }
   readonly #statusListeners = new Set<() => void>();
 
+  /** Set once the plugin unloads: an invite check still waiting gives up without a word. */
+  #stopped = false;
+
+  /** The plugin unloads: an invite check waiting now ends at once, and none asks again. */
+  stop(): void {
+    this.#stopped = true;
+    for (const l of [...this.#statusListeners]) l();
+  }
+
   /** The access list's facts the pane reads, by section key (LFCP-03-013). */
   readonly #paneAccess = new PaneAccessFacts({
     load: async (key) => {
@@ -1053,7 +1062,9 @@ export class SectionsHost {
    * of Resource `R`, or null when it may (I4, LFCP-03-041): the card's and
    * the pane's invite descriptor, on the section's facts. While its status
    * or its access check has not caught up (just shared, just started), it
-   * waits for them a few seconds; offline it says so at once.
+   * waits for them a few seconds; offline it says so at once. Once the
+   * host stopped (the plugin unloads) it answers INVITE_STOPPED: no dialog
+   * and no notice after unload.
    */
   inviteRefusal(R: ResourceId, waitMs?: number): Promise<string | null> {
     return inviteCheck(
@@ -1065,17 +1076,21 @@ export class SectionsHost {
           return c === "offline" || c === "failed";
         },
         refresh: () => this.scheduleStatus(),
-        next: (ms) =>
+        next: (ms, signal) =>
           new Promise<void>((resolve) => {
+            if (this.#stopped || signal?.aborted === true) return resolve();
             const done = () => {
               off();
               window.clearTimeout(timer);
+              signal?.removeEventListener("abort", done);
               resolve();
             };
             const off = this.onStatusChange(done);
             const timer = window.setTimeout(done, ms);
+            signal?.addEventListener("abort", done);
           }),
         now: () => Date.now(),
+        stopped: () => this.#stopped,
       },
       toBase64url(R),
       waitMs,

@@ -643,6 +643,8 @@ export default class OpenLfcpPlugin extends Plugin {
 
   override onunload(): void {
     this.#unloaded = true;
+    // An invite check still waiting gives up: no dialog or notice after unload.
+    this.sections?.stop();
     if (this.#lockRetry !== null) window.clearTimeout(this.#lockRetry);
     this.#lockRetry = null;
     this.changes.close();

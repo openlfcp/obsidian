@@ -19,6 +19,7 @@ import { renderNewTaskLine } from "../projection/render";
 import type { ObjectRef } from "../refs";
 import { splitLines } from "../refs/lines";
 import { type SectionContext, sectionContext } from "../sections/context";
+import { INVITE_STOPPED } from "../sections/invite-check";
 import type { RefPlacement } from "../settings";
 import {
   attachAll,
@@ -756,7 +757,8 @@ export class CollabCommands {
     if (section) {
       const refusal = await (this.#env.inviteRefusal?.(R) ?? INVITE_WAITS);
       if (refusal !== null) {
-        p.notice(`Shared Tasks: ${refusal}`);
+        // The plugin unloaded meanwhile: nothing is shown any more.
+        if (refusal !== INVITE_STOPPED) p.notice(`Shared Tasks: ${refusal}`);
         return;
       }
     }
