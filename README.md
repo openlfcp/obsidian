@@ -26,7 +26,7 @@ Website: [openlfcp.org](https://openlfcp.org)
    (for a task).
 
 Step by step, with everyday use and troubleshooting:
-**[the user guide](docs/guides/user-guide.md)**.
+**[the user guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md)**.
 
 ## What it does
 
@@ -80,7 +80,7 @@ Upgrading from 0.1.0, which was called "OpenLFCP": see
 
 ## Your first shared task
 
-New here? The [step-by-step guide](docs/guides/user-guide.md) covers setup
+New here? The [step-by-step guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md) covers setup
 and everyday use, including what to do when something goes wrong.
 
 Two people, each with their own vault and Shared Tasks installed. The
@@ -141,7 +141,7 @@ private. The 0.3 setting `"sectionsPreview"` no longer does anything. To
 turn sections off, quit Obsidian, add `"sectionsDisabled": true` to
 `.obsidian/plugins/shared-tasks/data.json` and start it again; shared
 tasks work either way. The
-[shared sections guide](docs/guides/shared-sections.md) covers sharing,
+[shared sections guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/shared-sections.md) covers sharing,
 inviting, joining and inserting, what the marks mean, conflicts, removing
 access, detaching and repair.
 
@@ -332,11 +332,12 @@ and editor conflict presentation.
 
 ### Scope
 
-The plugin implements the OpenLFCP MVP 0.1 product slice on
-sdk-ts: sharing Tasks between vaults over the MVP 0.1 subset of
-LFCP-WIRE-01 at `mvp-0.1-baseline.8`, not every deferred WIRE-01 feature
-(see `.github: docs/release/deferred-wire-01-features.md` (in [openlfcp/.github](https://github.com/openlfcp/.github))). Desktop only is
-tested; mobile is not.
+The plugin implements the OpenLFCP product slice on sdk-ts: shared Tasks
+and shared sections between vaults. The current pins are in `spec.lock`
+(spec tag), `server.lock` (reference server for live tests) and
+`package.json` (`@openlfcp/*` versions). Deferred WIRE-01 features:
+`.github: docs/release/deferred-wire-01-features.md` (in
+[openlfcp/.github](https://github.com/openlfcp/.github)).
 
 ### Documents
 
