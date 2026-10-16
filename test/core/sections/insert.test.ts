@@ -123,7 +123,8 @@ async function setup() {
     newOperationId: () => `op-${++n}`,
     createdBy: status.principalId,
     newProjectionId: () => `projection-${++n}`,
-    tasks: () => undefined,
+    // The section's Tasks as the host reads them (sections-host.ts): its Task lines are compared.
+    tasks: (res, taskId) => ({ view: port.taskView(res, taskId) }),
     newTask,
   });
   const outbound = async () => (await r.storage?.outbound.list(resourceOf(R)))?.length ?? 0;
