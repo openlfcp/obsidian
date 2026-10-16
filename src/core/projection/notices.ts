@@ -20,7 +20,7 @@ const ANNOUNCED: Partial<
   PROJECTIONS_DISAGREE: () =>
     "Shared Tasks: copies of one shared task in this note were edited differently; nothing was sent.",
   RESOURCE_UNSUPPORTED: () =>
-    "Shared Tasks: a task in this note belongs to a collaboration that needs a newer version of Shared Tasks. It does not sync here until you update the plugin.",
+    "Shared Tasks: a shared task in this note needs a newer version of Shared Tasks. It does not sync here until you update the plugin.",
   WRITE_FAILED: (d) => `Shared Tasks: a change could not be saved for sharing (${d.message}).`,
 };
 
