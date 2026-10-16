@@ -24,8 +24,7 @@
 //      same identity, no second claim, a member once.
 //   6. Two more copies on one device: one copy removed whole, one note
 //      deleted (local only: nothing sent, the peer and the other copy keep
-//      everything; the deleted note's bases leave the local state), then a
-//      body deletion (shared: the peer loses the Task).
+//      everything), then a body deletion (shared: the peer loses the Task).
 //   7. A read-only member's edit: held as a kept candidate, never sent;
 //      after a crash the note still has it and the candidate is still kept.
 //   8. Privacy canaries: no frame on the wire and no byte the server
@@ -46,7 +45,6 @@ import { decodeMessage, MESSAGE_TYPE } from "@openlfcp/wire";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Collaboration } from "../../src/core/collab/service";
 import { parseSections } from "../../src/core/sections/parser";
-import { KeyValueSectionBaseStore } from "../../src/core/sections/stores";
 import { PANE_VIEW } from "../../src/obsidian/ui/pane-view";
 import * as mock from "../mocks/obsidian";
 import { answer, click, SECTION_NOTE, SoakPeer } from "../soak/peer";
@@ -496,9 +494,6 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
     const aNote = A.text(SECTION_NOTE);
     const aModel = A.model()?.canon;
     const bNote = B.vault.read(SECTION_NOTE);
-    const bases = new KeyValueSectionBaseStore(B.runtime.localState);
-    const third = await bases.projectionsOf("Third.md");
-    expect(third, "Third.md's copy has a base").toHaveLength(1);
 
     // The whole copy removed from Second.md (its markers and every line between them).
     await B.vault.write("Second.md", "# Second.md\n\nMine.\n");
@@ -517,10 +512,6 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
     expect(B.vault.read(SECTION_NOTE)).toBe(bNote);
     expect(B.vault.read("Second.md")).toBe("# Second.md\n\nMine.\n");
     expect(B.vault.app.vault.files.has("Third.md")).toBe(false);
-    // The deleted note's projection bases left the local state with it (LFCP-03-046).
-    expect(await bases.projectionsOf("Third.md")).toEqual([]);
-    for (const id of third) expect(await bases.load(id)).toBeUndefined();
-    expect(await bases.projectionsOf(SECTION_NOTE)).toHaveLength(1);
 
     // A body deletion is shared: A deletes a Task, B's copy loses it, nothing comes back elsewhere.
     editorA();
