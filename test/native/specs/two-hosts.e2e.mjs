@@ -150,7 +150,15 @@ const openNote = (h, file, text, line) =>
       app.workspace.setActiveLeaf(leaf, { focus: true });
       const view = leaf.view;
       for (let i = 0; i < 60 && !(view instanceof obsidian.MarkdownView && view.editor.getValue() !== ""); i++) await new Promise((r) => setTimeout(r, 50));
-      view.editor.setCursor({ line, ch: 0 });
+      // A line number, or the title of a Task: the caret on that Task's line.
+      const at =
+        typeof line === "number"
+          ? line
+          : view.editor
+              .getValue()
+              .split("\n")
+              .findIndex((l) => /^[ \t]*[-*+] \[.\] /.test(l) && l.includes(`] ${line}`));
+      view.editor.setCursor({ line: Math.max(0, at), ch: 0 });
     },
     file,
     text,
@@ -538,14 +546,16 @@ for (const tasks of [false, true]) {
             input = document.querySelector(".openlfcp-pane input.openlfcp-pane-join-input");
           }
           if (input === null) return { field: false };
+          const type = input.type;
           input.focus();
           input.value = link;
           input.dispatchEvent(new Event("input", { bubbles: true }));
           [...document.querySelectorAll(".openlfcp-pane form button")].find((x) => x.textContent === "Join").click();
-          return { field: true, type: input.type, cleared: input.value === "" };
+          return { field: true, type, typeAfter: input.type, cleared: input.value === "", connected: input.isConnected };
         },
         ctx.link,
       );
+      evidence("TWO-HOSTS join field", { mode, field });
       expect(field.field).toBe(true);
       expect(field.type).toBe("password");
       const steps = [];
@@ -682,7 +692,7 @@ for (const tasks of [false, true]) {
     });
 
     it("A removes B's access; B's own UI says so; B's next edit stays in B's note and never reaches A", async () => {
-      await openNote(hosts.A, ctx.aFile, "", 0);
+      await openNote(hosts.A, ctx.aFile, "", "Beta");
       const removing = await on(hosts.A, async ({ app }) => {
         app.commands.executeCommandById("shared-tasks:open-section-details");
         let row;
@@ -705,11 +715,21 @@ for (const tasks of [false, true]) {
       expect(removing.error).toBeUndefined();
       // B learns it at its next contact with the server: its own edit.
       const typedB = await typeAt(hosts.B, ctx.bFile, "Gamma", " after removal");
+      // The badges B goes through until it settles on one that is neither current nor sending.
+      const seenB = [];
       const held = await browser
-        .waitUntil(async () => ((await badgeOf(hosts.B, ctx.bFile)) !== "CURRENT" ? await badgeOf(hosts.B, ctx.bFile) : false), { timeout: 90_000 })
+        .waitUntil(
+          async () => {
+            const now = await badgeOf(hosts.B, ctx.bFile);
+            if (seenB.at(-1) !== now) seenB.push(now);
+            return now !== "CURRENT" && now !== "SENDING" && now !== null ? now : false;
+          },
+          { timeout: 90_000, interval: 250 },
+        )
         .catch(() => null);
       await browser.pause(3000);
-      await openNote(hosts.B, ctx.bFile, "", 0);
+      const notices = await on(hosts.B, () => [...document.querySelectorAll(".notice")].map((n) => n.textContent));
+      await openNote(hosts.B, ctx.bFile, "", "Beta");
       const card = await cardText(hosts.B);
       await shot(`${mode}-7-removed`);
       await closeModals(hosts.B);
@@ -721,6 +741,8 @@ for (const tasks of [false, true]) {
         removing,
         typedB,
         badgeB: held,
+        seenB,
+        notices,
         badgeA: await badgeOf(hosts.A, ctx.aFile),
         card: card?.slice(0, 500) ?? null,
         pane: pane.slice(0, 500),
