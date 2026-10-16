@@ -418,7 +418,10 @@ for (const tasks of [false, true]) {
       hosts.A = browser;
       if (hosts.B === null) {
         const caps = browser.requestedCapabilities;
-        version = caps.browserVersion ?? caps["wdio:obsidianOptions"]?.appVersion;
+        // The app's own version (browserVersion becomes Chrome's once the session runs).
+        const o = caps["wdio:obsidianOptions"] ?? {};
+        version = o.appVersion ?? process.env.NATIVE_OBSIDIAN;
+        evidence("TWO-HOSTS A options", { appVersion: o.appVersion ?? null, installerVersion: o.installerVersion ?? null });
         hosts.B = await startWdioSession({
           cacheDir,
           logLevel: "warn",
@@ -426,7 +429,7 @@ for (const tasks of [false, true]) {
             browserName: "obsidian",
             browserVersion: version,
             "wdio:obsidianOptions": {
-              installerVersion: version,
+              installerVersion: o.installerVersion ?? version,
               plugins: [root, { id: TASKS, version: "8.4.0", enabled: false }],
               vault: path.join(here, "../vaults/basic"),
             },
@@ -468,7 +471,7 @@ for (const tasks of [false, true]) {
       if (tasks) {
         await hosts.B?.deleteSession().catch((e) => evidence("TWO-HOSTS B close", { error: String(e) }));
         hosts.B = null;
-        await prepare(hosts.A, server.url, false).catch(() => undefined);
+        if (server !== undefined) await prepare(hosts.A, server.url, false).catch(() => undefined);
         await server?.stop();
         server = undefined;
       }
