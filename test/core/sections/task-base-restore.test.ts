@@ -311,3 +311,131 @@ describe("a node the base does not know, adopted as the note shows it (LFCP-03-0
     expect(port.changes).toEqual([]);
   });
 });
+
+describe("a pasted node the base does not know is held, not overwritten (LFCP-03-047)", () => {
+  const P = "019a2f85-7b31-7c42-b85a-fc843e2f4010";
+  /** A base for the section that does not know its node. */
+  const unknown = (h: { bases: MemorySectionBaseStore; port: FakeSectionPort }) =>
+    h.bases.save("projection-known", {
+      locator: { path: "note.md", section: S },
+      state: { title: "Section", nodes: {}, order: {} },
+      revision: h.port.snapshot(R, SID)?.revision ?? "",
+    });
+  const pasted = (id: string): PassContext => ({ ...CTX, inserted: new Set([id]) });
+  const para = (text: string) =>
+    [
+      "## Section",
+      formatBoundary("start", S),
+      formatNodeMarker("paragraph", P),
+      text,
+      formatBoundary("end", S),
+      "",
+    ].join("\n");
+  function paragraphSetup() {
+    const port = new FakeSectionPort();
+    const model = para("Original text");
+    const s = parseSections(model).sections[0];
+    if (s === undefined) throw new Error("no section");
+    port.host(R, SID, markdownState(model, s).state);
+    return setup(() => undefined, {
+      port,
+      bases: new MemorySectionBaseStore(),
+      journal: new MemorySectionJournalStore(),
+      op: 0,
+      projection: 0,
+    });
+  }
+  /** One pass as the host runs it, with `ctx`. */
+  const runWith = async (h: ReturnType<typeof setup>, md: string, ctx: PassContext) => {
+    const pass = await h.engine.pass("note.md", md, ctx);
+    const out = applyChanges(md, pass.changes);
+    await h.engine.written(pass, out);
+    return { pass, out };
+  };
+
+  /** The pasted note survives the paste's pass, later passes and a restart: nothing sent, a candidate. */
+  async function expectHeld(h: ReturnType<typeof setup>, edited: string, id: string) {
+    const first = await runWith(h, edited, pasted(id));
+    expect(first.pass.sections[0]?.skipped).toBe("base-unknown");
+    expect(first.out).toBe(edited);
+    for (let i = 0; i < 2; i++) {
+      const { pass, out } = await h.run("note.md", edited);
+      expect(pass.sections[0]?.skipped, `pass ${i + 2}`).toBe("base-unknown");
+      expect(out, `pass ${i + 2}`).toBe(edited);
+    }
+    const again = setup(() => undefined, h);
+    const after = await again.run("note.md", edited);
+    expect(after.out).toBe(edited);
+    expect(h.port.changes).toEqual([]);
+    expect((await h.bases.load("projection-known"))?.pasted).toEqual([id]);
+    const candidates = await h.journal.candidates("projection-known");
+    expect(candidates.map((c) => [c.candidateId, c.reason])).toEqual([
+      ["pasted:projection-known", "base-unknown"],
+    ]);
+    expect(candidates[0]?.sourceText).toContain(edited.split("\n")[2]);
+  }
+
+  it("a pasted Task with a changed title and date (the reviewer's probe)", async () => {
+    const replica = replicaWith();
+    const h = setup(() => replica.task(T));
+    await unknown(h);
+    const edited = note("- [ ] Local edit 📅 2026-11-05");
+    const first = await runWith(h, edited, pasted(T));
+    expect(first.out).toBe(edited);
+    // The rest with the Task readable on every engine, the restart's included.
+    const again = setup(() => replica.task(T), h);
+    for (let i = 0; i < 3; i++) {
+      const { pass, out } = await again.run("note.md", edited);
+      expect(pass.sections[0]?.skipped).toBe("base-unknown");
+      expect(out).toBe(edited);
+    }
+    expect(h.port.changes).toEqual([]);
+    expect(replica.task(T)?.task?.title).toBe("Original");
+    expect(replica.task(T)?.task?.due).toBe("2026-11-01");
+    expect((await h.journal.candidates("projection-known")).map((c) => c.reason)).toEqual([
+      "base-unknown",
+    ]);
+  });
+
+  it("a pasted paragraph with changed Text", async () => {
+    const h = paragraphSetup();
+    await unknown(h);
+    await expectHeld(h, para("Local text"), P);
+    expect(h.port.sections.get(R)?.state.nodes[P]?.text).toBe("Original text");
+  });
+
+  it("a pasted Task the model shows is taken at once, nothing held or kept", async () => {
+    const replica = replicaWith();
+    const h = setup(() => replica.task(T));
+    await unknown(h);
+    const { pass, out } = await runWith(h, MODEL, pasted(T));
+    expect(pass.sections[0]?.skipped).toBeUndefined();
+    expect(out).toBe(MODEL);
+    expect((await h.bases.load("projection-known"))?.state.nodes[T]).toBeDefined();
+    expect(await h.journal.candidates("projection-known")).toEqual([]);
+    expect(h.port.changes).toEqual([]);
+  });
+
+  it("held, then the note shows the model there: taken, the hold and its copy end", async () => {
+    const h = paragraphSetup();
+    await unknown(h);
+    await runWith(h, para("Local text"), pasted(P));
+    const { pass, out } = await h.run("note.md", para("Original text"));
+    expect(pass.sections[0]?.skipped).toBeUndefined();
+    expect(out).toBe(para("Original text"));
+    const base = await h.bases.load("projection-known");
+    expect(base?.state.nodes[P]?.text).toBe("Original text");
+    expect(base?.pasted).toBeUndefined();
+    expect(await h.journal.candidates("projection-known")).toEqual([]);
+    expect(h.port.changes).toEqual([]);
+  });
+
+  it("without the user's hint a different node is still taken as shown (D23: the crash case)", async () => {
+    const h = paragraphSetup();
+    await unknown(h);
+    // As the note an older model rendered before a crash: the model wins, nothing is sent.
+    const { out } = await h.run("note.md", para("Older text"));
+    expect((await h.run("note.md", out)).out).toBe(para("Original text"));
+    expect(h.port.changes).toEqual([]);
+  });
+});
