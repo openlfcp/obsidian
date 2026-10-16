@@ -30,7 +30,7 @@ import {
 } from "./batch";
 import { JoinFlow } from "./join-flow";
 import { attachToTask, detachExact, taskAt, unitPlacement } from "./markdown";
-import { plainError, REMOVED_REJOIN } from "./messages";
+import { ALREADY_HELD, plainError, REMOVED_REJOIN } from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
 import { type Hint, serverHint } from "./server-notice";
 import type { Collaboration, JoinStage, ResourceStatus } from "./service";
@@ -420,21 +420,25 @@ export class CollabCommands {
           from: "palette",
           onStage: (s) => progress.update(STAGE_TEXT[s]),
         });
-        // Already held: a section in the section words, a 0.1 Resource as 0.1 said it.
-        const heldSection =
-          outcome.kind === "already-member" &&
-          (await collab.list().catch(() => [])).find(
-            (e) => toHex(e.resourceId) === toHex(outcome.resourceId),
-          )?.profile === SECTIONS_PROFILE_ID;
+        // Already held: a section in the section words, a 0.1 Resource as 0.1 said it,
+        // and neutral words when its profile cannot be read.
+        const heldProfile =
+          outcome.kind === "already-member"
+            ? (await collab.list().catch(() => [])).find(
+                (e) => toHex(e.resourceId) === toHex(outcome.resourceId),
+              )?.profile
+            : undefined;
         p.notice(
           outcome.kind === "joined"
             ? outcome.section !== undefined
               ? `Shared Tasks: joined the shared section${name.trim() === "" ? "" : ` "${name.trim()}"`} (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}). ${outcome.section.loaded ? 'Use "Insert shared section…" to place it in a note.' : 'It is still arriving: use "Insert shared section…" once it has loaded.'}`
               : `Shared Tasks: joined "${name.trim() || "Shared collaboration"}" (${outcome.abilities.includes("data/write") ? "read and write" : "read only"}).`
             : outcome.kind === "already-member"
-              ? heldSection
+              ? heldProfile === SECTIONS_PROFILE_ID
                 ? "Shared Tasks: this vault had already joined this section. No new claim was made."
-                : "Shared Tasks: this device is already in that collaboration."
+                : heldProfile === undefined
+                  ? `Shared Tasks: ${ALREADY_HELD}`
+                  : "Shared Tasks: this device is already in that collaboration."
               : outcome.kind === "removed"
                 ? `Shared Tasks: ${REMOVED_REJOIN}`
                 : outcome.kind === "needs-newer-version"

@@ -14,7 +14,7 @@ import {
   JoinFlow,
   type JoinFlowState,
 } from "../../../src/core/collab/join-flow";
-import { REMOVED_REJOIN } from "../../../src/core/collab/messages";
+import { ALREADY_HELD, REMOVED_REJOIN } from "../../../src/core/collab/messages";
 import type { JoinOutcome, JoinStage } from "../../../src/core/collab/service";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -168,6 +168,17 @@ describe("the join flow (LFCP-03-015)", () => {
     expect(f.state()).toMatchObject({ stage: "choose-place", facts: [JOIN_TEXT.already] });
     expect(joined).toEqual([toHex(R)]);
     expect(s.calls.resume).toBe(0);
+  });
+
+  it("already joined, profile unreadable: neutral words, not the 0.1 ones (LFCP-03-042)", async () => {
+    const s = scripted([{ stages: [], outcome: { kind: "already-member", resourceId: R } }]);
+    s.collab.list = async () => {
+      throw new Error("registry unavailable");
+    };
+    const { f, notices } = flow(s.collab);
+    f.open();
+    await f.submit(LINK);
+    expect(notices.at(-1)).toBe(`Shared Tasks: ${ALREADY_HELD}`);
   });
 
   it("errors by their real cause, kept in the field until the next Join", async () => {
