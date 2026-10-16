@@ -1015,11 +1015,13 @@ export class SectionsHost {
 
   /** Set once the plugin unloads: an invite check still waiting gives up without a word. */
   #stopped = false;
+  /** The invite checks waiting now: stop() wakes them, not the pane's status listeners. */
+  readonly #inviteWaits = new Set<() => void>();
 
   /** The plugin unloads: an invite check waiting now ends at once, and none asks again. */
   stop(): void {
     this.#stopped = true;
-    for (const l of [...this.#statusListeners]) l();
+    for (const w of [...this.#inviteWaits]) w();
   }
 
   /** The access list's facts the pane reads, by section key (LFCP-03-013). */
@@ -1081,11 +1083,13 @@ export class SectionsHost {
             if (this.#stopped || signal?.aborted === true) return resolve();
             const done = () => {
               off();
+              this.#inviteWaits.delete(done);
               window.clearTimeout(timer);
               signal?.removeEventListener("abort", done);
               resolve();
             };
             const off = this.onStatusChange(done);
+            this.#inviteWaits.add(done);
             const timer = window.setTimeout(done, ms);
             signal?.addEventListener("abort", done);
           }),
