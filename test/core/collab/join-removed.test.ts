@@ -135,3 +135,39 @@ describe("what Join collaboration says to a removed member", () => {
     );
   });
 });
+
+describe("what Join collaboration says to a member already holding it (LFCP-03-042)", () => {
+  const said = async (profile: string): Promise<string | undefined> => {
+    const R = new Uint8Array(32) as ResourceId;
+    const notices: string[] = [];
+    const texts = ["lfcp://join/x", ""];
+    const prompter = {
+      notice: (m: string) => void notices.push(m),
+      text: async () => texts.shift() ?? null,
+      progress: () => ({ update: () => undefined, close: () => undefined }),
+    } as unknown as Prompter;
+    const commands = new CollabCommands({
+      collab: () =>
+        ({
+          join: async () => ({ kind: "already-member", resourceId: R }),
+          list: async () => [{ resourceId: R, profile }],
+        }) as unknown as Collaboration,
+      prompter,
+      notes: {} as never,
+      guard: new MutationGuard(),
+      placement: () => "child-line",
+      defaultServer: () => SERVER,
+    } as never);
+    await commands.joinCollaboration();
+    return notices.at(-1);
+  };
+
+  it("a shared section in the section words; a 0.1 Resource as 0.1 said it", async () => {
+    expect(await said(SECTIONS_PROFILE_ID)).toBe(
+      "Shared Tasks: this vault had already joined this section. No new claim was made.",
+    );
+    expect(await said(PROFILE_ID)).toBe(
+      "Shared Tasks: this device is already in that collaboration.",
+    );
+  });
+});

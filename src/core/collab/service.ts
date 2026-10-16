@@ -366,7 +366,8 @@ export class Collaboration {
     const key = toHex(R);
     const e = (await this.list()).find((x) => toHex(x.resourceId) === key);
     if (e === undefined)
-      throw new CollabError("UNKNOWN_RESOURCE", "This collaboration is not on this device.");
+      // Not in the registry: whether it is a section or a 0.1 Resource is not known.
+      throw new CollabError("UNKNOWN_RESOURCE", "It is not shared on this device.");
     return e;
   }
 
@@ -764,14 +765,17 @@ export class Collaboration {
   }
 
   /** Joins that did not finish: a claim sent and not settled (LFCP-02-110). */
-  async pendingJoins(): Promise<{ readonly resourceId: ResourceId; readonly name: string }[]> {
+  async pendingJoins(): Promise<
+    { readonly resourceId: ResourceId; readonly name: string | null }[]
+  > {
     const c = this.#context();
-    const out: { resourceId: ResourceId; name: string }[] = [];
+    const out: { resourceId: ResourceId; name: string | null }[] = [];
     for (const j of await pendingInvitationClaims(c.storage)) {
       const R = asResourceId(fromHex(j.resourceId));
       const record = (await this.#runtime.localState.get(joinNameKey(R))) as JoinRecord | undefined;
-      // A join without a name (N5) is named as the 0.1 commands always named one.
-      out.push({ resourceId: R, name: record?.name.trim() || "Shared collaboration" });
+      // A join without a name (N5): null, since what it joins (a section or a 0.1
+      // Resource) is not known until it settles (LFCP-03-042).
+      out.push({ resourceId: R, name: record?.name.trim() || null });
     }
     return out;
   }
@@ -847,7 +851,11 @@ export class Collaboration {
     if (refusal === null) return null;
     if (hosting === "pending" && refusal.code === "RESOURCE_NOT_HOSTED") return null;
     const entry = (await this.#runtime.registry()).find((e) => toHex(e.resourceId) === toHex(R));
-    return refusalNotice(entry?.localName ?? unnamedResource(entry?.profile), refusal);
+    return refusalNotice(
+      entry?.localName ?? unnamedResource(entry?.profile),
+      refusal,
+      entry?.profile,
+    );
   }
 
   /** "Resource status": the non-secret state of a collaboration. */

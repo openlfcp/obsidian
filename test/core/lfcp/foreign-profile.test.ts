@@ -112,8 +112,6 @@ describe("a Resource of another Data Profile (0.3.2)", () => {
       conflicts: [],
     });
     expect(view.banner).toContain(NEEDS_NEWER_VERSION);
-    expect(view.rows.find((row) => row.label === "Sync")?.value).toContain(
-      "cannot read this collaboration",
-    );
+    expect(view.rows.find((row) => row.label === "Sync")?.value).toContain("cannot read it");
   });
 });
