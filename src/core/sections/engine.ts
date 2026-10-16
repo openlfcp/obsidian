@@ -257,6 +257,26 @@ export function sameState(a: SectionState, b: SectionState): boolean {
   return order(a) === order(b);
 }
 
+/**
+ * Whether the note's section shows the model: what a projection without a
+ * base needs to seed one (MS11, CM11), its Task fields included
+ * (LFCP-03-043). The repair dialog lists a section without a base exactly
+ * when this is false, so the two never disagree on which sections wait.
+ */
+export function showsModel(
+  markdown: string,
+  section: ParsedSection,
+  snap: SectionSnapshot,
+  tasks: (taskId: string) => RenderTarget | undefined,
+): boolean {
+  const note = markdownState(markdown, section);
+  return (
+    note.unbound.length === 0 &&
+    sameState(note.state, sharedState(snap)) &&
+    tasksShowModel(markdown, section, tasks)
+  );
+}
+
 /** `changes` applied to `text` (ascending, not overlapping). */
 export function applyChanges(text: string, changes: readonly DocChange[]): string {
   let out = text;
@@ -727,11 +747,7 @@ export class SectionEngine {
       // next pass render the model over a title or checkbox edited here.
       const note = markdownState(source, section);
       const candidateId = `base-unknown:${projectionId}`;
-      if (
-        note.unbound.length > 0 ||
-        !sameState(note.state, shared) ||
-        !tasksShowModel(source, section, (taskId) => this.deps.tasks(resource, taskId))
-      ) {
+      if (!showsModel(source, section, snap, (taskId) => this.deps.tasks(resource, taskId))) {
         if (ctx.seedOnly === true)
           return { result: { projectionId, section: ref, ...none }, changes: [] };
         const lines = splitLines(source);

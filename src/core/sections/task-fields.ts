@@ -70,6 +70,11 @@ export function sameFields(a: Represented, b: Represented): boolean {
   );
 }
 
+/** Whether a Task's shared object can be compared with a line: here, a valid Task, not deleted. */
+export function comparableView(view: TaskView | undefined): boolean {
+  return view?.status === "ready" && view.task !== undefined && view.task.lifecycle !== "deleted";
+}
+
 /**
  * Whether every bound Task of `section` shows its shared object (LFCP-03-043).
  *
@@ -94,14 +99,7 @@ export function tasksShowModel(
   const shows = (n: SectionNode): boolean => {
     if (n.kind !== "task" || n.id === null) return true;
     const target = tasks(n.id);
-    const view = target?.view;
-    if (
-      target === undefined ||
-      view?.status !== "ready" ||
-      view.task === undefined ||
-      view.task.lifecycle === "deleted"
-    )
-      return false;
+    if (target === undefined || !comparableView(target.view)) return false;
     const p = refAt.get(n.lines.from);
     const text = lines[n.lines.from]?.text;
     if (p === undefined || p.objectId !== n.id || text === undefined) return false;

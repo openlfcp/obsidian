@@ -21,6 +21,7 @@ import {
   type EngineDeps,
   type PassContext,
   SectionEngine,
+  showsModel,
 } from "../../../src/core/sections/engine";
 import {
   formatBoundary,
@@ -30,6 +31,9 @@ import {
 } from "../../../src/core/sections/grammar";
 import { MemorySectionJournalStore } from "../../../src/core/sections/journal";
 import { parseSections } from "../../../src/core/sections/parser";
+import { modelTaskLine } from "../../../src/core/sections/remote";
+import { adoptedBase } from "../../../src/core/sections/repair";
+import { comparableView } from "../../../src/core/sections/task-fields";
 import { FakeSectionPort } from "./fake-port";
 
 const R = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -309,5 +313,38 @@ describe("a node the base does not know, adopted as the note shows it (LFCP-03-0
     expect(md).toBe(para("Peer text"));
     expect(port.sections.get(R)?.state.nodes[P]?.text).toBe("Peer text");
     expect(port.changes).toEqual([]);
+  });
+});
+
+// 0.4.2: the repair dialog lives in sections-host.ts (SectionActions on
+// main). These check the pieces it runs, as main's actions.test.ts does
+// through the dialog: the section is listed (showsModel), and Share my
+// version bases the Task on the model's line in the note's format, so the
+// note's fields are sent.
+describe("repair of a section the engine keeps waiting (LFCP-03-043, 0.4.2)", () => {
+  it("a Task-only difference is listed; a base on the model's Task line sends the note's fields", async () => {
+    const replica = replicaWith();
+    const stores = fresh();
+    stores.port.onTaskIntents = (intents) => {
+      for (const i of intents) replica.apply(i as never);
+    };
+    const h = setup(() => replica.task(T), stores);
+    const edited = note("- [ ] Local edit 📅 2026-11-05");
+    const first = await h.run("note.md", edited);
+    expect(first.pass.sections[0]?.skipped).toBe("base-unknown");
+    const s = parseSections(edited).sections[0];
+    const snap = h.port.snapshot(R, SID);
+    if (s === undefined || snap === undefined) throw new Error("no section");
+    const tasks = (id: string) => (id === T ? { view: replica.task(T) } : undefined);
+    expect(showsModel(edited, s, snap, tasks)).toBe(false);
+    expect(comparableView(replica.task(T))).toBe(true);
+    const line = modelTaskLine(edited, s.nodes[0]?.lines.from ?? -1, T, tasks);
+    expect(line).toBeDefined();
+    await h.bases.save("repaired", adoptedBase("note.md", s.ref, snap, { [T]: line as string }));
+    let md = edited;
+    for (let i = 0; i < 3; i++) md = (await h.run("note.md", md)).out;
+    expect(md).toBe(edited);
+    expect(replica.task(T)?.task?.title).toBe("Local edit");
+    expect(replica.task(T)?.task?.due).toBe("2026-11-05");
   });
 });

@@ -7,10 +7,51 @@
 import { type App, Modal } from "obsidian";
 import type { ComparedLine, RepairItem } from "../../core/sections/repair";
 
+/** Why a section's Task cannot be compared with its shared version (LostBase.taskWait). */
+export type TaskWait = "task-loading" | "task-unreadable" | "task-deleted";
+
+/** A section of a note whose base is lost: the note's lines against the shared ones. */
 export interface LostBase {
   readonly key: string;
   readonly title: string;
   readonly lines: readonly ComparedLine[];
+  /**
+   * The shared version cannot be written here (a model problem, a Task not
+   * drawable): Use the shared version is not offered; `lines` are the note's.
+   */
+  readonly sharedUnavailable?: true;
+  /**
+   * A Task of the section cannot be compared with its shared version, so
+   * Share my version guesses no base (the note's text stays as it is) — and
+   * why (LFCP-03-043):
+   * - `task-loading`: not here yet; the choice comes back once it has loaded;
+   * - `task-unreadable`: not a valid task (invalid, two objects under its
+   *   ID); the choice comes back once the shared version is fixed;
+   * - `task-deleted`: deleted in the shared version; nothing is sent while
+   *   it stays deleted.
+   */
+  readonly taskWait?: TaskWait;
+}
+
+const WAIT_TEXT: Record<TaskWait, string> = {
+  "task-loading":
+    "A Task in it is still loading: Share my version keeps this text as it is, and the section asks again once it has loaded.",
+  "task-unreadable":
+    "A Task in it is not a valid task in the shared version: Share my version keeps this text as it is, and the choice comes back once the shared version is fixed.",
+  "task-deleted":
+    "A Task in it is deleted in the shared version: Use the shared version shows that version and keeps this text as a recovery copy; Share my version keeps this text as it is, and nothing is sent while the Task stays deleted.",
+};
+
+/** The line under a lost base's lines: what they show, and what each choice does when it differs. */
+function caption(lost: LostBase): string {
+  const shown =
+    lost.sharedUnavailable === true
+      ? "This note's version. The shared version cannot be shown here."
+      : "− only in this note · + only in the shared version";
+  if (lost.taskWait !== undefined) return `${shown} ${WAIT_TEXT[lost.taskWait]}`;
+  return lost.sharedUnavailable === true
+    ? `${shown} Share my version keeps this note's version as this copy's base.`
+    : shown;
 }
 
 export interface RepairActions {
@@ -111,7 +152,7 @@ export class RepairModal extends Modal {
           cls: `openlfcp-diff-${l.kind}`,
         });
       box.createEl("p", {
-        text: "− only in this note · + only in the shared version",
+        text: caption(lost),
         cls: "setting-item-description",
       });
       const buttons = box.createDiv({ cls: "modal-button-container" });
@@ -119,12 +160,13 @@ export class RepairModal extends Modal {
         this.close();
         void this.actions.shareMine(lost.key);
       });
-      buttons
-        .createEl("button", { text: "Use the shared version" })
-        .addEventListener("click", () => {
-          this.close();
-          void this.actions.useShared(lost.key);
-        });
+      if (lost.sharedUnavailable !== true)
+        buttons
+          .createEl("button", { text: "Use the shared version" })
+          .addEventListener("click", () => {
+            this.close();
+            void this.actions.useShared(lost.key);
+          });
     }
   }
 

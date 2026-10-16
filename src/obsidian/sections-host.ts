@@ -31,15 +31,9 @@ import { type LfcpRuntime, SECTIONS_READ_ONLY } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { scanRefs } from "../core/refs";
 import { splitLines } from "../core/refs/lines";
-import { markdownState, newProjectionId } from "../core/sections/base";
+import { newProjectionId } from "../core/sections/base";
 import { type CreationEntry, type CreationResult, SectionCreation } from "../core/sections/create";
-import {
-  applyChanges,
-  type NotePass,
-  SectionEngine,
-  sameState,
-  sharedState,
-} from "../core/sections/engine";
+import { applyChanges, type NotePass, SectionEngine, showsModel } from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
 import {
   type InsertResult,
@@ -58,6 +52,7 @@ import {
   reappearedItems,
   recoveryItems,
 } from "../core/sections/recovery";
+import { modelTaskLine } from "../core/sections/remote";
 import {
   adoptedBase,
   boundaryRepair,
@@ -84,7 +79,7 @@ import {
   staleLabel,
 } from "../core/sections/stale-work";
 import { KeyValueSectionBaseStore, KeyValueSectionJournalStore } from "../core/sections/stores";
-import { newSectionTask } from "../core/sections/task-fields";
+import { comparableView, newSectionTask } from "../core/sections/task-fields";
 import type { RefPlacement, SectionComments } from "../core/settings";
 import { Announcer } from "../core/status/a11y";
 import { accessView, REMOVE_CONFIRMATION, revokeMessage } from "../core/status/access";
@@ -115,12 +110,22 @@ import {
 import { ImportSectionModal } from "./ui/import-section";
 import { InsertSectionModal, PickSectionModal, type SectionChoice } from "./ui/insert-section";
 import { RecoveryModal } from "./ui/recovery";
-import { type LostBase, RepairModal } from "./ui/repair";
+import { type LostBase, RepairModal, type TaskWait } from "./ui/repair";
 import { AliasModal, ConfirmModal, SectionCardModal } from "./ui/section-card";
 import { ShareSectionModal } from "./ui/share-section";
 
 /** The text a note with a shared section always contains. */
 const SECTION_MARK = "lfcp-section:";
+
+/** What Share my version did for a section whose Task cannot be compared (no base guessed). */
+const KEPT_WAITING: Record<TaskWait, string> = {
+  "task-loading":
+    "Shared Tasks: this note's version is kept as it is. A Task in it is still loading; once it has, the section asks again if the two versions differ.",
+  "task-unreadable":
+    "Shared Tasks: this note's version is kept as it is. A Task in it is not a valid task in the shared version; the choice comes back once the shared version is fixed.",
+  "task-deleted":
+    "Shared Tasks: this note's version is kept as it is. A Task in it is deleted in the shared version; nothing is sent while it stays deleted. Use the shared version to take that version instead.",
+};
 
 /** The nodes deleted in the model that one note shows again, in one section. */
 interface ReappearedInNote {
@@ -866,8 +871,14 @@ export class SectionsHost {
       const b = await bases.load(id);
       if (b !== undefined) known.add(sectionKey(b.locator.section));
     }
-    const lost: (LostBase & { section: ParsedSection; snap: SectionSnapshot; block: string })[] =
-      [];
+    const lost: (LostBase & {
+      section: ParsedSection;
+      snap: SectionSnapshot;
+      block: string | null;
+      taskLines: Record<string, string>;
+      /** A Task the model cannot be drawn for here: no base is guessed for it. */
+      waiting: TaskWait | null;
+    })[] = [];
     const lines = md.split(/\r?\n/);
     for (const s of parseSections(md).sections) {
       const key = sectionKey(s.ref);
@@ -875,25 +886,61 @@ export class SectionsHost {
       const b64 = toBase64url(s.ref.resourceId);
       const snap = port.snapshot(b64, s.ref.sectionId);
       if (snap === undefined || !snap.ready) continue;
-      if (sameState(markdownState(md, s).state, sharedState(snap))) continue;
+      // The engine's own test (LFCP-03-043): a section it keeps waiting is listed here.
+      const tasks = (id: string) => ({ view: port.taskView(b64, id) });
+      if (showsModel(md, s, snap, tasks)) continue;
       const block = renderSection(snap, s.ref, s.heading.level, {
         task: (id) => port.task(b64, id),
         placement: this.refPlacement(),
       });
-      if (block === null) continue;
       const local = lines.slice(s.startLine + 1, s.endLine).join("\n");
       const shared = block
-        .replace(/\r?\n$/, "")
+        ?.replace(/\r?\n$/, "")
         .split("\n")
         .slice(2, -1)
         .join("\n");
+      const taskLines: Record<string, string> = {};
+      let waiting: TaskWait | null = null;
+      // The reason that lasts longest wins: unreadable, then deleted, then loading.
+      const rank: Record<TaskWait, number> = {
+        "task-loading": 0,
+        "task-deleted": 1,
+        "task-unreadable": 2,
+      };
+      const wait = (why: TaskWait) => {
+        if (waiting === null || rank[why] > rank[waiting]) waiting = why;
+      };
+      const walk = (nodes: ParsedSection["nodes"]): void => {
+        for (const n of nodes) {
+          if (n.kind === "task" && n.id !== null) {
+            // The renderer leaves a line as it is for an object not here: no model line then.
+            const view = port.taskView(b64, n.id);
+            const line = comparableView(view)
+              ? modelTaskLine(md, n.lines.from, n.id, tasks)
+              : undefined;
+            if (line !== undefined) taskLines[n.id] = line;
+            // Not here yet: it loads. Deleted, or not a valid task: it will not by itself.
+            else if (view === undefined) wait("task-loading");
+            else if (view.status === "ready" && view.task?.lifecycle === "deleted")
+              wait("task-deleted");
+            else wait("task-unreadable");
+          }
+          walk(n.children);
+        }
+      };
+      walk(s.nodes);
       lost.push({
         key,
         title: s.heading.title,
-        lines: compare(local, shared),
+        lines: compare(local, shared ?? local),
+        // Use the shared version whenever it can be written; Share mine guesses no base for a Task it cannot compare.
+        ...(shared === undefined ? { sharedUnavailable: true as const } : {}),
+        ...(waiting === null ? {} : { taskWait: waiting }),
         section: s,
         snap,
         block,
+        taskLines,
+        waiting,
       });
     }
     new RepairModal(this.app, items, lost, {
@@ -909,13 +956,29 @@ export class SectionsHost {
       shareMine: async (key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
-        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap));
+        if (l.waiting !== null) {
+          // A Task whose shared version cannot be compared here: a base
+          // without its line would let the model's fields replace the
+          // note's once it can (LFCP-03-043). The note's text stays as it
+          // is, kept by the engine; the comparison is offered again then.
+          this.editor.remoteChanged(path);
+          new Notice(KEPT_WAITING[l.waiting]);
+          return;
+        }
+        await bases.save(newProjectionId(), adoptedBase(path, l.section.ref, l.snap, l.taskLines));
         this.editor.remoteChanged(path);
         new Notice("Shared Tasks: your version of this section is being shared.");
       },
       useShared: async (key) => {
         const l = lost.find((x) => x.key === key);
         if (l === undefined) return;
+        const block = l.block;
+        if (block === null) {
+          new Notice(
+            "Shared Tasks: the shared version cannot be written here yet. Nothing was replaced.",
+          );
+          return;
+        }
         // The note's text first, as a recovery copy kept on this device.
         await journal.putCandidate({
           candidateId: `repair:${crypto.randomUUID()}`,
@@ -927,7 +990,7 @@ export class SectionsHost {
         await this.#edit(path, (current) => {
           if (current !== md) return null;
           replaced = true;
-          return [sharedVersionChange(current, l.section, l.block)];
+          return [sharedVersionChange(current, l.section, block)];
         });
         if (!replaced) {
           new Notice(
