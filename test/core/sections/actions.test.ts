@@ -7,6 +7,7 @@
 
 import { fromBase64url, principalId, resourceId, toBase64url } from "@openlfcp/core";
 import {
+  complete,
   createTask,
   deleteTask,
   SharedObjectsReplica,
@@ -2333,6 +2334,7 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
   function wired(
     text: string,
     view: (r: SharedObjectsReplica) => TaskView | undefined = (r) => r.task(T),
+    modelNote = MODEL_NOTE,
   ) {
     const { replica } = SharedObjectsReplica.create({
       resource: resourceId(fromBase64url(R0)),
@@ -2342,9 +2344,9 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       createTask({ id: T as never, title: "Original", createdBy: me, due: "2026-11-01" }).intent,
     );
     const port = new FakeSectionPort();
-    const s = parseSections(MODEL_NOTE).sections[0];
+    const s = parseSections(modelNote).sections[0];
     if (s === undefined) throw new Error("no section");
-    port.host(R0, SID, markdownState(MODEL_NOTE, s).state);
+    port.host(R0, SID, markdownState(modelNote, s).state);
     port.onTaskIntents = (intents) => {
       for (const i of intents) replica.apply(i as never);
     };
@@ -2619,6 +2621,13 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
   describe("a pasted Task its section's base does not know (LFCP-03-047)", () => {
     const edited = noteWith("- [ ] Local edit 📅 2026-11-05");
     const PASTED: PassContext = { ...CTX, inserted: new Set([T]) };
+    /** A base for the section of `t`'s note that does not know its nodes. */
+    const unknownBase = (t: ReturnType<typeof wired>) =>
+      t.bases.save("projection-known", {
+        locator: { path: "Plan.md", section: S },
+        state: { title: "Launch", nodes: {}, order: {} },
+        revision: t.port.snapshot(R0, SID)?.revision ?? "",
+      });
     /** The note with the pasted Task, held by a base that does not know it. */
     async function held() {
       const t = wired(edited);
@@ -2667,6 +2676,61 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
         "Shared Tasks: the note changed meanwhile. Nothing was replaced; open the repair again.",
       );
       expect((await t.bases.load("projection-known"))?.pasted).toEqual([T]);
+    });
+
+    it("review F1: a collaborator's change after the comparison stays theirs under Keep my version (Task)", async () => {
+      const { t, actions } = await held();
+      t.replica.apply(complete(t.replica.task(T)?.task as Task).intent);
+      t.port.remote(R0, () => {});
+      await actions.shareMine(KEY);
+      await t.passes(3);
+      expect(t.replica.task(T)?.task?.status).toBe("done");
+      expect(t.replica.task(T)?.task?.title).toBe("Local edit");
+      expect(t.replica.task(T)?.task?.due).toBe("2026-11-05");
+    });
+
+    it("review F1: a collaborator's change after the comparison stays theirs under Keep my version (Text)", async () => {
+      const P = "019a2f85-7b31-7c42-b85a-fc843e2f4010";
+      const para = (text: string) =>
+        [
+          "## Launch",
+          formatBoundary("start", S),
+          `<!-- lfcp-node: paragraph:${P} -->`,
+          text,
+          formatBoundary("end", S),
+          "",
+        ].join("\n");
+      const t = wired(para("Original text, mine"), () => undefined, para("Original text"));
+      await unknownBase(t);
+      expect(await t.passes(2, { ...CTX, inserted: new Set([P]) })).toBe(
+        para("Original text, mine"),
+      );
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [, lost, actions] = opened(t);
+      expect(lost.map((l) => l.key)).toEqual([KEY]);
+      const compared = t.port.snapshot(R0, SID)?.revision;
+      t.port.remote(R0, (x) => {
+        const n = x.state.nodes[P];
+        if (n === undefined) throw new Error("no node");
+        x.state = {
+          ...x.state,
+          nodes: { ...x.state.nodes, [P]: { ...n, text: "Peer: Original text" } },
+        };
+      });
+      await actions.shareMine(KEY);
+      await t.passes(1);
+      // The edit the comparison showed, against the model compared: only ", mine" added.
+      const edits = t.port.changes
+        .flatMap((c) => c.intents)
+        .filter((i) => i.intent === "text.edit");
+      expect(edits).toEqual([
+        {
+          intent: "text.edit",
+          id: P,
+          edits: [{ index: 13, deleteCount: 0, insert: ", mine" }],
+          base: compared,
+        },
+      ]);
     });
   });
 });

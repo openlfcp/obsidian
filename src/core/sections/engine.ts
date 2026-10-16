@@ -460,12 +460,16 @@ export function heldPasted(
 
 /**
  * The user's choice in Repair for the pasted nodes a projection holds
- * (LFCP-03-047), as its new base. "mine": the base takes the model's content
- * where the model has the node, so what the note shows otherwise (its Text,
- * its fields, its place) goes out as an edit on the next pass. "shared": the
- * base takes the node as the note shows it, so the next pass renders the
- * model over it (the caller keeps the note's text first). Either way the
- * hold ends.
+ * (LFCP-03-047), as its new base: `ids` and the model `snap` as the user
+ * compared them, with `taskLines`, each Task's model line drawn then
+ * (modelTaskLine). Taken when the dialog opened, never when the choice is
+ * clicked: a collaborator's change in between stays a remote change, never
+ * reverted by the user's edit (review F1, as adoptedBase for a lost base).
+ * "mine": the base takes the model's content where the model has the node,
+ * so what the note shows otherwise (its Text, its fields, its place) goes
+ * out as an edit on the next pass. "shared": the base takes the node as the
+ * note shows it, so the next pass renders the model over it (the caller
+ * keeps the note's text first). Either way the hold ends.
  */
 export function pastedBase(
   stored: StoredBase,
@@ -473,15 +477,17 @@ export function pastedBase(
   section: ParsedSection,
   snap: SectionSnapshot,
   choice: "mine" | "shared",
-  tasks: (taskId: string) => RenderTarget | undefined,
+  compared: readonly string[],
+  taskLines: Readonly<Record<string, string>> = {},
 ): StoredBase {
   const note = markdownState(markdown, section).state;
-  const ids = heldPasted(stored, markdown, section, snap, tasks);
+  const ids = compared.filter(
+    (id) => note.nodes[id] !== undefined && stored.state.nodes[id] === undefined,
+  );
   const { pasted: _pasted, ...rest } = stored;
   const asModel = (id: string, n: NodeState): NodeState => {
     if (n.kind === "task") {
-      const at = taskLineOf(section, id);
-      const line = at === undefined ? undefined : modelTaskLine(markdown, at, id, tasks);
+      const line = taskLines[id];
       return line === undefined ? n : { ...n, line };
     }
     const text = snap.nodes[id]?.text;
@@ -492,10 +498,11 @@ export function pastedBase(
       ? withModelPlaced(stored.state, ids, (id) => note.nodes[id], snap, asModel)
       : withRestored(stored.state, note, ids);
   const nodeRevisions: Record<string, string | null> = { ...(stored.nodeRevisions ?? {}) };
-  // "mine": the base's Text is the model's at this revision; "shared": the
-  // note's, never the model's, so a Text edit waits until it is projected.
+  // "mine": the base's Text is the model's at the compared revision; "shared":
+  // the note's, never the model's, so a Text edit waits until it is projected.
   for (const id of ids) nodeRevisions[id] = choice === "mine" ? snap.revision : null;
-  return { ...rest, state, nodeRevisions };
+  const pasted = (stored.pasted ?? []).filter((id) => !ids.includes(id));
+  return { ...rest, state, nodeRevisions, ...(pasted.length === 0 ? {} : { pasted }) };
 }
 
 /** The section `ref` in `markdown`, at or after the line `near` had (the same projection). */
