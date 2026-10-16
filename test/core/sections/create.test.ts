@@ -173,13 +173,18 @@ describe("creating a shared section", () => {
       newOperationId: env.deps.newOperationId,
       createdBy: env.deps.createdBy,
       newProjectionId: () => "projection",
-      tasks: () => undefined,
+      // The section's Tasks as the host reads them (sections-host.ts).
+      tasks: (r, taskId) => ({ view: env.port.taskView(r, taskId) }),
       newTask: env.deps.newTask,
     });
     const ctx = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
     const pass = await engine.pass("Launch.md", md, ctx);
     expect(applyChanges(md, pass.changes)).toBe(md);
     expect(pass.sections.flatMap((x) => x.entries)).toEqual([]);
+    // A base, not a section kept waiting: its Tasks show the model (LFCP-03-046).
+    expect(pass.sections.map((x) => [x.base !== undefined, x.skipped ?? null])).toEqual([
+      [true, null],
+    ]);
   });
 
   it("hands over the note as bound; a seed-only pass on it never touches a section with a base", async () => {
