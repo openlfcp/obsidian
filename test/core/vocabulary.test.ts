@@ -35,6 +35,13 @@ const SURFACES = [
   "src/core/collab/join-flow.ts",
   "src/core/collab/service.ts",
   "src/obsidian/plugin.ts",
+  // LFCP-03-042: the palette's join, invitation and status flows, the import
+  // preview of 0.1 shared Tasks, the plain texts of the server's codes and the
+  // Resource status view.
+  "src/core/collab/commands.ts",
+  "src/obsidian/ui/import-section.ts",
+  "src/core/collab/messages.ts",
+  "src/core/collab/view.ts",
 ];
 
 /** Words a section surface does not use (UX contract §2, §6, §10). */
@@ -82,11 +89,58 @@ const ALLOWED: readonly { readonly file: string; readonly text: RegExp }[] = [
   },
   // The invitation's noun for a 0.1 Resource; a shared section's is "section".
   { file: "src/core/collab/service.ts", text: /^"collaboration"$/ },
-  // A 0.1 collaboration joined without a name, and a join not settled yet (its profile
-  // unknown until it is): candidate for a later wording task (LFCP-03-023 report).
+  // A 0.1 collaboration joined without a name; a section falls back to its shared title (N5).
   { file: "src/core/collab/service.ts", text: /^"Shared collaboration"$/ },
-  // A Resource not found in the registry: its profile is unknown (same candidate).
-  { file: "src/core/collab/service.ts", text: /^"This collaboration is not on this device\."$/ },
+  // LFCP-03-042. The palette flows of 0.1 Resources keep the 0.1 words: "Create
+  // collaboration" and its name, server and progress; a 0.1 Resource joined without a
+  // name, or already held; the 0.1 Task inserts.
+  { file: "src/core/collab/commands.ts", text: /^"\(unnamed collaboration\)"$/ },
+  { file: "src/core/collab/commands.ts", text: /^"Create a new collaboration…"$/ },
+  { file: "src/core/collab/commands.ts", text: /^"Create collaboration"$/ },
+  {
+    file: "src/core/collab/commands.ts",
+    text: /^"A name for this collaboration on this device\. Only you see it\."$/,
+  },
+  { file: "src/core/collab/commands.ts", text: /^"The server that relays this collaboration\./ },
+  { file: "src/core/collab/commands.ts", text: /^"Creating the collaboration"$/ },
+  {
+    file: "src/core/collab/commands.ts",
+    text: /^`Shared Tasks: joined "\$\{name\.trim\(\) \|\| "Shared/,
+  },
+  {
+    file: "src/core/collab/commands.ts",
+    text: /^"Shared Tasks: this device is already in that collaboration\."$/,
+  },
+  {
+    file: "src/core/collab/commands.ts",
+    text: /use "Insert all tasks from collaboration" to place/,
+  },
+  {
+    file: "src/core/collab/commands.ts",
+    text: /^"Shared Tasks: (?:this collaboration has no shared tasks yet|every task of this collaboration is already in this note)\."$/,
+  },
+  // The palette command's name, unchanged (§2, §3): how to find the join in the palette.
+  {
+    file: "src/core/collab/commands.ts",
+    text: /^'Shared Tasks: nothing is shared on this device yet\. .*\("Join collaboration"\), first\.'$/,
+  },
+  // The import of 0.1 shared Tasks into a new section: their sources are 0.1
+  // collaborations, as the contract's `legacy-tasks` text says (§4.2).
+  {
+    file: "src/obsidian/ui/import-section.ts",
+    text: /from a collaboration this device does not hold/,
+  },
+  { file: "src/obsidian/ui/import-section.ts", text: /was deleted in its collaboration\.`$/ },
+  {
+    file: "src/obsidian/ui/import-section.ts",
+    text: /The existing collaborations are not changed/,
+  },
+  { file: "src/obsidian/ui/import-section.ts", text: /^"Some source collaborations have local/ },
+  // Resource status: a 0.1 Resource's noun and its unnamed title; a section's are
+  // "section" and "Shared section". Its technical rows name the protocol's terms (§2).
+  { file: "src/core/collab/view.ts", text: /^"(?:a )?collaboration"$/ },
+  { file: "src/core/collab/view.ts", text: /^"Collaboration"$/ },
+  { file: "src/core/collab/view.ts", text: /^"(?:Resource ID|Control Head|Data Epoch)"$/ },
 ];
 
 const LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
