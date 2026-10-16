@@ -4,6 +4,7 @@
 // counts and safe transitions, and adds identifiers and server addresses
 // only when the user chose them. Unit evidence on synthetic inputs.
 
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import {
   type DiagnosticInput,
@@ -35,7 +36,7 @@ function input(events: DiagnosticLog): DiagnosticInput {
     resources: [
       {
         id: RESOURCE,
-        profile: "org.openlfcp.shared-sections.v1",
+        profile: SECTIONS_PROFILE_ID,
         state: "available",
         phase: "LIVE",
         hosting: "hosted",

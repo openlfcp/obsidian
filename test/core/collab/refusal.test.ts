@@ -2,6 +2,7 @@
 // good — the "Resource status" Sync row and the one notice. The flow against
 // the reference server is in live.test.ts.
 
+import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import type { ResourceStatus } from "../../../src/core/collab/service";
@@ -17,7 +18,7 @@ const URL = "wss://sync.example.org/v1/ws";
 const status = (over: Partial<ResourceStatus>): ResourceStatus => ({
   localName: "Team",
   resourceId: "R",
-  profile: "org.openlfcp.shared-objects.v1",
+  profile: PROFILE_ID,
   state: "refused",
   refusal: { code: "RESOURCE_NOT_HOSTED", url: URL },
   blocked: false,

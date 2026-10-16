@@ -10,6 +10,7 @@ import {
   generateResourceDEK,
   generateSigningKeyPair,
 } from "@openlfcp/crypto";
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import {
   principalDescriptorFromKeys,
@@ -20,7 +21,7 @@ import {
 import { expect } from "vitest";
 import type { LfcpRuntime } from "../../src/core/lfcp/runtime";
 
-export const SECTIONS = "org.openlfcp.shared-sections.v1";
+export const SECTIONS = SECTIONS_PROFILE_ID;
 const URL = "wss://offline.example.invalid/v1/ws";
 
 /** Someone's Resource of `profile`, stored as a newer plugin would store it. */
