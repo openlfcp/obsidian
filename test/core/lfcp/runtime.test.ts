@@ -247,6 +247,34 @@ describe("LfcpRuntime (LFCP-059)", () => {
     expect((await again.profileOf(R)).replica.task(TASK)?.task?.title).toBe("Draft");
   });
 
+  it("a change listener that throws on an exclusion is reported by class; the rebuild stands (SDK 0.2.2, LFCP-03-050)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    const status = r.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    const unit = await r.writeIntent(
+      R,
+      createTask({ id: TASK, title: "Draft", createdBy: status.principalId }).intent,
+    );
+    const failures: [string, string][] = [];
+    r.onListenerError((profile, errorClass) => failures.push([profile, errorClass]));
+    r.onObjectChanged(() => {
+      throw new TypeError("Plan.md: Draft");
+    });
+    const profile = await r.profileOf(R);
+    // The profile's next listener still gets the change.
+    const seen: string[] = [];
+    profile.onObjectChanged((c) => seen.push(c.origin));
+    // 0.2.1 threw here, after the replica had changed.
+    expect(() => profile.exclude([unit as never])).not.toThrow();
+    expect(profile.replica.task(TASK)).toBeUndefined();
+    expect(seen).toContain("rebuild");
+    expect(failures.length).toBeGreaterThan(0);
+    expect(new Set(failures.map((f) => f.join(":")))).toEqual(new Set(["objects:type-error"]));
+  });
+
   it("restores and opens a 0.1 Resource once when asked at once after a start (LFCP-03-033)", async () => {
     const device = new Device();
     const local = new FakeLocal();

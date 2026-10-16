@@ -90,7 +90,7 @@ import {
 import { LIVENESS, type LivenessOptions, LivenessProbe } from "./liveness";
 import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
 import { type RestartableReconnect, restartableReconnect } from "./reconnect";
-import { lossNoise, sdkErrorClass } from "./sdk-errors";
+import { listenerErrorClass, lossNoise, sdkErrorClass } from "./sdk-errors";
 import { isInstallId, SlotSecretStore } from "./secrets";
 import { NO_TRANSPORT, type TransportFact, TransportTracker } from "./transport";
 
@@ -600,6 +600,29 @@ export class LfcpRuntime {
 
   #watch(resource: ResourceId, profile: SharedObjectsDataProfile): void {
     profile.onObjectChanged((c) => this.#emitObject(resource, c));
+    profile.onListenerError((f) => this.#listenerFailed("objects", f.error));
+  }
+
+  readonly #listenerErrorListeners = new Set<
+    (profile: "objects" | "sections", errorClass: string) => void
+  >();
+
+  /**
+   * A change listener of a profile threw (SDK 0.2.2 onListenerError,
+   * LFCP-03-050): the SDK finished the change and told every other
+   * listener; here, which profile and the error's class only, for
+   * diagnostics.
+   */
+  onListenerError(
+    listener: (profile: "objects" | "sections", errorClass: string) => void,
+  ): () => void {
+    this.#listenerErrorListeners.add(listener);
+    return () => this.#listenerErrorListeners.delete(listener);
+  }
+
+  #listenerFailed(profile: "objects" | "sections", error: unknown): void {
+    const errorClass = listenerErrorClass(error);
+    for (const l of this.#listenerErrorListeners) l(profile, errorClass);
   }
 
   /** Called once per run when a sealed row could not be read (a lost key, LFCP-02-098 §7). */
@@ -1467,6 +1490,7 @@ export class LfcpRuntime {
                 SectionReplica.empty({ ...options, minSeq: checkpoint.actorSeq }),
               ),
           );
+    profile.onListenerError((f) => this.#listenerFailed("sections", f.error));
     const checkpointer = new ProfileCheckpointer(
       storage,
       { checkpoint: () => profile.checkpoint() },
