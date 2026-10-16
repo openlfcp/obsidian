@@ -92,12 +92,14 @@ export function tasksShowModel(
   markdown: string,
   section: ParsedSection,
   tasks: (taskId: string) => RenderTarget | undefined,
+  /** Only these Tasks (LFCP-03-047: a pasted one); every Task when absent. */
+  only?: ReadonlySet<string>,
 ): boolean {
   const lines = splitLines(markdown);
   const scan = scanSectionRefs(markdown);
   const refAt = new Map(scan.projections.map((p) => [p.taskLine, p]));
   const shows = (n: SectionNode): boolean => {
-    if (n.kind !== "task" || n.id === null) return true;
+    if (n.kind !== "task" || n.id === null || (only !== undefined && !only.has(n.id))) return true;
     const target = tasks(n.id);
     if (target === undefined || !comparableView(target.view)) return false;
     const p = refAt.get(n.lines.from);

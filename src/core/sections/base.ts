@@ -423,6 +423,14 @@ export interface StoredBase {
    * a correction at every pass). Absent (bases before 0.4.0-beta.15): none.
    */
   readonly applied?: readonly string[];
+  /**
+   * Nodes the user put into the note (a paste, a drop) that this base does
+   * not know, whose content the note shows otherwise than the model
+   * (LFCP-03-047): the section waits, neither side chosen, until the note
+   * shows the model there or the user chooses in Repair (pastedBase). Kept
+   * here because the editor's hint lasts one pass, a restart included.
+   */
+  readonly pasted?: readonly string[];
 }
 
 /** Bases by projection ID (local state, never synced; OP-24). */

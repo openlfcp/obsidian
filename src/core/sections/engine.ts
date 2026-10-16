@@ -417,6 +417,87 @@ function withModelPlaced(
   return out;
 }
 
+/**
+ * Of `ids` (nodes the note shows), those whose content the note shows
+ * otherwise than the model (LFCP-03-047): a Text node's Text, a Task's fields
+ * (a Task that cannot be compared is not shown either, as for a seed).
+ */
+export function differsFromModel(
+  markdown: string,
+  section: ParsedSection,
+  note: SectionState,
+  snap: SectionSnapshot,
+  ids: readonly string[],
+  tasks: (taskId: string) => RenderTarget | undefined,
+): string[] {
+  return ids.filter((id) => {
+    const n = note.nodes[id];
+    const m = snap.nodes[id];
+    if (n === undefined || m === undefined) return false;
+    if (n.kind === "task") return !tasksShowModel(markdown, section, tasks, new Set([id]));
+    return n.text !== m.text;
+  });
+}
+
+/**
+ * The pasted nodes a projection holds (StoredBase.pasted) that the note
+ * still shows, its base still does not know and the model shows otherwise:
+ * what Repair offers to compare (LFCP-03-047).
+ */
+export function heldPasted(
+  stored: StoredBase,
+  markdown: string,
+  section: ParsedSection,
+  snap: SectionSnapshot,
+  tasks: (taskId: string) => RenderTarget | undefined,
+): string[] {
+  const note = markdownState(markdown, section).state;
+  const ids = (stored.pasted ?? []).filter(
+    (id) => note.nodes[id] !== undefined && stored.state.nodes[id] === undefined,
+  );
+  return differsFromModel(markdown, section, note, snap, ids, tasks);
+}
+
+/**
+ * The user's choice in Repair for the pasted nodes a projection holds
+ * (LFCP-03-047), as its new base. "mine": the base takes the model's content
+ * where the model has the node, so what the note shows otherwise (its Text,
+ * its fields, its place) goes out as an edit on the next pass. "shared": the
+ * base takes the node as the note shows it, so the next pass renders the
+ * model over it (the caller keeps the note's text first). Either way the
+ * hold ends.
+ */
+export function pastedBase(
+  stored: StoredBase,
+  markdown: string,
+  section: ParsedSection,
+  snap: SectionSnapshot,
+  choice: "mine" | "shared",
+  tasks: (taskId: string) => RenderTarget | undefined,
+): StoredBase {
+  const note = markdownState(markdown, section).state;
+  const ids = heldPasted(stored, markdown, section, snap, tasks);
+  const { pasted: _pasted, ...rest } = stored;
+  const asModel = (id: string, n: NodeState): NodeState => {
+    if (n.kind === "task") {
+      const at = taskLineOf(section, id);
+      const line = at === undefined ? undefined : modelTaskLine(markdown, at, id, tasks);
+      return line === undefined ? n : { ...n, line };
+    }
+    const text = snap.nodes[id]?.text;
+    return text === undefined ? n : { ...n, text };
+  };
+  const state =
+    choice === "mine"
+      ? withModelPlaced(stored.state, ids, (id) => note.nodes[id], snap, asModel)
+      : withRestored(stored.state, note, ids);
+  const nodeRevisions: Record<string, string | null> = { ...(stored.nodeRevisions ?? {}) };
+  // "mine": the base's Text is the model's at this revision; "shared": the
+  // note's, never the model's, so a Text edit waits until it is projected.
+  for (const id of ids) nodeRevisions[id] = choice === "mine" ? snap.revision : null;
+  return { ...rest, state, nodeRevisions };
+}
+
 /** The section `ref` in `markdown`, at or after the line `near` had (the same projection). */
 function sectionLike(
   markdown: string,
@@ -999,6 +1080,77 @@ export class SectionEngine {
       const at = siblings.indexOf(id);
       return at > 0 ? (siblings[at - 1] as string) : null;
     };
+    // LFCP-03-047 (obsidian#41): an adopted node the user put here (a paste
+    // or a drop this pass hears of, or one an earlier pass held) whose
+    // content the note shows otherwise than the model. Taken as shown, the
+    // next pass rendered the model over the paste; taken as an edit (D22),
+    // a node the note already showed from an older model (a crash before
+    // written(), a vault synced file by file) sent its stale Text over a
+    // collaborator's (D23). Without the user's hint the engine cannot tell
+    // the two apart, so only a hinted node is held: neither side is chosen,
+    // nothing is sent or rendered, the section's text is kept as a
+    // comparison candidate until the note shows the model there or the user
+    // chooses in Repair (pastedBase). The hold is stored: the hint lasts
+    // one pass. An unhinted node is taken as shown, as before.
+    const marked = new Set(stored.pasted ?? []);
+    const userPut = new Set([...(ctx.inserted ?? []), ...(ctx.cut ?? [])]);
+    const holding = differsFromModel(
+      md0,
+      section0,
+      note.state,
+      snap,
+      adopted.filter((id) => userPut.has(id) || marked.has(id)),
+      (taskId) => this.deps.tasks(resource, taskId),
+    ).sort();
+    const pastedCandidate = `pasted:${projectionId}`;
+    if (holding.length > 0) {
+      await this.deps.journal.putCandidate({
+        candidateId: pastedCandidate,
+        projectionId,
+        reason: "base-unknown",
+        sourceText,
+      });
+      const now = (await this.deps.bases.load(projectionId)) ?? stored;
+      if (JSON.stringify(now.pasted ?? []) !== JSON.stringify(holding))
+        await this.deps.bases.save(projectionId, { ...now, pasted: holding });
+      // The other hints were not acted on either: the next pass needs them.
+      const ours = (id: string) =>
+        stored.state.nodes[id] !== undefined ||
+        note.state.nodes[id] !== undefined ||
+        snap.nodes[id] !== undefined;
+      const unsentDeleted = [...ctx.deletedIds].filter(ours);
+      const unsentInserted = [...(ctx.inserted ?? [])].filter(ours);
+      return {
+        result: {
+          projectionId,
+          section: ref,
+          skipped: "base-unknown",
+          ...(unsentDeleted.length + unsentInserted.length > 0
+            ? { unsent: { deletedIds: unsentDeleted, inserted: unsentInserted } }
+            : {}),
+          lost: [],
+          held: [],
+          entries,
+          // Resumed operations finish with the base their batch is in; the hold stays.
+          ...(entries.length > 0
+            ? {
+                base: {
+                  locator,
+                  state: baseState,
+                  ...(stored.revision === undefined ? {} : { revision: stored.revision }),
+                  ...(stored.nodeRevisions === undefined
+                    ? {}
+                    : { nodeRevisions: stored.nodeRevisions }),
+                  pasted: holding,
+                },
+              }
+            : {}),
+        },
+        changes: resumedChanges,
+      };
+    }
+    // Held before, and the note shows the model there now (or the node left).
+    if (marked.size > 0) await this.deps.journal.resolveCandidate(pastedCandidate);
     const adoptedMoves = restoredMoves(note.state, adopted).filter(
       (mv) => snap.nodes[mv.nodeId]?.parent !== mv.parent || modelBefore(mv.nodeId) !== mv.after,
     );
