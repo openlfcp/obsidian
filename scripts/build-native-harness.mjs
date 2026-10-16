@@ -55,3 +55,21 @@ await build({
   minify: false,
   plugins: [automergeSlim, automergeWasmDeflated],
 });
+
+// LFCP-03-025: the UX fixture states' sections host, for the renderer of the
+// real Obsidian (test/native/fixture-host/main.ts into
+// test/native/fixture-host.bundle.js; specs/pane-fixture-states evaluates it).
+await build({
+  absWorkingDir: root,
+  entryPoints: ["test/native/fixture-host/main.ts"],
+  outfile: "test/native/fixture-host.bundle.js",
+  bundle: true,
+  format: "iife",
+  platform: "browser",
+  target: "es2022",
+  external: ["obsidian", "electron", ...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
+  logLevel: "warning",
+  sourcemap: false,
+  minify: false,
+  plugins: [automergeSlim, automergeWasmDeflated],
+});
