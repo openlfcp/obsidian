@@ -44,6 +44,7 @@ import {
   parseSectionRef,
   type SectionRef,
 } from "../../../src/core/sections/grammar";
+import { INVITE_STOPPED } from "../../../src/core/sections/invite-check";
 import type { RegistrySnapshot } from "../../../src/core/sections/registry-view";
 import type { SharePreview } from "../../../src/core/sections/share";
 import type { TargetCapture, TextSelection } from "../../../src/core/sections/target";
@@ -766,5 +767,26 @@ describe("the palette's Invite collaborator… re-checks access (I4, LFCP-03-041
     expect(prompter.notices).toEqual([
       "Shared Tasks: Inviting waits until this device has checked access with the server.",
     ]);
+  });
+  it("the plugin unloaded while the check waited: no role dialog and no notice (LFCP-03-046)", async () => {
+    const prompter = new InvitePrompter();
+    const commands = new CollabCommands({
+      collab: () =>
+        ({
+          checkInvitable: async () => undefined,
+          status: async () => ({ profile: SECTIONS_PROFILE_ID }),
+        }) as never,
+      prompter,
+      notes: { active: () => null, rewrite: async () => undefined },
+      guard: {} as never,
+      placement: () => "child-line",
+      defaultServer: () => SERVER,
+      sections: () => true,
+      inviteRefusal: async () => INVITE_STOPPED,
+    });
+    await commands.inviteTo(fromBase64url(R0) as ResourceId);
+    expect(prompter.choices).toEqual([]);
+    expect(prompter.notices).toEqual([]);
+    expect(commands.invitation()).toBeNull();
   });
 });
