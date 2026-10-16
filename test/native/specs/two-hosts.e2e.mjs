@@ -79,7 +79,7 @@ const factsOf = async (h) => {
     base: app.vault.adapter.basePath ?? null,
     principal: Buffer.from(app.plugins.plugins["shared-tasks"]?.runtime?.status?.principalId ?? []).toString("hex"),
     plugin: app.plugins.manifests["shared-tasks"]?.version ?? null,
-    tasks: app.plugins.manifests[TASKS]?.version ?? null,
+    tasks: app.plugins.manifests["obsidian-tasks-plugin"]?.version ?? null,
   }));
   return { ...f, base: f.base === null ? null : createHash("sha256").update(f.base).digest("hex").slice(0, 12) };
 };
