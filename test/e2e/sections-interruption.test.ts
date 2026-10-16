@@ -30,8 +30,15 @@
 //   8. Privacy canaries: no frame on the wire and no byte the server
 //      stored holds the private text, the shared titles or the held edit.
 //
+// The scenarios share the owners A and B and their section (beforeAll);
+// each makes its own data (its own lines, notes, peers), so any one runs
+// alone (`-t " 5\. "`). Scenario 8 scans every frame and stored byte so
+// far, and makes its own edits first.
+//
 // Skipped without the server unless LFCP_REQUIRE_LIVE=1 (then an error).
 
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fromBase64url, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { sha256 } from "@openlfcp/crypto";
 import { decodeMessage, MESSAGE_TYPE } from "@openlfcp/wire";
@@ -57,6 +64,8 @@ let R: ResourceId;
 const wire = new Map<string, { dir: string; bytes: Uint8Array }[]>();
 /** Peers opened by a test, closed at the end. */
 const others: SoakPeer[] = [];
+/** The member C: opened by the first scenario that needs it. */
+let member: SoakPeer | undefined;
 
 const MAX = (2n ** 64n - 1n) as never;
 const enc = new TextEncoder();
@@ -89,6 +98,19 @@ async function open(name: string, me: string, seed: number): Promise<SoakPeer> {
   return p;
 }
 
+let editing = false;
+/** A's section note open in an editor (A's Task edits go through it), opened once. */
+function editorA(): void {
+  if (!editing) A.openEditor();
+  editing = true;
+}
+
+/** C, one vault for every scenario that needs a third member. */
+async function peerC(): Promise<SoakPeer> {
+  member ??= await open("C", "c", 3);
+  return member;
+}
+
 const messageOf = (bytes: Uint8Array) => {
   try {
     return decodeMessage(Uint8Array.from(bytes)) as {
@@ -100,6 +122,12 @@ const messageOf = (bytes: Uint8Array) => {
   }
 };
 const typeOf = (bytes: Uint8Array) => messageOf(bytes)?.type;
+/** A byte field of a message's body (a Genesis, a Resource ID). */
+const fieldOf = (bytes: Uint8Array, name: string) => {
+  const v = (messageOf(bytes)?.body as Record<string, unknown> | undefined)?.[name];
+  if (!(v instanceof Uint8Array)) throw new Error(`no ${name} in ${typeOf(bytes)}`);
+  return v;
+};
 const ackOf = (t: bigint) => (bytes: Uint8Array) => {
   const m = messageOf(bytes);
   return m?.type === "ACK" && m.body?.requestType === t;
@@ -137,6 +165,20 @@ async function reserved(p: SoakPeer, r = R): Promise<bigint | undefined> {
 
 const queued = async (p: SoakPeer, r = R) =>
   ((await p.runtime.storage?.outbound.list(r)) ?? []).filter((i) => i.kind === "data-unit");
+
+/** The Resources the server stores (base64url), read from its database. */
+function hostedOnServer(): string[] {
+  const db = new DatabaseSync(join(server.dir, "state", "server.sqlite3"), { readOnly: true });
+  try {
+    return db
+      .prepare("SELECT resource_id FROM resources")
+      .all()
+      .map((r) => toBase64url(r.resource_id as Uint8Array))
+      .sort();
+  } finally {
+    db.close();
+  }
+}
 
 const occurrences = (text: string, part: string) => text.split(part).length - 1;
 
@@ -201,7 +243,8 @@ beforeAll(async () => {
   server = await startServer(binary.bin);
   A = await open("A", "a", 1);
   B = await open("B", "b", 2);
-  ({ resource } = await A.share(6, ["a", "b"]));
+  // a1 plan … b8 仕事: each scenario edits its own lines (7 and 8 are scenario 8's).
+  ({ resource } = await A.share(8, ["a", "b"]));
   R = fromBase64url(resource) as ResourceId;
   await B.join(await A.invite(resource), "Soak");
   // Into B's closed note: B's edits below are saves of that file.
@@ -216,12 +259,9 @@ afterAll(async () => {
   await A?.vault.close();
   await B?.vault.close();
   await server?.stop();
-});
+}, 120_000);
 
 describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => {
-  let C: SoakPeer;
-  let hosted: string;
-
   it("1. a share hosted, its answer lost, then a crash: the same Resource, one copy, no orphan, no lost-hosting notice", async () => {
     const path = "Hosted.md";
     const md = [
@@ -242,6 +282,8 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
     const registry = (await A.runtime.registry()).length;
     const stored = (await A.runtime.storage?.resources.list())?.length ?? -1;
     const hosts = sent(A, "RESOURCE_HOST");
+    const onServer = hostedOnServer();
+    const frames = wire.get(A.name)?.length ?? 0;
     const dropped = A.vault.network.dropped;
     A.vault.network.dropNextIn((b) => typeOf(b) === "RESOURCE_HOSTED");
     const notices = mock.notices.length;
@@ -257,7 +299,7 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
     // Before the crash: the import committed and the note bound (phase projected).
     const bound = parseSections(A.vault.read(path)).sections;
     expect(bound.length).toBe(1);
-    hosted = toBase64url(bound[0]?.ref.resourceId as Uint8Array);
+    const hosted = toBase64url(bound[0]?.ref.resourceId as Uint8Array);
     expect(sent(A, "RESOURCE_HOST")).toBe(hosts + 1);
 
     // Nothing settled the share before the crash: the dead instance's answer was lost.
@@ -281,9 +323,27 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
       true,
     );
     expect(A.vault.plugin.sections?.actions.flows()).toEqual([]);
+    // On the wire: every RESOURCE_HOST since the share carried the same Genesis (one
+    // Resource, hosted again), and the server's answer after the crash names the note's Resource.
+    const since = (wire.get(A.name) ?? []).slice(frames);
+    const geneses = new Set(
+      since
+        .filter((f) => f.dir === "out" && typeOf(f.bytes) === "RESOURCE_HOST")
+        .map((f) => toHex(fieldOf(f.bytes, "genesis"))),
+    );
+    expect(geneses.size).toBe(1);
+    const answered = since
+      .filter((f) => f.dir === "in" && typeOf(f.bytes) === "RESOURCE_HOSTED")
+      .map((f) => toBase64url(fieldOf(f.bytes, "resourceId")));
+    expect(answered.length).toBeGreaterThan(0);
+    expect(new Set(answered)).toEqual(new Set([hosted]));
+    // The server hosts that Resource, and no other one came of this share.
+    const now = hostedOnServer();
+    expect(now.length).toBe(onServer.length + 1);
+    expect(now.filter((r) => !onServer.includes(r))).toEqual([hosted]);
 
     // A new member gets it: its Tasks, once, and none of the private text.
-    C = await open("C", "c", 3);
+    const C = await peerC();
     await C.join(await A.invite(hosted), "Hosted");
     await C.insert(hosted);
     const note = C.vault.read(SECTION_NOTE);
@@ -334,8 +394,8 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
   }, 180_000);
 
   it("3. a crash between a sequence's reservation and its unit's write: lost, never reused; the edit is sent once", async () => {
-    const at = (await reserved(B)) as bigint;
-    expect(at).toBeGreaterThan(0n);
+    // No reservation yet when this scenario runs alone: the counter starts at 0.
+    const at = (await reserved(B)) ?? 0n;
     B.vault.hangUnitCommits = true;
     const vault = B.vault.app.vault;
     vault.files.set(
@@ -393,6 +453,7 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
   }, 180_000);
 
   it("5. a claim answered, then a crash before the insert: the same identity, a member once, no second claim", async () => {
+    const C = await peerC();
     const link = await A.invite(resource);
     const principal = toHex(principalOf(C));
     await C.join(link, "Soak");
@@ -453,7 +514,7 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
     expect(B.vault.app.vault.files.has("Third.md")).toBe(false);
 
     // A body deletion is shared: A deletes a Task, B's copy loses it, nothing comes back elsewhere.
-    A.openEditor();
+    editorA();
     const aUnits = (await unitsOf(A, B)).length;
     A.deleteTask("a5 call item");
     await until(
@@ -505,6 +566,7 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
     expect(A.text(SECTION_NOTE)).toBe(aNote);
     expect(A.text(SECTION_NOTE)).not.toContain(held);
     // D still receives: A's next edit is in D's model; D's held line stays in D's note.
+    editorA();
     A.editTask("a3 review item", "review", "reviewed");
     await until(
       "A's edit in D's model",
@@ -515,6 +577,21 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
   }, 240_000);
 
   it("8. no frame on the wire and nothing the server stored holds the notes' text", async () => {
+    // Its own shared edits first, one from each owner, so it never scans an empty wire.
+    const puts = sent(A, "DATA_PUT") + sent(B, "DATA_PUT");
+    const seen = [...wire.values()].reduce((n, log) => n + log.length, 0);
+    editorA();
+    A.editTask("a7 テスト item", "テスト", "wire canary");
+    await B.vault.editLine(SECTION_NOTE, "b8 仕事 item", "b8 stored canary item");
+    await until(
+      "both edits across",
+      () =>
+        B.vault.read(SECTION_NOTE).includes("a7 wire canary item") &&
+        A.text(SECTION_NOTE).includes("b8 stored canary item")
+          ? true
+          : undefined,
+      60_000,
+    );
     const canaries = [
       ...PRIVATE,
       "a1 plan item",
@@ -523,6 +600,8 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
       "b4 ship item queued offline",
       "h1 hosted task",
       "a1 plan item held read-only",
+      "a7 wire canary item",
+      "b8 stored canary item",
     ].map((t) => [t, enc.encode(t)] as const);
     const has = (hay: Uint8Array, needle: Uint8Array) => Buffer.from(hay).indexOf(needle) >= 0;
     let frames = 0;
@@ -532,8 +611,10 @@ describe.skipIf(!live)("interruption and durable journeys (LFCP-03-024)", () => 
         for (const [t, b] of canaries)
           expect(has(f.bytes, b), `${name} ${f.dir} ${typeOf(f.bytes)}: "${t}"`).toBe(false);
     }
-    expect(frames).toBeGreaterThan(100);
-    expect(sent(A, "DATA_PUT") + sent(B, "DATA_PUT")).toBeGreaterThan(3);
+    // The setup's frames at least, and this scenario's own on top.
+    expect(seen).toBeGreaterThan(40);
+    expect(frames).toBeGreaterThan(seen);
+    expect(sent(A, "DATA_PUT") + sent(B, "DATA_PUT")).toBeGreaterThanOrEqual(puts + 2);
     const stored = server.stored();
     expect(stored.length).toBeGreaterThan(0);
     for (const s of stored)
