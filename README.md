@@ -236,13 +236,15 @@ Beta software. **Not for data you need to protect yet.**
 - An invitation is a link (no QR code); a copied link stays on the
   clipboard.
 - Shared text in your notes is ordinary Markdown, readable by anyone who
-  can read the vault; only the sync data is encrypted on the device (see
+  can read the vault; only the plugin's copy of the shared state is
+  encrypted on the device (see
   [Where your data is kept](#where-your-data-is-kept)). Obsidian's secret
   storage, which holds the keys, is shared by every plugin on the device.
 - **Mobile.** Shared sections are read-only on mobile: they arrive and are
-  shown, and edits made there stay on the device. "Share section…",
-  inviting and removing access are not offered there; shared tasks are
-  not restricted. None of this has been tested on a real device yet.
+  shown, and edits made there stay on the device. The section commands
+  are still listed, but sharing a section, inviting to one and removing
+  access are refused there as read-only. Shared tasks are not restricted.
+  None of this has been tested on a real device yet.
 - **Section size.** About 200 tasks with their notes is the qualified size
   of a section. A much larger one works, but each edit blocks the editor
   for seconds. A section after many thousands of edits gets slower.
@@ -266,12 +268,13 @@ and
   text in your notes, with small `lfcp-` comments that link them. They are
   stored like the rest of your vault, readable and not encrypted by Shared
   Tasks; whoever can read your vault can read them.
-- **The sync data is encrypted on the device.** Since 0.4.0, Shared Tasks
-  keeps its local sync state (the collaborations' changes, the outgoing
-  queue) encrypted at rest, under a key kept on that device. Settings →
-  Shared Tasks → "Local encryption" → "Rotate key" replaces that key. This
-  is a separate layer from the end-to-end encryption of what goes to the
-  server.
+- **The shared state on the device is encrypted.** Since 0.4.0, the
+  decrypted shared state and the plugin's own records are sealed at rest
+  under keys kept on that device. The changes themselves and the outgoing
+  queue are stored as they travel, end-to-end encrypted; IDs and counters
+  stay readable. Settings → Shared Tasks → "Local encryption" → "Rotate
+  key" replaces the keys. This is a separate layer from the end-to-end
+  encryption of what goes to the server.
 - **Keys and sync state are outside the vault.** Your identity, the
   collaborations' keys and the sync data live in Obsidian's own storage on
   this device (IndexedDB and secret storage), not in the vault folder.
@@ -307,9 +310,9 @@ payment.
   save it, holds no note text or secrets, and is never sent.
 - **The network,** only `wss://` connections to the servers of your
   collaborations (see "Network use").
-- **Local storage on this device:** IndexedDB for the sync state,
-  encrypted at rest, and Obsidian's secret storage for the keys; neither
-  is inside the vault.
+- **Local storage on this device:** IndexedDB for the sync state (its
+  decrypted part sealed at rest), and Obsidian's secret storage for the
+  keys; neither is inside the vault.
 - **Bundled WebAssembly.** The plugin ships Automerge (the CRDT engine) as
   WebAssembly inside `main.js`, stored compressed and decoded when the
   plugin starts. Nothing is downloaded at run time.
@@ -419,7 +422,7 @@ pnpm run typecheck   # src and tests
 pnpm test
 ```
 
-`main.js` is about 1.9 MB, minified. Most of it is Automerge's wasm, stored
+`main.js` is about 2.3 MB, minified. Most of it is Automerge's wasm, stored
 deflated and inflated at load (the community-plugin format ships one
 script; see the local-state note).
 

@@ -52,14 +52,16 @@ result. If persistence is denied or unavailable, settings show a warning.
 Eviction would trip the marker lock, which is safe, but the user should know
 why writing stopped.
 
-## Plaintext at rest
+## Local state at rest
 
 Until 0.3.x, profile checkpoints (the decrypted Shared Objects state) were
 stored in plaintext, as safe as the OS user's profile directory. Since
 Shared Tasks 0.4.0 (LFCP-02-098) the profile checkpoints and the plugin's own
-`plugin:` rows in the meta store are sealed at rest under a local state key
-kept in `app.secretStorage`; an older plugin's plaintext rows are sealed on
-first start, and "Rotate key" replaces the key (`src/core/lfcp/local-seal.ts`,
+`plugin:` rows in the meta store are sealed at rest under two local state
+keys, both in `app.secretStorage`: the storage adapter's for the
+checkpoints and the plugin's own for `plugin:` rows. An older plugin's
+plaintext rows are sealed on first start, and "Rotate key" replaces both
+keys (`src/core/lfcp/local-seal.ts`,
 [0.4.0 release notes](../releases/0.4.0.md),
 [0.4 compatibility](../releases/0.4-compatibility.md)). The notes themselves
 stay plain Markdown in the vault.
