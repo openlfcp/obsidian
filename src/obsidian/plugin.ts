@@ -770,6 +770,12 @@ export default class OpenLfcpPlugin extends Plugin {
       runtime.onLossNoise((errorClass) =>
         this.#diagnostics.add(safeEvent(Date.now(), "connection-loss", { diagnostic: errorClass })),
       );
+      // A profile's change listener threw (SDK 0.2.2): which profile, and the error's class.
+      runtime.onListenerError((profile, errorClass) =>
+        this.#diagnostics.add(
+          safeEvent(Date.now(), "listener-error", { reason: profile, diagnostic: errorClass }),
+        ),
+      );
       // SDK events, codes only: the frequent ones that say nothing new stay out of the bounded log.
       runtime.on((e) => {
         if (e.type === "status" || e.type === "ack") return;

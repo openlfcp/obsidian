@@ -128,6 +128,35 @@ describe("shared-sections Resources in the runtime", () => {
     expect(r.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch v2");
   });
 
+  it("a nodes-changed listener that throws is reported by class; the commit and the other listeners go on (SDK 0.2.2, LFCP-03-050)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createSectionResource({
+      name: "Launch",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    const profile = await r.openSection(R);
+    const failures: [string, string][] = [];
+    r.onListenerError((p, errorClass) => failures.push([p, errorClass]));
+    profile.onNodesChanged(() => {
+      throw new RangeError("Launch");
+    });
+    const seen: string[] = [];
+    profile.onNodesChanged((e) => seen.push(e.origin));
+    const receipt = await r.commitSection(
+      R,
+      [{ intent: "section.create", sectionId: SECTION, title: "Launch", createdBy: me(r) }],
+      { operationId: "create" },
+    );
+    expect(receipt.operationId).toBe("create");
+    expect(r.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch");
+    expect(seen).toEqual(["local"]);
+    expect(failures).toEqual([["sections", "range-error"]]);
+    expect(r.status).not.toMatchObject({ kind: "needs-restart" });
+  });
+
   it("an engine trap after a section commit is stored rejects it and blocks the runtime (needs-restart)", async () => {
     const device = new Device();
     const local = new FakeLocal();

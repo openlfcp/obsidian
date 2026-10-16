@@ -39,3 +39,20 @@ export function lossNoise(o: {
     o.now - o.disconnectedAt <= LOSS_WINDOW_MS
   );
 }
+
+/**
+ * The class of an error a profile's change listener threw (SDK 0.2.2
+ * onListenerError, LFCP-03-050), as a diagnostics code: an SDK error's
+ * code, else the error's kind ("type-error"). Never its message, which can
+ * carry note text.
+ */
+export function listenerErrorClass(error: unknown): string {
+  if (error instanceof Error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(code)) return code;
+    if (/^[A-Za-z]{1,40}$/.test(error.name))
+      return error.name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+    return "error";
+  }
+  return "non-error";
+}

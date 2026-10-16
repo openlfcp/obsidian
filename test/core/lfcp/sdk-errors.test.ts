@@ -3,7 +3,13 @@
 // 0.4.0-beta.9: "error code=INTERNAL" twice as Wi-Fi went off).
 
 import { describe, expect, it } from "vitest";
-import { LOSS_WINDOW_MS, lossNoise, sdkErrorClass } from "../../../src/core/lfcp/sdk-errors";
+import { safeEvent } from "../../../src/core/diagnostics";
+import {
+  LOSS_WINDOW_MS,
+  listenerErrorClass,
+  lossNoise,
+  sdkErrorClass,
+} from "../../../src/core/lfcp/sdk-errors";
 
 describe("SDK errors", () => {
   it("classes the SDK's known failures; a message never passes through", () => {
@@ -17,6 +23,28 @@ describe("SDK errors", () => {
     expect(sdkErrorClass("the batch status was not stored: conflict")).toBe("batch-status-store");
     expect(sdkErrorClass("Plan.md secret=abc")).toBe("other");
     expect(sdkErrorClass(undefined)).toBe("other");
+  });
+
+  it("classes a listener's error by its code or kind; its message never passes through (LFCP-03-050)", () => {
+    expect(listenerErrorClass(new TypeError("Plan.md: Draft"))).toBe("type-error");
+    expect(listenerErrorClass(Object.assign(new Error("x"), { code: "INVALID_INTENT" }))).toBe(
+      "INVALID_INTENT",
+    );
+    expect(listenerErrorClass(Object.assign(new Error("x"), { name: "Plan.md secret" }))).toBe(
+      "error",
+    );
+    expect(listenerErrorClass("Plan.md")).toBe("non-error");
+    // The plugin's diagnostics event (plugin.ts) keeps both fields.
+    expect(
+      safeEvent(1, "listener-error", {
+        reason: "sections",
+        diagnostic: listenerErrorClass(new RangeError("Launch")),
+      }),
+    ).toEqual({
+      at: 1,
+      kind: "listener-error",
+      detail: { reason: "sections", diagnostic: "range-error" },
+    });
   });
 
   it("an INTERNAL of a session not READY, just after its connection went down, is that loss", () => {
