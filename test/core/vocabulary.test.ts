@@ -3,9 +3,11 @@
 // cues use the product vocabulary; protocol terms stay in the card's
 // collapsed technical details; nothing claims delivery to a peer (the ✓✓
 // mark means "shared"). A source scan of their string literals, so a new
-// label that drifts is caught before a native run.
+// label that drifts is caught before a native run. Every file of src/ is
+// scanned (LFCP-03-046): a text another file words and a surface imports
+// is caught too; what may keep a word is allowed file by file, with why.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +17,17 @@ const dir = (d: string, prefix = "") =>
     .filter((f) => f.endsWith(".ts") && f.startsWith(prefix))
     .map((f) => `${d}/${f}`);
 
-/** The files that draw or word a section surface. */
+/** Every TypeScript file under `d`, recursively. */
+const tree = (d: string): string[] =>
+  readdirSync(join(ROOT, d))
+    .sort()
+    .flatMap((f) => {
+      const p = `${d}/${f}`;
+      if (statSync(join(ROOT, p)).isDirectory()) return tree(p);
+      return p.endsWith(".ts") ? [p] : [];
+    });
+
+/** The files that draw or word a section surface (each must hold texts). */
 const SURFACES = [
   ...dir("src/core/pane"),
   ...dir("src/obsidian/ui", "pane-"),
@@ -45,6 +57,9 @@ const SURFACES = [
   // The runtime's refusal texts (NEEDS_NEWER_VERSION reaches a section's join and status).
   "src/core/lfcp/runtime.ts",
 ];
+
+/** Every source file: the surfaces and whatever words a text they show. */
+const SCANNED = tree("src");
 
 /** Words a section surface does not use (UX contract §2, §6, §10). */
 const FORBIDDEN = [
@@ -150,6 +165,50 @@ const ALLOWED: readonly { readonly file: string; readonly text: RegExp }[] = [
     file: "src/core/lfcp/runtime.ts",
     text: /^"(?:unknown Resource|no known route for this Resource|this Resource's Control Chain is not usable|no key for this Resource's current Data Epoch yet|the Resource was not stored)"$/,
   },
+  // LFCP-03-046: the rest of src/.
+  // The 0.1 palette commands' IDs and names, unchanged (§2, §3).
+  { file: "src/core/commands.ts", text: /^"(?:create|join)-collaboration"$/ },
+  {
+    file: "src/core/commands.ts",
+    text: /^"(?:Create collaboration|Join collaboration|Insert all tasks from collaboration)"$/,
+  },
+  // The diagnostics report: a support text that names the protocol's terms (§2).
+  { file: "src/core/diagnostics.ts", text: /^`Collaborations: \$\{/ },
+  { file: "src/core/diagnostics.ts", text: /· data epoch \$\{/ },
+  // The plugin running in another window (the writer lock), as in plugin.ts.
+  {
+    file: "src/core/lfcp/install.ts",
+    text: /^"Another Shared Tasks instance holds this vault's data\."$/,
+  },
+  // A 0.1 Task ref whose Resource this device does not hold: a diagnostic, never announced.
+  {
+    file: "src/core/projection/engine.ts",
+    text: /^"This Resource is not known on this device; nothing is sent\."$/,
+  },
+  // A 0.1 Task's withdrawn change (a 0.1 notice; candidate for plain words, LFCP-03-046 report).
+  {
+    file: "src/core/projection/render.ts",
+    text: /^`An earlier change was withdrawn \(a Key Epoch cutoff\)/,
+  },
+  // A malformed ref's parse error (diagnostics), not a surface text.
+  { file: "src/core/refs/object-ref.ts", text: /^"a Resource ID has 32 bytes"$/ },
+  // The 0.1 shared Tasks a range holds: the contract's own `legacy-tasks` words (§4.2).
+  {
+    file: "src/core/sections/share.ts",
+    text: /already shared in another collaboration\. Import creates new shared tasks; existing collaborations continue separately\.`$/,
+  },
+  {
+    file: "src/core/sections/target.ts",
+    text: /^"Tasks in the selection are already shared in another collaboration\."$/,
+  },
+  // An SDK event type, not a word the user reads.
+  { file: "src/obsidian/sections-host.ts", text: /^"epoch-reconciled"$/ },
+  // The default server's setting: offered by "Create collaboration" (0.1) and by
+  // "Share section…"; its 0.1 wording is a candidate for rewording (LFCP-03-046 report).
+  {
+    file: "src/obsidian/settings-tab.ts",
+    text: /^"The sync server offered when you create a collaboration\. It is not your identity and does not own your collaborations\./,
+  },
 ];
 
 const LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
@@ -162,14 +221,17 @@ function literals(file: string): string[] {
 }
 
 describe("the vocabulary of the section surfaces (LFCP-03-020, LFCP-03-023)", () => {
-  it("reads every surface file", () => {
+  it("reads every surface file, and every file of src/", () => {
     expect(SURFACES.length).toBeGreaterThan(10);
     for (const f of SURFACES) expect(literals(f).length).toBeGreaterThan(0);
+    expect(SCANNED.length).toBeGreaterThan(100);
+    for (const f of SURFACES) expect(SCANNED).toContain(f);
+    expect(SCANNED).toContain("src/core/sections/repair.ts");
   });
 
   it("uses no protocol term or delivery claim outside the allowed places", () => {
     const found: string[] = [];
-    for (const file of SURFACES)
+    for (const file of SCANNED)
       for (const text of literals(file))
         if (
           FORBIDDEN.some((w) => w.test(text)) &&
@@ -177,5 +239,12 @@ describe("the vocabulary of the section surfaces (LFCP-03-020, LFCP-03-023)", ()
         )
           found.push(`${file}: ${text.slice(0, 120)}`);
     expect(found).toEqual([]);
+  });
+
+  it("allows nothing that is not there: each allowance still matches a text", () => {
+    const stale = ALLOWED.filter(
+      (a) => !literals(a.file).some((t) => a.text.test(t) && FORBIDDEN.some((w) => w.test(t))),
+    ).map((a) => `${a.file}: ${a.text}`);
+    expect(stale).toEqual([]);
   });
 });
