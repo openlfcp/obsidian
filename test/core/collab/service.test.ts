@@ -3,7 +3,7 @@
 // The live flows against the reference server are in live.test.ts.
 
 import { fromHex, type ObjectId, type ResourceId, toHex } from "@openlfcp/core";
-import { SharedObjectsReplica, setStatus } from "@openlfcp/shared-objects";
+import { PROFILE_ID, SharedObjectsReplica, setStatus } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { ABILITY, decodeControlRecord, parseInviteUri } from "@openlfcp/wire";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -58,7 +58,7 @@ describe("Create collaboration (LFCP-065)", () => {
     );
     expect(entry).toMatchObject({
       localName: "Team tasks",
-      profile: "org.openlfcp.shared-objects.v1",
+      profile: PROFILE_ID,
       routes: [SERVER],
       state: "offline",
     });

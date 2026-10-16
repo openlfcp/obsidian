@@ -7,6 +7,7 @@
 // sources: it opens no model and no session.
 
 import type { ResourceId } from "@openlfcp/core";
+import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import type { RegistryEntry } from "../../../src/core/lfcp/runtime";
@@ -186,7 +187,7 @@ describe("U03-02 registry view", () => {
   it("only section Resources are listed; the registry state and refusal are kept", async () => {
     const { s, src } = sources();
     s.entries = [
-      entry(1, "Tasks", { profile: "lfcp.shared-objects.v1" }),
+      entry(1, "Tasks", { profile: PROFILE_ID }),
       entry(2, "Gone", { state: "refused", refusal: { code: "RESOURCE_NOT_HOSTED" } as never }),
     ];
     const v = new SectionRegistryView(src);
