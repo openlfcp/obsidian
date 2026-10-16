@@ -430,6 +430,67 @@ describe("a pasted node the base does not know is held, not overwritten (LFCP-03
     expect(h.port.changes).toEqual([]);
   });
 
+  it("review F2: a deletion in the paste's pass is passed on, never a lost binding later", async () => {
+    const Q = "019a2f85-7b31-7c42-b85a-fc843e2f4011";
+    const two = (p: string | null) =>
+      [
+        "## Section",
+        formatBoundary("start", S),
+        ...(p === null ? [] : [formatNodeMarker("paragraph", P), p, ""]),
+        formatNodeMarker("paragraph", Q),
+        "Other text",
+        formatBoundary("end", S),
+        "",
+      ].join("\n");
+    const port = new FakeSectionPort();
+    const model = two("Original text");
+    const s = parseSections(model).sections[0];
+    if (s === undefined) throw new Error("no section");
+    port.host(R, SID, markdownState(model, s).state);
+    const h = setup(() => undefined, {
+      port,
+      bases: new MemorySectionBaseStore(),
+      journal: new MemorySectionJournalStore(),
+      op: 0,
+      projection: 0,
+    });
+    // The base knows Q only (P came after it); the user pastes P and deletes Q in one go.
+    const known = markdownState(two(null), parseSections(two(null)).sections[0] as never).state;
+    await h.bases.save("projection-known", {
+      locator: { path: "note.md", section: S },
+      state: known,
+      revision: port.snapshot(R, SID)?.revision ?? "",
+    });
+    const pastedOnly = [
+      "## Section",
+      formatBoundary("start", S),
+      formatNodeMarker("paragraph", P),
+      "Local text",
+      formatBoundary("end", S),
+      "",
+    ].join("\n");
+    const first = await runWith(h, pastedOnly, {
+      ...CTX,
+      inserted: new Set([P]),
+      deletedIds: new Set([Q]),
+    });
+    expect(first.pass.sections[0]?.skipped).toBe("base-unknown");
+    const unsent = first.pass.sections[0]?.unsent;
+    expect(unsent?.deletedIds).toEqual([Q]);
+    // The host's next pass gets the hints back (sections-host keepUnsent); the user
+    // has put the model's Text back on P: the hold ends, Q's deletion goes out.
+    const back = pastedOnly.replace("Local text", "Original text");
+    const second = await runWith(h, back, {
+      ...CTX,
+      deletedIds: new Set(unsent?.deletedIds ?? []),
+      inserted: new Set(unsent?.inserted ?? []),
+    });
+    expect(second.pass.sections[0]?.lost).toEqual([]);
+    expect(
+      port.changes.flatMap((c) => c.intents).filter((i) => i.intent === "node.delete"),
+    ).toEqual([{ intent: "node.delete", id: Q }]);
+  });
+
   it("without the user's hint a different node is still taken as shown (D23: the crash case)", async () => {
     const h = paragraphSetup();
     await unknown(h);
