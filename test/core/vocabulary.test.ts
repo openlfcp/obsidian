@@ -42,6 +42,8 @@ const SURFACES = [
   "src/obsidian/ui/import-section.ts",
   "src/core/collab/messages.ts",
   "src/core/collab/view.ts",
+  // The runtime's refusal texts (NEEDS_NEWER_VERSION reaches a section's join and status).
+  "src/core/lfcp/runtime.ts",
 ];
 
 /** Words a section surface does not use (UX contract §2, §6, §10). */
@@ -141,6 +143,13 @@ const ALLOWED: readonly { readonly file: string; readonly text: RegExp }[] = [
   { file: "src/core/collab/view.ts", text: /^"(?:a )?collaboration"$/ },
   { file: "src/core/collab/view.ts", text: /^"Collaboration"$/ },
   { file: "src/core/collab/view.ts", text: /^"(?:Resource ID|Control Head|Data Epoch)"$/ },
+  // The runtime's storage and SDK identifiers, and its internal error reasons for a
+  // Resource it cannot open (protocol words, not surface wording; LFCP-03-042 report).
+  { file: "src/core/lfcp/runtime.ts", text: /^"(?:put-epoch|epoch-reconciled)"$/ },
+  {
+    file: "src/core/lfcp/runtime.ts",
+    text: /^"(?:unknown Resource|no known route for this Resource|this Resource's Control Chain is not usable|no key for this Resource's current Data Epoch yet|the Resource was not stored)"$/,
+  },
 ];
 
 const LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;

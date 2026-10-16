@@ -193,9 +193,12 @@ export function startFailure(e: unknown): {
 export const NEEDS_RESTART =
   "Shared Tasks needs an Obsidian restart: its sync engine stopped working";
 
-/** What a collaboration of another Data Profile (e.g. a shared section) says. */
+/**
+ * What a Resource of another Data Profile says (a 0.1 Resource, or a shared
+ * section with sections off): neutral, as either reads it (LFCP-03-042).
+ */
 export const NEEDS_NEWER_VERSION =
-  "This collaboration needs a newer version of Shared Tasks. Update the plugin in Settings → Community plugins";
+  "This needs a newer version of Shared Tasks. Update the plugin in Settings → Community plugins";
 
 /**
  * A stored Resource whose Data Profile this version cannot read (a newer
