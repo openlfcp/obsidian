@@ -317,14 +317,21 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
     evidence("C09-sdk-dump", dump);
     // LFCP-03-033: from here on, A's commits, applies and SDK events are recorded.
     await recordA();
+    // Until the restarted runtime's first connection fails, the badge says the
+    // work is saved locally (LOCAL_DURABLE); then OFFLINE. On Windows a refused
+    // connection to a closed port takes about two seconds (the SYN is
+    // retried), so LOCAL_DURABLE is seen there first; elsewhere rarely.
     const seen = [];
     let afterRestart = null;
+    let last = null;
     for (let i = 0; i < 30 && afterRestart === null; i++) {
       const s = await badgeOfA();
       seen.push(s?.state ?? null);
-      if (s !== null && s.state !== "LOADING") afterRestart = s;
+      if (s !== null && s.state !== "LOADING") last = s;
+      if (s?.state === "OFFLINE") afterRestart = s;
       else await new Promise((r) => setTimeout(r, 1000));
     }
+    afterRestart ??= last;
     evidence("C09-after-restart", { seen, afterRestart, facts: await facts(), snapshot: await inA(async ({ app }) => {
       const p = app.plugins.plugins["shared-tasks"];
       const R = (await p.runtime.registry()).find((e) => e.profile.includes("section")).resourceId;
@@ -372,6 +379,8 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
     // SI03 and the §5 decision: offline with the saved, pending work; never accepted.
     expect(afterRestart.state).toBe("OFFLINE");
     expect(`${afterRestart.label}`).toMatch(/pending|waiting/);
+    // Before OFFLINE: loading, or saved locally and waiting; never anything that claims more.
+    expect(seen.filter((s) => s !== null && !["LOADING", "LOCAL_DURABLE", "OFFLINE"].includes(s))).toEqual([]);
     expect(seenByB).toBe(true);
   });
 
