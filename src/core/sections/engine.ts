@@ -1166,11 +1166,28 @@ export class SectionEngine {
     const removedHere = (id: string) => ctx.deletedIds.has(id) || vanished.has(id);
     const deletes = [...new Set([...comp.deletes, ...comp.lost.filter(removedHere)])];
     const lost = comp.lost.filter((id) => !removedHere(id));
+    /** The stored base with the batches this pass resumed (and finishes), nothing else. */
+    const resumedBase: StoredBase = {
+      locator,
+      state: baseState,
+      ...(stored.revision === undefined ? {} : { revision: stored.revision }),
+      ...(stored.nodeRevisions === undefined ? {} : { nodeRevisions: stored.nodeRevisions }),
+    };
     if (lost.length > 0)
       // NODE_BINDING_LOST (§7, MS18, MS21): the section's publication is
-      // suspended until the binding is repaired; the base stays as it was.
+      // suspended until the binding is repaired; the base stays as it was,
+      // but for the batches resumed here: their operations finish once the
+      // pass is written, so the base takes them (LFCP-03-051), or they would
+      // be planned and sent again from the base without them.
       return {
-        result: { projectionId, section: ref, lost, held: [], entries },
+        result: {
+          projectionId,
+          section: ref,
+          lost,
+          held: [],
+          entries,
+          ...(entries.length > 0 ? { base: resumedBase } : {}),
+        },
         changes: resumedChanges,
       };
     const revisionOf = (id: string) => {
@@ -1386,12 +1403,6 @@ export class SectionEngine {
       for (const c of await this.deps.journal.candidates(projectionId))
         if (c.reason === "rejected" && c.sourceText === sourceText)
           await this.deps.journal.resolveCandidate(c.candidateId);
-    const resumedBase: StoredBase = {
-      locator,
-      state: baseState,
-      ...(stored.revision === undefined ? {} : { revision: stored.revision }),
-      ...(stored.nodeRevisions === undefined ? {} : { nodeRevisions: stored.nodeRevisions }),
-    };
     if (local.kind !== "nothing" && local.kind !== "committed") {
       // Not committed: the edit stays in the note, and nothing is projected over it.
       const ours = (id: string) =>

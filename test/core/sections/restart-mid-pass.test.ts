@@ -353,4 +353,48 @@ describe("a restart in the middle of a structural pass", () => {
       expectEditKept(v.port, v.disk());
       expectNoteIsModel(v.port, v.disk());
     });
+
+  // LFCP-03-051: committed, the note not written, and the first pass after the
+  // restart finds a binding lost (NODE_BINDING_LOST). That pass finishes the
+  // operation: its base must take the batch, or the batch is planned again
+  // from the old base once the line is back (a Text edit sent twice, a
+  // deletion reported as a lost binding until a Repair).
+  const QLESS = (md: string) => md.replace(`${formatNodeMarker("paragraph", Q)}\nNotes\n\n`, "");
+  for (const probe of [
+    {
+      name: "a Text edit",
+      edited: BEFORE.replace("Draft", "Draft v2"),
+      ctx: CTX,
+    },
+    {
+      name: "a Text edit and a deletion",
+      edited: BEFORE.replace("Draft", "Draft v2").replace(
+        `${formatNodeMarker("paragraph", X)}\nOld\n\n`,
+        "",
+      ),
+      ctx: { ...CTX, deletedIds: new Set([X]) },
+    },
+  ])
+    it(`committed, unwritten, then a lost binding at the restart: ${probe.name} is not sent again`, async () => {
+      const v = vault();
+      const first = v.start();
+      await v.run(first, BEFORE);
+      await first.pass(PATH, probe.edited, probe.ctx);
+      expect(v.port.changes).toHaveLength(1);
+      // After the restart, the note on disk lacks Notes (its binding lost).
+      const engine = v.start();
+      const { pass } = await v.run(engine, QLESS(probe.edited));
+      expect(pass.sections[0]?.lost).toEqual([Q]);
+      expect(await v.journal.unfinished()).toEqual([]);
+      // The line is back (undone).
+      v.setDisk(probe.edited);
+      await settle(v);
+      expect(v.port.changes).toHaveLength(1);
+      const model = v.port.sections.get(R)?.state;
+      expect(model?.nodes[P]?.text).toBe("Draft v2");
+      expect(model?.nodes[Q]?.text).toBe("Notes");
+      expect(model?.nodes[X] === undefined).toBe(probe.ctx.deletedIds.has(X));
+      expect(v.disk().match(/Draft v2/g)).toHaveLength(1);
+      expectNoteIsModel(v.port, v.disk());
+    });
 });
