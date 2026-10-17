@@ -40,7 +40,9 @@ const versions = (process.env.NATIVE_OBSIDIAN ?? "1.13.4,1.14.4")
 export const config = {
   runner: "local",
   framework: "mocha",
-  specs: [path.join(here, "specs/**/*.e2e.mjs")],
+  // NATIVE_PERF=1: the performance measurements (perf/*.perf.mjs, LFCP-03-026) instead of the specs;
+  // native.yml runs them only when asked (its "perf" input), never in the gating set.
+  specs: [process.env.NATIVE_PERF === "1" ? path.join(here, "perf/**/*.perf.mjs") : path.join(here, "specs/**/*.e2e.mjs")],
   // One Obsidian at a time (run.mjs also refuses to start next to another).
   maxInstances: 1,
   capabilities: versions.map((version) => ({

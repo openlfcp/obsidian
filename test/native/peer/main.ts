@@ -51,6 +51,9 @@ import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
 import { type LiveServer, startLiveServer } from "../../support/live-server";
 import { guardChild } from "../../support/reaper.mjs";
 
+// The perf workloads (test/perf/workloads.ts), for the native pane measurements (LFCP-03-026).
+export { WORKLOADS, workloadNote } from "../../perf/workloads";
+
 export type { LiveServer };
 
 /**

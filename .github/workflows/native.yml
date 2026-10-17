@@ -23,6 +23,11 @@ on:
         description: "Obsidian versions, comma-separated (pinned: 1.13.4, 1.14.4)"
         required: false
         default: "1.14.4"
+      perf:
+        description: "Run the performance measurements (test/native/perf, LFCP-03-026) instead of the specs; never gating"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -128,6 +133,9 @@ jobs:
       LFCP_SCREENSHOT_DIR: ${{ github.workspace }}/obsidian/screenshots
       # The live specs' server: the one built above, never a default location.
       LFCP_REQUIRE_LIVE: "1"
+      # perf: wdio.conf.mjs runs test/native/perf/*.perf.mjs; raw samples go to perf-results/.
+      NATIVE_PERF: ${{ inputs.perf && '1' || '' }}
+      LFCP_PERF_DIR: ${{ github.workspace }}/obsidian/perf-results
       # The older plugin releases specs/upgrade-install.e2e.mjs and
       # specs/upgrade-rollback.e2e.mjs update from (and roll back to).
       UPGRADE_FROM: 0.3.4 0.4.0-beta.15 0.4.1 0.4.2
@@ -202,6 +210,15 @@ jobs:
           SPECS: ${{ inputs.specs }}
         run: |
           shopt -s nullglob
+          # The measurements: every perf/*.perf.mjs (wdio.conf.mjs picks them), no spec, no known-failing list.
+          if [ "$NATIVE_PERF" = "1" ]; then
+            : > "$RUNNER_TEMP/native-args"
+            : > "$RUNNER_TEMP/known-failing"
+            echo "gating=1" >> "$GITHUB_OUTPUT"
+            echo "known=0" >> "$GITHUB_OUTPUT"
+            echo "perf measurements"
+            exit 0
+          fi
           IFS=', ' read -r -a patterns <<<"$SPECS"
           selected=()
           for s in "${patterns[@]}"; do
@@ -305,4 +322,5 @@ jobs:
             obsidian/native.log
             obsidian/known-failing.log
             obsidian/screenshots
+            obsidian/perf-results
           if-no-files-found: ignore
