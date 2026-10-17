@@ -347,7 +347,29 @@ export async function shareAndJoin(b, file, heading, text, source = false) {
         title,
       ),
     { timeout: 60_000, timeoutMsg: "the section shared and hosted" },
-  );
+  ).catch(async (error) => {
+    // What A shows and holds when the share never ends hosted: which step it stopped at.
+    evidence("SHARE not hosted", {
+      file,
+      title,
+      facts: await inA(async ({ app }, file) => {
+        const p = app.plugins.plugins["shared-tasks"];
+        const entries = [];
+        for (const e of (await p.runtime?.registry()) ?? []) {
+          const hex = Buffer.from(e.resourceId).toString("hex");
+          entries.push({ name: e.localName, profile: e.profile, hosting: (await p.runtime.localState.get(`collab-hosting:${hex}`)) ?? null });
+        }
+        return {
+          runtime: p.runtime?.status.kind ?? null,
+          marked: (await app.vault.adapter.read(file)).includes("<!-- /lfcp-section: "),
+          entries,
+          notices: [...document.querySelectorAll(".notice")].map((n) => n.textContent.slice(0, 200)),
+          modals: [...document.querySelectorAll(".modal")].map((m) => m.textContent.slice(0, 200)),
+        };
+      }, file).catch((e) => ({ error: String(e) })),
+    });
+    throw error;
+  });
   const link = await inviteFromA(title);
   const bFile = `B-${file}`;
   b.files.set(bFile, ["# B", "", "Insert below.", ""].join("\n"));
