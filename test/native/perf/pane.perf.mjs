@@ -333,16 +333,32 @@ describe("pane performance on P200 (LFCP-03-026, U03-22)", () => {
     await closeModals("perf share");
     // The second projection: from the second note, Insert into a note… → Insert.
     await openNote(SECOND, 2);
+    // The pane about the second note first (its context follows the active leaf), then its button.
+    await browser.waitUntil(async () => (await inA(() => document.querySelector(".openlfcp-pane")?.textContent ?? "")).includes(`In this note: ${SECOND}`), {
+      timeout: 30_000,
+      timeoutMsg: "the pane on the second note",
+    });
     await browser.waitUntil(async () => (await paneButton("insert-into-note"))?.disabled === false, { timeout: 120_000, timeoutMsg: "Insert into a note… in the pane" });
-    await clickPane("insert-into-note");
-    const asked = await browser.waitUntil(
-      () =>
-        inA(() => {
-          if ([...document.querySelectorAll(".modal-container .modal")].some((m) => m.textContent.includes('Insert section "Workload"'))) return "preview";
-          return document.querySelector(".prompt .suggestion-item") === null ? false : "pick";
-        }),
-      { timeout: 60_000, timeoutMsg: "the section choice or the insert preview" },
-    );
+    const insertAsked = () =>
+      inA(() => {
+        if ([...document.querySelectorAll(".modal-container .modal")].some((m) => m.textContent.includes('Insert section "Workload"'))) return "preview";
+        return document.querySelector(".prompt .suggestion-item") === null ? false : "pick";
+      });
+    let asked = false;
+    for (let i = 0; i < 3 && asked === false; i++) {
+      await clickPane("insert-into-note");
+      asked = await browser.waitUntil(insertAsked, { timeout: 20_000 }).catch(() => false);
+      if (asked === false)
+        evidence("PERF insert not asked", {
+          attempt: i,
+          button: await paneButton("insert-into-note"),
+          modals: await inA(() => [...document.querySelectorAll(".modal-container .modal")].map((m) => m.textContent.slice(0, 300))),
+          prompt: await inA(() => document.querySelector(".prompt")?.textContent?.slice(0, 300) ?? null),
+          notices: await inA(() => [...document.querySelectorAll(".notice")].map((n) => n.textContent)),
+          pane: await inA(() => document.querySelector(".openlfcp-pane")?.textContent?.slice(0, 600) ?? null),
+        });
+    }
+    expect(asked).not.toBe(false);
     if (asked === "pick") await inA(() => [...document.querySelectorAll(".prompt .suggestion-item")].find((x) => x.textContent.startsWith("Workload"))?.click());
     await modalWith('Insert section "Workload"');
     expect(await clickIn('Insert section "Workload"', "Insert")).toBe(true);
