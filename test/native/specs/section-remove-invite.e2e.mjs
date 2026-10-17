@@ -55,7 +55,36 @@ describe("remove someone, invite someone new: the newcomer loads the section", (
     const file = `${label}.md`;
     c.files.set(file, ["# New", "", "Insert below.", ""].join("\n"));
     const started = Date.now();
-    await c.joinAndInsert(link, file, 3);
+    await c.joinAndInsert(link, file, 3).catch(async (error) => {
+      // C never loaded the section (Windows, Obsidian 1.13.4, after A's
+      // reload): whether A's runtime knows a Snapshot of the new epoch is
+      // needed, what C holds, and whether the section reaches C later. The
+      // case fails either way; the facts say which side to look at.
+      const late = Date.now();
+      const facts = async () => ({
+        a: await inA(async ({ app }, R) => {
+          const runtime = app.plugins.plugins["shared-tasks"].runtime;
+          const id = Uint8Array.from(R.match(/../g).map((h) => Number.parseInt(h, 16)));
+          const state = runtime.epochSnapshotState === undefined ? null : await runtime.epochSnapshotState(id).catch((e) => `error ${String(e)}`);
+          const epochs = (await runtime.storage.control.epochs(id)).map((e) => ({ epoch: String(e.epoch), closed: e.closedBy !== null }));
+          const snapshots = (await runtime.storage.snapshots.list(id)).map((s) => String(s.dataEpoch));
+          const outbound = (await runtime.storage.outbound.list(id)).map((i) => i.kind);
+          return { snapshotState: state, epochs, snapshots, outbound };
+        }, ctx.R).catch((e) => ({ error: String(e) })),
+        c: {
+          snapshots: (await c.runtime.storage.snapshots.list(bytes(ctx.R))).map((s) => String(s.dataEpoch)),
+          loaded: typeof c.runtime.sectionProfile(bytes(ctx.R))?.replica.toJSON()?.section?.id === "string",
+        },
+      });
+      const atTimeout = await facts();
+      let after = atTimeout;
+      while (!after.c.loaded && Date.now() - late < 45_000) {
+        await new Promise((r) => setTimeout(r, 1000));
+        after = await facts();
+      }
+      evidence(`NEWCOMER ${label} not loaded`, { error: String(error), atTimeout, after, lateMs: after.c.loaded ? Date.now() - late : null });
+      throw error;
+    });
     const ms = Date.now() - started;
     const snapshots = (await c.runtime.storage.snapshots.list(bytes(ctx.R))).map((s) => String(s.dataEpoch));
     return { c, titles: titles(sectionOf(c.files.get(file))), ms, snapshots };
