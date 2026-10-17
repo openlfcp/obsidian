@@ -29,8 +29,8 @@
 // drawn at once (leading edge, in the next task: out of the editor's or the
 // workspace's own handler); changes in the COALESCE_MS that follow a draw
 // make one more draw at the window's end (trailing edge), which reads the
-// facts as they are then, so the last state is never lost. A caret held
-// down draws at most once per window. Closing the pane cancels no
+// facts as they are then, so the last state is never lost. The window starts
+// with a draw: a caret held down draws at most once per COALESCE_MS. Closing the pane cancels no
 // operation: the flows it started keep their own journals.
 //
 // T1: an idle pane follows the last active Markdown note; focus moving into
@@ -359,16 +359,20 @@ export class SharedTasksView extends ItemView {
     this.#timer = window.setTimeout(() => this.#edge(generation), 0);
   }
 
-  /** Draws what is true now and opens a window; a change within it draws again at its end. */
+  /**
+   * Opens a window and draws what is true now; a change within the window
+   * draws again at its end. The window starts with the draw, so a draw's
+   * own time is not added to the next change's wait.
+   */
   #edge(generation: number): void {
     this.#timer = null;
     if (generation !== this.#generation) return;
     this.#due = false;
-    this.render();
     this.#timer = window.setTimeout(() => {
       this.#timer = null;
       if (generation === this.#generation && this.#due) this.#edge(generation);
     }, COALESCE_MS);
+    this.render();
   }
 
   /** Whether the pane is on screen: not in a collapsed sidebar, not behind another tab. */
