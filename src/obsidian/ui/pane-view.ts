@@ -23,7 +23,14 @@
 // given back in onClose, and again on the Component's unload, whichever
 // comes first; giving back twice is harmless. A redraw is coalesced, and a
 // callback that arrives after close (a timer, a late event, a button of a
-// closed pane) is dropped by its generation. Closing the pane cancels no
+// closed pane) is dropped by its generation.
+//
+// Coalescing (LFCP-03-053, B1): the first change after a quiet spell is
+// drawn at once (leading edge, in the next task: out of the editor's or the
+// workspace's own handler); changes in the COALESCE_MS that follow a draw
+// make one more draw at the window's end (trailing edge), which reads the
+// facts as they are then, so the last state is never lost. A caret held
+// down draws at most once per window. Closing the pane cancels no
 // operation: the flows it started keep their own journals.
 //
 // T1: an idle pane follows the last active Markdown note; focus moving into
@@ -115,14 +122,17 @@ function actionsOf(m: PaneModel): PaneModel["secondary"] {
   return [m.join, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu];
 }
 
-/** Redraws are coalesced over this many milliseconds (a caret event is not a redraw). */
-const COALESCE_MS = 100;
+/** After a draw, further changes are coalesced over this many milliseconds (a caret event is not a redraw). */
+export const COALESCE_MS = 100;
 
 export class SharedTasksView extends ItemView {
   /** Bumped on every open and close: a callback of an earlier one does nothing. */
   #generation = 0;
   #off: (() => void)[] = [];
+  /** The leading draw waiting for the next task, or the coalescing window after a draw. */
   #timer: number | null = null;
+  /** A change came while #timer was set: drawn at the window's end (trailing edge). */
+  #due = false;
   #root: HTMLElement | null = null;
   /** The last active Markdown view (T1). */
   #target: MarkdownView | null = null;
@@ -335,14 +345,29 @@ export class SharedTasksView extends ItemView {
     if (generation !== this.#generation) return;
     if (this.#timer !== null) window.clearTimeout(this.#timer);
     this.#timer = null;
+    this.#due = false;
     this.render();
   }
 
+  /** A change to draw soon: at once after a quiet spell, else once at the window's end. */
   #schedule(generation: number): void {
-    if (generation !== this.#generation || this.#timer !== null) return;
+    if (generation !== this.#generation) return;
+    if (this.#timer !== null) {
+      this.#due = true;
+      return;
+    }
+    this.#timer = window.setTimeout(() => this.#edge(generation), 0);
+  }
+
+  /** Draws what is true now and opens a window; a change within it draws again at its end. */
+  #edge(generation: number): void {
+    this.#timer = null;
+    if (generation !== this.#generation) return;
+    this.#due = false;
+    this.render();
     this.#timer = window.setTimeout(() => {
       this.#timer = null;
-      if (generation === this.#generation) this.render();
+      if (generation === this.#generation && this.#due) this.#edge(generation);
     }, COALESCE_MS);
   }
 
@@ -368,6 +393,7 @@ export class SharedTasksView extends ItemView {
     this.#generation++;
     if (this.#timer !== null) window.clearTimeout(this.#timer);
     this.#timer = null;
+    this.#due = false;
     const off = this.#off;
     this.#off = [];
     for (const f of off) f();
