@@ -65,14 +65,21 @@ What a run does:
    must not contain the prototype. The live
    specs never skip: without a server they fail. The spec checkout
    (`spec.lock`) is not needed: no native spec reads it.
-3. **No skips.** The release assets `specs/upgrade-install.e2e.mjs`
-   updates from (0.3.4, 0.4.0-beta.15) are downloaded into the harness
+3. **No skips.** The release assets `specs/upgrade-install.e2e.mjs` and
+   `specs/upgrade-rollback.e2e.mjs` install (0.3.4, 0.4.0-beta.15, 0.4.1,
+   0.4.2) are downloaded into the harness
    cache first, and a job whose log reports any skipped test fails.
 4. **Known failing.** Specs in `test/native/known-failing.txt` are left
    out of the gating run (below).
 5. **Caches.** Obsidian (installer, app, chromedriver) is cached per
    system and version with `actions/cache`, under the runner's temp
    directory (`OPENLFCP_OBSIDIAN_CACHE`).
+6. **Measurements.** `-f perf=true` runs `test/native/perf/*.perf.mjs`
+   (`NATIVE_PERF=1`) instead of the specs: the pane against the budgets of
+   [pilot-0.3.md](pilot-0.3.md) on the P200 corpus (LFCP-03-026). They
+   record, never gate on a budget; the raw samples are in the artifact
+   (`perf-results/`). Run them on `macos-latest`, the reference host, and
+   never on a developer's machine.
 
 Every spec on `ubuntu-latest` with one Obsidian version takes about 20
 minutes in all: half a minute to a minute for the server, about 18 for
@@ -226,6 +233,7 @@ touch it either.
 | `specs/pane-share-invite.e2e.mjs` | LFCP-03-014: share and invite as one journey in the Shared Tasks pane, without the palette. A opens the pane from the ribbon; on a private heading it shows the share preview with the sync server; "Share section…" opens the share dialog (which names the server too); once hosted the pane says "ready to invite" and offers "Invite collaborator…"; the role is chosen in its dialog; the invitation dialog says the one-time link rule (D2) and keeps the link hidden until "Show link"; "Copy link" makes the pane say "Link copied" when the system clipboard takes it. The headless peer B claims the link and holds the section. Reference server at `LFCP_SERVER_BIN`. |
 | `specs/pane-insert.e2e.mjs` | LFCP-03-016: "Insert into a note…" from the Shared Tasks pane, without the palette. A shares a section from the pane; from another note the pane's "Insert into a note…" picks it, the preview names the notes that already hold it, "Choose another note…" sends it to the end of a closed note (its text kept, the starting note untouched), and the result notice's "Open" opens that note. A second insertion goes into a new note named in the choice. Reference server at `LFCP_SERVER_BIN`. |
 | `specs/upgrade-install.e2e.mjs` | Install and upgrade (069, [support-matrix-0.2.md](support-matrix-0.2.md)): a fresh vault each time (`reloadObsidian` with no plugin enabled), the plugin's files written into it as an update writes them, then enabled. A fresh install of this build; 0.3.4 with 0.1 shared tasks joined from the headless peer B and an edit pending (the server down) updated to this build; 0.4.0-beta.15 with a shared section and an edit pending updated to this build; disabled and enabled, uninstalled and installed again. The older versions are their GitHub release assets, cached in the harness cache under `releases/<version>/` (a case without them is skipped). Reference server at `LFCP_SERVER_BIN`. |
+| `specs/upgrade-rollback.e2e.mjs` | Update from 0.4.1 and 0.4.2 to this build, and rollback to 0.4.2 and back (LFCP-03-026, U03-21; [upgrade-rollback-perf-0.5.md](../reports/upgrade-rollback-perf-0.5.md)): a section joined by the headless peer B, an edit pending and a second share created but not hosted (the server down), then the other version: the same Principal and Resources, the edit sent, B's edit received, the unfinished creation hosted under its own operation ID, no update notice. Each install is identified by the sha256 of `main.js` on disk (0.4.2 and this build both say 0.4.2). |
 
 Each run also installs the Obsidian Tasks plugin 8.4.0 (released
 2026-08-25) **disabled**; only `specs/tasks-plugin.e2e.mjs` enables it, so

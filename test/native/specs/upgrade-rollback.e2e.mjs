@@ -1,5 +1,5 @@
 // Upgrade from the released 0.4.x to this build and rollback to 0.4.2
-// (LFCP-03-026, U03-21; docs/devel/reports/upgrade-rollback-0.4-to-0.5.md).
+// (LFCP-03-026, U03-21; docs/devel/reports/upgrade-rollback-perf-0.5.md).
 // Each step leaves the state a user has, never a cleared one: vault A (real
 // Obsidian) shares a section that the headless peer B joins (keys, identity,
 // journals), then with the server down A edits the section (a pending
