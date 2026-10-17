@@ -2,6 +2,7 @@
 // upgrade-rollback): another version of the plugin written into a fresh
 // test vault as an update writes it, then enabled. Not a spec itself (the
 // harness runs specs/**/*.e2e.mjs only).
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { cacheDir } from "../../wdio.conf.mjs";
@@ -43,12 +44,14 @@ export const disable = () =>
 /**
  * `version`'s files written into the plugin's folder and the plugin enabled
  * (an update: disabled, files replaced, enabled), until its runtime is
- * ready. Its manifest version, status and start time.
+ * ready. Its manifest version, status and start time, and which code it is:
+ * main.js on disk (read by this process, not through Obsidian) against the
+ * files written. 0.4.2 and this build both say 0.4.2 in their manifest.
  */
 export async function install(version) {
   const files = releaseFiles(version);
   if (files === null) throw new Error(`no release files for ${version}`);
-  return inA(
+  const r = await inA(
     async ({ app }, files) => {
       const pl = app.plugins;
       if (pl.enabledPlugins.has("shared-tasks")) await pl.disablePlugin("shared-tasks");
@@ -78,11 +81,26 @@ export async function install(version) {
         status: st?.kind ?? null,
         principal: st?.principalId === undefined ? null : Array.from(st.principalId, (b) => b.toString(16).padStart(2, "0")).join(""),
         upgradedLocalData: p?.runtime?.upgradedLocalData === true,
+        // Only 0.5 development builds have it (LFCP-03-021).
+        dev05: typeof p?.setDismissedHints === "function",
         ms: Date.now() - t0,
+        base: app.vault.adapter.basePath ?? null,
+        configDir: app.vault.configDir,
       };
     },
     files,
   );
+  const sha = (x) => createHash("sha256").update(x).digest("hex");
+  const { base, configDir, ...out } = r;
+  const dir = base === null ? null : path.join(base, configDir, "plugins", "shared-tasks");
+  const disk = (name) => (dir !== null && existsSync(path.join(dir, name)) ? readFileSync(path.join(dir, name)) : null);
+  const main = disk("main.js");
+  const manifest = disk("manifest.json");
+  return {
+    ...out,
+    mainJs: { written: sha(files["main.js"]), disk: main === null ? null : sha(main) },
+    fsManifest: manifest === null ? null : JSON.parse(manifest.toString("utf8")).version,
+  };
 }
 
 export const noteText = (file) => inA(({ app }, f) => app.vault.adapter.read(f), file);

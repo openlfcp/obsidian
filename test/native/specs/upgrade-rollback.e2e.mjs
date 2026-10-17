@@ -139,7 +139,8 @@ async function prepare(server, b, tag, from) {
   const t0 = Date.now();
   await freshVault(server);
   const old = await install(from);
-  expect(old).toMatchObject({ status: "ready" });
+  expect(old).toMatchObject({ status: "ready", dev05: from === "main" });
+  expect(old.mainJs.disk).toBe(old.mainJs.written);
   const file = `Plan-${tag}.md`;
   const { R, bFile } = await shareAndJoin(b, file, "## Plan", TEXT("## Plan"));
   await browser.waitUntil(async () => (await badge()) === "CURRENT", { timeout: 30_000, timeoutMsg: `${from}: current` });
@@ -213,6 +214,9 @@ async function change(server, b, tag, s, to) {
   };
   evidence(`${tag} after`, out);
   expect(now.status).toBe("ready");
+  expect(now.dev05).toBe(to === "main");
+  expect(now.mainJs.disk).toBe(now.mainJs.written);
+  expect(now.mainJs.written).not.toBe(s.old.mainJs.written);
   expect(now.upgradedLocalData).toBe(false);
   expect(now.principal).toBe(s.old.principal);
   expect(after.principal).toBe(s.before.principal);
@@ -309,6 +313,8 @@ describe("upgrade from 0.4.x and rollback to 0.4.2 (LFCP-03-026)", () => {
     const out = { now, reached, before, after, a: titles(sectionOf(md)), problems: markerProblems(md).problems, notices: await notices() };
     evidence("round trip", out);
     expect(now.status).toBe("ready");
+    expect(now.dev05).toBe(true);
+    expect(now.mainJs.disk).toBe(now.mainJs.written);
     expect(now.principal).toBe(back.old.principal);
     expect(after.resources.map((r) => r.r)).toEqual(before.resources.map((r) => r.r));
     expect(after.creations).toEqual([]);
