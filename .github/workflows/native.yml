@@ -128,8 +128,9 @@ jobs:
       LFCP_SCREENSHOT_DIR: ${{ github.workspace }}/obsidian/screenshots
       # The live specs' server: the one built above, never a default location.
       LFCP_REQUIRE_LIVE: "1"
-      # The older plugin releases specs/upgrade-install.e2e.mjs updates from.
-      UPGRADE_FROM: 0.3.4 0.4.0-beta.15
+      # The older plugin releases specs/upgrade-install.e2e.mjs and
+      # specs/upgrade-rollback.e2e.mjs update from (and roll back to).
+      UPGRADE_FROM: 0.3.4 0.4.0-beta.15 0.4.1 0.4.2
     defaults:
       run:
         shell: bash
