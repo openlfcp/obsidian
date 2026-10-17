@@ -165,7 +165,6 @@ const SHARE_AGAIN = "Share the section again in a moment.";
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** What Keep my version did for a section whose Task cannot be compared (no base guessed). */
 /** Review N1: a section twice in the note, each copy holding pasted lines (LFCP-03-047). */
 const PASTED_TWICE =
   "This section is in this note twice, and both copies hold pasted lines that differ from the shared version: remove one copy, then repair again.";
@@ -173,6 +172,7 @@ const PASTED_TWICE =
 const PASTED_GONE =
   "Shared Tasks: your text is kept as a recovery copy on this device, but this copy's state changed meanwhile. Nothing was replaced: open the repair again.";
 
+/** What Keep my version did for a section whose Task cannot be compared (no base guessed). */
 const KEPT_WAITING: Record<TaskWait, string> = {
   "task-loading":
     "Shared Tasks: this note's version is kept as it is. A Task in it is still loading; once it has, the section asks again if the two versions differ.",
