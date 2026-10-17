@@ -868,15 +868,22 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
     );
     const inside = (await noteOfA("Launch plan.md")).split("\n").findIndex((l) => l.startsWith("- [ ] Task 4 of the launch"));
     await openA("Launch plan.md", "", inside);
-    const before = (await notices()).length;
+    // The notices shown now are marked: the refusal is a notice not marked.
+    // (Counting them would miss it when older notices time out meanwhile.)
+    const shownBefore = await inA(() => {
+      const all = [...document.querySelectorAll(".notice")];
+      for (const n of all) n.dataset.lfcpSeen = "1";
+      return all.map((n) => n.textContent);
+    });
     await inA(({ app }) => app.commands.executeCommandById("shared-tasks:share-task-under-cursor"));
     // The refusal is a notice; it can take a moment under load.
+    const fresh = () => inA(() => [...document.querySelectorAll(".notice")].filter((n) => n.dataset.lfcpSeen !== "1").map((n) => n.textContent));
     let refused = [];
     for (let i = 0; i < 25 && refused.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 200));
-      refused = (await notices()).slice(before);
+      refused = await fresh();
     }
-    evidence("C15", { legacy, refused });
+    evidence("C15", { legacy, refused, shownBefore });
     expect(legacy).toBe(true);
     expect(refused.join(" ")).toMatch(/section/i);
   });
