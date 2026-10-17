@@ -88,6 +88,34 @@ const selectTask = (i, title) =>
     title,
   );
 const paneTexts = () => inA(() => window.__panes.map((l) => l.view.editor.getValue()));
+/** Whether the Task titled `title` is a line of pane `i`'s text. */
+const paneHas = async (i, title) => titles(sectionOf((await paneTexts())[i])).includes(title);
+/**
+ * The Task titled `title` cut, with its ref line, in pane `i` by the real
+ * keys, as the user does it: their pane has the keyboard, and they see the
+ * Task leave it. A cut the keys did not make (the editor without focus) is
+ * said so here, with the focus facts, not as a later step's wrong titles.
+ */
+const cutInPane = async (i, title) => {
+  await focusPane(i);
+  await selectTask(i, title);
+  const focus = await inPane(i, (e) => ({ editor: e.hasFocus(), document: document.hasFocus() }));
+  await browser.keys([mod, "x"]);
+  const gone = await browser.waitUntil(async () => !(await paneHas(i, title)), { timeout: 5_000 }).catch(() => false);
+  evidence("PANES cut keys", { pane: i, title, focus, gone });
+  if (!gone) throw new Error(`the cut of "${title}" in pane ${i} did not happen (focus ${JSON.stringify(focus)})`);
+};
+/**
+ * Pane `i` shows the cut of `title` made in the other pane. Obsidian brings
+ * a change of one view of a note to its other views a moment later (the
+ * slower the machine, the later); a user pastes where they see the
+ * neighbour, after it moved.
+ */
+const followed = (i, title) =>
+  browser.waitUntil(async () => !(await paneHas(i, title)), {
+    timeout: 5_000,
+    timeoutMsg: `pane ${i} shows the cut of "${title}"`,
+  });
 /** The Task ID of each title of A's note. */
 const idsByTitle = (md, ids) => Object.fromEntries(titles(sectionOf(md)).map((t, k) => [t, ids[k]]));
 /**
@@ -166,9 +194,8 @@ describe("one shared section in two panes", () => {
     const before = await stateA(ctx.R);
     const ids = idsByTitle(before.md, before.tasks);
     await recordOps();
-    await focusPane(0);
-    await selectTask(0, "Gamma three");
-    await browser.keys([mod, "x"]);
+    await cutInPane(0, "Gamma three");
+    await followed(1, "Gamma three");
     await inPane(1, (e, leaf, app) => {
       app.workspace.setActiveLeaf(leaf, { focus: true });
       e.focus();
@@ -188,9 +215,7 @@ describe("one shared section in two panes", () => {
     const before = await stateA(ctx.R);
     const ids = idsByTitle(before.md, before.tasks);
     await recordOps();
-    await focusPane(1);
-    await selectTask(1, "Gamma three");
-    await browser.keys([mod, "x"]);
+    await cutInPane(1, "Gamma three");
     const cut = await step("PANES cut");
     expect(cut.titles).toEqual(["Alpha one", "Beta two", "Delta"]);
     await focusPane(0);
@@ -243,9 +268,7 @@ describe("one shared section in two panes", () => {
     const last = order[order.length - 1];
     const want = [...order.slice(0, -1), "Beta two", last];
     await recordOps();
-    await focusPane(1);
-    await selectTask(1, "Beta two");
-    await browser.keys([mod, "x"]);
+    await cutInPane(1, "Beta two");
     await inA(() => {
       window.__panes[1].detach();
       window.__panes = window.__panes.slice(0, 1);
@@ -357,9 +380,7 @@ describe("two copies of one shared section, in two notes side by side", () => {
 
   it("a Task cut in one copy and pasted in the other: both copies show it moved, with its ID", async () => {
     const before = await stateA(ctx.R);
-    await focusPane(0);
-    await selectTask(0, "Gamma");
-    await browser.keys([mod, "x"]);
+    await cutInPane(0, "Gamma");
     // The other copy follows the deletion (it is not taken for the cut's paste): Gamma
     // leaves it, and nothing is held or restored.
     const followed = await browser
