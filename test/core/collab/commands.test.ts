@@ -585,6 +585,34 @@ describe("insertAtLine", () => {
     expect(s.prompter.statuses[0]?.actions).toEqual([]);
   });
 
+  it("LFCP-03-049: with sections on, the 0.1 Task pickers leave shared sections out; status and invite still offer them", async () => {
+    const s = await setup("child-line", true);
+    await s.runtime.createSectionResource({
+      name: "Launch",
+      endpoints: [SERVER],
+      coordinatorUrl: SERVER,
+    });
+    s.notes.files.set("n.md", "- [ ] Prepare contract\n");
+    s.notes.open("n.md", 0);
+    await s.commands.insertAllTasks();
+    await s.commands.insertSharedObject();
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.prompter.notices).toEqual(
+      Array(2).fill(
+        'Shared Tasks: this device has shared sections, but no shared tasks to insert. Use "Insert shared section…" to place a section in a note.',
+      ),
+    );
+    // Sharing a Task offers only a new collaboration: the section is not a choice.
+    s.prompter.picks.push("Launch");
+    await s.commands.shareTaskUnderCursor();
+    expect(s.prompter.notices.at(-1)).toMatch(/no choice "Launch" in Create a new collaboration…$/);
+    expect(s.notes.files.get("n.md")).toBe("- [ ] Prepare contract\n");
+    expect(s.written).toEqual([]);
+    s.prompter.picks.push("Launch");
+    await s.commands.resourceStatus();
+    expect(s.prompter.statuses.at(-1)?.status.localName).toBe("Launch");
+  });
+
   it("reports every write to the projection at once, so its bases do not wait for the echo (0.3.2)", async () => {
     const s = await setup();
     await created(s);
