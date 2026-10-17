@@ -166,8 +166,9 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
     const collaborations = await choose("Launch");
     const presets = await choose("Read + write");
     const shown = await inA(async () => {
-      let modal = null;
-      for (let i = 0; i < 200 && modal === null; i++) {
+      // find() gives undefined while there is no dialog: the loop waits on that.
+      let modal;
+      for (let i = 0; i < 200 && modal === undefined; i++) {
         await new Promise((r) => setTimeout(r, 50));
         modal = [...document.querySelectorAll(".modal-container .modal")].find((m) => m.textContent.includes("Invitation ("));
       }
