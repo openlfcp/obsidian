@@ -294,9 +294,20 @@ export class CollabCommands {
       readonly unsupportedOk?: boolean;
       /** A shared section's Resource (sections preview): the flow checks it is hosted and ready. */
       readonly sectionsOk?: boolean;
+      /**
+       * A 0.1 Task flow (share or insert a Task): a shared section is not
+       * offered while sections are on, as it cannot hold 0.1 Tasks (LFCP-03-049).
+       * With sections off it stays, refused as another Data Profile (0.3.2).
+       */
+      readonly tasksOnly?: boolean;
     } = {},
   ): Promise<ResourceId | null> {
-    const entries = await collab.list();
+    const all = await collab.list();
+    const hidden = (e: RegistryEntry) =>
+      options.tasksOnly === true &&
+      this.#env.sections?.() === true &&
+      e.profile === SECTIONS_PROFILE_ID;
+    const entries = all.filter((e) => !hidden(e));
     const choices: Choice<ResourceId | "new">[] = entries.map((e) => ({
       label:
         e.localName ??
@@ -308,6 +319,12 @@ export class CollabCommands {
     }));
     if (options.allowCreate === true)
       choices.push({ label: "Create a new collaboration…", value: "new" });
+    if (choices.length === 0 && all.length > 0) {
+      this.#env.prompter.notice(
+        'Shared Tasks: this device has shared sections, but no shared tasks to insert. Use "Insert shared section…" to place a section in a note.',
+      );
+      return null;
+    }
     if (choices.length === 0) {
       this.#env.prompter.notice(
         'Shared Tasks: nothing is shared on this device yet. Share a section with "Share section…", or join with a link ("Join collaboration"), first.',
@@ -482,7 +499,10 @@ export class CollabCommands {
         );
         return;
       }
-      const R = await this.#pickResource(collab, "Share the task in…", { allowCreate: true });
+      const R = await this.#pickResource(collab, "Share the task in…", {
+        allowCreate: true,
+        tasksOnly: true,
+      });
       if (R === null) return;
       const lineText = splitLines(note.text)[at.state.task.line]?.text ?? "";
       const shared = await collab.share(R, at.state);
@@ -540,7 +560,7 @@ export class CollabCommands {
       const R = await this.#pickResource(
         collab,
         `Share ${plural(n, "task")} in… (everyone invited to it sees every task in it)`,
-        { allowCreate: true },
+        { allowCreate: true, tasksOnly: true },
       );
       if (R === null) return;
       const lines = splitLines(note.text);
@@ -594,7 +614,10 @@ export class CollabCommands {
         )
       )
         return;
-      const R = await this.#pickResource(collab, "Insert all tasks from…", { blockedOk: true });
+      const R = await this.#pickResource(collab, "Insert all tasks from…", {
+        blockedOk: true,
+        tasksOnly: true,
+      });
       if (R === null) return;
       const all = await collab.insertCandidates(R);
       if (all.length === 0) {
@@ -660,7 +683,10 @@ export class CollabCommands {
         )
       )
         return;
-      const R = await this.#pickResource(collab, "Insert a task from…", { blockedOk: true });
+      const R = await this.#pickResource(collab, "Insert a task from…", {
+        blockedOk: true,
+        tasksOnly: true,
+      });
       if (R === null) return;
       const tasks = await collab.tasks(R);
       if (tasks.length === 0) {
