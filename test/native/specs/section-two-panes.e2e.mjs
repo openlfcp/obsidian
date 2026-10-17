@@ -161,7 +161,12 @@ describe("one shared section in two panes", () => {
 
   /** checkStep, and both panes show the same text. */
   const step = async (label) => {
-    const s = await checkStep(label, ctx);
+    // Obsidian's saves and merges are logged whether the step passes or not:
+    // a failed one is where they matter.
+    const s = await checkStep(label, ctx).catch(async (error) => {
+      evidence(`${label} obsidian`, { log: await obsidianLog(), texts: await paneTexts() });
+      throw error;
+    });
     const texts = await paneTexts();
     evidence(`${label} obsidian`, { log: await obsidianLog() });
     expect(new Set(texts).size).toBe(1);
@@ -196,6 +201,16 @@ describe("one shared section in two panes", () => {
     await recordOps();
     await cutInPane(0, "Gamma three");
     await followed(1, "Gamma three");
+    // What the paste will insert, as the system clipboard holds it (line endings included).
+    evidence("PANES clipboard", {
+      text: await inA(() => {
+        try {
+          return JSON.stringify(window.require("electron").clipboard.readText()).slice(0, 300);
+        } catch (e) {
+          return `unreadable: ${String(e)}`;
+        }
+      }),
+    });
     await inPane(1, (e, leaf, app) => {
       app.workspace.setActiveLeaf(leaf, { focus: true });
       e.focus();
