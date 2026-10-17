@@ -150,7 +150,15 @@ describe("LFCP-03-019: access, copy and detach from the pane", () => {
     // Remove access… opens the card; C's row, its confirmation, then the revocation.
     expect(await clickPane("remove-access")).toBe(true);
     const cLabel = `Member ${hex(c.principal).slice(0, 8)}`;
-    await modalWith(cLabel);
+    await modalWith(cLabel).catch(async (error) => {
+      // The card without C's row: what it lists, and when it last verified access.
+      evidence("PANE-REMOVE no row", {
+        member: cLabel,
+        cAllowed: (await accessOf(c)).allowed,
+        cards: await inA(() => [...document.querySelectorAll(".modal-container .modal")].map((m) => m.textContent.slice(0, 1500))),
+      });
+      throw error;
+    });
     expect(await clickIn(cLabel, `Remove access for ${cLabel}`)).toBe(true);
     const confirm = await modalWith(`Remove access: ${cLabel}`);
     evidence("PANE-REMOVE confirm", { text: confirm });
