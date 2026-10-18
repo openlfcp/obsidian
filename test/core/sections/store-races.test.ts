@@ -7,9 +7,11 @@
 import { describe, expect, it } from "vitest";
 import type { StoredBase } from "../../../src/core/sections/base";
 import {
+  abandonOnce,
   advance,
   type JournalEntry,
   JournalError,
+  MemorySectionJournalStore,
   type Phase,
 } from "../../../src/core/sections/journal";
 import {
@@ -180,5 +182,45 @@ describe("KeyValueSectionJournalStore: parallel puts of one operation (LFCP-03-0
     const last = (await journal.get("op-1"))?.phase;
     expect(last).toBe("done");
     expect(await journal.unfinished()).toEqual([]);
+  });
+
+  describe("abandonOnce beside a writer of the same operation", () => {
+    const projected = to(committed, "projected", { patchedHash: "h1" });
+
+    it("an operation done meanwhile is not abandoned over", async () => {
+      const journal = new KeyValueSectionJournalStore(runtimeKeyValue());
+      for (const e of [captured, ids, committed, projected]) await journal.put(e);
+      await Promise.allSettled([journal.put(done), abandonOnce(journal, "op-1", "note-deleted")]);
+      expect((await journal.get("op-1"))?.phase).toBe("done");
+      expect(await journal.unfinished()).toEqual([]);
+    });
+
+    it("an operation projected meanwhile keeps its fields when it is abandoned after", async () => {
+      const journal = new KeyValueSectionJournalStore(runtimeKeyValue());
+      for (const e of [captured, ids, committed]) await journal.put(e);
+      await Promise.allSettled([
+        journal.put(projected),
+        abandonOnce(journal, "op-1", "note-deleted"),
+      ]);
+      // The projection came first: the abandon closes that entry, not the one it read before.
+      const last = await journal.get("op-1");
+      expect(last?.phase).toBe("abandoned");
+      expect(last?.patchedHash).toBe("h1");
+      expect(await journal.unfinished()).toEqual([]);
+    });
+
+    it("a finished operation is never put back to abandoned", async () => {
+      for (const store of [
+        new KeyValueSectionJournalStore(runtimeKeyValue()),
+        new MemorySectionJournalStore(),
+      ]) {
+        for (const e of [captured, ids, committed, projected, done]) await store.put(e);
+        await expect(store.put(to(ids, "abandoned", { reason: "x" }))).rejects.toBeInstanceOf(
+          JournalError,
+        );
+        expect(await abandonOnce(store, "op-1", "x")).toBeUndefined();
+        expect((await store.get("op-1"))?.phase).toBe("done");
+      }
+    });
   });
 });

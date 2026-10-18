@@ -275,6 +275,13 @@ describe("the sweep of the bases of missing notes (LFCP-03-048)", () => {
             await target.put(e);
             if (e.phase === "abandoned") w.notes.add("Race.md");
           };
+        // The sweep closes an operation through abandon (one turn of the operation's queue).
+        if (key === "abandon")
+          return async (id: string, reason: string) => {
+            const closed = await target.abandon(id, reason);
+            if (closed !== undefined) w.notes.add("Race.md");
+            return closed;
+          };
         const v = Reflect.get(target, key) as unknown;
         return typeof v === "function" ? v.bind(target) : v;
       },

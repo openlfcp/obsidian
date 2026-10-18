@@ -11,6 +11,7 @@ import { fromBase64url, toBase64url } from "@openlfcp/core";
 import { type SectionBaseStore, type StoredBase, sectionBaseKey } from "./base";
 import { sectionKey } from "./context";
 import {
+  advance,
   checkForward,
   type JournalEntry,
   type PendingCandidate,
@@ -156,13 +157,27 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
    * land over a later one (LFCP-03-056).
    */
   put(entry: JournalEntry): Promise<void> {
-    return this.#serial.run(entry.operationId, async () => {
-      checkForward(await this.get(entry.operationId), entry);
-      await this.kv.put(opKey(entry.operationId), entry);
-      const open = entry.phase !== "done" && entry.phase !== "abandoned";
-      // Oldest first, as unfinished() promises: a restart replays them in that
-      // order (sorted IDs were random UUIDs, 0.4.0-beta.8).
-      await this.kv.update(OPEN, open ? appended(entry.operationId) : removed(entry.operationId));
+    return this.#serial.run(entry.operationId, () => this.#put(entry));
+  }
+
+  async #put(entry: JournalEntry): Promise<void> {
+    checkForward(await this.get(entry.operationId), entry);
+    await this.kv.put(opKey(entry.operationId), entry);
+    const open = entry.phase !== "done" && entry.phase !== "abandoned";
+    // Oldest first, as unfinished() promises: a restart replays them in that
+    // order (sorted IDs were random UUIDs, 0.4.0-beta.8).
+    await this.kv.update(OPEN, open ? appended(entry.operationId) : removed(entry.operationId));
+  }
+
+  /** Read again and closed inside the operation's turn: whatever moved it before is kept as it is. */
+  abandon(operationId: string, reason: string): Promise<JournalEntry | undefined> {
+    return this.#serial.run(operationId, async () => {
+      const entry = await this.get(operationId);
+      if (entry === undefined || entry.phase === "done" || entry.phase === "abandoned")
+        return undefined;
+      const abandoned = advance(entry, "abandoned", { reason });
+      await this.#put(abandoned);
+      return abandoned;
     });
   }
 
