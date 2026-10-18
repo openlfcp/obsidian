@@ -440,6 +440,27 @@ describe("the section key backfill (LFCP-03-048)", () => {
     }
   });
 
+  it("the backfill leaves a record replaced since it was read: by another text, by another projection", async () => {
+    const oldText = sectionNote(PLAN, "Plan", ["- [ ] Old"]);
+    const replaced = [
+      legacy("c1", "gone", sectionNote(PLAN, "Plan", ["- [ ] Fresh"])),
+      legacy("c1", "elsewhere", oldText),
+    ];
+    for (const fresh of replaced) {
+      const { kv, hook } = racingKeyValue();
+      const journal = new KeyValueSectionJournalStore(kv);
+      await journal.putCandidate(legacy("c1", "gone", oldText));
+      hook.onRead = () => journal.putCandidate(fresh);
+      await journal.backfillSectionKeys();
+      const [kept] = await journal.allCandidates();
+      expect(kept?.sourceText).toBe(fresh.sourceText);
+      expect(kept?.projectionId).toBe(fresh.projectionId);
+      // Not keyed from the record it replaced; the next start's backfill keys it.
+      expect(kept?.sectionKey).toBeUndefined();
+      expect(await journal.candidatesOfSection(KEY)).toEqual([]);
+    }
+  });
+
   it("F9: a pending projection's candidate follows its note's rename", async () => {
     const journal = new KeyValueSectionJournalStore(keyValue());
     await journal.putCandidate({
