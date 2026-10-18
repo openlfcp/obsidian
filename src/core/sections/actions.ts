@@ -163,6 +163,16 @@ export type Dispatch = (id: ActionId, request: ActionRequest, surface: Surface) 
 const SHARE_NEEDS: HostNeeds = { writes: true, server: true };
 const SHARE_AGAIN = "Share the section again in a moment.";
 
+/**
+ * How long a share's creation may run before the user is told it is not
+ * answering (LFCP-03-058). A creation is local work plus a hosting request
+ * that gives up by itself; one that is quiet for longer is stuck somewhere
+ * (a step that never returns), and a share that says nothing is a silent
+ * failure. Past it the result is unknown (D12): "Check the result" runs the
+ * same operation again, never a new one.
+ */
+export const CREATION_DEADLINE_MS = 45_000;
+
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** Review N1: a section twice in the note, each copy holding pasted lines (LFCP-03-047). */
@@ -199,7 +209,15 @@ export class SectionActions {
   /** The dispatcher the card's buttons run through (LFCP-03-010); null: their handlers directly. */
   #dispatch: Dispatch | null = null;
 
-  constructor(private readonly env: SectionActionEnv) {}
+  /** How long a creation may run before it is reported as not answering (CREATION_DEADLINE_MS). */
+  readonly #creationDeadlineMs: number;
+
+  constructor(
+    private readonly env: SectionActionEnv,
+    options: { readonly creationDeadlineMs?: number } = {},
+  ) {
+    this.#creationDeadlineMs = options.creationDeadlineMs ?? CREATION_DEADLINE_MS;
+  }
 
   /**
    * The card's buttons run their actions through `dispatch`, as every
@@ -930,7 +948,15 @@ export class SectionActions {
    * settles it; without a flow it is left to its journal.
    */
   async #settle(entry: CreationEntry, target?: NoteTarget, flow?: Flow): Promise<void> {
-    const out = await this.#outcome(entry, target);
+    const running = this.#outcome(entry, target);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((r) => {
+      timer = setTimeout(() => r("late"), this.#creationDeadlineMs);
+    });
+    const first = await Promise.race([running, late]);
+    clearTimeout(timer);
+    if (first === "late") return this.#notAnswering(entry, running, target, flow);
+    const out = first;
     if (out.kind === "known") {
       this.#notifyCreation(entry, out.result);
       return;
@@ -944,6 +970,55 @@ export class SectionActions {
       `the result of sharing section "${title}" from this note is being checked. Nothing new is created.`,
       () => this.#reconcileCreation(entry, target),
     );
+  }
+
+  /**
+   * A creation that has not returned in its time (LFCP-03-058): said, with
+   * the step the journal reached, and held as an unknown outcome so "Check
+   * the result" runs the same operation again. The first run goes on; its
+   * late result is told once, and settles the flow.
+   */
+  async #notAnswering(
+    entry: CreationEntry,
+    running: Promise<CreationOutcome>,
+    target?: NoteTarget,
+    flow?: Flow,
+  ): Promise<void> {
+    const title = entry.preview.title;
+    const creation = this.env.services.creation();
+    const at = (await creation?.current(entry.operationId).catch(() => undefined))?.phase;
+    let told = false;
+    const tell = (out: CreationOutcome): boolean => {
+      if (told || out.kind !== "known") return false;
+      told = true;
+      this.#notifyCreation(entry, out.result);
+      return true;
+    };
+    this.env.prompter.notice(
+      `Shared Tasks: creating section "${title}" is taking too long and has not finished${at === undefined ? "" : ` (it stopped at "${at}")`}; its result is not known yet. Share section… on this note checks it again and creates nothing new; it also goes on at the next start.`,
+    );
+    this.#unresolvedSoon();
+    flow?.unresolved(
+      `the result of sharing section "${title}" from this note is being checked. Nothing new is created.`,
+      async () => {
+        if (told) return "settled";
+        const out = await this.#outcome(
+          (await creation?.current(entry.operationId)) ?? entry,
+          target,
+        );
+        if (out.kind === "unknown") {
+          this.env.prompter.notice(
+            `Shared Tasks: the result of creating section "${title}" is still not known (${errorText(out.error)}). Nothing new was created.`,
+          );
+          return "unknown";
+        }
+        tell(out);
+        return "settled";
+      },
+    );
+    void running.then((out) => {
+      if (tell(out)) flow?.close();
+    });
   }
 
   /** A creation whose outcome was unknown, run again from its journal: the same operation ID (D12). */

@@ -308,13 +308,16 @@ function fakeServices(calls: string[], over: Partial<SectionServices> = {}): Sec
   };
 }
 
-function setup(over: (calls: string[]) => Partial<SectionServices> = () => ({})) {
+function setup(
+  over: (calls: string[]) => Partial<SectionServices> = () => ({}),
+  options?: { creationDeadlineMs?: number },
+) {
   const calls: string[] = [];
   const prompter = new RecordingPrompter();
   const notes = new MemoryNotes();
   const creation = fakeCreation(calls);
   const services = fakeServices(calls, { creation: () => creation, ...over(calls) });
-  const actions = new SectionActions({ prompter, notes, services });
+  const actions = new SectionActions({ prompter, notes, services }, options);
   notes.files.set("Plan.md", NOTE);
   notes.open.add("Plan.md");
   return { calls, prompter, notes, creation, actions, editor: notes.editorOf("Plan.md", PLAN) };
@@ -434,6 +437,47 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     expect(t.actions.flows()).toEqual([]);
     expect(told).toBe(before);
     expect(steps.length).toBeGreaterThan(2);
+  });
+
+  it("LFCP-03-058: a creation that never returns is said, held as unknown and checked as the same operation", async () => {
+    const t = setup(undefined, { creationDeadlineMs: 20 });
+    t.prompter.script.share = [true];
+    t.creation.result = () => new Promise(() => undefined);
+    // The journal shows how far the first run got.
+    t.creation.journal.set("op-1", {
+      ...entry("op-1", "Plan.md", { title: "Plan" } as SharePreview),
+      phase: "local",
+    });
+    await t.actions.share(t.editor.at());
+    expect(t.prompter.notices).toHaveLength(1);
+    expect(t.prompter.notices[0]).toContain('creating section "Plan" is taking too long');
+    expect(t.prompter.notices[0]).toContain('stopped at "local"');
+    // The pane lists it, with the action to check it: not a flow that looks running.
+    expect(t.actions.flows()).toMatchObject([
+      { kind: "share", step: "creating", outcome: "unknown" },
+    ]);
+    // A check runs the same operation; it settles and frees the note.
+    t.creation.result = (e) => Promise.resolve({ kind: "hosted", entry: e });
+    t.calls.length = 0;
+    expect(await t.actions.checkResult(t.actions.flows()[0]?.generation ?? 0)).toBe(true);
+    await flush();
+    expect(t.calls).toContain("run op-1");
+    expect(t.calls.filter((c) => c.startsWith("prepare"))).toEqual([]);
+    expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
+    expect(t.actions.flows()).toEqual([]);
+  });
+
+  it("LFCP-03-058: the late result of a slow creation is told once and frees the note", async () => {
+    const t = setup(undefined, { creationDeadlineMs: 20 });
+    t.prompter.script.share = [true];
+    let finish: (r: CreationResult) => void = () => undefined;
+    t.creation.result = () => new Promise((r) => (finish = r));
+    await t.actions.share(t.editor.at());
+    expect(t.prompter.notices).toHaveLength(1);
+    finish({ kind: "hosted", entry: entry("op-1", "Plan.md", { title: "Plan" } as SharePreview) });
+    await flush();
+    expect(t.prompter.notices.filter((m) => m.endsWith("is shared."))).toHaveLength(1);
+    expect(t.actions.flows()).toEqual([]);
   });
 
   it("D12: an unknown outcome keeps the note; a repeat checks the same operation, never a new one", async () => {
