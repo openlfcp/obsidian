@@ -439,11 +439,15 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     expect(steps.length).toBeGreaterThan(2);
   });
 
-  it("LFCP-03-058: a creation that never returns is said, held as unknown and checked as the same operation", async () => {
+  it("LFCP-03-058: a check while the first run is unfinished joins it: one run, still running said", async () => {
     const t = setup(undefined, { creationDeadlineMs: 20 });
     t.prompter.script.share = [true];
-    t.creation.result = () => new Promise(() => undefined);
-    // The journal shows how far the first run got.
+    let runs = 0;
+    let finish: (r: CreationResult) => void = () => undefined;
+    t.creation.result = () => {
+      runs++;
+      return new Promise((r) => (finish = r));
+    };
     t.creation.journal.set("op-1", {
       ...entry("op-1", "Plan.md", { title: "Plan" } as SharePreview),
       phase: "local",
@@ -452,19 +456,22 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     expect(t.prompter.notices).toHaveLength(1);
     expect(t.prompter.notices[0]).toContain('creating section "Plan" is taking too long');
     expect(t.prompter.notices[0]).toContain('stopped at "local"');
-    // The pane lists it, with the action to check it: not a flow that looks running.
     expect(t.actions.flows()).toMatchObject([
       { kind: "share", step: "creating", outcome: "unknown" },
     ]);
-    // A check runs the same operation; it settles and frees the note.
-    t.creation.result = (e) => Promise.resolve({ kind: "hosted", entry: e });
-    t.calls.length = 0;
+    // A check, and a repeated start, while the first run has not returned: no second run.
     expect(await t.actions.checkResult(t.actions.flows()[0]?.generation ?? 0)).toBe(true);
+    await t.actions.share(t.editor.at());
+    await new Promise((r) => setTimeout(r, 60));
+    expect(runs).toBe(1);
+    expect(t.prompter.notices.some((m) => m.includes("it is still running"))).toBe(true);
+    expect(t.actions.flows()).toHaveLength(1);
+    // The first run ends: told once, the note free.
+    finish({ kind: "hosted", entry: entry("op-1", "Plan.md", { title: "Plan" } as SharePreview) });
     await flush();
-    expect(t.calls).toContain("run op-1");
-    expect(t.calls.filter((c) => c.startsWith("prepare"))).toEqual([]);
-    expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
+    expect(t.prompter.notices.filter((m) => m.endsWith("is shared."))).toHaveLength(1);
     expect(t.actions.flows()).toEqual([]);
+    expect(runs).toBe(1);
   });
 
   it("LFCP-03-058: a resume of a creation that is running joins it: one run of the operation", async () => {

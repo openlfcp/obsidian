@@ -976,9 +976,11 @@ export class SectionActions {
 
   /**
    * A creation that has not returned in its time (LFCP-03-058): said, with
-   * the step the journal reached, and held as an unknown outcome so "Check
-   * the result" runs the same operation again. The first run goes on; its
-   * late result is told once, and settles the flow.
+   * the step the journal reached, and held as an unknown outcome. The first
+   * run goes on and stays in `#runs`: "Check the result" joins it (never a
+   * second run of the operation, which is not re-entrant), within its own
+   * deadline, and says it is still running. Its late result is told once,
+   * and settles the flow.
    */
   async #notAnswering(
     entry: CreationEntry,
@@ -986,8 +988,6 @@ export class SectionActions {
     target?: NoteTarget,
     flow?: Flow,
   ): Promise<void> {
-    // Not joined any more: a check runs the operation again (the Resource is made once per ID).
-    if (this.#runs.get(entry.operationId) !== undefined) this.#runs.delete(entry.operationId);
     const title = entry.preview.title;
     const creation = this.env.services.creation();
     const at = (await creation?.current(entry.operationId).catch(() => undefined))?.phase;
@@ -1006,13 +1006,13 @@ export class SectionActions {
       `the result of sharing section "${title}" from this note is being checked. Nothing new is created.`,
       async () => {
         if (told) return "settled";
-        const out = await this.#outcome(
+        const out = await this.#joined(
           (await creation?.current(entry.operationId)) ?? entry,
           target,
         );
         if (out.kind === "unknown") {
           this.env.prompter.notice(
-            `Shared Tasks: the result of creating section "${title}" is still not known (${errorText(out.error)}). Nothing new was created.`,
+            `Shared Tasks: the result of creating section "${title}" is still not known (${out.error === undefined ? "it is still running" : errorText(out.error)}). Nothing new was created.`,
           );
           return "unknown";
         }
@@ -1025,15 +1025,32 @@ export class SectionActions {
     });
   }
 
+  /**
+   * A run of the creation (started, or the one under way) within the creation
+   * deadline; a run still going then answers unknown without an error, and
+   * keeps its place in `#runs`.
+   */
+  async #joined(entry: CreationEntry, target?: NoteTarget): Promise<CreationOutcome> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<CreationOutcome>((r) => {
+      timer = setTimeout(() => r({ kind: "unknown", error: undefined }), this.#creationDeadlineMs);
+    });
+    try {
+      return await Promise.race([this.#outcome(entry, target), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** A creation whose outcome was unknown, run again from its journal: the same operation ID (D12). */
   async #reconcileCreation(entry: CreationEntry, target?: NoteTarget): Promise<Reconciled> {
     const creation = this.env.services.creation();
     if (creation === null) return "unknown";
     const current = (await creation.current(entry.operationId)) ?? entry;
-    const out = await this.#outcome(current, target);
+    const out = await this.#joined(current, target);
     if (out.kind === "unknown") {
       this.env.prompter.notice(
-        `Shared Tasks: the result of creating section "${entry.preview.title}" is still not known (${errorText(out.error)}). Nothing new was created.`,
+        `Shared Tasks: the result of creating section "${entry.preview.title}" is still not known (${out.error === undefined ? "it is still running" : errorText(out.error)}). Nothing new was created.`,
       );
       return "unknown";
     }
