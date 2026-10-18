@@ -5,7 +5,7 @@
 // as markup, so a title or a name cannot inject anything.
 
 import type { AccessView } from "./access";
-import { HELD_CAUSE, type HeldEdits, heldAdvice } from "./held";
+import { type HeldEdits, heldAdvice, heldCauseText } from "./held";
 import type { Condition, StatusView } from "./reducer";
 
 export interface CardInput {
@@ -167,7 +167,7 @@ export const CONNECTING_TEXT =
 
 /** One copy's held edits as a fact: "3 edits not sent: <cause> (Plan.md, line 15)." (F-04). */
 export function heldFact(h: HeldEdits): string {
-  return `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${HELD_CAUSE[h.cause]} (${h.path}, line ${h.line + 1}).${movedNotSent(h)}${keptIn(h)}`;
+  return `${h.count === null ? "Edits" : plural(h.count, "edit", "edits")} not sent: ${heldCauseText(h)} (${h.path}, line ${h.line + 1}).${movedNotSent(h)}${keptIn(h)}`;
 }
 
 /**

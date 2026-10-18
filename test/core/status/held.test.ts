@@ -60,6 +60,23 @@ function expectNeverCurrent(c: ReturnType<typeof cardOf>) {
 }
 
 describe("held edits (F-04)", () => {
+  it("a line missing without the user's deletion (Obsidian's merge): named as missing, with a way back (LFCP-03-057)", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
+    const L = lines(a.note());
+    const g = L.findIndex((l) => l === "- [ ] Gamma");
+    L.splice(g, 2);
+    const h = await held(a, L.join("\n"));
+    expect(h).toMatchObject({ cause: "binding", count: 1, missing: ["Gamma"] });
+    const c = cardOf(h as HeldEdits, "binding-error");
+    expect(c.view.state).toBe("ATTENTION");
+    const text = [...c.card.facts, ...c.card.problems].join(" ");
+    expect(text).toContain("a line of the section is missing in this copy");
+    expect(text).toContain('"Gamma" is missing from this copy');
+    expect(text).toContain("nothing was deleted for them");
+    expect(text).toContain("Repair shared sections in this note");
+    expect(text).not.toContain("damaged");
+  });
+
   it("a move in a held copy is counted and named: never lost silently (0.4.0-beta.10, step 6)", async () => {
     const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma", "", "A paragraph."]);
     const L = lines(a.note());
