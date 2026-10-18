@@ -378,7 +378,7 @@ describe("the section key backfill (LFCP-03-048)", () => {
             hook.inUpdate = null;
             start();
             // Time for a put that does not wait for updates to land in the window.
-            for (let i = 0; i < 5; i++) await Promise.resolve();
+            await new Promise((r) => setTimeout(r, 5));
           }
           await kv.put(k, change(current));
         };
@@ -403,6 +403,7 @@ describe("the section key backfill (LFCP-03-048)", () => {
     hook.onRead = () => journal.resolveCandidate("c1");
     await journal.backfillSectionKeys();
     expect(await journal.allCandidates()).toEqual([]);
+    expect(await kv.get("section-candidate:c1")).toBeNull();
     expect(await journal.candidatesOfSection(KEY)).toEqual([]);
   });
 
@@ -431,8 +432,11 @@ describe("the section key backfill (LFCP-03-048)", () => {
       await journal.backfillSectionKeys();
       await other;
       const kept = await journal.allCandidates();
-      if (act === "resolve") expect(kept).toEqual([]);
-      else expect(kept.map((c) => c.sourceText)).toEqual([fresh.sourceText]);
+      // The record itself, not only the index: a resurrected record would be unlisted but kept.
+      if (act === "resolve") {
+        expect(kept).toEqual([]);
+        expect(await kv.get("section-candidate:c1")).toBeNull();
+      } else expect(kept.map((c) => c.sourceText)).toEqual([fresh.sourceText]);
     }
   });
 
