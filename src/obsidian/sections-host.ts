@@ -499,6 +499,8 @@ export class SectionsHost {
     const storage = runtime.storage as LfcpStorage;
     const journal = new KeyValueSectionJournalStore(runtime.localState);
     this.#journal = journal;
+    // LFCP-03-048: candidates found by section; idempotent, deletes nothing.
+    await journal.backfillSectionKeys().catch((error) => this.#bookkeepingFailed(error));
     const staleStore = new KeyValueStaleWorkStore(runtime.localState);
     const port = new SdkSectionPort(
       {
@@ -912,10 +914,11 @@ export class SectionsHost {
           md === undefined || base === undefined
             ? undefined
             : parseSections(md).sections.find((x) => sameSection(x.ref, base.locator.section));
-        if (md !== undefined && s !== undefined)
+        if (md !== undefined && s !== undefined && base !== undefined)
           await journal.putCandidate({
             candidateId: entry.operationId,
             projectionId: entry.projectionId,
+            sectionKey: sectionKey(base.locator.section),
             reason: "rejected",
             sourceText: splitLines(md)
               .slice(s.heading.line, s.endLine + 1)
@@ -1536,6 +1539,9 @@ export class SectionsHost {
       const unchecked = this.#heldChecks.deleted(c.path);
       if (this.#projectionFacts.damaged(c.path, new Set()) || unchecked) this.scheduleStatus();
       this.editor.deleted(c.path);
+      // The note's projections no longer count (LFCP-03-048): a section does not keep showing
+      // a problem, or held edits, in a note that is gone. Their bases stay (a restore merges).
+      await this.#forgetFacts(c.path);
       return;
     }
     if (c.kind === "rename") {
@@ -1545,6 +1551,7 @@ export class SectionsHost {
       if (this.#projectionFacts.damaged(c.oldPath, new Set())) this.scheduleStatus();
       this.editor.renamed(c.oldPath, c.path);
       await this.#bases?.rename(c.oldPath, c.path);
+      await this.#journal?.renamePending(c.oldPath, c.path);
     }
     const file = this.app.vault.getFileByPath(c.path);
     if (!(file instanceof TFile) || file.extension !== "md") return;
@@ -1559,6 +1566,19 @@ export class SectionsHost {
     if (!known && !text.includes(SECTION_MARK)) return;
     this.#index(c.path, text);
     this.editor.fileChanged(c.path, text);
+  }
+
+  /** Forgets the badge facts of the projections of note `path` (it was deleted). */
+  async #forgetFacts(path: string): Promise<void> {
+    const bases = this.#bases;
+    let changed = this.#projectionFacts.heldPassed(path, new Set());
+    if (bases !== null)
+      for (const id of await bases.projectionsOf(path)) {
+        const b = await bases.load(id);
+        if (b !== undefined) this.#projectionFacts.forget(sectionKey(b.locator.section), id);
+        changed = true;
+      }
+    if (changed) this.scheduleStatus();
   }
 
   #index(path: string, text: string): void {
@@ -1609,19 +1629,3 @@ const fromKey64 = (hex: string): ResourceId => fromHex(hex) as ResourceId;
 
 const toKey = (r: Uint8Array): string =>
   [...r].map((b) => b.toString(16).padStart(2, "0")).join("");
-      // The note's projections no longer count (LFCP-03-048): a section does not keep showing
-      // a problem, or held edits, in a note that is gone. Their bases stay (a restore merges).
-      await this.#forgetFacts(c.path);
-  /** Forgets the badge facts of the projections of note `path` (it was deleted). */
-  async #forgetFacts(path: string): Promise<void> {
-    const bases = this.#bases;
-    let changed = this.#projectionFacts.heldPassed(path, new Set());
-    if (bases !== null)
-      for (const id of await bases.projectionsOf(path)) {
-        const b = await bases.load(id);
-        if (b !== undefined) this.#projectionFacts.forget(sectionKey(b.locator.section), id);
-        changed = true;
-      }
-    if (changed) this.scheduleStatus();
-  }
-

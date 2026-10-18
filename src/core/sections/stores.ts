@@ -9,12 +9,14 @@
 
 import { fromBase64url, toBase64url } from "@openlfcp/core";
 import { type SectionBaseStore, type StoredBase, sectionBaseKey } from "./base";
+import { sectionKey } from "./context";
 import {
   checkForward,
   type JournalEntry,
   type PendingCandidate,
   type SectionJournalStore,
 } from "./journal";
+import { parseSections } from "./parser";
 
 /** The plugin's local key-value state (LfcpRuntime.localState). */
 export interface KeyValue {
@@ -98,6 +100,8 @@ const OPEN = "section-ops-open";
 const opKey = (operationId: string) => `section-op:${operationId}`;
 const candidateKey = (candidateId: string) => `section-candidate:${candidateId}`;
 const candidateIndex = (projectionId: string) => `section-candidates:${projectionId}`;
+/** Candidates by section key (LFCP-03-048): found whatever became of their projection or base. */
+const sectionIndex = (key: string) => `section-candidates-of:${key}`;
 /** Every candidate's ID, for the diagnostics counts (LFCP-02-065). */
 const ALL_CANDIDATES = "section-candidates";
 
@@ -130,7 +134,75 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
   async putCandidate(candidate: PendingCandidate): Promise<void> {
     await this.kv.put(candidateKey(candidate.candidateId), candidate);
     await this.kv.update(candidateIndex(candidate.projectionId), added(candidate.candidateId));
+    if (candidate.sectionKey !== undefined)
+      await this.kv.update(sectionIndex(candidate.sectionKey), added(candidate.candidateId));
     await this.kv.update(ALL_CANDIDATES, added(candidate.candidateId));
+  }
+
+  async candidatesOfSection(key: string): Promise<PendingCandidate[]> {
+    const out: PendingCandidate[] = [];
+    for (const id of list(await this.kv.get(sectionIndex(key)))) {
+      const c = await this.kv.get(candidateKey(id));
+      if (c !== undefined && c !== null) out.push(c as PendingCandidate);
+    }
+    return out;
+  }
+
+  /**
+   * Gives each candidate without a section key one, from what it holds
+   * (LFCP-03-048): the base of its projection, a provisional projection ID
+   * (`pending:<path>#<resource>#<section>#<n>`), else the boundary markers in
+   * its text. Idempotent, deletes nothing; a candidate whose section cannot
+   * be told is left as it is and counted.
+   */
+  async backfillSectionKeys(): Promise<{ readonly filled: number; readonly unresolved: number }> {
+    let filled = 0;
+    let unresolved = 0;
+    for (const c of await this.allCandidates()) {
+      if (c.sectionKey !== undefined) continue;
+      const key = await this.#keyOf(c);
+      if (key === undefined) {
+        unresolved++;
+        continue;
+      }
+      await this.putCandidate({ ...c, sectionKey: key });
+      filled++;
+    }
+    return { filled, unresolved };
+  }
+
+  async #keyOf(c: PendingCandidate): Promise<string | undefined> {
+    const base = (await this.kv.get(sectionBaseKey(c.projectionId))) as
+      | StoredForm
+      | null
+      | undefined;
+    if (base !== undefined && base !== null)
+      return `${base.locator.resource}#${base.locator.sectionId}`;
+    if (c.projectionId.startsWith("pending:")) {
+      const parts = c.projectionId.split("#");
+      const [resource, sectionId] = parts.slice(-3, -1);
+      if (resource !== undefined && sectionId !== undefined) return `${resource}#${sectionId}`;
+    }
+    const first = parseSections(c.sourceText).sections[0];
+    return first === undefined ? undefined : sectionKey(first.ref);
+  }
+
+  /**
+   * A note was renamed: the candidates of its provisional projections
+   * (`pending:<old path>#…`) take the new path, so the pass that seeds the
+   * projection resolves them (F9). The copy is put first and the old one
+   * resolved after, so a stop between leaves a duplicate, never a loss.
+   */
+  async renamePending(oldPath: string, newPath: string): Promise<void> {
+    const prefix = `pending:${oldPath}#`;
+    for (const c of await this.allCandidates()) {
+      if (!c.projectionId.startsWith(prefix)) continue;
+      const projectionId = `pending:${newPath}#${c.projectionId.slice(prefix.length)}`;
+      const candidateId = c.candidateId.split(c.projectionId).join(projectionId);
+      await this.putCandidate({ ...c, candidateId, projectionId });
+      if (candidateId !== c.candidateId) await this.resolveCandidate(c.candidateId);
+      else await this.kv.update(candidateIndex(c.projectionId), removed(c.candidateId));
+    }
   }
 
   /** Every candidate kept on this device (diagnostics show their reasons and sizes only). */
@@ -155,8 +227,11 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
   async resolveCandidate(candidateId: string): Promise<void> {
     const c = (await this.kv.get(candidateKey(candidateId))) as PendingCandidate | undefined | null;
     await this.kv.put(candidateKey(candidateId), null);
-    if (c !== undefined && c !== null)
+    if (c !== undefined && c !== null) {
       await this.kv.update(candidateIndex(c.projectionId), removed(candidateId));
+      if (c.sectionKey !== undefined)
+        await this.kv.update(sectionIndex(c.sectionKey), removed(candidateId));
+    }
     await this.kv.update(ALL_CANDIDATES, removed(candidateId));
   }
 }

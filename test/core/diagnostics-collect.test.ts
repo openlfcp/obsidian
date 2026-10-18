@@ -181,7 +181,13 @@ describe("diagnostics from a real runtime (LFCP-02-065)", () => {
   it("only codes pass: a recorded reason that is free text is not shown as one", async () => {
     const journal = {
       allCandidates: async () => [
-        { candidateId: "op", projectionId: "p", reason: "rejected" as const, sourceText: "x" },
+        {
+          candidateId: "op",
+          projectionId: "p",
+          sectionKey: "R#S",
+          reason: "rejected" as const,
+          sourceText: "x",
+        },
       ],
       get: async () => ({
         operationId: "op",

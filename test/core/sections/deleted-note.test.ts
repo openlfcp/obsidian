@@ -7,6 +7,7 @@
 // has to avoid. Real section replica (test/support/section-vaults).
 
 import { describe, expect, it } from "vitest";
+import { keptCandidates } from "../../../src/core/diagnostics-collect";
 import { SectionActions } from "../../../src/core/sections/actions";
 import { formatBoundary } from "../../../src/core/sections/grammar";
 import type { PendingCandidate } from "../../../src/core/sections/journal";
@@ -17,7 +18,14 @@ import {
   KeyValueSectionJournalStore,
 } from "../../../src/core/sections/stores";
 import { ProjectionFactsStore } from "../../../src/core/status/projections";
-import { count, PATH, PLAN, twoVaults, type Vault } from "../../support/section-vaults";
+import {
+  count,
+  PATH,
+  PLAN,
+  sectionNote,
+  twoVaults,
+  type Vault,
+} from "../../support/section-vaults";
 
 const CTX = { caretLine: null, deletedIds: new Set<string>(), origin: "other" as const };
 
@@ -108,6 +116,8 @@ describe("a deleted note and its bases (LFCP-03-048)", () => {
     const kept = await a.journal.candidates(projection as string);
     expect(kept).toHaveLength(1);
     expect(kept[0]?.sourceText).toContain("Secret plan");
+    // Found by section, not only through the projection's base (LFCP-03-048).
+    expect(kept[0]?.sectionKey).toBe(`${PLAN.R}#${PLAN.sid}`);
     // The note is deleted and never comes back: no code path ever resolves any of it.
     expect(await a.bases.projectionsOf(PATH)).toHaveLength(1);
     expect(await a.journal.candidates(projection as string)).toHaveLength(1);
@@ -126,6 +136,7 @@ function keyValue(): KeyValue {
 
 describe("kept copies of a deleted note's section (LFCP-03-048)", () => {
   const KEY = `${PLAN.R}#${PLAN.sid}`;
+  const SECTION_TEXT = sectionNote(PLAN, "Plan", ["- [ ] Secret plan"]);
 
   async function discard(
     prepare: (
@@ -150,6 +161,7 @@ describe("kept copies of a deleted note's section (LFCP-03-048)", () => {
         candidates: () => ({
           putCandidate: (c: PendingCandidate) => journal.putCandidate(c),
           allCandidates: () => journal.allCandidates(),
+          candidatesOfSection: (k: string) => journal.candidatesOfSection(k),
           resolveCandidate: async (id: string) => {
             resolved.push(id);
             await journal.resolveCandidate(id);
@@ -159,19 +171,21 @@ describe("kept copies of a deleted note's section (LFCP-03-048)", () => {
       },
     } as never);
     await actions.discardLocalCopies(KEY, "Plan");
-    return { notices, resolved, left: await journal.allCandidates() };
+    return { notices, resolved, left: await journal.allCandidates(), journal };
   }
 
-  const candidate = (projectionId: string) => ({
+  const candidate = (projectionId: string, over: Partial<PendingCandidate> = {}) => ({
     candidateId: "c1",
     projectionId,
+    sectionKey: KEY,
     reason: "read-only" as const,
-    sourceText: "Secret plan",
+    sourceText: SECTION_TEXT,
+    ...over,
   });
   const base = (path: string) =>
     adoptedBase(path, PLAN.ref, { revision: "r", nodes: {}, order: {} } as never);
 
-  it("today: found through the base of its projection, deleted note or not", async () => {
+  it("found through the base of its projection, deleted note or not", async () => {
     const r = await discard(async (bases, journal) => {
       await bases.save("p1", base(PATH));
       await journal.putCandidate(candidate("p1"));
@@ -179,23 +193,107 @@ describe("kept copies of a deleted note's section (LFCP-03-048)", () => {
     expect(r.resolved).toEqual(["c1"]);
   });
 
-  it("naive drop: the base is gone, the copy is neither offered nor resolved, and still counted", async () => {
+  it("F4: found by its section key when the base is gone", async () => {
     const r = await discard(async (bases, journal) => {
       await bases.save("p1", base(PATH));
       await journal.putCandidate(candidate("p1"));
       await bases.save("p1", null);
     });
-    expect(r.resolved).toEqual([]);
-    expect(r.notices[0]).toContain("no local copy");
-    expect(r.left).toHaveLength(1);
+    expect(r.resolved).toEqual(["c1"]);
+    expect(r.left).toEqual([]);
   });
 
-  it("today (already, no delete needed): a Repair recovery copy keyed repair:<path> is never found by section", async () => {
+  it("F5: a Repair recovery copy (repair:<path>) is found by its section key", async () => {
     const r = await discard(async (_bases, journal) => {
-      await journal.putCandidate({ ...candidate(`repair:${PATH}`), reason: "base-unknown" });
+      await journal.putCandidate(candidate(`repair:${PATH}`, { reason: "base-unknown" }));
+    });
+    expect(r.resolved).toEqual(["c1"]);
+  });
+
+  it("a copy of another section is left alone", async () => {
+    const other = `${PLAN.R}#other-section`;
+    const r = await discard(async (_bases, journal) => {
+      await journal.putCandidate(candidate("p1", { sectionKey: other }));
     });
     expect(r.resolved).toEqual([]);
     expect(r.left).toHaveLength(1);
+  });
+
+  it("a record without a key is still found by its base, as before the backfill", async () => {
+    const r = await discard(async (bases, journal) => {
+      await bases.save("p1", base(PATH));
+      const { sectionKey: _key, ...unkeyed } = candidate("p1");
+      await journal.putCandidate(unkeyed);
+    });
+    expect(r.resolved).toEqual(["c1"]);
+  });
+});
+
+describe("the section key backfill (LFCP-03-048)", () => {
+  const KEY = `${PLAN.R}#${PLAN.sid}`;
+  const legacy = (
+    candidateId: string,
+    projectionId: string,
+    sourceText = "text",
+  ): PendingCandidate => ({
+    candidateId,
+    projectionId,
+    reason: "base-unknown",
+    sourceText,
+  });
+
+  it("derives the key from the base, a provisional ID or the text; keeps the rest and counts it", async () => {
+    const kv = keyValue();
+    const bases = new KeyValueSectionBaseStore(kv);
+    const journal = new KeyValueSectionJournalStore(kv);
+    await bases.save(
+      "p1",
+      adoptedBase(PATH, PLAN.ref, { revision: "r", nodes: {}, order: {} } as never),
+    );
+    await journal.putCandidate(legacy("by-base", "p1"));
+    await journal.putCandidate(legacy("by-id", `pending:Dir/A#B.md#${KEY}#0`));
+    await journal.putCandidate(
+      legacy("by-text", `repair:${PATH}`, sectionNote(PLAN, "Plan", ["- [ ] Secret plan"])),
+    );
+    await journal.putCandidate(legacy("unknown", "gone", "no markers here"));
+    const first = await journal.backfillSectionKeys();
+    expect(first).toEqual({ filled: 3, unresolved: 1 });
+    expect((await journal.candidatesOfSection(KEY)).map((c) => c.candidateId).sort()).toEqual([
+      "by-base",
+      "by-id",
+      "by-text",
+    ]);
+    // Idempotent; nothing is deleted, the unplaced record stays.
+    const again = await journal.backfillSectionKeys();
+    expect(again).toEqual({ filled: 0, unresolved: 1 });
+    expect(await journal.allCandidates()).toHaveLength(4);
+    expect(
+      (await journal.candidatesOfSection(KEY)).filter((c) => c.sourceText !== ""),
+    ).toHaveLength(3);
+    // Diagnostics count the unplaced one.
+    const kept = await keptCandidates(journal);
+    expect(kept.filter((k) => k.unkeyed === true)).toHaveLength(1);
+  });
+
+  it("F9: a pending projection's candidate follows its note's rename", async () => {
+    const journal = new KeyValueSectionJournalStore(keyValue());
+    await journal.putCandidate({
+      candidateId: `base-unknown:pending:Old.md#${KEY}#0`,
+      projectionId: `pending:Old.md#${KEY}#0`,
+      sectionKey: KEY,
+      reason: "base-unknown",
+      sourceText: "private",
+    });
+    await journal.renamePending("Old.md", "New.md");
+    const all = await journal.allCandidates();
+    expect(all.map((c) => c.candidateId)).toEqual([`base-unknown:pending:New.md#${KEY}#0`]);
+    expect(all[0]?.sourceText).toBe("private");
+    expect(await journal.candidates(`pending:Old.md#${KEY}#0`)).toEqual([]);
+    expect(await journal.candidatesOfSection(KEY)).toHaveLength(1);
+    // The pass that seeds the projection at the new path resolves it by that ID.
+    await journal.resolveCandidate(`base-unknown:pending:New.md#${KEY}#0`);
+    expect(await journal.allCandidates()).toEqual([]);
+    expect(await journal.candidatesOfSection(KEY)).toEqual([]);
   });
 });
 

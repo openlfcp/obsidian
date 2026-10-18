@@ -106,7 +106,11 @@ export async function keptCandidates(journal: DiagnosticJournal): Promise<KeptCa
   const out: KeptCandidate[] = [];
   for (const c of await journal.allCandidates()) {
     const code = c.reason === "rejected" ? refusalOf(await journal.get(c.candidateId)) : undefined;
-    const kept = { reason: c.reason, characters: c.sourceText.length };
+    const kept = {
+      reason: c.reason,
+      characters: c.sourceText.length,
+      ...(c.sectionKey === undefined ? { unkeyed: true as const } : {}),
+    };
     out.push(code === undefined ? kept : { ...kept, code });
   }
   return out;

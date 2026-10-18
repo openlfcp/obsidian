@@ -194,13 +194,20 @@ export function intentsOf(
   return { intents, ids: allocated };
 }
 
+/** What a kept candidate is made from; a resumed entry does not know its section (the backfill derives it). */
+type CandidatePass = Pick<LocalPass, "projectionId" | "sourceText"> &
+  Partial<Pick<LocalPass, "resource" | "sectionId">>;
+
 const candidate = (
-  pass: Pick<LocalPass, "projectionId" | "sourceText">,
+  pass: CandidatePass,
   candidateId: string,
   reason: PendingCandidate["reason"],
 ): PendingCandidate => ({
   candidateId,
   projectionId: pass.projectionId,
+  ...(pass.resource === undefined || pass.sectionId === undefined
+    ? {}
+    : { sectionKey: `${pass.resource}#${pass.sectionId}` }),
   reason,
   sourceText: pass.sourceText,
 });
@@ -275,7 +282,7 @@ export async function commitPass(
 async function submit(
   deps: CommitDeps,
   entry: JournalEntry,
-  pass: Pick<LocalPass, "projectionId" | "sourceText">,
+  pass: CandidatePass,
 ): Promise<PassOutcome> {
   const intents = entry.intents ?? [];
   let receipt: Receipt | undefined;
@@ -311,7 +318,7 @@ async function submit(
 async function refused(
   deps: CommitDeps,
   entry: JournalEntry,
-  pass: Pick<LocalPass, "projectionId" | "sourceText">,
+  pass: CandidatePass,
   error: CommitRefused,
 ): Promise<PassOutcome> {
   await deps.journal.put(advance(entry, "abandoned", { reason: error.code }));
@@ -378,7 +385,10 @@ export async function resumeOperation(
       }
       // None: no part was committed; the same batch goes again under the same ID.
       if (entry.intents === undefined) return { kind: "re-evaluate", entry };
-      const outcome = await submit(deps, entry, { projectionId: entry.projectionId, sourceText });
+      const outcome = await submit(deps, entry, {
+        projectionId: entry.projectionId,
+        sourceText,
+      });
       if (outcome.kind === "committed")
         return {
           kind: "project",

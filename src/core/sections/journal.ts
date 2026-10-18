@@ -76,6 +76,13 @@ export interface RestoredNode {
 export interface PendingCandidate {
   readonly candidateId: string;
   readonly projectionId: string;
+  /**
+   * The section the text belongs to (`<Resource base64url>#<sectionId>`, as
+   * surfaces key it), so a copy is found by section whatever became of its
+   * projection or base (LFCP-03-048). Absent on records before 0.4.3: the
+   * store fills it in at startup (backfillSectionKeys).
+   */
+  readonly sectionKey?: string;
   readonly reason:
     | "unsupported-syntax"
     | "binding-lost"
@@ -221,6 +228,8 @@ export interface SectionJournalStore {
   unfinished(): Promise<JournalEntry[]>;
   putCandidate(candidate: PendingCandidate): Promise<void>;
   candidates(projectionId: string): Promise<PendingCandidate[]>;
+  /** The candidates of section `key`, whatever their projection. */
+  candidatesOfSection(key: string): Promise<PendingCandidate[]>;
   /** Only after an explicit resolution: candidates are never dropped to save space. */
   resolveCandidate(candidateId: string): Promise<void>;
 }
@@ -249,6 +258,10 @@ export class MemorySectionJournalStore implements SectionJournalStore {
 
   async candidates(projectionId: string): Promise<PendingCandidate[]> {
     return [...this.#candidates.values()].filter((c) => c.projectionId === projectionId);
+  }
+
+  async candidatesOfSection(key: string): Promise<PendingCandidate[]> {
+    return [...this.#candidates.values()].filter((c) => c.sectionKey === key);
   }
 
   async resolveCandidate(candidateId: string): Promise<void> {

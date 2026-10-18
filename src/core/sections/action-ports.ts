@@ -299,6 +299,8 @@ export interface BaseService {
 export interface CandidateService {
   putCandidate(candidate: PendingCandidate): Promise<void>;
   allCandidates(): Promise<PendingCandidate[]>;
+  /** The candidates of section `key`, whatever their projection (LFCP-03-048). */
+  candidatesOfSection?(key: string): Promise<PendingCandidate[]>;
   resolveCandidate(candidateId: string): Promise<void>;
 }
 

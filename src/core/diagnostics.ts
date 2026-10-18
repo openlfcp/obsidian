@@ -50,6 +50,8 @@ export interface KeptCandidate {
   readonly characters: number;
   /** A refused edit's code (INVALID_INTENT…), when its operation recorded one. */
   readonly code?: string;
+  /** The backfill could not tell which section it belongs to (LFCP-03-048). */
+  readonly unkeyed?: true;
 }
 
 export interface DiagnosticInput {
@@ -199,6 +201,11 @@ export function diagnosticReport(input: DiagnosticInput, detailed: boolean): str
     `Text kept on this device, not shared: ${input.candidates.length}${
       counted.length === 0 ? "" : ` (${counted.join(", ")})`
     }`,
+    ...(input.candidates.some((c) => c.unkeyed === true)
+      ? [
+          `  of which without a known section: ${input.candidates.filter((c) => c.unkeyed === true).length}`,
+        ]
+      : []),
     ...(input.keptShares === undefined || input.keptShares.sent === 0
       ? []
       : [
