@@ -98,7 +98,7 @@ describe("shared-sections Resources in the runtime", () => {
     expect(again.sectionProfile(R)?.replica.snapshot().title.value).toBe("Launch v2");
   });
 
-  it("a listener that fails after a section commit is stored keeps the batch in the model (SDK 0.2.1, LFCP-03-034)", async () => {
+  it("a listener that fails after a section commit is stored keeps the batch in the model (since 0.2.1, LFCP-03-034)", async () => {
     const device = new Device();
     const local = new FakeLocal();
     const r = await start(device, local);
