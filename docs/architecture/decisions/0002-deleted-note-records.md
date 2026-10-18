@@ -1,9 +1,9 @@
 # ADR 0002: What a deleted note leaves in the local records
 
 - **Status:** Accepted for V1, 2026-10-18 (LFCP-03-048, obsidian#46; PM
-  decision D27). PR1 (design 1 and 3) is in this PR; PR2 (design 2) is the
-  next step, reviewed separately because it deletes bases and abandons
-  journal entries. V2 (design 4) is deferred until the pilot reports.
+  decision D27). PR1 (design 1 and 3) and PR2 (design 2, the sweep, reviewed
+  separately because it deletes bases and abandons journal entries) are
+  implemented. V2 (design 4) is deferred until the pilot reports.
 - **Scope:** the install's local records of shared sections: projection
   bases, the journal (unfinished operations) and pending candidates (kept
   copies), plus the badge facts the host keeps in memory. Never synced.
@@ -102,24 +102,33 @@ without a known section"); the backfill is idempotent and deletes nothing.
 ### 2. Bases of a missing note are kept, bounded by time
 
 No deletion handler changes the base. A base whose note path is not in the
-vault is **dormant**; this is derived, not stored, so there is no state to
-get out of step and no crash window (delete, crash, restore is F1/F2 as
-today). The host records `missingSince` (one small key per path, written on
-the `delete` event or by the startup sweep for deletions made while Obsidian
-was closed; cleared on `create` at that path).
+vault is **dormant**; this is derived, not stored, so a crash between a delete
+and a restore is F1/F2 as today. `src/core/sections/missing-notes.ts` sweeps
+at the start (after the notes were read, so after the layout is ready) and
+once a day:
 
-A sweep at startup (and once a day while running) removes bases that have
-been missing longer than **N = 30 days**, with these rules:
-
-- candidates are never swept (design 1 keeps them reachable by section);
-- a base with an unfinished journal entry is swept too, but its entries are
-  first abandoned with the reason `note-deleted` (the model already holds
-  what they committed; a restore after N days in that exact crash window ends
-  as F3, which is rare enough to accept and is documented);
-- a base is also swept at once when its Resource has left the device.
-
-N is a constant, not a setting. 30 days is the usual horizon of an OS trash
-that empties itself; we chose time because the emptying is invisible.
+- It lists the stored bases (the local state now lists its keys) and marks,
+  per note path, the first time a sweep saw the note missing (`missingSince`,
+  with the days a sweep saw it so). A note that is in the vault clears its
+  mark.
+- A base goes only when its note has been missing for **N = 30 days** (a
+  constant) **and** a sweep saw it missing on at least 7 different days. A
+  clock set forward makes the age long at once; it cannot make the plugin run
+  on different days. A clock set back starts the count again.
+- The existence of the note is asked again right before each removal, so a
+  note made again meanwhile keeps its base. A vault that lists no note at all
+  (not loaded, unmounted) is never swept.
+- Before a base is removed, the unfinished operations of its projection are
+  closed with the reason `note-deleted` (the model holds what they committed;
+  a restore after N days in that crash window ends as F3, rare and accepted).
+  The base is removed last, so a stop at any write leaves the next sweep to
+  finish; a path index naming a removed base is repaired by the sweep, and a
+  mark with no base left is cleaned.
+- A base of a missing note whose Resource has left this device is removed at
+  once. A base of a note that exists is never removed, whatever its Resource.
+- **Candidates are never swept.**
+- Diagnostics say how many missing notes still have bases and how old the
+  oldest is.
 
 ### 3. The badge forgets a deleted note's projections
 
@@ -176,8 +185,8 @@ the rename fix keeps ids with the path, see design 1):
    rewrite of provisional ids, plus the delete-time facts fix (design 1 and 3). About
    250 lines with tests; touches `journal.ts`, `stores.ts`, `engine.ts`,
    `commit.ts`, `actions.ts`, `sections-host.ts`.
-2. `missingSince`, the sweep, diagnostics counts (design 2). About 200 lines
-   with tests; `stores.ts`, `sections-host.ts`, `diagnostics-collect.ts`.
+2. `missingSince`, the sweep, diagnostics counts (design 2); done in the
+   follow-up PR (`missing-notes.ts`, `sections-host.ts`, diagnostics).
 3. Design 4, only if wanted. About 150 lines with tests; `engine.ts`,
    `stores.ts`.
 
