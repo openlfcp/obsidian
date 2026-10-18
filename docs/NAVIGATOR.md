@@ -79,3 +79,4 @@
 
 The Markdown ref grammar is normative and lives in
 `spec: integration/MARKDOWN-REFS-01.md`.
+| [releases/0.5.0-beta.1.md](releases/0.5.0-beta.1.md) | everyone | DRAFT release notes of the 0.5.0-beta.1 candidate: the pane, install with BRAT, upgrade from and rollback to 0.4.2, known limits; checksums to be filled in phase 2 (LFCP-03-027) |
