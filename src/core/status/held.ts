@@ -9,6 +9,7 @@
 // (what was last reconciled with the model): changed, moved, new or gone;
 // a line the section cannot share (a heading inside it) counts as one too.
 
+import { splitLines } from "../refs/lines";
 import { looseLines, markdownState, type SectionState, UNBOUND_PARENT } from "../sections/base";
 import type { SectionResult } from "../sections/engine";
 import type { ParsedSection, SectionDiagnostic, SectionScan } from "../sections/parser";
@@ -297,11 +298,15 @@ export function heldEdits(input: {
   // A line whose marker alone was lost stays as unbound text with the node's content:
   // putting the node back would duplicate it, so it is a damaged binding for Repair to locate.
   // Other unbound lines are the user's new text and do not matter here.
+  const noteLines = splitLines(markdown);
   const gone =
     base === undefined
       ? []
       : r.lost.filter((id) => base.nodes[id] !== undefined && shown[id] === undefined);
-  const loose = base === undefined ? new Map() : looseLines(base, gone, noteState.unbound);
+  const loose =
+    base === undefined
+      ? new Map()
+      : looseLines(base, gone, noteState.unbound, (l) => noteLines[l]?.text);
   const missing = gone.flatMap((id) => {
     const n = base?.nodes[id];
     const m = model?.[id];

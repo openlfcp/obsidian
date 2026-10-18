@@ -106,6 +106,35 @@ describe("held edits (F-04)", () => {
     expect(h?.missing).toEqual(["Gamma"]);
   });
 
+  it("a new Task line next to a missing Task: the missing one is named, the new one is not lost", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
+    const L = lines(a.note());
+    const g = L.findIndex((l) => l === "- [ ] Gamma");
+    L.splice(g, 2);
+    L.splice(
+      L.findIndex((l) => l === "- [ ] Alpha"),
+      0,
+      "- [ ] Typed just now",
+    );
+    const md = L.join("\n");
+    // The first pass may take the new line as still being typed; the settled one is held.
+    await a.pass(md);
+    const h = await held(a, md);
+    expect(h?.missing).toEqual(["Gamma"]);
+  });
+
+  it("a Task whose marker alone was lost, its line kept: not missing (a lost binding)", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
+    const L = lines(a.note());
+    const g = L.findIndex((l) => l === "- [ ] Gamma");
+    L.splice(g + 1, 1);
+    const md = L.join("\n");
+    await a.pass(md);
+    const h = await held(a, md);
+    expect(h?.cause).toBe("binding");
+    expect(h?.missing).toBeUndefined();
+  });
+
   it("a line the shared version deleted is not named as missing", async () => {
     const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
     const L = lines(a.note());
