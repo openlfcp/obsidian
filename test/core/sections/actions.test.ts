@@ -467,6 +467,22 @@ describe("share (LFCP-03-008 over 049/050, LFCP-03-002)", () => {
     expect(t.actions.flows()).toEqual([]);
   });
 
+  it("LFCP-03-058: a resume of a creation that is running joins it: one run of the operation", async () => {
+    const t = setup();
+    t.prompter.script.share = [true];
+    let finish: (r: CreationResult) => void = () => undefined;
+    t.creation.result = () => new Promise((r) => (finish = r));
+    const first = t.actions.share(t.editor.at());
+    await flush();
+    // The host's start finds the journaled creation unfinished while the flow runs it.
+    const journaled = entry("op-1", "Plan.md", { title: "Plan" } as SharePreview);
+    const resumed = t.actions.resumeCreation(journaled);
+    await flush();
+    finish({ kind: "hosted", entry: journaled });
+    await Promise.all([first, resumed]);
+    expect(t.calls.filter((c) => c === "run op-1")).toHaveLength(1);
+  });
+
   it("LFCP-03-058: the late result of a slow creation is told once and frees the note", async () => {
     const t = setup(undefined, { creationDeadlineMs: 20 });
     t.prompter.script.share = [true];
