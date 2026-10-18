@@ -1624,7 +1624,11 @@ export class SectionActions {
       const b64 = toBase64url(s.ref.resourceId);
       const snap = model.snapshot(b64, s.ref.sectionId);
       if (snap === undefined || !snap.ready) continue;
-      const shown = markdownState(md, s).state.nodes;
+      const noteState = markdownState(md, s);
+      // A marker lost alone leaves its text as an unbound line: putting the node back would
+      // duplicate it. Any unbound line sends the section to Repair's damaged-binding path.
+      if (noteState.unbound.length > 0) continue;
+      const shown = noteState.state.nodes;
       const ids = Object.keys(k.base.state.nodes).filter((id) => {
         const m = snap.nodes[id];
         return shown[id] === undefined && m?.lifecycle === "active" && m.hidden !== true;

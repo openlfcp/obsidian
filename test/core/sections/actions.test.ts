@@ -2944,6 +2944,18 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       expect(t.prompter.notices.at(-1)).toContain("the note changed meanwhile");
     });
 
+    it("a marker lost alone leaves its text as a line: nothing is offered back, no duplicate", async () => {
+      const t = wired(BOTH, () => undefined, BOTH);
+      await t.passes(2);
+      const noMarker = BOTH.replace(`<!-- lfcp-node: paragraph:${P2} -->\n`, "");
+      expect(noMarker).not.toBe(BOTH);
+      t.notes.files.set("Plan.md", noMarker);
+      await t.passes(1);
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [, lost] = opened(t);
+      expect(lost.filter((l) => l.missing === true)).toEqual([]);
+    });
+
     it("a line a collaborator deleted is not offered back", async () => {
       const { t } = await merged();
       t.port.remote(R0, (x) => {
