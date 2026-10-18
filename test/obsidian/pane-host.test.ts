@@ -29,6 +29,7 @@ const manifest = { id: "shared-tasks", name: "Shared Tasks", version: "0.0.0" };
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
+const SID2 = "019a2f85-7b31-7c42-b85a-fc843e2f4002";
 const S = parseSectionRef(`lfcp1:${R0}#section:${SID}`) as SectionRef;
 const KEY = `${R0}#${SID}`;
 const TEXT = [
@@ -608,6 +609,33 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     expect(t.runs[0]?.request).toMatchObject({ section: { key: KEY } });
   });
 
+  it("060: a card action drawn for section A is not run once the cursor is in section B", async () => {
+    const t = await open();
+    t.sections.access.set(KEY, { canInvite: true, hosting: "hosted", canRemove: true });
+    for (const l of t.sections.statusListeners) l();
+    const remove = t.el().querySelector<HTMLButtonElement>('button[data-action="remove-access"]');
+    expect(remove).not.toBeNull();
+    // A second section below the first; the cursor moves into it before the redraw runs.
+    const S2 = parseSectionRef(`lfcp1:${R0}#section:${SID2}`) as SectionRef;
+    const key2 = `${R0}#${SID2}`;
+    t.note.buffer = [
+      TEXT.trimEnd(),
+      "## Other",
+      formatBoundary("start", S2),
+      "- [ ] Beta",
+      formatBoundary("end", S2),
+      "",
+    ].join("\n");
+    t.sections.rows.push(rowOf({ sectionId: SID2, key: key2, sharedTitle: "Other" }));
+    t.sections.statuses.set(key2, statusView(healthy));
+    t.sections.access.set(key2, { canInvite: true, hosting: "hosted", canRemove: true });
+    t.note.cursorLine = 8;
+    mock.notices.length = 0;
+    remove?.click();
+    expect(t.runs).toEqual([]);
+    expect(mock.notices.join("\n")).toContain("the pane changed");
+  });
+
   it("060: a click the pane drops tells the user, never silently", async () => {
     const t = await open();
     const invite = t.primary();
@@ -615,7 +643,7 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     t.note.cursorLine = 0;
     invite?.click();
     expect(t.runs).toEqual([]);
-    expect(mock.notices.join("\n")).toContain("The pane changed");
+    expect(mock.notices.join("\n")).toContain("the pane changed");
   });
 
   it("D9: a chosen row is the pane's section when the cursor is in no section; the cursor wins", async () => {
