@@ -109,6 +109,9 @@ const rank = (p: Phase) => (p === "abandoned" ? Number.POSITIVE_INFINITY : PHASE
 
 /** A stored entry may only be replaced by itself or a later phase (the store's own check). */
 export function checkForward(old: JournalEntry | undefined, entry: JournalEntry): void {
+  // Done is final: abandoned outranks every phase, but not one that finished.
+  if (old !== undefined && old.phase === "done" && entry.phase === "abandoned")
+    throw new JournalError(`operation ${entry.operationId} is done and cannot be abandoned`);
   if (old !== undefined && old !== entry && rank(entry.phase) <= rank(old.phase))
     throw new JournalError(`operation ${entry.operationId} cannot go back to ${entry.phase}`);
 }
@@ -208,10 +211,13 @@ export function recovery(entry: JournalEntry): Recovery {
  * as abandoned, or undefined when there was nothing to do.
  */
 export async function abandonOnce(
-  journal: Pick<SectionJournalStore, "get" | "put">,
+  journal: Pick<SectionJournalStore, "get" | "put"> & Partial<Pick<SectionJournalStore, "abandon">>,
   operationId: string,
   reason: string,
 ): Promise<JournalEntry | undefined> {
+  // A store that can, reads and writes in the operation's own turn (LFCP-03-056): a writer that
+  // moved the entry between the two steps here would be overwritten with its fields lost.
+  if (journal.abandon !== undefined) return journal.abandon(operationId, reason);
   const entry = await journal.get(operationId);
   if (entry === undefined || entry.phase === "done" || entry.phase === "abandoned")
     return undefined;
@@ -224,6 +230,11 @@ export async function abandonOnce(
 export interface SectionJournalStore {
   put(entry: JournalEntry): Promise<void>;
   get(operationId: string): Promise<JournalEntry | undefined>;
+  /**
+   * Closes an operation that is not done or abandoned, reading it again in
+   * the operation's own turn; the entry as closed, undefined when there was nothing to close.
+   */
+  abandon(operationId: string, reason: string): Promise<JournalEntry | undefined>;
   /** Entries not done or abandoned, oldest first: what a restart resumes. */
   unfinished(): Promise<JournalEntry[]>;
   putCandidate(candidate: PendingCandidate): Promise<void>;
@@ -246,6 +257,15 @@ export class MemorySectionJournalStore implements SectionJournalStore {
 
   async get(operationId: string): Promise<JournalEntry | undefined> {
     return this.#entries.get(operationId);
+  }
+
+  async abandon(operationId: string, reason: string): Promise<JournalEntry | undefined> {
+    const entry = this.#entries.get(operationId);
+    if (entry === undefined || entry.phase === "done" || entry.phase === "abandoned")
+      return undefined;
+    const abandoned = advance(entry, "abandoned", { reason });
+    this.#entries.set(operationId, abandoned);
+    return abandoned;
   }
 
   async unfinished(): Promise<JournalEntry[]> {
