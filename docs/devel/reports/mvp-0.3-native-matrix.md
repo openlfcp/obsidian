@@ -4,8 +4,17 @@ The evidence of LFCP-03-025 (M03-4, P0; cases U03-01, U03-08, U03-16…20,
 U03-24, U03-29; gates G03-A…F). The built plugin ran in real Obsidian
 on macOS, Windows and Linux, Obsidian 1.13.4 and 1.14.4, in GitHub
 Actions (`native.yml`). Nothing here ran on a developer machine. Written
-2026-10-17 on branch `mvp03/025-native-matrix`, rebased on `main`
-`82a1700` (plugin 0.4.2).
+2026-10-17 to 2026-10-19 on branch `mvp03/025-native-matrix`, rebased on
+`main` `ec4f1ce` (plugin 0.4.2).
+
+**Which runs count.** Runs 39059599290, 39060650167 and 39063362726 ran on
+commits before the rebase (`898b5d9`, `2dae01f`, `57921c2`): an older
+version of the specs, on `main` `82a1700`. Only run 39163258296 (PR head
+`c7144ee`, on `ec4f1ce`) confirms the current code. **No run on the PR
+head was green at the first attempt:** in 39163258296 attempt 1 four of six
+jobs failed (F4, F6, F7, F8); attempt 2, a rerun of those four jobs on the
+same commit, passed (6 of 6). The older runs are kept for the flake counts
+and the screenshots.
 
 Only the runs listed below are evidence. Screenshots from the 0.4.0-beta.8
 walkthrough are not candidate evidence and are not used here.
@@ -14,7 +23,7 @@ walkthrough are not candidate evidence and are not used here.
 
 | Part | Pin |
 | --- | --- |
-| Plugin | `mvp03/025-native-matrix` over `main` `82a1700` (manifest 0.4.2), developer build (`LFCP_DEV_PANE=1`) |
+| Plugin | `mvp03/025-native-matrix` over `main` `ec4f1ce` (manifest 0.4.2), developer build (`LFCP_DEV_PANE=1`) |
 | SDK | `@openlfcp/*` as locked in `pnpm-lock.yaml` |
 | Server | `server.lock`, release build per OS; `LFCP_SERVER_BIN`, `LFCP_REQUIRE_LIVE=1` (a live spec fails rather than skips) |
 | Obsidian | 1.13.4 (Electron 43.1.1) and 1.14.4 (Electron 43.7.7), installer = app version |
@@ -74,8 +83,12 @@ system clipboard): the link is read from A's dialog after "Show link".
 
 ## Targeted matrix (criterion 2)
 
-Each row is a spec of the full set; PASS means it passed on all six jobs
-of 39059599290 unless noted.
+Each row names the specs of the full set that cover an area. PASS means the spec passed in the attempt that
+covers that cell: 39059599290 for Linux and macOS (the spec files then
+were those of `898b5d9`), where the two Windows jobs had failures that
+are named as FAIL in the row; the Windows cells otherwise come from
+39063362726 and 39163258296. Since the PR head had no run green at the
+first attempt, a PASS here is not a claim of a stable cell: see Flaky specs.
 
 | Area | Spec(s) | Linux 1.13.4 / 1.14.4 | macOS 1.13.4 / 1.14.4 | Windows 1.13.4 / 1.14.4 |
 | --- | --- | --- | --- | --- |
@@ -92,7 +105,7 @@ of 39059599290 unless noted.
 | Offline queue and restart | `acceptance-sections` C08–C09 | PASS / PASS | PASS / PASS | FAIL (F1, fixed) / FAIL (F1, fixed) |
 | Tasks plugin next to Shared Tasks | `tasks-plugin`, two-hosts Tasks on | PASS / PASS | PASS / PASS | PASS / PASS |
 | UX fixture states in the real pane | `pane-fixture-states` (light and dark) | PASS / PASS | PASS / PASS | PASS / PASS |
-| Second shared section after a server change | `section-lp-markers` (2nd describe) | PASS / PASS | PASS / PASS | FAIL (F4) / PASS |
+| Second shared section after a server restart by the harness | `section-lp-markers` (2nd describe) | PASS / PASS | PASS / PASS | FAIL (F4) / PASS |
 
 NOT_RUN: IME with a real input method (WebDriver simulates composition;
 `ime-checklist.md` stays manual); screen readers; Obsidian mobile;
@@ -105,7 +118,7 @@ Small, from run 39059599290 (Linux, 1.14.4), resized. Runner paths do
 not appear; the identities are throwaway test keys and the server is the
 runner's localhost.
 
-- [A during the conflict, Tasks on](../../assets/native-matrix-0.3/two-hosts-structure-conflict-a.jpg): the structure conflict ("their place is not updated in your note until it is resolved", retained), the problem with "Review conflicts…". The visible `lfcp-ref` line under Alpha is finding P2.
+- [A during the conflict, Tasks on](../../assets/native-matrix-0.3/two-hosts-structure-conflict-a.jpg): the structure conflict ("their place is not updated in your note until it is resolved", retained), the problem with "Review conflicts…". The visible `lfcp-ref` line under Alpha is finding P2. Observation: the screen shows two "Review conflicts…" buttons at once, one under Problems and one in the pane's actions; they open the same list (not a defect found, noted for the UX owner).
 - [B after A removed its access](../../assets/native-matrix-0.3/two-hosts-removed-b.jpg): B's card ("Your local copy stays; new edits are kept on this device only"), the pane, and the notice of finding P3.
 
 Every step's screenshots of both apps (both modes, each job) are in the
@@ -124,7 +137,7 @@ left out).
 | F1b | `acceptance-sections` C04 (warning "no invitation dialog") | all OS, a warning | `find()` gives undefined, the loop waited on null: it stopped after 50 ms and threw; WebdriverIO's retry hid it | test bug | `3414c4d` |
 | F2 | `acceptance-sections` C15 (refusal not found) | Linux 1.14.4, 2 of 35 | The spec counted notices and took those past the count; when older notices timed out meanwhile, the refusal was below the count | test race | `61b7caa`: notices shown before the command are marked |
 | F3 | `section-two-panes`, a cut in one pane pasted in the other | Windows 1.13.4 3 of 8 jobs, Windows 1.14.4 1 of 7 (38851415519, not analysed), macOS 1.14.4 1 of 3; never on Linux (42 runs) | Two cases. (a) macOS: the cut keys made no cut, and the following steps failed on its state. (b) Windows: the cut is made, the other pane shows it, the clipboard holds LF text; after the paste A's note has lost **Delta**, a line nobody touched, while the model and B keep it; A's badge is ATTENTION with no recovery item. Run 39061599103 (1.14.4, passing) shows Obsidian's "modified externally, merging changes automatically" at that moment: Obsidian's merge of two views of one note (ADR 0001, S7) | (a) test; (b) Obsidian host race with a plugin gap | `c2dd7fa`: the cut is checked to have happened (focus logged), the paste waits until the other pane shows the cut. `dc58638`: the panes' saves, merges and texts are logged when a step fails. (b) is candidate C-1 |
-| F4 | second share in a spec ("the section shared and hosted" timeout): `section-two-panes` 2nd describe, `section-lp-markers` 2nd describe | Linux 1.14.4 2 of 42; Windows 1.13.4 once (39059599290); `section-idle-remote` macOS 1.14.4 once (39163258296, of 44) | Both: `startPeers()` again, a new server, the plugin restarted with the first section on a server that is gone; the new share does not reach `hosted` in 60 s. No facts were logged | product (second share on a restarted server) | `51ab003` logs what A holds on a timeout. In 39163258296 (macOS 1.14.4, `section-idle-remote`) it shows: the new Resource exists with hosting `pending`, the note has no end marker (`marked:false`), no notice, no dialog, runtime ready: the share did not finish and said nothing. Candidate C-2 |
+| F4 | second share in a spec ("the section shared and hosted" timeout): `section-two-panes` 2nd describe, `section-lp-markers` 2nd describe | Linux 1.14.4 2 of 42; Windows 1.13.4 once (39059599290); `section-idle-remote` macOS 1.14.4 once (39163258296, of 44) | Both: `startPeers()` again, a new server, the plugin restarted with the first section on a server that is gone; the new share does not reach `hosted` in 60 s. No facts were logged | cause not established (every case follows a server restart by the harness's `startPeers()`; a product defect is possible, a harness effect is not excluded) | `51ab003` logs what A holds on a timeout. In 39163258296 (macOS 1.14.4, `section-idle-remote`) it shows: the new Resource exists with hosting `pending`, the note has no end marker (`marked:false`), no notice, no dialog, runtime ready: the share did not finish and said nothing. Candidate C-2 |
 | F5 | `section-remove-invite`, the newcomer after A's plugin reload | Windows 1.13.4 only, 3 of 12 jobs (on the 0.4.1 and 0.4.2 release branches) | C joins but never holds the section in 15 s; the case without a reload passes (C loads in 0.3 s). The invitation waits for a Snapshot of the new epoch only while `epochSnapshotState` says `publishing`/`checking`; after a reload it may answer otherwise before the session is LIVE (cf. LFCP-03-037). Not confirmed | product race, suspected | `2dae01f`: on a timeout the spec logs A's snapshot state, epochs, snapshots, queue, C's snapshots, and whether C loads within 45 s more; it still fails. Candidate C-3 |
 | F6 | `pane-insert` :160 ("the existing placement named") | Linux 1.14.4, 3 runs (38863125221, 39059818149 attempt 1, 39163258296) | The insert preview says "Not inserted in any note yet." for a section that is in the source note. A share writes the note before hosting; the placement index learns the note from the vault change, which is batched and queued behind projection work. With the index `complete`, the preview claims "not inserted" for a note it has not seen yet, and the open dialog does not update | product defect (honesty, U03-02) | not fixed (product); candidate C-4. The spec is kept as it is: it shows the defect |
 | F7 | `pane-access-copy-detach` :153 (no card with C's row) | Linux 1.14.4, run 39059818149 attempt 2 (branch 047); macOS 1.14.4, run 39063362726; Linux 1.14.4, run 39163258296 | In the macOS run the diagnostics of `57921c2` show **no dialog at all** (`cards: []`) while C's access is intact: the click on the pane's "Remove access…" (reported as clicked) did not open the card. Same family as P1: a first click on a pane button that does nothing right after another flow. The earlier reading (the card lacking C's row) is not supported. | product defect or click race, not settled | diagnostics only (`57921c2`); candidate C-5 |
@@ -146,7 +159,7 @@ every attempt is logged; what it shows is finding P1.
 ## Candidate tasks
 
 - C-1 (obsidian): two views of one note, a cut in one and a paste in the other: Obsidian's merge can drop an untouched line. Offer the missing Task back (or say it is missing) instead of ATTENTION with nothing to do (P4). With LFCP-03-038.
-- C-2 (obsidian, if F4 recurs): a share made after the default server changed does not reach `hosted`; the logs of `51ab003` say where it stops.
+- C-2 (investigation first): a share made after the harness restarted the server did not reach `hosted` (Resource `pending`, note unmarked, no message). Cause not established: decide between a harness effect (the plugin restarted at a new server URL) and a product defect (a share that stalls silently); the logs of `51ab003` say where it stops.
 - C-3 (obsidian): an invitation right after a removal and a plugin reload can let a newcomer join before a Snapshot of the new epoch exists (F5).
 - C-4 (obsidian): the placement index learns a shared note when the share writes it, or the insert preview says "Looking for copies…" while a creation of that section is open; the open preview updates (F6, U03-02).
 - C-5 (obsidian): a pane button click ("Remove access…" in F7, 4 occurrences, no dialog and no notice recorded; "Join with a link…" in P1) that opens nothing; record the notices in the spec first; look for a redraw replacing the button between the draw and the click, and make the click idempotent for the user.
