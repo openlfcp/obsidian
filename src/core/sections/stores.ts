@@ -132,7 +132,10 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
   }
 
   async putCandidate(candidate: PendingCandidate): Promise<void> {
-    await this.kv.put(candidateKey(candidate.candidateId), candidate);
+    // Through update, like every writer of a candidate's key: the backfill reads and writes
+    // it, and a plain put could land between its read and write (the KV serializes updates
+    // with each other, not with puts).
+    await this.kv.update(candidateKey(candidate.candidateId), () => candidate);
     await this.kv.update(candidateIndex(candidate.projectionId), added(candidate.candidateId));
     if (candidate.sectionKey !== undefined)
       await this.kv.update(sectionIndex(candidate.sectionKey), added(candidate.candidateId));
@@ -170,7 +173,15 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
       let keyed = false;
       await this.kv.update(candidateKey(c.candidateId), (v) => {
         const now = v as PendingCandidate | null | undefined;
-        if (now === undefined || now === null || now.sectionKey !== undefined) return v;
+        // Resolved, keyed or replaced since it was read: not this record any more.
+        if (
+          now === undefined ||
+          now === null ||
+          now.sectionKey !== undefined ||
+          now.sourceText !== c.sourceText ||
+          now.projectionId !== c.projectionId
+        )
+          return v;
         keyed = true;
         return { ...now, sectionKey: key };
       });
@@ -238,7 +249,7 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
 
   async resolveCandidate(candidateId: string): Promise<void> {
     const c = (await this.kv.get(candidateKey(candidateId))) as PendingCandidate | undefined | null;
-    await this.kv.put(candidateKey(candidateId), null);
+    await this.kv.update(candidateKey(candidateId), () => null);
     if (c !== undefined && c !== null) {
       await this.kv.update(candidateIndex(c.projectionId), removed(candidateId));
       if (c.sectionKey !== undefined)
