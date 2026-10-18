@@ -499,8 +499,6 @@ export class SectionsHost {
     const storage = runtime.storage as LfcpStorage;
     const journal = new KeyValueSectionJournalStore(runtime.localState);
     this.#journal = journal;
-    // LFCP-03-048: candidates found by section; idempotent, deletes nothing.
-    await journal.backfillSectionKeys().catch((error) => this.#bookkeepingFailed(error));
     const staleStore = new KeyValueStaleWorkStore(runtime.localState);
     const port = new SdkSectionPort(
       {
@@ -662,6 +660,9 @@ export class SectionsHost {
     // Insertions too, by what their note holds (LFCP-03-017): finished, or listed as unfinished.
     for (const entry of await this.#insertion.unfinished())
       void this.actions.resumeInsertion(entry).catch((error) => this.#bookkeepingFailed(error));
+    // LFCP-03-048: candidates found by section. After the start, not in it: it must not delay
+    // the pane; it is idempotent, per record atomic and deletes nothing.
+    void journal.backfillSectionKeys().catch((error) => this.#bookkeepingFailed(error));
   }
 
   /** The section Resources watched, their stale work scanned, and every note with a section passed. */
