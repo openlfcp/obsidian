@@ -30,7 +30,7 @@ walkthrough are not candidate evidence and are not used here.
 | [39061599103](https://github.com/openlfcp/obsidian/actions/runs/39061599103) | `dc58638` | `section-two-panes`, Windows × 2 versions | green |
 | [39062480638](https://github.com/openlfcp/obsidian/actions/runs/39062480638) | `dc58638` | the three specs above, Windows 1.13.4 | green |
 | [39063362726](https://github.com/openlfcp/obsidian/actions/runs/39063362726) | `57921c2` | all 50 specs × 3 OS × 2 versions | Linux 50/50 ×2, macOS 1.13.4 50/50, Windows 50/50 ×2 (F1, F3, F4 did not recur); macOS 1.14.4 49/50: `pane-access-copy-detach` (F7) |
-| [39163258296](https://github.com/openlfcp/obsidian/actions/runs/39163258296) | `c7144ee` (PR head, over `main` `ec4f1ce`) | all 51 specs × 3 OS × 2 versions, attempt 1 | green: Linux 1.13.4, macOS 1.13.4, Windows 1.14.4. Failed: Linux 1.14.4 (`pane-access-copy-detach` F7, `pane-insert` F6), macOS 1.14.4 (`section-idle-remote` F4), Windows 1.13.4 (`section-two-panes`, last describe, F8). Attempt 2: see the PR |
+| [39163258296](https://github.com/openlfcp/obsidian/actions/runs/39163258296) | `c7144ee` (PR head, over `main` `ec4f1ce`) | all 51 specs × 3 OS × 2 versions, attempt 1 | green: Linux 1.13.4, macOS 1.13.4, Windows 1.14.4. Failed: Linux 1.14.4 (`pane-access-copy-detach` F7, `pane-insert` F6), macOS 1.14.4 (`section-idle-remote` F4), Windows 1.13.4 (`section-two-panes`, last describe, F8). Attempt 2 (rerun of the four failed jobs, same commit): all green, so all six jobs have passed on this commit across the two attempts |
 
 The history of `native.yml` since 2026-10-15 12:00 (80 runs, every
 branch) was read for the flaky specs; its counts are in "Flaky specs".
