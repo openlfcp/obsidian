@@ -80,3 +80,6 @@
 The Markdown ref grammar is normative and lives in
 `spec: integration/MARKDOWN-REFS-01.md`.
 | [releases/0.5.0-beta.1.md](releases/0.5.0-beta.1.md) | everyone | DRAFT release notes of the 0.5.0-beta.1 candidate: the pane, install with BRAT, upgrade from and rollback to 0.4.2, known limits; checksums to be filled in phase 2 (LFCP-03-027) |
+| [devel/pilot/pilot-protocol.md](devel/pilot/pilot-protocol.md) | release, owner | Usability pilot protocol for the 0.5.0 candidate (U03-23, G03-G): goal, the project-server preconditions (D20), the two timed tasks, record, incidents, privacy, feedback, success criteria (LFCP-03-027) |
+| [devel/pilot/participant-onboarding.md](devel/pilot/participant-onboarding.md) | release | Pilot onboarding: installing the beta with BRAT, the default server, pairs, and the pre-session checklist (LFCP-03-027) |
+| [devel/pilot/demo-script.md](devel/pilot/demo-script.md) | release, owner | A 10-minute guided demo of the 0.5 candidate on two vaults, with what it must not claim (LFCP-03-027) |
