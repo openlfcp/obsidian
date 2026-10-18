@@ -430,6 +430,8 @@ export class LfcpRuntime {
   readonly #sections = new Map<string, OpenedSection>();
   /** Section opens under way, by Resource (hex): one at a time per Resource. */
   readonly #sectionOpening = new Map<string, Promise<OpenedSection>>();
+  /** Section Resources being made under a chosen ID (LFCP-03-058): a second call joins the first. */
+  readonly #sectionCreating = new Map<string, Promise<ResourceId>>();
   /** 0.1 Resources being restored (#local) and opened on a session (#openResource), by Resource (hex). */
   readonly #localOpening = new Map<string, Promise<Opened>>();
   readonly #resourceOpening = new Map<string, Promise<OpenResource>>();
@@ -1307,12 +1309,21 @@ export class LfcpRuntime {
     readonly resourceId?: ResourceId;
   }): Promise<ResourceId> {
     if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
-    return this.#engine(async () => {
-      const wanted = options.resourceId;
-      if (wanted !== undefined && (await this.#ready().storage.resources.get(wanted)) !== undefined)
-        return wanted;
-      return (await this.#genesis(options, SECTIONS_PROFILE_ID, wanted)).R;
-    });
+    const wanted = options.resourceId;
+    const make = () =>
+      this.#engine(async () => {
+        if (
+          wanted !== undefined &&
+          (await this.#ready().storage.resources.get(wanted)) !== undefined
+        )
+          return wanted;
+        return (await this.#genesis(options, SECTIONS_PROFILE_ID, wanted)).R;
+      });
+    // LFCP-03-058: two runs of one creation (the share's flow and a resume at the
+    // host's start) made the Resource at once: the second wrote its own Data Epoch
+    // key over the first's before its Genesis was refused, and the Resource could
+    // never be written ("the DEK is not the one committed"). One make per ID.
+    return wanted === undefined ? make() : once(this.#sectionCreating, toHex(wanted), make);
   }
 
   /**
