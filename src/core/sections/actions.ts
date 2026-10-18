@@ -209,6 +209,8 @@ export class SectionActions {
   /** The dispatcher the card's buttons run through (LFCP-03-010); null: their handlers directly. */
   #dispatch: Dispatch | null = null;
 
+  /** The creations running now, by operation ID: a second call for one joins it (LFCP-03-058). */
+  readonly #runs = new Map<string, Promise<CreationOutcome>>();
   /** How long a creation may run before it is reported as not answering (CREATION_DEADLINE_MS). */
   readonly #creationDeadlineMs: number;
 
@@ -984,6 +986,8 @@ export class SectionActions {
     target?: NoteTarget,
     flow?: Flow,
   ): Promise<void> {
+    // Not joined any more: a check runs the operation again (the Resource is made once per ID).
+    if (this.#runs.get(entry.operationId) !== undefined) this.#runs.delete(entry.operationId);
     const title = entry.preview.title;
     const creation = this.env.services.creation();
     const at = (await creation?.current(entry.operationId).catch(() => undefined))?.phase;
@@ -1038,12 +1042,21 @@ export class SectionActions {
   }
 
   /** A creation's typed outcome: hosted, local, stale, failed or cancelled; unknown when it threw. */
-  async #outcome(entry: CreationEntry, target?: NoteTarget): Promise<CreationOutcome> {
-    try {
-      return { kind: "known", result: await this.#finish(entry, target) };
-    } catch (error) {
-      return { kind: "unknown", error };
-    }
+  #outcome(entry: CreationEntry, target?: NoteTarget): Promise<CreationOutcome> {
+    // LFCP-03-058: one run per operation at a time. A resume at the host's start, a
+    // check of an unknown result or the share's own flow join the run under way: two
+    // runs of one creation made its Resource at once, and it could never be written.
+    const running = this.#runs.get(entry.operationId);
+    if (running !== undefined) return running;
+    const run = this.#finish(entry, target).then(
+      (result): CreationOutcome => ({ kind: "known", result }),
+      (error): CreationOutcome => ({ kind: "unknown", error }),
+    );
+    const started: Promise<CreationOutcome> = run.finally(() => {
+      if (this.#runs.get(entry.operationId) === started) this.#runs.delete(entry.operationId);
+    });
+    this.#runs.set(entry.operationId, started);
+    return started;
   }
 
   /** Runs a creation; with the flow's held note, at that note's path at each write. */
