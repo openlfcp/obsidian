@@ -359,7 +359,15 @@ export async function shareAndJoin(b, file, heading, text, source = false) {
           const hex = Buffer.from(e.resourceId).toString("hex");
           entries.push({ name: e.localName, profile: e.profile, hosting: (await p.runtime.localState.get(`collab-hosting:${hex}`)) ?? null });
         }
+        // LFCP-03-058: how far each creation got, and whether A's share flow is still held.
+        const creations = [];
+        for (const id of (await p.runtime?.localState.get("section-creates")) ?? []) {
+          const c = await p.runtime.localState.get(`section-create:${id}`);
+          creations.push({ phase: c?.phase, reason: c?.reason, path: c?.path, receipt: c?.receipt !== undefined });
+        }
         return {
+          creations,
+          flows: p.sections?.actions?.flows() ?? null,
           runtime: p.runtime?.status.kind ?? null,
           marked: (await app.vault.adapter.read(file)).includes("<!-- /lfcp-section: "),
           entries,
