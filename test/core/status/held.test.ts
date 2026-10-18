@@ -72,9 +72,45 @@ describe("held edits (F-04)", () => {
     const text = [...c.card.facts, ...c.card.problems].join(" ");
     expect(text).toContain("a line of the section is missing in this copy");
     expect(text).toContain('"Gamma" is missing from this copy');
-    expect(text).toContain("nothing was deleted for them");
+    expect(text).toContain("nothing was deleted there");
     expect(text).toContain("Repair shared sections in this note");
     expect(text).not.toContain("damaged");
+    expect(text).not.toContain("collaborators");
+  });
+
+  it("a marker lost alone leaves its text unbound: not a missing line (no duplicate by Put back)", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
+    const L = lines(a.note());
+    const g = L.findIndex((l) => l === "- [ ] Gamma");
+    L.splice(g + 1, 1);
+    const h = await held(a, L.join("\n"));
+    expect(h?.cause).toBe("binding");
+    expect(h?.missing).toBeUndefined();
+  });
+
+  it("a line the shared version deleted is not named as missing", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
+    const L = lines(a.note());
+    const g = L.findIndex((l) => l === "- [ ] Gamma");
+    L.splice(g, 2);
+    const r = await a.pass(L.join("\n"));
+    if (r === undefined) throw new Error("no section");
+    const scan = parseSections(L.join("\n"));
+    const section = scan.sections[0];
+    if (section === undefined) throw new Error("no section");
+    const base = (await a.bases.load(r.projectionId))?.state;
+    const h = heldEdits({
+      path: "Plan.md",
+      markdown: L.join("\n"),
+      scan,
+      section,
+      result: r,
+      base,
+      model: Object.fromEntries(
+        Object.entries(base?.nodes ?? {}).map(([k]) => [k, { lifecycle: "deleted" }]),
+      ),
+    });
+    expect(h?.missing).toBeUndefined();
   });
 
   it("a move in a held copy is counted and named: never lost silently (0.4.0-beta.10, step 6)", async () => {

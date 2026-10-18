@@ -96,7 +96,7 @@ export function heldAdvice(h: HeldEdits): string {
   if (h.cause === "binding" && h.missing !== undefined && h.missing.length > 0) {
     const names = h.missing.map((m) => `"${m}"`).join(", ");
     const one = h.missing.length === 1;
-    return `${names} ${one ? "is" : "are"} missing from this copy of the section (${at}), and the shared version and the other collaborators still ${one ? "have it" : "have them"}: nothing was deleted for them. Run "Repair shared sections in this note" to put ${one ? "it" : "them"} back from the shared version; until then nothing in this copy is sent.`;
+    return `${names} ${one ? "is" : "are"} missing from this copy of the section (${at}), and the shared version and the shared version still ${one ? "has it" : "has them"}: nothing was deleted there. Run "Repair shared sections in this note" to put ${one ? "it" : "them"} back from the shared version; until then nothing in this copy is sent.`;
   }
   switch (h.cause) {
     case "unsupported":
@@ -272,8 +272,12 @@ export function heldEdits(input: {
   readonly section: ParsedSection;
   readonly result: SectionResult;
   readonly base: SectionState | undefined;
+  /** The model's nodes, to name a missing line only while the shared version has it active and shown. */
+  readonly model?: Readonly<
+    Record<string, { readonly lifecycle: string; readonly hidden?: boolean }>
+  >;
 }): HeldEdits | null {
-  const { path, markdown, scan, section, result: r, base } = input;
+  const { path, markdown, scan, section, result: r, base, model } = input;
   let cause: HeldCause | null = null;
   let line: number | null = null;
   let code: string | undefined;
@@ -288,13 +292,18 @@ export function heldEdits(input: {
   if (cause === null) return null;
   const edits = base === undefined ? null : editsAgainst(markdown, section, base);
   // Bound nodes the note no longer shows, that the user did not delete (the pass is blocked).
-  const shown = markdownState(markdown, section).state.nodes;
+  const noteState = markdownState(markdown, section);
+  const shown = noteState.state.nodes;
+  // A line whose marker alone was lost stays as unbound text: putting the node back would
+  // duplicate it, so any unbound line makes this a damaged binding for Repair to locate.
   const missing =
-    base === undefined
+    base === undefined || noteState.unbound.length > 0
       ? []
       : r.lost.flatMap((id) => {
           const n = base.nodes[id];
-          return n !== undefined && shown[id] === undefined ? [nameOf(n)] : [];
+          const m = model?.[id];
+          const live = model === undefined || (m?.lifecycle === "active" && m.hidden !== true);
+          return n !== undefined && shown[id] === undefined && live ? [nameOf(n)] : [];
         });
   // A heading inside the section is content too, not sent.
   const unsent = blocking.filter((b) => b.cause === "unsupported").length;

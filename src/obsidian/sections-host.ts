@@ -332,7 +332,19 @@ export class SectionsHost {
       if (section === undefined) continue;
       passed.add(r.projectionId);
       const base = (await this.#bases?.load(r.projectionId))?.state;
-      const found = heldEdits({ path, markdown: pass.source, scan, section, result: r, base });
+      const model = this.#port?.snapshot(
+        toBase64url(r.section.resourceId),
+        r.section.sectionId,
+      )?.nodes;
+      const found = heldEdits({
+        path,
+        markdown: pass.source,
+        scan,
+        section,
+        result: r,
+        base,
+        ...(model === undefined ? {} : { model }),
+      });
       const h = found === null ? null : { ...found, persistence: await persisted() };
       if (this.#projectionFacts.held(key, r.projectionId, h)) changed = true;
       this.#heldNotice(key, r.projectionId, section.heading.title, h);
