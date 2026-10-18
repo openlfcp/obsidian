@@ -2890,4 +2890,84 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       ]);
     });
   });
+
+  // LFCP-03-057 (obsidian#63): Obsidian's merge of two views drops a line the
+  // user did not delete. The pass keeps the section blocked (nothing is
+  // deleted for others) and Repair has to offer the line back, never nothing.
+  describe("a line missing from the note without the user's deletion (LFCP-03-057)", () => {
+    const P1 = "019a2f85-7b31-7c42-b85a-fc843e2f4011";
+    const P2 = "019a2f85-7b31-7c42-b85a-fc843e2f4012";
+    const node = (id: string, text: string) => [`<!-- lfcp-node: paragraph:${id} -->`, text];
+    const note = (...parts: string[][]) =>
+      ["## Launch", formatBoundary("start", S), ...parts.flat(), formatBoundary("end", S), ""].join(
+        "\n",
+      );
+    const BOTH = note(node(P1, "First"), [""], node(P2, "Second"));
+    const FIRST = note(node(P1, "First"));
+
+    async function merged() {
+      const t = wired(BOTH, () => undefined, BOTH);
+      await t.passes(2);
+      expect(t.notes.files.get("Plan.md")).toBe(BOTH);
+      // The merge's result: the note without the second paragraph, no deletion recorded.
+      t.notes.files.set("Plan.md", FIRST);
+      const sent = t.port.changes.length;
+      await t.passes(1);
+      return { t, sent };
+    }
+
+    it("offers the line back in Repair; nothing was sent for it, and putting it back writes only it", async () => {
+      const { t, sent } = await merged();
+      expect(t.port.changes.length).toBe(sent);
+      expect(t.port.snapshot(R0, SID)?.nodes[P2]?.lifecycle).toBe("active");
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [items, lost, actions] = opened(t);
+      expect(items).toEqual([]);
+      expect(lost.map((l) => [l.key, l.missing, l.lines.map((x) => x.text)])).toEqual([
+        [KEY, true, ["Second"]],
+      ]);
+      await actions.putBack(KEY);
+      expect(await t.passes(2)).toBe(BOTH);
+      expect(t.port.changes.length).toBe(sent);
+      expect(t.port.snapshot(R0, SID)?.nodes[P2]?.lifecycle).toBe("active");
+    });
+
+    it("a note that changed since the comparison gets nothing put back", async () => {
+      const { t } = await merged();
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [, , actions] = opened(t);
+      const edited = FIRST.replace("First", "First, edited");
+      t.notes.files.set("Plan.md", edited);
+      // The note changed since the comparison: nothing is put back on an older picture.
+      await actions.putBack(KEY);
+      expect(t.notes.files.get("Plan.md")).toBe(edited);
+      expect(t.prompter.notices.at(-1)).toContain("the note changed meanwhile");
+    });
+
+    it("a line a collaborator deleted is not offered back", async () => {
+      const { t } = await merged();
+      t.port.remote(R0, (x) => {
+        const n = x.state.nodes[P2];
+        if (n === undefined) throw new Error("no node");
+        x.deleted.set(P2, n);
+        const { [P2]: _gone, ...nodes } = x.state.nodes;
+        x.state = { ...x.state, nodes, order: { "": [P1] } };
+      });
+      expect(t.port.snapshot(R0, SID)?.nodes[P2]?.lifecycle).toBe("deleted");
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [items, lost] = opened(t);
+      expect([items, lost]).toEqual([[], []]);
+    });
+
+    it("a deletion by the user is no missing line: Repair has nothing to offer", async () => {
+      const t = wired(BOTH, () => undefined, BOTH);
+      await t.passes(2);
+      t.notes.files.set("Plan.md", FIRST);
+      await t.passes(2, { ...CTX, deletedIds: new Set([P2]) });
+      expect(t.port.snapshot(R0, SID)?.nodes[P2]?.lifecycle).toBe("deleted");
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [items, lost] = opened(t);
+      expect([items, lost]).toEqual([[], []]);
+    });
+  });
 });

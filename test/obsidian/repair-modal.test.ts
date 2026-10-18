@@ -18,6 +18,9 @@ function buttons(lost: LostBase) {
     useShared: async (key) => {
       chosen.push(`shared ${key}`);
     },
+    putBack: async (key) => {
+      chosen.push(`back ${key}`);
+    },
   };
   const m = new RepairModal(new App() as never, [], [lost], actions);
   m.onOpen();
@@ -74,5 +77,23 @@ describe("repair dialog, a section without a base", () => {
     const { el, labels } = buttons({ key: "k", title: "Launch", lines, sharedUnavailable: true });
     expect(labels).toEqual(["Keep my version"]);
     expect(el.textContent).toContain("as this copy's base");
+  });
+});
+
+describe("repair dialog, lines missing from a note with a base (LFCP-03-057)", () => {
+  it("lists the lines and offers one choice: put them back, never Keep my version", () => {
+    const { el, labels, chosen } = buttons({
+      key: "k",
+      title: "Launch",
+      lines: [{ kind: "shared", text: "- [ ] Delta" }],
+      missing: true,
+    });
+    expect(labels).toEqual(["Put the missing lines back"]);
+    expect(el.textContent).toContain("a line is missing from this note");
+    expect(el.textContent).toContain("Nothing was deleted for anyone else");
+    expect(el.textContent).toContain("+ - [ ] Delta");
+    expect(el.textContent).not.toContain("Nothing in this note needs repair");
+    el.findAll("button")[0]?.click();
+    expect(chosen).toEqual(["back k"]);
   });
 });

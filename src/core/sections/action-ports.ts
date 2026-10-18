@@ -107,6 +107,13 @@ export interface LostBase {
    *   it stays deleted.
    */
   readonly taskWait?: TaskWait;
+  /**
+   * The section has a base, and the note lacks lines the shared version
+   * still has, which the user did not delete (Obsidian's merge of two views
+   * can drop one, LFCP-03-057): `lines` are those lines, and the only choice
+   * is to put them back (`putBack`). Nothing is sent for their removal.
+   */
+  readonly missing?: true;
 }
 
 /** What the repair dialog can do; each runs on the note the repair was computed for. */
@@ -122,6 +129,12 @@ export interface RepairActions {
   shareMine(key: string): Promise<void>;
   /** Takes the shared version; the note's text is kept as a recovery copy first. */
   useShared(key: string): Promise<void>;
+  /**
+   * Puts back the lines of a section's base that the note lost and the shared
+   * version still has (LostBase.missing): the engine writes them where the
+   * shared version has them; the rest of the note is not touched.
+   */
+  putBack(key: string): Promise<void>;
 }
 
 /** A button of the section card. */

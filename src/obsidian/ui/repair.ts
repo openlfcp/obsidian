@@ -111,6 +111,26 @@ export class RepairModal extends Modal {
     }
     for (const lost of this.lost) {
       const box = el.createDiv({ cls: "openlfcp-repair-item" });
+      if (lost.missing === true) {
+        box.createEl("p", {
+          text: `"${lost.title}": ${lost.lines.length === 1 ? "a line is" : `${lost.lines.length} lines are`} missing from this note, and the shared version still has ${lost.lines.length === 1 ? "it" : "them"}. You did not delete ${lost.lines.length === 1 ? "it" : "them"} here, or the edit was not recognised (for example, Obsidian merged two views of the note). Nothing was deleted for anyone else.`,
+        });
+        const missing = box.createDiv({ cls: "openlfcp-share-content" });
+        for (const l of lost.lines)
+          missing.createDiv({ text: `+ ${l.text}`, cls: `openlfcp-diff-${l.kind}` });
+        box.createEl("p", {
+          text: "Put back writes only these lines, where the shared version has them; the rest of the note stays as it is. To remove them for everyone, put them back and then delete them in the note.",
+          cls: "setting-item-description",
+        });
+        const choice = box.createDiv({ cls: "modal-button-container" });
+        choice
+          .createEl("button", { text: "Put the missing lines back", cls: "mod-cta" })
+          .addEventListener("click", () => {
+            this.close();
+            void this.actions.putBack(lost.key);
+          });
+        continue;
+      }
       box.createEl("p", {
         text: `"${lost.title}": local and shared versions need comparison. Nothing is sent or overwritten until you choose.`,
       });
