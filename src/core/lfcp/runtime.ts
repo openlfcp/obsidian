@@ -703,6 +703,9 @@ export class LfcpRuntime {
       if (this.#stopped) return;
       await this.#sealed?.put(key, value);
     },
+    /** Every key with `prefix` that holds a value (the sweep of notes that are gone reads the bases). */
+    keys: async (prefix: string): Promise<string[]> =>
+      this.#stopped ? [] : ((await this.#sealed?.keys(prefix)) ?? []),
     /**
      * Read-modify-write of one key, one at a time per key: `change` sees
      * the value the previous update left, so concurrent updates never lose
