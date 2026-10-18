@@ -1586,6 +1586,7 @@ export class SectionActions {
           await journal.putCandidate({
             candidateId: `repair:${crypto.randomUUID()}`,
             projectionId: `repair:${path}`,
+            sectionKey: sectionKey(l.section.ref),
             reason: "base-unknown",
             sourceText: lines.slice(l.section.heading.line, l.section.endLine + 1).join("\n"),
           });
@@ -1619,6 +1620,7 @@ export class SectionActions {
         await journal.putCandidate({
           candidateId: `repair:${crypto.randomUUID()}`,
           projectionId: `repair:${path}`,
+          sectionKey: sectionKey(l.section.ref),
           reason: "base-unknown",
           sourceText: lines.slice(l.section.heading.line, l.section.endLine + 1).join("\n"),
         });
@@ -2054,18 +2056,30 @@ export class SectionActions {
     else if ((await notes.read(p.path)) !== null) prompter.notice(REPAIR_OPEN_FOR_EDITING);
   }
 
-  /** The copies of section `key`'s text kept on this device after a refusal (not shared). */
+  /**
+   * The copies of section `key`'s text kept on this device (not shared): by
+   * the section key a candidate carries (LFCP-03-048), whatever became of its
+   * projection, base or note. A record that has none yet (before the startup
+   * backfill, or one it could not place) is found as it was before: by the
+   * base of its projection, or the key in a provisional projection's ID.
+   */
   async #keptCopies(key: string): Promise<string[]> {
     const { services } = this.env;
     const journal = services.candidates();
     if (journal === null) return [];
-    const ids: string[] = [];
+    const ids = new Set<string>();
+    for (const c of (await journal.candidatesOfSection?.(key)) ?? []) ids.add(c.candidateId);
     for (const c of await journal.allCandidates()) {
+      if (c.sectionKey !== undefined) {
+        // Keyed: the index above found it, or it belongs to another section.
+        if (c.sectionKey === key) ids.add(c.candidateId);
+        continue;
+      }
       const base = await services.bases()?.load(c.projectionId);
       const section = base === undefined ? undefined : sectionKey(base.locator.section);
-      if (section === key || c.projectionId.includes(`#${key}#`)) ids.push(c.candidateId);
+      if (section === key || c.projectionId.includes(`#${key}#`)) ids.add(c.candidateId);
     }
-    return ids;
+    return [...ids];
   }
 
   /**

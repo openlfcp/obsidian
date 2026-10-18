@@ -47,6 +47,7 @@ import {
   type PassOutcome,
   resumeOperation,
 } from "./commit";
+import { sectionKey } from "./context";
 import { type SectionRef, sameSection } from "./grammar";
 import { canonicalInline } from "./inline";
 import { transientCandidates } from "./input";
@@ -842,6 +843,7 @@ export class SectionEngine {
         await this.deps.journal.putCandidate({
           candidateId,
           projectionId,
+          sectionKey: sectionKey(ref),
           reason: "base-unknown",
           sourceText: lines
             .slice(section.heading.line, section.endLine + 1)
@@ -1036,6 +1038,7 @@ export class SectionEngine {
       await this.deps.journal.putCandidate({
         candidateId: `drift:${projectionId}:${contentHash(sourceText).slice(0, 16)}`,
         projectionId,
+        sectionKey: sectionKey(ref),
         reason: "rejected",
         sourceText,
       });
@@ -1114,6 +1117,7 @@ export class SectionEngine {
       await this.deps.journal.putCandidate({
         candidateId: pastedCandidate,
         projectionId,
+        sectionKey: sectionKey(ref),
         reason: "base-unknown",
         sourceText,
       });
