@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  looseLines,
   MemorySectionBaseStore,
   markdownState,
   newProjectionId,
@@ -228,5 +229,42 @@ describe("nodes under a parent without a binding yet", () => {
     const plan = planSection(base, now.state, base);
     expect(plan.missing).toEqual([]);
     expect(plan.moves).toEqual([]);
+  });
+});
+
+describe("looseLines (LFCP-03-057)", () => {
+  const base = {
+    title: "T",
+    nodes: {
+      a: { kind: "task" as const, parent: null },
+      b: { kind: "paragraph" as const, parent: null },
+    },
+    order: { "": ["a", "b"] },
+  };
+  const unbound = [
+    { kind: "task" as const, parent: null, after: null, line: 9 },
+    { kind: "paragraph" as const, parent: null, after: null, line: 3 },
+  ];
+
+  it("nothing defined on either side is no match", () => {
+    expect([...looseLines(base, ["a", "b"], unbound, () => undefined)]).toEqual([]);
+  });
+
+  it("a Task matches by its line, a paragraph by its text", () => {
+    const withText = {
+      ...base,
+      nodes: {
+        a: { kind: "task" as const, parent: null, line: "- [ ] Gamma" },
+        b: { kind: "paragraph" as const, parent: null, text: "Second" },
+      },
+    };
+    const found = looseLines(
+      withText,
+      ["a", "b"],
+      [unbound[0], { ...(unbound[1] as object), text: "Second" } as never] as never,
+      (l) => (l === 9 ? "- [ ] Gamma" : undefined),
+    );
+    expect([...found.keys()]).toEqual(["a", "b"]);
+    expect([...looseLines(withText, ["a"], unbound, () => "- [ ] Other")]).toEqual([]);
   });
 });

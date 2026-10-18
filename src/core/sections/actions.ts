@@ -1528,7 +1528,7 @@ export class SectionActions {
       // A marker lost alone leaves the node's content as an unbound line: putting the node
       // back would duplicate it, and no diagnostic names it. Repair goes to that line. Other
       // unbound lines are the user's new text: they neither block nor are named.
-      const loose = looseLines(k.base.state, gone, noteState.unbound);
+      const loose = looseLines(k.base.state, gone, noteState.unbound, (l) => lines[l]);
       for (const u of loose.values())
         items.push({
           kind: "locate",

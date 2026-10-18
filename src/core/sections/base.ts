@@ -485,13 +485,23 @@ export function looseLines(
   base: SectionState,
   ids: readonly string[],
   unbound: readonly UnboundNode[],
+  /** The note's text of a line (0-based), as markdownState reads a Task's line. */
+  lineText: (line: number) => string | undefined,
 ): ReadonlyMap<string, UnboundNode> {
   const used = new Set<UnboundNode>();
   const out = new Map<string, UnboundNode>();
   for (const id of ids) {
     const b = base.nodes[id];
     if (b === undefined) continue;
-    const u = unbound.find((x) => !used.has(x) && x.kind === b.kind && x.text === b.text);
+    // A Task has no Text: its line is what compares. Nothing defined, no match.
+    const mine = b.kind === "task" ? b.line : b.text;
+    if (mine === undefined) continue;
+    const u = unbound.find(
+      (x) =>
+        !used.has(x) &&
+        x.kind === b.kind &&
+        (b.kind === "task" ? lineText(x.line) : x.text) === mine,
+    );
     if (u === undefined) continue;
     used.add(u);
     out.set(id, u);

@@ -2906,6 +2906,42 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       expect(items.filter((i) => i.kind === "locate")).toEqual([]);
     });
 
+    describe("with a Task", () => {
+      const TT = "019a2f85-7b31-7c42-b85a-fc843e2f4009";
+      const ref = `  <!-- lfcp-ref: lfcp1:${R0}#task:${TT} -->`;
+      const withTask = (...extra: string[]) =>
+        note(node(P1, "First"), [""], ["- [ ] Original 📅 2026-11-01", ref], extra);
+      const START = withTask();
+
+      async function seeded() {
+        const t = wired(START, undefined, START);
+        await t.passes(2);
+        return t;
+      }
+
+      it("a new Task line next to a missing Task: Put back is offered, the new line is not named lost", async () => {
+        const t = await seeded();
+        t.notes.files.set("Plan.md", note(node(P1, "First"), [""], ["- [ ] Typed just now"]));
+        await t.passes(1);
+        await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+        const [items, lost] = opened(t);
+        expect(
+          lost.filter((l) => l.missing === true).map((l) => l.lines.map((x) => x.text)),
+        ).toEqual([[expect.stringContaining("Original")]]);
+        expect(items.filter((i) => i.kind === "locate")).toEqual([]);
+      });
+
+      it("a Task whose marker alone was lost: its line is named, nothing is offered back", async () => {
+        const t = await seeded();
+        t.notes.files.set("Plan.md", START.replace(`${ref}\n`, ""));
+        await t.passes(1);
+        await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+        const [items, lost] = opened(t);
+        expect(lost.filter((l) => l.missing === true)).toEqual([]);
+        expect(items.map((i) => i.kind)).toEqual(["locate"]);
+      });
+    });
+
     it("a line a collaborator deleted is not offered back", async () => {
       const { t } = await merged();
       t.port.remote(R0, (x) => {
