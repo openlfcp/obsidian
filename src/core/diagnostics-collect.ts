@@ -23,6 +23,7 @@ export interface DiagnosticSources {
     diagnostics(): Promise<{
       readonly sections: readonly SectionFacts[];
       readonly candidates: readonly KeptCandidate[];
+      readonly missingNotes?: { readonly notes: number; readonly oldestDays: number };
     }>;
   } | null;
   readonly events: readonly DiagnosticEvent[];
@@ -71,6 +72,7 @@ export async function collectDiagnostics(src: DiagnosticSources): Promise<Diagno
     resources,
     sections: sections.sections,
     candidates: sections.candidates,
+    ...(sections.missingNotes === undefined ? {} : { missingNotes: sections.missingNotes }),
     ...(kept === undefined
       ? {}
       : {
