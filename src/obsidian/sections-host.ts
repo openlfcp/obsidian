@@ -636,7 +636,12 @@ export class SectionsHost {
       },
       port,
       edit: (path, fn) => this.#edit(path, fn),
-      bound: (path, text) => this.editor.seed(path, text),
+      bound: (path, text) => {
+        this.editor.seed(path, text);
+        // The note holds the section from this write on: the index need not wait for the
+        // vault change, which is batched behind projection work (LFCP-03-061).
+        this.#index(path, text);
+      },
       journal: runtime.localState,
       createdBy: principal,
       server: this.server,
@@ -1518,6 +1523,7 @@ export class SectionsHost {
         this.#placements.state === "complete"
           ? this.#placements.placements(toKey(R)).map((p) => p.path)
           : null,
+      onPlacements: (listener) => this.#placements.onChange(listener),
       legacySource: (R, objectId) => this.#legacySource(R, objectId),
       watch: (R) => this.#watch(R),
       indexed: (path, text) => this.#index(path, text),

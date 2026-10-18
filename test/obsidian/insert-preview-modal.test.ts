@@ -86,6 +86,36 @@ describe("the insert preview", () => {
   });
 });
 
+describe("the insert preview's copies line (LFCP-03-061)", () => {
+  it("follows the index while the dialog is open, and lets go on close", () => {
+    let found: readonly string[] | null = null;
+    const listeners = new Set<() => void>();
+    const place = {
+      where: "into this note",
+      get placements() {
+        return found;
+      },
+      subscribe: (l: () => void) => {
+        listeners.add(l);
+        return () => listeners.delete(l);
+      },
+    };
+    const m = new InsertSectionModal(new App() as never, preview, place);
+    m.open();
+    const el = m.contentEl as unknown as FakeElement;
+    const line = () => el.findAll("p").find((p) => p.cls === "setting-item-description")?.text;
+    expect(line()).toBe("Looking for copies in your notes…");
+    found = [];
+    for (const l of listeners) l();
+    expect(line()).toBe("Not inserted in any note yet.");
+    found = ["Source.md"];
+    for (const l of listeners) l();
+    expect(line()).toBe("Already in: Source. Inserting adds another copy.");
+    m.close();
+    expect(listeners.size).toBe(0);
+  });
+});
+
 describe("the insert choice (UX contract N1–N3, F-10)", () => {
   const sprint = { resource: new Uint8Array([1]), sectionId: "s1", title: "Sprint" };
   const rendered = (m: PickSectionModal, q = "") =>

@@ -187,6 +187,25 @@ describe("creating a shared section", () => {
     ]);
   });
 
+  it("hands over the bound note before hosting starts (LFCP-03-061: the placement index learns it at the write)", async () => {
+    const env = await setup();
+    const order: string[] = [];
+    const creation = new SectionCreation({
+      ...env.deps,
+      host: {
+        ...env.deps.host,
+        host: (R) => {
+          order.push("host");
+          return env.deps.host.host(R);
+        },
+      },
+      bound: () => order.push("bound"),
+    });
+    const entry = await creation.prepare("Launch.md", NOTE, env.preview());
+    expect((await creation.run(entry)).kind).toBe("hosted");
+    expect(order).toEqual(["bound", "host"]);
+  });
+
   it("hands over the note as bound; a seed-only pass on it never touches a section with a base", async () => {
     const env = await setup();
     const bound: { path: string; text: string }[] = [];

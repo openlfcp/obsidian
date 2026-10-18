@@ -563,7 +563,9 @@ export class SectionActions {
       return;
     }
     await services.watch(choice.resource as ResourceId);
-    const placements = services.placements?.(choice.resource) ?? null;
+    // Read at each use: the index may learn of a note while the dialog is open.
+    const placementsNow = (): readonly string[] | null =>
+      services.placements?.(choice.resource) ?? null;
     // Both change in the preview's place.change (a closure): read through these, not narrowed.
     let destination: InsertDestination = { kind: "here" };
     /** Another existing note chosen: held while the preview is open (renames followed). */
@@ -578,7 +580,10 @@ export class SectionActions {
         get where() {
           return destinationText(destination, other?.target.path ?? null);
         },
-        placements,
+        get placements() {
+          return placementsNow();
+        },
+        subscribe: (listener) => services.onPlacements?.(listener) ?? (() => undefined),
         change: async () => {
           if (choose === undefined) return;
           // One choice at a time: a second click brings the open one forward.
@@ -586,7 +591,11 @@ export class SectionActions {
             asking.bringForward();
             return;
           }
-          const ask = choose({ title: preview.title, current: target.path, placements });
+          const ask = choose({
+            title: preview.title,
+            current: target.path,
+            placements: placementsNow(),
+          });
           asking = ask;
           this.#showing(flow, ask, "the choice of a note to insert into", "captured");
           const chosen = await ask.result;
@@ -816,7 +825,10 @@ export class SectionActions {
     const title = current.preview.title;
     const dialog = prompter.insertPreview(current.preview, {
       where: `into "${noteName(current.path)}", where it was chosen before`,
-      placements: services.placements?.(fromBase64url(current.preview.resource)) ?? null,
+      get placements() {
+        return services.placements?.(fromBase64url(current.preview.resource)) ?? null;
+      },
+      subscribe: (listener) => services.onPlacements?.(listener) ?? (() => undefined),
     });
     this.#showing(flow, dialog, "the insert preview");
     const approved = await dialog.result;

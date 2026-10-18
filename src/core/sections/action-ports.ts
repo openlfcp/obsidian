@@ -52,6 +52,11 @@ export interface InsertPlace {
   /** The notes that already hold a copy of the section; null while the notes are still being read. */
   readonly placements: readonly string[] | null;
   /**
+   * Called when the index learns of another placement (or completes), while
+   * the preview is open; returns how to stop. Absent: the list is a snapshot.
+   */
+  subscribe?(listener: () => void): () => void;
+  /**
    * Opens the choice of another destination; settles once it is chosen or
    * cancelled. Absent: the place is fixed (an insertion resumed after a restart).
    */
@@ -354,6 +359,8 @@ export interface SectionServices {
    * or null while the notes are still being read. Absent: not known.
    */
   placements?(resource: Uint8Array): readonly string[] | null;
+  /** Called on every change of the placement index; returns how to stop. */
+  onPlacements?(listener: () => void): () => void;
   /** A 0.1 shared Task as this device holds it now; undefined when it is not here. */
   legacySource(resource: ResourceId, objectId: string): Promise<LegacySource | undefined>;
   /** Watches a section Resource: its model changes start passes, its status is shown. */
