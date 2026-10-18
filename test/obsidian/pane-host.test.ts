@@ -585,6 +585,39 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     expect(t.primary()?.textContent).toBe("Share section…");
   });
 
+  // LFCP-03-060 (C-5, C-6): a click the facts still allow is not lost to a redraw that has not run.
+  it("060: Join with a link… runs although the note in view changed before the redraw", async () => {
+    const t = await open();
+    const join = t.el().querySelector<HTMLButtonElement>('button[data-action="join-with-link"]');
+    expect(join).not.toBeNull();
+    // Another note became the target after the drawing, before the coalesced redraw.
+    t.note.file = new mock.TFile("Other.md");
+    join?.click();
+    expect(t.runs.map((r) => r.id)).toEqual(["join-with-link"]);
+  });
+
+  it("060: Remove access… runs although only the path of the same section's note changed", async () => {
+    const t = await open();
+    t.sections.access.set(KEY, { canInvite: true, hosting: "hosted", canRemove: true });
+    for (const l of t.sections.statusListeners) l();
+    const remove = t.el().querySelector<HTMLButtonElement>('button[data-action="remove-access"]');
+    expect(remove).not.toBeNull();
+    t.note.file = new mock.TFile("Copy of Plan.md");
+    remove?.click();
+    expect(t.runs.map((r) => r.id)).toEqual(["remove-access"]);
+    expect(t.runs[0]?.request).toMatchObject({ section: { key: KEY } });
+  });
+
+  it("060: a click the pane drops tells the user, never silently", async () => {
+    const t = await open();
+    const invite = t.primary();
+    mock.notices.length = 0;
+    t.note.cursorLine = 0;
+    invite?.click();
+    expect(t.runs).toEqual([]);
+    expect(mock.notices.join("\n")).toContain("The pane changed");
+  });
+
   it("D9: a chosen row is the pane's section when the cursor is in no section; the cursor wins", async () => {
     const t = await open({ cursor: 1 });
     expect(t.el().textContent).not.toContain("Invite collaborator…");

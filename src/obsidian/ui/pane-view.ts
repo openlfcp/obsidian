@@ -45,6 +45,7 @@ import {
   type Events,
   ItemView,
   MarkdownView,
+  Notice,
   type Workspace,
   type WorkspaceLeaf,
 } from "obsidian";
@@ -55,6 +56,9 @@ import type { PaneModel } from "../../core/pane/model";
 import { renderPane } from "./pane-renderer";
 
 export const PANE_VIEW = "shared-tasks-pane";
+/** Said when a click found the facts changed since the drawing, and ran nothing. */
+export const PANE_CHANGED =
+  "Shared Tasks: The pane changed before your click, so nothing was done. It shows what is current; choose the action again.";
 export const PANE_TITLE = "Shared Tasks";
 /** The ribbon's and the tab's icon (Lucide). */
 export const PANE_ICON = "list-checks";
@@ -334,6 +338,8 @@ export class SharedTasksView extends ItemView {
     const now = this.port.snapshot(this.#liveTarget(), this.#ui());
     const offered = actionsOf(now.model).find((a) => a.id === id);
     if (offered?.enabled !== true || now.identity(id) !== drawn.identity(id)) {
+      // Never silent (LFCP-03-060): the pane shows what is true now, and says the click did nothing.
+      new Notice(PANE_CHANGED);
       this.render();
       return;
     }
