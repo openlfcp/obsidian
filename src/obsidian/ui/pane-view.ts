@@ -58,7 +58,7 @@ import { renderPane } from "./pane-renderer";
 export const PANE_VIEW = "shared-tasks-pane";
 /** Said when a click found the facts changed since the drawing, and ran nothing. */
 export const PANE_CHANGED =
-  "Shared Tasks: The pane changed before your click, so nothing was done. It shows what is current; choose the action again.";
+  "Shared Tasks: the pane changed before your click, so nothing was done. It shows what is current; choose the action again.";
 export const PANE_TITLE = "Shared Tasks";
 /** The ribbon's and the tab's icon (Lucide). */
 export const PANE_ICON = "list-checks";

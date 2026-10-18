@@ -32,6 +32,7 @@ import { type StatusFacts, statusView } from "../../../src/core/status/reducer";
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
 const S = parseSectionRef(`lfcp1:${R0}#section:${SID}`) as SectionRef;
+const SID2 = "019a2f85-7b31-7c42-b85a-fc843e2f4002";
 const KEY = `${R0}#${SID}`;
 const TEXT = [
   "# Plan",
@@ -267,6 +268,33 @@ describe("pane host facts (LFCP-03-012)", () => {
     // The card of another section is another click.
     const elsewhere = hostPane({ note: note(0), registry: registry(), status: () => current });
     expect(a.identity("remove-access")).not.toBe(elsewhere.identity("remove-access"));
+  });
+
+  it("060: two sections of one note are two clicks for the card's actions", () => {
+    const S2 = parseSectionRef(`lfcp1:${R0}#section:${SID2}`) as SectionRef;
+    const two = [
+      TEXT.trimEnd(),
+      "## Other",
+      formatBoundary("start", S2),
+      "- [ ] Beta",
+      formatBoundary("end", S2),
+      "",
+    ].join("\n");
+    const base = registry();
+    const row = base.rows[0] as RegistrySnapshot["rows"][number];
+    const reg = {
+      ...base,
+      rows: [row, { ...row, sectionId: SID2, key: `${R0}#${SID2}`, sharedTitle: "Other" }],
+    };
+    const at = (line: number) =>
+      hostPane({ note: note(line, { text: two }), registry: reg, status: () => current });
+    const first = at(4);
+    const second = at(8);
+    for (const id of ["remove-access", "discard-local-copy"] as const) {
+      expect(first.request(id).section?.key).toBe(KEY);
+      expect(second.request(id).section?.key).toBe(`${R0}#${SID2}`);
+      expect(first.identity(id)).not.toBe(second.identity(id));
+    }
   });
 
   it("P2: other flows are listed with where they stand; Continue goes to the first of them", () => {
