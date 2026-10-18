@@ -66,7 +66,7 @@ import type {
   SectionServices,
   TaskWait,
 } from "./action-ports";
-import { markdownState, newProjectionId, type StoredBase } from "./base";
+import { looseLines, markdownState, newProjectionId, type StoredBase } from "./base";
 import { sectionAtLine, sectionKey } from "./context";
 import type { CreationEntry, CreationResult } from "./create";
 import { heldPasted, pastedBase, showsModel } from "./engine";
@@ -1626,23 +1626,23 @@ export class SectionActions {
       if (snap === undefined || !snap.ready) continue;
       const noteState = markdownState(md, s);
       const shown = noteState.state.nodes;
-      const ids = Object.keys(k.base.state.nodes).filter((id) => {
+      const gone = Object.keys(k.base.state.nodes).filter((id) => {
         const m = snap.nodes[id];
         return shown[id] === undefined && m?.lifecycle === "active" && m.hidden !== true;
       });
-      if (ids.length === 0) continue;
-      // A marker lost alone leaves its text as an unbound line: putting the node back would
-      // duplicate it, and no diagnostic names it. Repair says so and goes to the line.
-      const loose = noteState.unbound[0];
-      if (loose !== undefined) {
+      // A marker lost alone leaves the node's content as an unbound line: putting the node
+      // back would duplicate it, and no diagnostic names it. Repair goes to that line. Other
+      // unbound lines are the user's new text: they neither block nor are named.
+      const loose = looseLines(k.base.state, gone, noteState.unbound);
+      for (const u of loose.values())
         items.push({
           kind: "locate",
-          line: loose.line,
+          line: u.line,
           message:
             "This line has lost its binding to a shared item, and the shared version still has that item. Undo the edit that removed the binding, or delete this line; nothing was deleted for anyone else.",
         });
-        continue;
-      }
+      const ids = gone.filter((id) => !loose.has(id));
+      if (ids.length === 0) continue;
       const missing: ComparedLine[] = ids.map((id) => {
         const n = k.base.state.nodes[id];
         return { kind: "shared", text: (n?.line ?? n?.text ?? "").split("\n")[0] ?? "" };

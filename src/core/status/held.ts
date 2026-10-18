@@ -9,7 +9,7 @@
 // (what was last reconciled with the model): changed, moved, new or gone;
 // a line the section cannot share (a heading inside it) counts as one too.
 
-import { markdownState, type SectionState, UNBOUND_PARENT } from "../sections/base";
+import { looseLines, markdownState, type SectionState, UNBOUND_PARENT } from "../sections/base";
 import type { SectionResult } from "../sections/engine";
 import type { ParsedSection, SectionDiagnostic, SectionScan } from "../sections/parser";
 
@@ -294,17 +294,20 @@ export function heldEdits(input: {
   // Bound nodes the note no longer shows, that the user did not delete (the pass is blocked).
   const noteState = markdownState(markdown, section);
   const shown = noteState.state.nodes;
-  // A line whose marker alone was lost stays as unbound text: putting the node back would
-  // duplicate it, so any unbound line makes this a damaged binding for Repair to locate.
-  const missing =
-    base === undefined || noteState.unbound.length > 0
+  // A line whose marker alone was lost stays as unbound text with the node's content:
+  // putting the node back would duplicate it, so it is a damaged binding for Repair to locate.
+  // Other unbound lines are the user's new text and do not matter here.
+  const gone =
+    base === undefined
       ? []
-      : r.lost.flatMap((id) => {
-          const n = base.nodes[id];
-          const m = model?.[id];
-          const live = model === undefined || (m?.lifecycle === "active" && m.hidden !== true);
-          return n !== undefined && shown[id] === undefined && live ? [nameOf(n)] : [];
-        });
+      : r.lost.filter((id) => base.nodes[id] !== undefined && shown[id] === undefined);
+  const loose = base === undefined ? new Map() : looseLines(base, gone, noteState.unbound);
+  const missing = gone.flatMap((id) => {
+    const n = base?.nodes[id];
+    const m = model?.[id];
+    const live = model === undefined || (m?.lifecycle === "active" && m.hidden !== true);
+    return n !== undefined && !loose.has(id) && live ? [nameOf(n)] : [];
+  });
   // A heading inside the section is content too, not sent.
   const unsent = blocking.filter((b) => b.cause === "unsupported").length;
   return {

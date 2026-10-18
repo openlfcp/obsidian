@@ -474,3 +474,27 @@ export class MemorySectionBaseStore implements SectionBaseStore {
         this.#bases.set(id, { ...b, locator: { ...b.locator, path: newPath } });
   }
 }
+
+/**
+ * Of the base's nodes `ids` that the note no longer binds, the ones whose
+ * content the note still shows as an unbound line (same kind and text): a
+ * binding lost alone (MS21), not a node gone. Each line explains one node;
+ * any other unbound line is new text of the user's.
+ */
+export function looseLines(
+  base: SectionState,
+  ids: readonly string[],
+  unbound: readonly UnboundNode[],
+): ReadonlyMap<string, UnboundNode> {
+  const used = new Set<UnboundNode>();
+  const out = new Map<string, UnboundNode>();
+  for (const id of ids) {
+    const b = base.nodes[id];
+    if (b === undefined) continue;
+    const u = unbound.find((x) => !used.has(x) && x.kind === b.kind && x.text === b.text);
+    if (u === undefined) continue;
+    used.add(u);
+    out.set(id, u);
+  }
+  return out;
+}

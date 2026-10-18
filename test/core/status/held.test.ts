@@ -91,6 +91,21 @@ describe("held edits (F-04)", () => {
     expect(h?.missing).toBeUndefined();
   });
 
+  it("a missing line next to a new line of the user's is still named missing", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
+    const L = lines(a.note());
+    const g = L.findIndex((l) => l === "- [ ] Gamma");
+    L.splice(g, 2);
+    L.splice(
+      L.findIndex((l) => l.startsWith("<!-- /lfcp-section")),
+      0,
+      "",
+      "Typed just now",
+    );
+    const h = await held(a, L.join("\n"));
+    expect(h?.missing).toEqual(["Gamma"]);
+  });
+
   it("a line the shared version deleted is not named as missing", async () => {
     const { a } = await twoVaults(["- [ ] Alpha", "- [ ] Beta", "- [ ] Gamma"]);
     const L = lines(a.note());
