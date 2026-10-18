@@ -475,6 +475,11 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     request,
     identity: (id) => {
       const r = request(id);
+      // What the click acts on is all that is compared (L2, LFCP-03-060): a click the
+      // facts still allow is not dropped for a change the action does not depend on.
+      if (NOT_ABOUT_A_NOTE.has(id)) return "[]";
+      if (r.section !== undefined && ABOUT_A_SECTION.has(id))
+        return JSON.stringify([null, r.section.key, r.flow ?? null, r.join ?? null]);
       return JSON.stringify([
         r.target?.path ?? null,
         r.section?.key ?? null,
@@ -489,6 +494,22 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     pinned: flow?.generation ?? null,
   };
 }
+
+/** Actions whose handler reads neither the note nor the section: the pane's own entries. */
+const NOT_ABOUT_A_NOTE: ReadonlySet<ActionId> = new Set<ActionId>([
+  "join-with-link",
+  "open-settings",
+]);
+
+/** Actions whose handler, given a section, acts on it alone (the card), whatever note is in view. */
+const ABOUT_A_SECTION: ReadonlySet<ActionId> = new Set<ActionId>([
+  "open-details",
+  "sync-details",
+  "review-local-changes",
+  "remove-access",
+  "resource-status",
+  "discard-local-copy",
+]);
 
 /** The last note text parsed for repairs, and what it gave: a redraw of the same text parses nothing. */
 let lastRepairs: {

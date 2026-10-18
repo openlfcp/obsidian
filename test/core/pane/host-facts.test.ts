@@ -254,6 +254,21 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(bare.section?.sharedTitle).toBe("Launch");
   });
 
+  it("060: a click's identity holds only what the action acts on", () => {
+    const at = (path: string) =>
+      hostPane({ note: note(4, { path }), registry: registry(), status: () => current });
+    const a = at("Plan.md");
+    const b = at("Other.md");
+    // The pane's own entry and the card's actions do not depend on which note is in view.
+    expect(a.identity("join-with-link")).toBe(b.identity("join-with-link"));
+    expect(a.identity("remove-access")).toBe(b.identity("remove-access"));
+    // A note's action still does (L2): the click is not run on another note.
+    expect(a.identity("share-section")).not.toBe(b.identity("share-section"));
+    // The card of another section is another click.
+    const elsewhere = hostPane({ note: note(0), registry: registry(), status: () => current });
+    expect(a.identity("remove-access")).not.toBe(elsewhere.identity("remove-access"));
+  });
+
   it("P2: other flows are listed with where they stand; Continue goes to the first of them", () => {
     const flow = (generation: number, path: string, outcome: "running" | "unknown") => ({
       generation,
