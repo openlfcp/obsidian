@@ -279,7 +279,14 @@ describe.skipIf(!live)("unfinished journeys across a crash (LFCP-03-017)", () =>
       // Spent once: a fourth vault is refused.
       D = await SoakPeer.open("D", "d", server.url, 4);
       await D.vault.plugin.openPane();
-      pane(D).el.querySelector<HTMLButtonElement>("button[data-action='join-with-link']")?.click();
+      // The pane says "still starting" and ignores a click until the host has started.
+      const join = await until("D's join button, enabled", () => {
+        const b = pane(D as SoakPeer).el.querySelector<HTMLButtonElement>(
+          "button[data-action='join-with-link']",
+        );
+        return b !== null && b.getAttribute("aria-disabled") !== "true" ? b : undefined;
+      });
+      join.click();
       const field = await until("D's join field", () => {
         const e = pane(D as SoakPeer).el;
         return e.querySelector("input.openlfcp-pane-join-input") === null ? undefined : e;
