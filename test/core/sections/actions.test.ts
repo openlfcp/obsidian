@@ -2952,8 +2952,12 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       t.notes.files.set("Plan.md", noMarker);
       await t.passes(1);
       await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
-      const [, lost] = opened(t);
+      const [items, lost] = opened(t);
       expect(lost.filter((l) => l.missing === true)).toEqual([]);
+      // Never an empty Repair: the loose line is named, with a way to it.
+      expect(items.map((i) => [i.kind, i.kind === "locate" ? i.message : ""])).toEqual([
+        ["locate", expect.stringContaining("lost its binding to a shared item")],
+      ]);
     });
 
     it("a line a collaborator deleted is not offered back", async () => {

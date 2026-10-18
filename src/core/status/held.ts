@@ -96,7 +96,7 @@ export function heldAdvice(h: HeldEdits): string {
   if (h.cause === "binding" && h.missing !== undefined && h.missing.length > 0) {
     const names = h.missing.map((m) => `"${m}"`).join(", ");
     const one = h.missing.length === 1;
-    return `${names} ${one ? "is" : "are"} missing from this copy of the section (${at}), and the shared version and the shared version still ${one ? "has it" : "has them"}: nothing was deleted there. Run "Repair shared sections in this note" to put ${one ? "it" : "them"} back from the shared version; until then nothing in this copy is sent.`;
+    return `${names} ${one ? "is" : "are"} missing from this copy of the section (${at}), and the shared version still ${one ? "has it" : "has them"}: nothing was deleted there. Run "Repair shared sections in this note" to put ${one ? "it" : "them"} back from the shared version; until then nothing in this copy is sent.`;
   }
   switch (h.cause) {
     case "unsupported":

@@ -1625,15 +1625,24 @@ export class SectionActions {
       const snap = model.snapshot(b64, s.ref.sectionId);
       if (snap === undefined || !snap.ready) continue;
       const noteState = markdownState(md, s);
-      // A marker lost alone leaves its text as an unbound line: putting the node back would
-      // duplicate it. Any unbound line sends the section to Repair's damaged-binding path.
-      if (noteState.unbound.length > 0) continue;
       const shown = noteState.state.nodes;
       const ids = Object.keys(k.base.state.nodes).filter((id) => {
         const m = snap.nodes[id];
         return shown[id] === undefined && m?.lifecycle === "active" && m.hidden !== true;
       });
       if (ids.length === 0) continue;
+      // A marker lost alone leaves its text as an unbound line: putting the node back would
+      // duplicate it, and no diagnostic names it. Repair says so and goes to the line.
+      const loose = noteState.unbound[0];
+      if (loose !== undefined) {
+        items.push({
+          kind: "locate",
+          line: loose.line,
+          message:
+            "This line has lost its binding to a shared item, and the shared version still has that item. Undo the edit that removed the binding, or delete this line; nothing was deleted for anyone else.",
+        });
+        continue;
+      }
       const missing: ComparedLine[] = ids.map((id) => {
         const n = k.base.state.nodes[id];
         return { kind: "shared", text: (n?.line ?? n?.text ?? "").split("\n")[0] ?? "" };

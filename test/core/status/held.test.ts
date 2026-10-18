@@ -71,7 +71,10 @@ describe("held edits (F-04)", () => {
     expect(c.view.state).toBe("ATTENTION");
     const text = [...c.card.facts, ...c.card.problems].join(" ");
     expect(text).toContain("a line of the section is missing in this copy");
-    expect(text).toContain('"Gamma" is missing from this copy');
+    expect(text).toContain('"Gamma" is missing from this copy of the section (line ');
+    expect(text).toContain(
+      ' of Plan.md), and the shared version still has it: nothing was deleted there. Run "Repair shared sections in this note" to put it back from the shared version; until then nothing in this copy is sent.',
+    );
     expect(text).toContain("nothing was deleted there");
     expect(text).toContain("Repair shared sections in this note");
     expect(text).not.toContain("damaged");
