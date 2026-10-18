@@ -2893,6 +2893,19 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       ]);
     });
 
+    it("a missing line next to a new line of the user's: Put back is offered, the new line is not named lost", async () => {
+      const t = wired(BOTH, () => undefined, BOTH);
+      await t.passes(2);
+      t.notes.files.set("Plan.md", note(node(P1, "First"), [""], ["Typed just now"]));
+      await t.passes(1);
+      await t.actions.repairNote(t.notes.editorOf("Plan.md", 0).at());
+      const [items, lost] = opened(t);
+      expect(lost.filter((l) => l.missing === true).map((l) => l.lines.map((x) => x.text))).toEqual(
+        [["Second"]],
+      );
+      expect(items.filter((i) => i.kind === "locate")).toEqual([]);
+    });
+
     it("a line a collaborator deleted is not offered back", async () => {
       const { t } = await merged();
       t.port.remote(R0, (x) => {
