@@ -63,7 +63,34 @@ const fromStored = (s: StoredForm): StoredBase => ({
 
 const pathIndex = (path: string) => `section-projections:${path}`;
 
+/**
+ * Runs read-modify-writes of one subject (a projection, an operation) one at a
+ * time. The KV serializes only its updates of one key; a record kept with its
+ * indexes is read, checked and written in separate calls, so two writers
+ * started together would each act on what the other was about to replace
+ * (LFCP-03-056). The install lock makes this runtime the only writer, so one
+ * queue per store is enough; a failure of one run is for its caller only.
+ */
+class Serial {
+  readonly #tails = new Map<string, Promise<void>>();
+
+  run<T>(subject: string, job: () => Promise<T>): Promise<T> {
+    const done = (this.#tails.get(subject) ?? Promise.resolve()).then(job);
+    const tail = done.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#tails.set(subject, tail);
+    void tail.then(() => {
+      if (this.#tails.get(subject) === tail) this.#tails.delete(subject);
+    });
+    return done;
+  }
+}
+
 export class KeyValueSectionBaseStore implements SectionBaseStore {
+  readonly #serial = new Serial();
+
   constructor(private readonly kv: KeyValue) {}
 
   async load(projectionId: string): Promise<StoredBase | undefined> {
@@ -71,7 +98,12 @@ export class KeyValueSectionBaseStore implements SectionBaseStore {
     return v === undefined || v === null ? undefined : fromStored(v);
   }
 
-  async save(projectionId: string, base: StoredBase | null): Promise<void> {
+  /** One save of a projection at a time: its old path is read, its base and both indexes follow. */
+  save(projectionId: string, base: StoredBase | null): Promise<void> {
+    return this.#serial.run(projectionId, () => this.#save(projectionId, base));
+  }
+
+  async #save(projectionId: string, base: StoredBase | null): Promise<void> {
     const old = await this.load(projectionId);
     if (base === null) {
       await this.kv.put(sectionBaseKey(projectionId), null);
@@ -92,8 +124,13 @@ export class KeyValueSectionBaseStore implements SectionBaseStore {
   /** A note was renamed: its projections keep their IDs and bases, with the new path. */
   async rename(oldPath: string, newPath: string): Promise<void> {
     for (const id of await this.projectionsOf(oldPath)) {
-      const b = await this.load(id);
-      if (b !== undefined) await this.save(id, { ...b, locator: { ...b.locator, path: newPath } });
+      // Read and written inside the projection's turn: a save beside it is not lost to the
+      // base read here, nor a delete undone by it.
+      await this.#serial.run(id, async () => {
+        const b = await this.load(id);
+        if (b === undefined || b.locator.path !== oldPath) return;
+        await this.#save(id, { ...b, locator: { ...b.locator, path: newPath } });
+      });
     }
   }
 }
@@ -108,15 +145,25 @@ const sectionIndex = (key: string) => `section-candidates-of:${key}`;
 const ALL_CANDIDATES = "section-candidates";
 
 export class KeyValueSectionJournalStore implements SectionJournalStore {
+  readonly #serial = new Serial();
+
   constructor(private readonly kv: KeyValue) {}
 
-  async put(entry: JournalEntry): Promise<void> {
-    checkForward(await this.get(entry.operationId), entry);
-    await this.kv.put(opKey(entry.operationId), entry);
-    const open = entry.phase !== "done" && entry.phase !== "abandoned";
-    // Oldest first, as unfinished() promises: a restart replays them in that
-    // order (sorted IDs were random UUIDs, 0.4.0-beta.8).
-    await this.kv.update(OPEN, open ? appended(entry.operationId) : removed(entry.operationId));
+  /**
+   * One put of an operation at a time: the check that a phase only moves
+   * forward reads the stored entry, so a put beside another would check
+   * against the entry it was about to replace, and an earlier phase could
+   * land over a later one (LFCP-03-056).
+   */
+  put(entry: JournalEntry): Promise<void> {
+    return this.#serial.run(entry.operationId, async () => {
+      checkForward(await this.get(entry.operationId), entry);
+      await this.kv.put(opKey(entry.operationId), entry);
+      const open = entry.phase !== "done" && entry.phase !== "abandoned";
+      // Oldest first, as unfinished() promises: a restart replays them in that
+      // order (sorted IDs were random UUIDs, 0.4.0-beta.8).
+      await this.kv.update(OPEN, open ? appended(entry.operationId) : removed(entry.operationId));
+    });
   }
 
   async get(operationId: string): Promise<JournalEntry | undefined> {
