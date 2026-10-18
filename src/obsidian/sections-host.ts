@@ -79,7 +79,7 @@ import {
   heldEdits,
 } from "../core/status/held";
 import { HeldChecks } from "../core/status/held-checks";
-import { LagNudges, ProjectionFactsStore } from "../core/status/projections";
+import { forgetDeletedNote, LagNudges, ProjectionFactsStore } from "../core/status/projections";
 import {
   type AccessFacts,
   type ConnectionQualifier,
@@ -1542,7 +1542,13 @@ export class SectionsHost {
       this.editor.deleted(c.path);
       // The note's projections no longer count (LFCP-03-048): a section does not keep showing
       // a problem, or held edits, in a note that is gone. Their bases stay (a restore merges).
-      await this.#forgetFacts(c.path);
+      const gone = await forgetDeletedNote(
+        this.#projectionFacts,
+        this.#bases,
+        c.path,
+        () => this.app.vault.getFileByPath(c.path) !== null,
+      );
+      if (gone) this.scheduleStatus();
       return;
     }
     if (c.kind === "rename") {
@@ -1567,19 +1573,6 @@ export class SectionsHost {
     if (!known && !text.includes(SECTION_MARK)) return;
     this.#index(c.path, text);
     this.editor.fileChanged(c.path, text);
-  }
-
-  /** Forgets the badge facts of the projections of note `path` (it was deleted). */
-  async #forgetFacts(path: string): Promise<void> {
-    const bases = this.#bases;
-    let changed = this.#projectionFacts.heldPassed(path, new Set());
-    if (bases !== null)
-      for (const id of await bases.projectionsOf(path)) {
-        const b = await bases.load(id);
-        if (b !== undefined) this.#projectionFacts.forget(sectionKey(b.locator.section), id);
-        changed = true;
-      }
-    if (changed) this.scheduleStatus();
   }
 
   #index(path: string, text: string): void {

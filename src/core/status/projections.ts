@@ -4,6 +4,8 @@
 // (LOCAL_SAVE_FAILED). One broken projection is that projection's problem;
 // a healthy one in another note stays healthy (SI12). Pure.
 
+import type { SectionBaseStore } from "../sections/base";
+import { sectionKey } from "../sections/context";
 import type { SectionResult } from "../sections/engine";
 import { damagedHeld, type HeldEdits, type HeldPersistence } from "./held";
 import type { ProjectionFacts } from "./reducer";
@@ -158,6 +160,23 @@ export class ProjectionFactsStore {
     return changed;
   }
 
+  /**
+   * The provisional projections of note `path` (no base yet, their ID names
+   * the path) are gone with it. True when there were any.
+   */
+  forgetProvisional(path: string): boolean {
+    const prefix = `pending:${path}#`;
+    let changed = false;
+    for (const maps of [this.#facts, this.#failed, this.#revisions, this.#held] as const)
+      for (const byId of maps.values())
+        for (const id of [...byId.keys()])
+          if (id.startsWith(prefix)) {
+            byId.delete(id);
+            changed = true;
+          }
+    return changed;
+  }
+
   /** A projection that is gone from its note (detached, deleted): it no longer counts. */
   forget(key: string, projectionId: string): void {
     this.#facts.get(key)?.delete(projectionId);
@@ -222,4 +241,34 @@ export class LagNudges {
     this.#nudged.set(key, revision);
     return true;
   }
+}
+
+/**
+ * Note `path` was deleted: its projections no longer count (LFCP-03-048), so
+ * a section does not keep showing a problem, or held edits, in a note that is
+ * gone. Their bases stay (a restore merges through them). `exists` is asked
+ * after the bases were read: a note made again at the path (a sync's delete,
+ * then create) may have been passed meanwhile, and its facts are the new
+ * ones, so nothing is forgotten then. True when something changed.
+ */
+export async function forgetDeletedNote(
+  facts: ProjectionFactsStore,
+  bases: Pick<SectionBaseStore, "load" | "projectionsOf"> | null,
+  path: string,
+  exists: () => boolean,
+): Promise<boolean> {
+  const found: { key: string; id: string }[] = [];
+  if (bases !== null)
+    for (const id of await bases.projectionsOf(path)) {
+      const b = await bases.load(id);
+      if (b !== undefined) found.push({ key: sectionKey(b.locator.section), id });
+    }
+  if (exists()) return false;
+  let changed = facts.heldPassed(path, new Set());
+  if (facts.forgetProvisional(path)) changed = true;
+  for (const f of found) {
+    facts.forget(f.key, f.id);
+    changed = true;
+  }
+  return changed;
 }
