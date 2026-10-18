@@ -1,7 +1,9 @@
 # ADR 0002: What a deleted note leaves in the local records
 
-- **Status:** Proposed, 2026-10-18 (LFCP-03-048, obsidian#46). Phase A of the
-  task: findings and a recommendation; no implementation yet.
+- **Status:** Accepted for V1, 2026-10-18 (LFCP-03-048, obsidian#46; PM
+  decision D27). PR1 (design 1 and 3) is in this PR; PR2 (design 2) is the
+  next step, reviewed separately because it deletes bases and abandons
+  journal entries. V2 (design 4) is deferred until the pilot reports.
 - **Scope:** the install's local records of shared sections: projection
   bases, the journal (unfinished operations) and pending candidates (kept
   copies), plus the badge facts the host keeps in memory. Never synced.
@@ -28,6 +30,16 @@ event when it comes back, at the old path or elsewhere. **Emptying the
 system trash, or the `.trash` folder, is not observable**, and with the
 "permanently delete" setting there is no restore at all. A rename made while
 Obsidian is closed (or by a sync tool) is a delete plus a create at startup.
+
+## Decision (D27)
+
+V1. N = 30 days, a constant without a setting. Candidates of a deleted note
+are kept until the user discards them, with no time limit: they are the only
+copy of the text, and a candidate is dropped only by an explicit choice.
+**The private text of a deleted note therefore stays on the device until
+"Discard the local copy…" (deliberate, local only, never synced).** A card
+line saying that a copy belongs to a deleted note is a follow-up candidate,
+not part of PR1. V2 is deferred; the pilot decides.
 
 ## Findings (today's behaviour, each with a test)
 
@@ -76,9 +88,16 @@ boundary markers, so `parseSections` yields the ref; this also fixes F5 for
 existing `repair:` copies). A candidate that yields no key stays reachable by
 its projection and in diagnostics, and the backfill reports it there.
 
-`resolveCandidate` maintains the new index. Candidate ids that embed a path
-(`base-unknown:pending:<path>…`) are made path-independent for new records
-(`base-unknown:<key>#<n>`), which also fixes F9.
+`resolveCandidate` maintains the new index. Path-free ids were considered
+for F9 and rejected: two notes with a copy of the same section would share an
+id and the second would overwrite the first's private text. Instead a rename
+rewrites the ids of that note's provisional candidates (`renamePending`: the
+new record is put first and the old one resolved after, so a stop in between
+leaves a duplicate, never a loss), and the pass that seeds the projection
+resolves it by the new id.
+
+Diagnostics count the records whose section could not be told ("of which
+without a known section"); the backfill is idempotent and deletes nothing.
 
 ### 2. Bases of a missing note are kept, bounded by time
 
@@ -150,10 +169,11 @@ missing notes and the age of the oldest.
 
 ## Implementation
 
-Three PRs, each independently useful and bisectable:
+Three PRs, each independently useful and bisectable (PR1 is done in this PR;
+the rename fix keeps ids with the path, see design 1):
 
-1. Candidate `sectionKey`, index, backfill, `#keptCopies` by index, path-free
-   candidate ids, plus the delete-time facts fix (design 1 and 3). About
+1. Candidate `sectionKey`, index, backfill, `#keptCopies` by index, the rename
+   rewrite of provisional ids, plus the delete-time facts fix (design 1 and 3). About
    250 lines with tests; touches `journal.ts`, `stores.ts`, `engine.ts`,
    `commit.ts`, `actions.ts`, `sections-host.ts`.
 2. `missingSince`, the sweep, diagnostics counts (design 2). About 200 lines
