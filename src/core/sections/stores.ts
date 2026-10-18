@@ -165,7 +165,17 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
         unresolved++;
         continue;
       }
-      await this.putCandidate({ ...c, sectionKey: key });
+      // Atomic on the record: a candidate resolved meanwhile (the backfill may run beside
+      // the first passes) stays resolved, never written back.
+      let keyed = false;
+      await this.kv.update(candidateKey(c.candidateId), (v) => {
+        const now = v as PendingCandidate | null | undefined;
+        if (now === undefined || now === null || now.sectionKey !== undefined) return v;
+        keyed = true;
+        return { ...now, sectionKey: key };
+      });
+      if (!keyed) continue;
+      await this.kv.update(sectionIndex(key), added(c.candidateId));
       filled++;
     }
     return { filled, unresolved };
@@ -183,8 +193,10 @@ export class KeyValueSectionJournalStore implements SectionJournalStore {
       const [resource, sectionId] = parts.slice(-3, -1);
       if (resource !== undefined && sectionId !== undefined) return `${resource}#${sectionId}`;
     }
-    const first = parseSections(c.sourceText).sections[0];
-    return first === undefined ? undefined : sectionKey(first.ref);
+    // Only a text of one section says which it is: with more (or none) nothing is guessed.
+    const found = parseSections(c.sourceText).sections;
+    const only = found.length === 1 ? found[0] : undefined;
+    return only === undefined ? undefined : sectionKey(only.ref);
   }
 
   /**
