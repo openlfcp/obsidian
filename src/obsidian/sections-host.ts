@@ -42,6 +42,7 @@ import { SectionInsertion } from "../core/sections/insert";
 import { inviteCheck } from "../core/sections/invite-check";
 import { abandonOnce } from "../core/sections/journal";
 import type { LegacySource } from "../core/sections/legacy";
+import { missingNoteStats, sweepMissingNotes } from "../core/sections/missing-notes";
 import { parseSections, type SectionScan } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
 import { noteSections, PlacementIndex } from "../core/sections/placement-index";
@@ -663,6 +664,8 @@ export class SectionsHost {
     // LFCP-03-048: candidates found by section. After the start, not in it: it must not delay
     // the pane; it is idempotent, per record atomic and deletes nothing.
     void journal.backfillSectionKeys().catch((error) => this.#bookkeepingFailed(error));
+    // LFCP-03-048: bases of notes missing for long. Only once the notes were all read above.
+    void this.#sweep();
   }
 
   /** The section Resources watched, their stale work scanned, and every note with a section passed. */
@@ -956,8 +959,45 @@ export class SectionsHost {
     this.scheduleStatus();
   }
 
+  #lastSweep = 0;
+  #sweeping = false;
+
+  /**
+   * Removes the bases of notes missing for long (LFCP-03-048, missing-notes.ts).
+   * After the notes were read; again once a day. Failures are bookkeeping.
+   */
+  async #sweep(): Promise<void> {
+    const runtime = this.#runtime;
+    const bases = this.#bases;
+    const journal = this.#journal;
+    if (runtime === null || bases === null || journal === null || this.#sweeping) return;
+    this.#sweeping = true;
+    try {
+      const resources = await runtime
+        .registry()
+        .then((entries) => new Set(entries.map((e) => toBase64url(e.resourceId))))
+        .catch(() => null);
+      await sweepMissingNotes({
+        kv: runtime.localState,
+        bases,
+        journal,
+        exists: (path) => this.app.vault.getFileByPath(path) !== null,
+        noteCount: () => this.app.vault.getMarkdownFiles().length,
+        resources,
+        now: Date.now,
+      });
+      this.#lastSweep = Date.now();
+    } catch (error) {
+      this.#bookkeepingFailed(error);
+    } finally {
+      this.#sweeping = false;
+    }
+  }
+
   /** The typing coalescers' timer (025). */
   tick(): void {
+    if (this.#lastSweep > 0 && Date.now() - this.#lastSweep > 24 * 60 * 60 * 1000)
+      void this.#sweep();
     void this.#port?.tick(Date.now()).catch(() => undefined);
   }
 
@@ -1271,6 +1311,7 @@ export class SectionsHost {
   async diagnostics(): Promise<{
     readonly sections: SectionFacts[];
     readonly candidates: KeptCandidate[];
+    readonly missingNotes: { readonly notes: number; readonly oldestDays: number };
   }> {
     const journal = this.#journal;
     const sections: SectionFacts[] = [];
@@ -1298,6 +1339,10 @@ export class SectionsHost {
     return {
       sections,
       candidates: journal === null ? [] : await keptCandidates(journal),
+      missingNotes:
+        this.#runtime === null
+          ? { notes: 0, oldestDays: 0 }
+          : await missingNoteStats(this.#runtime.localState, Date.now()),
     };
   }
 

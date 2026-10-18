@@ -66,6 +66,8 @@ export interface DiagnosticInput {
   readonly sections: readonly SectionFacts[];
   /** Kept local candidates (text that could not be shared): reasons and codes only. */
   readonly candidates: readonly KeptCandidate[];
+  /** Notes that are gone and still have projection bases (LFCP-03-048): how many, how old the oldest. */
+  readonly missingNotes?: { readonly notes: number; readonly oldestDays: number };
   /**
    * Section Resources of given-up shares still stored on this device
    * (LFCP-03-002), never listed as collaborations: `sent`, their data may
@@ -206,6 +208,11 @@ export function diagnosticReport(input: DiagnosticInput, detailed: boolean): str
           `  of which without a known section: ${input.candidates.filter((c) => c.unkeyed === true).length}`,
         ]
       : []),
+    ...(input.missingNotes === undefined || input.missingNotes.notes === 0
+      ? []
+      : [
+          `Bases of notes that are gone: ${input.missingNotes.notes} (oldest ${input.missingNotes.oldestDays} days; kept so a restored note merges, removed after 30 days)`,
+        ]),
     ...(input.keptShares === undefined || input.keptShares.sent === 0
       ? []
       : [
