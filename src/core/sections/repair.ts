@@ -255,3 +255,52 @@ export function sharedVersionChange(
     .join(eol);
   return { from, to, insert: body };
 }
+
+/**
+ * The base without `ids` (and their descendants): the engine takes a node of
+ * the shared version that the base does not know as a collaborator's new one
+ * and writes it where the shared version has it (Put back, LFCP-03-057).
+ */
+export function withoutNodes(base: StoredBase, ids: readonly string[]): StoredBase {
+  const gone = new Set(ids);
+  // Descendants go with their parent: the note shows none of them either way.
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [id, n] of Object.entries(base.state.nodes))
+      if (!gone.has(id) && n.parent !== null && gone.has(n.parent)) {
+        gone.add(id);
+        grew = true;
+      }
+  }
+  const nodes = Object.fromEntries(
+    Object.entries(base.state.nodes).filter(([id]) => !gone.has(id)),
+  );
+  const order = Object.fromEntries(
+    Object.entries(base.state.order)
+      .filter(([parent]) => !gone.has(parent))
+      .map(([parent, children]) => [parent, children.filter((id) => !gone.has(id))]),
+  );
+  const { nodeRevisions, drifted, ...rest } = base;
+  return {
+    ...rest,
+    state: { ...base.state, nodes, order },
+    ...(drifted === undefined
+      ? {}
+      : {
+          drifted: Array.isArray(drifted)
+            ? drifted.filter((id: string) => !gone.has(id))
+            : Object.fromEntries(
+                Object.entries(drifted as Readonly<Record<string, string | null>>).filter(
+                  ([id]) => !gone.has(id),
+                ),
+              ),
+        }),
+    ...(nodeRevisions === undefined
+      ? {}
+      : {
+          nodeRevisions: Object.fromEntries(
+            Object.entries(nodeRevisions).filter(([id]) => !gone.has(id)),
+          ),
+        }),
+  };
+}

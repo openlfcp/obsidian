@@ -87,11 +87,13 @@ import { modelTaskLine } from "./remote";
 import {
   adoptedBase,
   boundaryRepair,
+  type ComparedLine,
   compare,
   findRepair,
   keyedRepairs,
   repairItems,
   sharedVersionChange,
+  withoutNodes,
 } from "./repair";
 import { detachAt } from "./rules";
 import { preflight, revalidate, type SharePreview, type ShareRange } from "./share";
@@ -1342,6 +1344,8 @@ export class SectionActions {
       waiting: TaskWait | null;
       /** A section with a base holding pasted nodes (LFCP-03-047): its projection and the nodes compared. */
       pasted?: { readonly projectionId: string; readonly ids: readonly string[] };
+      /** A section with a base whose nodes the note lacks (LFCP-03-057): its projection and the nodes. */
+      absent?: { readonly projectionId: string; readonly ids: readonly string[] };
     })[] = [];
     const lines = md.split(/\r?\n/);
     for (const s of parseSections(md).sections) {
@@ -1499,6 +1503,45 @@ export class SectionActions {
         pasted: { projectionId, ids },
       });
     }
+    // LFCP-03-057: a section with a base, lines of which the note lacks while
+    // the shared version has them active, and the user did not delete them
+    // (the pass would have sent a deletion: it keeps the section blocked as a
+    // lost binding instead). A section already listed above keeps that entry.
+    const absentUsed = new Set<string>();
+    for (const s of parseSections(md).sections) {
+      const key = sectionKey(s.ref);
+      const k = stored.find(
+        (x) => !absentUsed.has(x.id) && sameSection(x.base.locator.section, s.ref),
+      );
+      if (k === undefined) continue;
+      absentUsed.add(k.id);
+      if (lost.some((l) => l.key === key)) continue;
+      const b64 = toBase64url(s.ref.resourceId);
+      const snap = model.snapshot(b64, s.ref.sectionId);
+      if (snap === undefined || !snap.ready) continue;
+      const shown = markdownState(md, s).state.nodes;
+      const ids = Object.keys(k.base.state.nodes).filter((id) => {
+        const m = snap.nodes[id];
+        return shown[id] === undefined && m?.lifecycle === "active" && m.hidden !== true;
+      });
+      if (ids.length === 0) continue;
+      const missing: ComparedLine[] = ids.map((id) => {
+        const n = k.base.state.nodes[id];
+        return { kind: "shared", text: (n?.line ?? n?.text ?? "").split("\n")[0] ?? "" };
+      });
+      lost.push({
+        key,
+        title: s.heading.title,
+        lines: missing,
+        missing: true,
+        section: s,
+        snap,
+        block: null,
+        taskLines: {},
+        waiting: null,
+        absent: { projectionId: k.id, ids },
+      });
+    }
     const running = new Set<Promise<void>>();
     /** A choice of the dialog, on the note where it is now; nothing once it is deleted. */
     const onNote =
@@ -1567,6 +1610,41 @@ export class SectionActions {
           "Shared Tasks: this note's version is kept as this copy's base. Whether its edits are sent shows in the pane and on the section card.",
         );
         this.#changed();
+      }),
+      // The nodes' lines are the engine's to write: a base that does not know them
+      // has them as a collaborator's new nodes, rendered where the shared version has
+      // them (LFCP-03-057). Nothing is sent: the note's other text is not touched.
+      putBack: onNote(async (path, key) => {
+        const l = lost.find((x) => x.key === key);
+        if (l?.absent === undefined) return;
+        const { projectionId, ids } = l.absent;
+        const same = async () => (notes.capture(path)?.text ?? (await notes.read(path))) === md;
+        if (!(await same())) {
+          prompter.notice(
+            "Shared Tasks: the note changed meanwhile. Nothing was put back; open the repair again.",
+          );
+          return;
+        }
+        const current = await bases.load(projectionId);
+        if (current === undefined) {
+          prompter.notice(
+            "Shared Tasks: this copy's state changed meanwhile. Nothing was put back; open the repair again.",
+          );
+          return;
+        }
+        // Again right before the base is saved: the awaits above let the note change.
+        if (!(await same())) {
+          prompter.notice(
+            "Shared Tasks: the note changed meanwhile. Nothing was put back; open the repair again.",
+          );
+          return;
+        }
+        await bases.save(projectionId, withoutNodes(current, ids));
+        services.pass(path);
+        this.#changed();
+        prompter.notice(
+          `Shared Tasks: ${ids.length === 1 ? "the missing line is" : "the missing lines are"} being put back from the shared version.`,
+        );
       }),
       useShared: onNote(async (path, key) => {
         const l = lost.find((x) => x.key === key);
