@@ -1064,6 +1064,8 @@ describe("repair (LFCP-03-008 over 062)", () => {
     t.notes.files.set("Plan.md", LOST.replace("Draft", "Edited"));
     await actions.useShared(KEY);
     expect(t.kept.map((c) => c.sourceText)).toEqual([LOST.split("\n").slice(0, 4).join("\n")]);
+    // Every kept copy names its section (LFCP-03-048).
+    expect(t.kept.map((c) => c.sectionKey)).toEqual(t.kept.map(() => KEY));
     expect(t.notes.writes).toEqual([]);
     expect(t.calls).toEqual([]);
     expect(t.prompter.notices).toEqual([
@@ -2422,6 +2424,8 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     const [, , actions] = opened(t);
     await actions.useShared(KEY);
     expect(t.kept.map((c) => c.sourceText)).toEqual([edited.split("\n").slice(0, 5).join("\n")]);
+    // Every kept copy names its section (LFCP-03-048).
+    expect(t.kept.map((c) => c.sectionKey)).toEqual(t.kept.map(() => KEY));
     const out = await t.passes(2);
     expect(out).toContain("- [ ] Original");
     expect(out).toContain("📅 2026-11-01");
@@ -2526,6 +2530,8 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
     expect(await t.bases.projectionsOf("Plan.md")).toEqual([]);
     await actions.useShared(KEY);
     expect(t.kept.map((c) => c.sourceText)).toEqual([edited.split("\n").slice(0, 5).join("\n")]);
+    // Every kept copy names its section (LFCP-03-048).
+    expect(t.kept.map((c) => c.sectionKey)).toEqual(t.kept.map(() => KEY));
     const out = t.notes.files.get("Plan.md") ?? "";
     expect(out).not.toContain("Local edit");
     expect(t.port.changes).toEqual([]);
@@ -2661,6 +2667,8 @@ describe("repair of a section the engine keeps waiting (LFCP-03-043 review)", ()
       const { t, actions } = await held();
       await actions.useShared(KEY);
       expect(t.kept).toHaveLength(1);
+      // Every kept copy names its section (LFCP-03-048).
+      expect(t.kept.map((c) => c.sectionKey)).toEqual(t.kept.map(() => KEY));
       expect(t.kept[0]?.sourceText).toContain("Local edit");
       const out = await t.passes(2);
       expect(out).toBe(MODEL_NOTE);

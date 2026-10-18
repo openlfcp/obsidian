@@ -3,12 +3,13 @@
 // getting the note back does with them. These tests pin today's behaviour (the
 // host keeps a deleted note's bases) and, where a test says "naive drop", the
 // harm of the reverted change (5942b25, "drop the projection bases of a deleted
-// note"), which the design in docs/development/design/deleted-note-bases.md
+// note"), which the design in docs/architecture/decisions/0002-deleted-note-records.md
 // has to avoid. Real section replica (test/support/section-vaults).
 
 import { describe, expect, it } from "vitest";
 import { keptCandidates } from "../../../src/core/diagnostics-collect";
 import { SectionActions } from "../../../src/core/sections/actions";
+import { MemorySectionBaseStore } from "../../../src/core/sections/base";
 import { formatBoundary } from "../../../src/core/sections/grammar";
 import type { PendingCandidate } from "../../../src/core/sections/journal";
 import { adoptedBase } from "../../../src/core/sections/repair";
@@ -17,12 +18,15 @@ import {
   KeyValueSectionBaseStore,
   KeyValueSectionJournalStore,
 } from "../../../src/core/sections/stores";
-import { ProjectionFactsStore } from "../../../src/core/status/projections";
+import { forgetDeletedNote, ProjectionFactsStore } from "../../../src/core/status/projections";
 import {
   count,
+  id,
   PATH,
   PLAN,
   sectionNote,
+  shared,
+  taskId,
   twoVaults,
   type Vault,
 } from "../../support/section-vaults";
@@ -121,6 +125,64 @@ describe("a deleted note and its bases (LFCP-03-048)", () => {
     // The note is deleted and never comes back: no code path ever resolves any of it.
     expect(await a.bases.projectionsOf(PATH)).toHaveLength(1);
     expect(await a.journal.candidates(projection as string)).toHaveLength(1);
+  });
+});
+
+describe("every engine producer names the section of a kept copy (LFCP-03-048)", () => {
+  const KEY = `${PLAN.R}#${PLAN.sid}`;
+  const keysOf = async (v: Vault, projection: string) =>
+    (await v.journal.candidates(projection)).map((c) => [c.reason, c.sectionKey]);
+
+  it("base-unknown: a note whose base is lost and shows more than the model", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha"]);
+    const [projection] = await a.bases.projectionsOf(PATH);
+    await a.bases.save(projection as string, null);
+    const r = await a.pass(typed(a.note(), "Local only"));
+    expect(r?.skipped).toBe("base-unknown");
+    expect(await keysOf(a, r?.projectionId as string)).toEqual([["base-unknown", KEY]]);
+  });
+
+  it("drift: text typed after a refused edit is kept first, with its section", async () => {
+    const { a, b } = await twoVaults(["- [ ] Alpha", "", "A paragraph."]);
+    const pid = Object.entries(a.model()?.nodes ?? {}).find(
+      ([, n]) => n.kind === "paragraph",
+    )?.[0] as string;
+    const [projection] = await a.bases.projectionsOf(PATH);
+    await b.pass(b.note().replace("A paragraph.", "A paragraph, remote."));
+    a.replica().receiveChanges(b.replica().changes());
+    await a.engine.drifted(projection as string, [pid]);
+    const local = a.note().replace("A paragraph.", "A paragraph, local.");
+    await a.pass(local);
+    await a.pass(local);
+    const kept = (await a.journal.candidates(projection as string)).filter((c) =>
+      c.candidateId.startsWith("drift:"),
+    );
+    expect(kept.map((c) => c.sectionKey)).toEqual([KEY]);
+  });
+
+  it("pasted: nodes the user put in that the base does not know and the model shows otherwise", async () => {
+    const { a } = await twoVaults(["- [ ] Alpha", "- [ ] a1"]);
+    const a1 = taskId(a.note(), "a1");
+    const [projection] = await a.bases.projectionsOf(PATH);
+    const stored = await a.bases.load(projection as string);
+    if (stored === undefined) throw new Error("no base");
+    const nodes = { ...stored.state.nodes };
+    delete nodes[a1];
+    const order = Object.fromEntries(
+      Object.entries(stored.state.order).map(([k, ids]) => [k, ids.filter((x) => x !== a1)]),
+    );
+    await a.bases.save(projection as string, {
+      ...stored,
+      state: { ...stored.state, nodes, order },
+    });
+    const r = await a.pass(a.note().replace("- [ ] a1", "- [ ] a1 pasted over"), {
+      inserted: new Set([a1]),
+    });
+    expect(r?.held).toBeDefined();
+    const kept = (await a.journal.candidates(projection as string)).filter((c) =>
+      c.candidateId.startsWith("pasted:"),
+    );
+    expect(kept.map((c) => c.sectionKey)).toEqual([KEY]);
   });
 });
 
@@ -275,6 +337,15 @@ describe("the section key backfill (LFCP-03-048)", () => {
     expect(kept.filter((k) => k.unkeyed === true)).toHaveLength(1);
   });
 
+  it("a text of more than one section says no section: left unkeyed, counted", async () => {
+    const journal = new KeyValueSectionJournalStore(keyValue());
+    const other = shared(9, id(7));
+    const two = `${sectionNote(PLAN, "Plan", ["- [ ] One"])}${sectionNote(other, "Other", ["- [ ] Two"])}`;
+    await journal.putCandidate(legacy("two", "gone", two));
+    expect(await journal.backfillSectionKeys()).toEqual({ filled: 0, unresolved: 1 });
+    expect((await journal.allCandidates())[0]?.sectionKey).toBeUndefined();
+  });
+
   it("F9: a pending projection's candidate follows its note's rename", async () => {
     const journal = new KeyValueSectionJournalStore(keyValue());
     await journal.putCandidate({
@@ -298,21 +369,57 @@ describe("the section key backfill (LFCP-03-048)", () => {
 });
 
 describe("the badge facts of a deleted note (LFCP-03-048)", () => {
-  it("today: the host does not forget a deleted note's projections until a restart", () => {
-    const facts = new ProjectionFactsStore();
-    const key = `${PLAN.R}#${PLAN.sid}`;
-    facts.note(key, {
-      projectionId: "p1",
+  const key = `${PLAN.R}#${PLAN.sid}`;
+  const result = (projectionId: string, skipped?: "base-unknown") =>
+    ({
+      projectionId,
       section: PLAN.ref,
-      skipped: "base-unknown",
+      ...(skipped ? { skipped } : {}),
       lost: [],
       held: [],
       entries: [],
-    } as never);
+    }) as never;
+
+  async function withFacts() {
+    const facts = new ProjectionFactsStore();
+    const bases = new MemorySectionBaseStore();
+    await bases.save(
+      "p1",
+      adoptedBase(PATH, PLAN.ref, { revision: "r", nodes: {}, order: {} } as never),
+    );
+    facts.note(key, result("p1"));
     facts.held(key, "p1", { path: PATH } as never);
-    // vaultChange("delete") calls damaged(path, ∅) and nothing else of the facts.
-    facts.damaged(PATH, new Set());
-    expect(facts.projections(key)).toHaveLength(1);
+    const pending = `pending:${PATH}#${key}#0`;
+    facts.note(key, result(pending, "base-unknown"));
+    facts.held(key, pending, { path: PATH } as never);
+    return { facts, bases };
+  }
+
+  it("is forgotten when the note is deleted: bases and provisional projections alike", async () => {
+    const { facts, bases } = await withFacts();
+    expect(facts.projections(key)).toHaveLength(2);
+    expect(await forgetDeletedNote(facts, bases, PATH, () => false)).toBe(true);
+    expect(facts.projections(key)).toEqual([]);
+    expect(facts.holds(PATH)).toBe(false);
+    // The base stays: a restore merges through it.
+    expect(await bases.projectionsOf(PATH)).toEqual(["p1"]);
+  });
+
+  it("is kept when the note is made again meanwhile (a sync's delete, then create)", async () => {
+    const { facts, bases } = await withFacts();
+    let exists = false;
+    const slow = {
+      load: bases.load.bind(bases),
+      projectionsOf: async (path: string) => {
+        const ids = await bases.projectionsOf(path);
+        // The create and its pass land while the bases are read.
+        exists = true;
+        facts.note(key, result("p1"));
+        return ids;
+      },
+    };
+    expect(await forgetDeletedNote(facts, slow, PATH, () => exists)).toBe(false);
+    expect(facts.projections(key).length).toBeGreaterThan(0);
     expect(facts.holds(PATH)).toBe(true);
   });
 });
