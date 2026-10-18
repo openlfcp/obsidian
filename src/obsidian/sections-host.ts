@@ -42,7 +42,12 @@ import { SectionInsertion } from "../core/sections/insert";
 import { inviteCheck } from "../core/sections/invite-check";
 import { abandonOnce } from "../core/sections/journal";
 import type { LegacySource } from "../core/sections/legacy";
-import { missingNoteStats, sweepMissingNotes } from "../core/sections/missing-notes";
+import {
+  knownResources,
+  missingNoteStats,
+  sweepDue,
+  sweepMissingNotes,
+} from "../core/sections/missing-notes";
 import { parseSections, type SectionScan } from "../core/sections/parser";
 import { PassErrorNotices } from "../core/sections/pass-errors";
 import { noteSections, PlacementIndex } from "../core/sections/placement-index";
@@ -973,10 +978,10 @@ export class SectionsHost {
     if (runtime === null || bases === null || journal === null || this.#sweeping) return;
     this.#sweeping = true;
     try {
-      const resources = await runtime
-        .registry()
-        .then((entries) => new Set(entries.map((e) => toBase64url(e.resourceId))))
-        .catch(() => null);
+      const resources = knownResources(
+        runtime.storage !== null,
+        await runtime.registry().catch(() => null),
+      );
       await sweepMissingNotes({
         kv: runtime.localState,
         bases,
@@ -986,18 +991,18 @@ export class SectionsHost {
         resources,
         now: Date.now,
       });
-      this.#lastSweep = Date.now();
     } catch (error) {
       this.#bookkeepingFailed(error);
     } finally {
+      // Tried, not only done: a failed sweep is tried again in a day, not at the next restart.
+      this.#lastSweep = Date.now();
       this.#sweeping = false;
     }
   }
 
   /** The typing coalescers' timer (025). */
   tick(): void {
-    if (this.#lastSweep > 0 && Date.now() - this.#lastSweep > 24 * 60 * 60 * 1000)
-      void this.#sweep();
+    if (sweepDue(this.#lastSweep, Date.now())) void this.#sweep();
     void this.#port?.tick(Date.now()).catch(() => undefined);
   }
 

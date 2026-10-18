@@ -11,11 +11,13 @@ import { collectDiagnostics } from "../../../src/core/diagnostics-collect";
 import type { JournalEntry } from "../../../src/core/sections/journal";
 import {
   expired,
+  knownResources,
   MIN_OBSERVED_DAYS,
   MISSING_TTL_MS,
   missingNoteStats,
   NOTE_DELETED,
   observed,
+  sweepDue,
   sweepMissingNotes,
 } from "../../../src/core/sections/missing-notes";
 import { adoptedBase } from "../../../src/core/sections/repair";
@@ -234,6 +236,76 @@ describe("the sweep of the bases of missing notes (LFCP-03-048)", () => {
     w.setNow(w.now() + DAY);
     await w.sweep({ exists: (p) => (p === "Race2.md" ? ++calls > 1 : true) });
     expect(await w.bases.projectionsOf("Race2.md")).toEqual(["p2"]);
+  });
+
+  async function expiring() {
+    const w = await world();
+    await w.bases.save("p1", w.base("Race.md"));
+    await w.journal.put(entry("op1", "p1", "committed"));
+    await w.daily(30);
+    w.setNow(w.now() + DAY);
+    return w;
+  }
+
+  it("a note back before the operations are closed: nothing is closed, the base stays", async () => {
+    const w = await expiring();
+    // The note appears as the sweep reads the unfinished operations.
+    const journal = new Proxy(w.journal, {
+      get(target, key) {
+        if (key === "unfinished")
+          return async () => {
+            w.notes.add("Race.md");
+            return target.unfinished();
+          };
+        const v = Reflect.get(target, key) as unknown;
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    await w.sweep({ journal });
+    expect((await w.journal.get("op1"))?.phase).toBe("committed");
+    expect(await w.bases.projectionsOf("Race.md")).toEqual(["p1"]);
+  });
+
+  it("a note back between closing the operations and removing the base: the base stays", async () => {
+    const w = await expiring();
+    const journal = new Proxy(w.journal, {
+      get(target, key) {
+        if (key === "put")
+          return async (e: JournalEntry) => {
+            await target.put(e);
+            if (e.phase === "abandoned") w.notes.add("Race.md");
+          };
+        const v = Reflect.get(target, key) as unknown;
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    await w.sweep({ journal });
+    expect(await w.bases.projectionsOf("Race.md")).toEqual(["p1"]);
+    expect(await w.bases.load("p1")).toBeDefined();
+  });
+
+  it("an unknown list of Resources is not an empty one", () => {
+    expect(knownResources(false, [])).toBeNull();
+    expect(knownResources(true, null)).toBeNull();
+    expect(knownResources(true, [])).toEqual(new Set());
+  });
+
+  it("with no storage the registry answers nothing, and no base is taken for a left Resource", async () => {
+    const w = await world();
+    await w.bases.save("p1", w.base("Gone.md"));
+    // What the host passes when the runtime has no storage: null, not the empty list it reads.
+    const r = await w.sweep({ resources: knownResources(false, []) });
+    expect(r.resourceGone).toBe(0);
+    expect(await w.bases.projectionsOf("Gone.md")).toEqual(["p1"]);
+    // The empty set it would have been: everything looks gone.
+    const wrong = await w.sweep({ resources: knownResources(true, []) });
+    expect(wrong.resourceGone).toBe(1);
+  });
+
+  it("the daily sweep is due a day after a try, failed or not", () => {
+    expect(sweepDue(0, T0 + 5 * DAY)).toBe(false);
+    expect(sweepDue(T0, T0 + DAY - 1)).toBe(false);
+    expect(sweepDue(T0, T0 + DAY + 1)).toBe(true);
   });
 
   it("a stop at any write leaves nothing lost; the next sweep finishes", async () => {

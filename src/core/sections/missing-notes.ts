@@ -130,12 +130,15 @@ export async function sweepMissingNotes(env: SweepEnv): Promise<SweepReport> {
   let unfinished: JournalEntry[] | null = null;
 
   const remove = async (path: string, id: string): Promise<boolean> => {
-    // Right before the removal, not only at the start: a note made again meanwhile keeps its base.
+    // A note made again meanwhile keeps its base and its operations: asked before anything is
+    // closed, before each operation, and again right before the base goes.
     if (env.exists(path)) return false;
     unfinished ??= await env.journal.unfinished();
-    for (const e of unfinished)
-      if (e.projectionId === id && (await abandonOnce(env.journal, e.operationId, NOTE_DELETED)))
-        abandoned++;
+    for (const e of unfinished) {
+      if (e.projectionId !== id) continue;
+      if (env.exists(path)) return false;
+      if (await abandonOnce(env.journal, e.operationId, NOTE_DELETED)) abandoned++;
+    }
     if (env.exists(path)) return false;
     await env.bases.save(id, null);
     return true;
@@ -189,6 +192,22 @@ async function repairPathIndexes(kv: KeyValue): Promise<void> {
       );
   }
 }
+
+/**
+ * The Resources on this device as the sweep may rely on them: null when the
+ * registry could not be read, or the install has no storage (the registry
+ * then answers an empty list, which means unknown, not "none").
+ */
+export function knownResources(
+  hasStorage: boolean,
+  entries: readonly { readonly resourceId: Uint8Array }[] | null,
+): ReadonlySet<string> | null {
+  if (!hasStorage || entries === null) return null;
+  return new Set(entries.map((e) => toBase64url(e.resourceId)));
+}
+
+/** Whether the daily sweep is due: `last` is when one was last tried, failed or not (0: none yet). */
+export const sweepDue = (last: number, now: number): boolean => last > 0 && now - last > DAY;
 
 /** What diagnostics say of the bases of missing notes: how many notes, how old the oldest is. */
 export async function missingNoteStats(
