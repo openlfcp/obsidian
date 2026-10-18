@@ -1609,3 +1609,19 @@ const fromKey64 = (hex: string): ResourceId => fromHex(hex) as ResourceId;
 
 const toKey = (r: Uint8Array): string =>
   [...r].map((b) => b.toString(16).padStart(2, "0")).join("");
+      // The note's projections no longer count (LFCP-03-048): a section does not keep showing
+      // a problem, or held edits, in a note that is gone. Their bases stay (a restore merges).
+      await this.#forgetFacts(c.path);
+  /** Forgets the badge facts of the projections of note `path` (it was deleted). */
+  async #forgetFacts(path: string): Promise<void> {
+    const bases = this.#bases;
+    let changed = this.#projectionFacts.heldPassed(path, new Set());
+    if (bases !== null)
+      for (const id of await bases.projectionsOf(path)) {
+        const b = await bases.load(id);
+        if (b !== undefined) this.#projectionFacts.forget(sectionKey(b.locator.section), id);
+        changed = true;
+      }
+    if (changed) this.scheduleStatus();
+  }
+
