@@ -23,7 +23,7 @@ import { ACCESS_HELD, REPAIR_HELD } from "../actions/descriptors";
 import type { ProblemTarget } from "../actions/dispatcher";
 import type { RecoveryItem } from "../sections/recovery";
 import type { KeyedRepair } from "../sections/repair";
-import { HELD_CAUSE, type HeldCause, type HeldEdits } from "../status/held";
+import { type HeldCause, type HeldEdits, heldCauseText } from "../status/held";
 import type { StatusView } from "../status/reducer";
 
 /**
@@ -153,7 +153,7 @@ function heldProblem(h: HeldEdits): PaneProblem {
   return {
     id: `held:${h.projectionId}:${h.cause}`,
     category: HELD_CATEGORY[h.cause],
-    text: `${count} not sent: ${HELD_CAUSE[h.cause]}.`,
+    text: `${count} not sent: ${heldCauseText(h)}.`,
     source: where(h.path, h.line),
     action,
     ref: { kind: "at", path: h.path, line: h.line },

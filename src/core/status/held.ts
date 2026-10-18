@@ -51,6 +51,13 @@ export interface HeldEdits {
    */
   readonly moved?: readonly string[];
   /**
+   * Lines of the section missing from this copy that the shared version
+   * still has (a Task's title), without the user having deleted them: a
+   * merge of two views of the note by Obsidian can drop one (LFCP-03-057).
+   * Nothing was deleted for anyone; Repair puts them back.
+   */
+  readonly missing?: readonly string[];
+  /**
    * Whether the note holding them is saved to disk (LFCP-03-003): the held
    * text is in no queue or journal, only in the note. Absent: not checked.
    */
@@ -76,9 +83,21 @@ export const HELD_CAUSE: Readonly<Record<HeldCause, string>> = {
   "base-unknown": "this copy has to be compared with the shared version first",
 };
 
+/** The short reason of `h`, after "N edits not sent: ": a missing line is said as such, not as a damaged binding. */
+export function heldCauseText(h: HeldEdits): string {
+  return h.cause === "binding" && (h.missing?.length ?? 0) > 0
+    ? "a line of the section is missing in this copy, and the shared version still has it"
+    : HELD_CAUSE[h.cause];
+}
+
 /** What to do about it, for the card's problem line. */
 export function heldAdvice(h: HeldEdits): string {
   const at = `line ${h.line + 1} of ${h.path}`;
+  if (h.cause === "binding" && h.missing !== undefined && h.missing.length > 0) {
+    const names = h.missing.map((m) => `"${m}"`).join(", ");
+    const one = h.missing.length === 1;
+    return `${names} ${one ? "is" : "are"} missing from this copy of the section (${at}), and the shared version and the other collaborators still ${one ? "have it" : "have them"}: nothing was deleted for them. Run "Repair shared sections in this note" to put ${one ? "it" : "them"} back from the shared version; until then nothing in this copy is sent.`;
+  }
   switch (h.cause) {
     case "unsupported":
       return h.code === "unclosed-fence"
@@ -268,6 +287,15 @@ export function heldEdits(input: {
   else if (r.local?.kind === "kept") cause = KEPT[r.local.candidate.reason] ?? "rejected";
   if (cause === null) return null;
   const edits = base === undefined ? null : editsAgainst(markdown, section, base);
+  // Bound nodes the note no longer shows, that the user did not delete (the pass is blocked).
+  const shown = markdownState(markdown, section).state.nodes;
+  const missing =
+    base === undefined
+      ? []
+      : r.lost.flatMap((id) => {
+          const n = base.nodes[id];
+          return n !== undefined && shown[id] === undefined ? [nameOf(n)] : [];
+        });
   // A heading inside the section is content too, not sent.
   const unsent = blocking.filter((b) => b.cause === "unsupported").length;
   return {
@@ -279,6 +307,7 @@ export function heldEdits(input: {
     ...(code === undefined ? {} : { code }),
     nodeIds: edits?.nodeIds ?? [],
     ...(edits === null || edits.moved.length === 0 ? {} : { moved: edits.moved }),
+    ...(missing.length === 0 ? {} : { missing }),
   };
 }
 

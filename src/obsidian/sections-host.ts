@@ -72,10 +72,10 @@ import { collectStatuses } from "../core/status/collect";
 import { observedFacts } from "../core/status/facts";
 import {
   damagedHeld,
-  HELD_CAUSE,
   type HeldCause,
   type HeldEdits,
   type HeldPersistence,
+  heldCauseText,
   heldEdits,
 } from "../core/status/held";
 import { HeldChecks } from "../core/status/held-checks";
@@ -406,7 +406,7 @@ export class SectionsHost {
         ? "Edits"
         : `${h.count} ${h.count === 1 ? "edit" : "edits"}`;
     new Notice(
-      `Shared Tasks: ${what} in "${title}" not sent: ${HELD_CAUSE[h.cause]} (line ${h.line + 1}). Open the section's details to fix it.`,
+      `Shared Tasks: ${what} in "${title}" not sent: ${heldCauseText(h)} (line ${h.line + 1}). Open the section's details to fix it.`,
       10_000,
     );
   }
