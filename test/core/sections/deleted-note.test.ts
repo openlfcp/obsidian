@@ -346,6 +346,96 @@ describe("the section key backfill (LFCP-03-048)", () => {
     expect((await journal.allCandidates())[0]?.sectionKey).toBeUndefined();
   });
 
+  /**
+   * A KV as the runtime's localState is: updates of one key run one at a time, a put does not
+   * wait for them. `onRead` runs once, right after the first read of a candidate record: the
+   * window between the backfill's read and its write.
+   */
+  function racingKeyValue() {
+    const m = new Map<string, unknown>();
+    const chains = new Map<string, Promise<void>>();
+    const hook: {
+      onRead: (() => Promise<void>) | null;
+      /** Once, inside an update of a candidate record, between its read and its write. */
+      inUpdate: (() => void) | null;
+    } = { onRead: null, inUpdate: null };
+    const kv: KeyValue = {
+      get: async (k) => {
+        const v = m.get(k);
+        if (k.startsWith("section-candidate:") && hook.onRead !== null) {
+          const run = hook.onRead;
+          hook.onRead = null;
+          await run();
+        }
+        return v;
+      },
+      put: async (k, v) => void m.set(k, v),
+      update: (k, change) => {
+        const run = async () => {
+          const current = m.get(k);
+          if (k.startsWith("section-candidate:") && hook.inUpdate !== null) {
+            const start = hook.inUpdate;
+            hook.inUpdate = null;
+            start();
+            // Time for a put that does not wait for updates to land in the window.
+            for (let i = 0; i < 5; i++) await Promise.resolve();
+          }
+          await kv.put(k, change(current));
+        };
+        const done = (chains.get(k) ?? Promise.resolve()).then(run, run);
+        chains.set(
+          k,
+          done.then(
+            () => undefined,
+            () => undefined,
+          ),
+        );
+        return done;
+      },
+    };
+    return { kv, hook };
+  }
+
+  it("a copy resolved while the backfill runs stays resolved", async () => {
+    const { kv, hook } = racingKeyValue();
+    const journal = new KeyValueSectionJournalStore(kv);
+    await journal.putCandidate(legacy("c1", "gone", sectionNote(PLAN, "Plan", ["- [ ] One"])));
+    hook.onRead = () => journal.resolveCandidate("c1");
+    await journal.backfillSectionKeys();
+    expect(await journal.allCandidates()).toEqual([]);
+    expect(await journal.candidatesOfSection(KEY)).toEqual([]);
+  });
+
+  it("a copy kept again while the backfill runs is not overwritten by the older text", async () => {
+    const { kv, hook } = racingKeyValue();
+    const journal = new KeyValueSectionJournalStore(kv);
+    await journal.putCandidate(legacy("c1", "gone", sectionNote(PLAN, "Plan", ["- [ ] Old"])));
+    const fresh = legacy("c1", "gone", sectionNote(PLAN, "Plan", ["- [ ] Fresh"]));
+    hook.onRead = () => journal.putCandidate(fresh);
+    await journal.backfillSectionKeys();
+    const [kept] = await journal.allCandidates();
+    expect(kept?.sourceText).toBe(fresh.sourceText);
+    expect(await journal.allCandidates()).toHaveLength(1);
+  });
+
+  it("a copy resolved or kept again inside the backfill's own write is not undone by it", async () => {
+    for (const act of ["resolve", "put"] as const) {
+      const { kv, hook } = racingKeyValue();
+      const journal = new KeyValueSectionJournalStore(kv);
+      await journal.putCandidate(legacy("c1", "gone", sectionNote(PLAN, "Plan", ["- [ ] Old"])));
+      const fresh = legacy("c1", "gone", sectionNote(PLAN, "Plan", ["- [ ] Fresh"]));
+      let other: Promise<void> = Promise.resolve();
+      hook.inUpdate = () => {
+        other = act === "resolve" ? journal.resolveCandidate("c1") : journal.putCandidate(fresh);
+      };
+      await journal.backfillSectionKeys();
+      await other;
+      const kept = await journal.allCandidates();
+      if (act === "resolve") expect(kept).toEqual([]);
+      else expect(kept.map((c) => c.sourceText)).toEqual([fresh.sourceText]);
+    }
+  });
+
   it("F9: a pending projection's candidate follows its note's rename", async () => {
     const journal = new KeyValueSectionJournalStore(keyValue());
     await journal.putCandidate({
