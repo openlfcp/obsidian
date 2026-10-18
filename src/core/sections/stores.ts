@@ -24,6 +24,8 @@ export interface KeyValue {
   put(key: string, value: unknown): Promise<void>;
   /** Read-modify-write of one key, serialized per key. */
   update(key: string, change: (value: unknown) => unknown): Promise<void>;
+  /** Every key with `prefix` that holds a value; absent in a store that cannot list. */
+  keys?(prefix: string): Promise<string[]>;
 }
 
 const list = (v: unknown): string[] =>

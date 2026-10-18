@@ -117,6 +117,17 @@ export class SealedLocalState {
     return decode(opened.bytes) ?? undefined;
   }
 
+  /** The keys with `prefix` that hold a value (a removed row keeps its key with null). */
+  async keys(prefix: string): Promise<string[]> {
+    const out: string[] = [];
+    for (const key of await this.o.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      const raw = await this.o.meta.get(PLUGIN_PREFIX + key);
+      if (raw !== null && raw !== undefined) out.push(key);
+    }
+    return out.sort();
+  }
+
   async put(key: string, value: unknown): Promise<void> {
     if (value === null || value === undefined) {
       await this.o.meta.put(PLUGIN_PREFIX + key, null);
