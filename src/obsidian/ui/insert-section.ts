@@ -75,7 +75,15 @@ export class InsertSectionModal extends Modal {
 
   override onOpen(): void {
     this.#draw();
+    // The index may learn of a copy while this is open: the line follows it.
+    this.#unsubscribe = this.place?.subscribe?.(() => {
+      if (!this.#closed)
+        this.#placementsEl?.setText(placementsText(this.place?.placements ?? null));
+    });
   }
+
+  #unsubscribe: (() => void) | undefined;
+  #placementsEl: HTMLElement | null = null;
 
   #draw(): void {
     const el = this.contentEl;
@@ -92,7 +100,10 @@ export class InsertSectionModal extends Modal {
             if (!this.#closed) this.#draw();
           });
         });
-      el.createEl("p", { text: placementsText(place.placements), cls: "setting-item-description" });
+      this.#placementsEl = el.createEl("p", {
+        text: placementsText(place.placements),
+        cls: "setting-item-description",
+      });
     }
     if (this.preview.readOnly)
       el.createEl("p", {
@@ -125,6 +136,7 @@ export class InsertSectionModal extends Modal {
 
   override onClose(): void {
     this.#closed = true;
+    this.#unsubscribe?.();
     this.contentEl.empty();
     this.#done(this.#insert);
   }

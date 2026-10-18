@@ -204,6 +204,7 @@ async function setup() {
     server: () => URL,
     refPlacement: () => "child-line",
     sectionChoices: async () => [{ resource, sectionId, title: "Launch" }],
+    onPlacements: (l: () => void) => index.onChange(l),
     placements: (res: Uint8Array) =>
       index.state === "complete" ? index.placements(hex(res)).map((p) => p.path) : null,
     watch: async () => undefined,
@@ -485,6 +486,26 @@ describe("Insert into a note… with a destination (LFCP-03-016)", () => {
     expect(third.place.placements).toBeNull();
     third.preview.answer(false);
     await third.done;
+  });
+
+  it("LFCP-03-061: an open preview reads the index again, and is told when it learns a note", async () => {
+    const env = await setup();
+    env.index.begin();
+    const open = await startInsert(env);
+    expect(open.place.placements).toBeNull();
+    let told = 0;
+    const off = open.place.subscribe?.(() => told++);
+    // The index finishes: no copy found, and the open preview is told.
+    env.index.end();
+    expect(open.place.placements).toEqual([]);
+    expect(told).toBe(1);
+    // A note learned later (a share's write) shows in the same preview.
+    env.index.index("Source.md", { copies: [hexOf(env.R)], damaged: [] });
+    expect(open.place.placements).toEqual(["Source.md"]);
+    expect(told).toBe(2);
+    off?.();
+    open.preview.answer(false);
+    await open.done;
   });
 
   it("the pane's joined section needs no choice: Insert into a note… previews it at once", async () => {
