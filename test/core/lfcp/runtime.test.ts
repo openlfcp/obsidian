@@ -275,6 +275,29 @@ describe("LfcpRuntime (LFCP-059)", () => {
     expect(new Set(failures.map((f) => f.join(":")))).toEqual(new Set(["objects:type-error"]));
   });
 
+  it("a throwing runtime object listener does not stop the next one; its class is reported (LFCP-03-052)", async () => {
+    const device = new Device();
+    const local = new FakeLocal();
+    const r = await start(device, local);
+    const R = await r.createResource({ name: "Mine", endpoints: [URL], coordinatorUrl: URL });
+    const status = r.status;
+    if (status.kind !== "ready") throw new Error("not ready");
+    const failures: [string, string][] = [];
+    r.onListenerError((profile, errorClass) => failures.push([profile, errorClass]));
+    r.onObjectChanged(() => {
+      throw new TypeError("Plan.md: Draft");
+    });
+    const seen: string[] = [];
+    r.onObjectChanged((_resource, change) => seen.push(change.origin));
+    const unit = await r.writeIntent(
+      R,
+      createTask({ id: TASK, title: "Draft", createdBy: status.principalId }).intent,
+    );
+    expect(unit).not.toBeNull();
+    expect(seen).toContain("local");
+    expect(failures).toContainEqual(["objects", "type-error"]);
+  });
+
   it("restores and opens a 0.1 Resource once when asked at once after a start (LFCP-03-033)", async () => {
     const device = new Device();
     const local = new FakeLocal();

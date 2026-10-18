@@ -595,7 +595,14 @@ export class LfcpRuntime {
   }
 
   #emitObject(resource: ResourceId, change: ObjectChange): void {
-    for (const l of this.#objectListeners) l(resource, change);
+    // One throwing listener must not stop the rest (as the SDK's profiles since 0.2.2).
+    for (const l of this.#objectListeners) {
+      try {
+        l(resource, change);
+      } catch (error) {
+        this.#listenerFailed("objects", error);
+      }
+    }
   }
 
   #watch(resource: ResourceId, profile: SharedObjectsDataProfile): void {
@@ -1515,7 +1522,7 @@ export class LfcpRuntime {
       resourceId: resource,
       applier,
       checkpointer,
-      // LFCP-03-033: SDK 0.2.1 never reverts a batch it has stored (LFCP-03-034).
+      // LFCP-03-033: since 0.2.1 the SDK never reverts a batch it has stored (LFCP-03-034).
       commit: profile.commitBinding(principal.id) as CommitBinding<unknown>,
       // LFCP-02-097: a joiner loads the section's Snapshot and fetches only the tail.
       snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
@@ -1554,7 +1561,7 @@ export class LfcpRuntime {
     if (this.#env.sectionsReadOnly === true) return Promise.reject(new SectionsReadOnlyError());
     return this.#engine(async () => {
       const opened = await this.#openSection(resource);
-      // LFCP-03-033: once stored, SDK 0.2.1 answers the receipt even when a
+      // LFCP-03-033: once stored, since 0.2.1 the SDK answers the receipt even when a
       // later step fails (LFCP-03-034); only an engine trap rejects then, and
       // #engine blocks the runtime on it.
       return await this.#session(opened.url).client.commit(resource, intents, options);
