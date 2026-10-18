@@ -536,29 +536,24 @@ for (const tasks of [false, true]) {
       await openNote(hosts.B, ctx.bFile, ["# B", "", "My own text.", ""].join("\n"), 2);
       await openPane(hosts.B);
       await openNote(hosts.B, ctx.bFile, ["# B", "", "My own text.", ""].join("\n"), 2);
-      // The join button as B's pane draws it, then the click; when no field opens, what the pane shows, and again.
-      const attempts = [];
-      for (let i = 0; i < 3; i++) {
-        const before = await on(hosts.B, () => {
-          const b = [...document.querySelectorAll(".openlfcp-pane button")].find((x) => x.textContent === "Join with a link…");
-          const id = b?.getAttribute("aria-describedby");
-          return {
-            drawn: b !== undefined,
-            disabled: b?.getAttribute("aria-disabled") === "true",
-            reason: id ? (document.getElementById(id)?.textContent ?? null) : null,
-            panes: document.querySelectorAll(".openlfcp-pane").length,
-          };
-        });
-        const clicked = await clickPane(hosts.B, "Join with a link…");
-        const opened = await hosts.B
-          .waitUntil(() => on(hosts.B, () => document.querySelector(".openlfcp-pane input.openlfcp-pane-join-input") !== null), { timeout: 5_000, interval: 100 })
-          .catch(() => false);
-        attempts.push({ before, clicked, opened, pane: opened ? null : (await paneText(hosts.B)).slice(0, 400) });
-        if (opened) break;
-      }
-      evidence("TWO-HOSTS join button", { mode, attempts });
-      // A first click that opens nothing is a finding (in the evidence); the flow goes on when a later one opens it.
-      expect(attempts.some((a) => a.opened)).toBe(true);
+      // The join button as B's pane draws it, then ONE click: it opens the field (LFCP-03-060).
+      const before = await on(hosts.B, () => {
+        const b = [...document.querySelectorAll(".openlfcp-pane button")].find((x) => x.textContent === "Join with a link…");
+        const id = b?.getAttribute("aria-describedby");
+        return {
+          drawn: b !== undefined,
+          disabled: b?.getAttribute("aria-disabled") === "true",
+          reason: id ? (document.getElementById(id)?.textContent ?? null) : null,
+          panes: document.querySelectorAll(".openlfcp-pane").length,
+        };
+      });
+      const clicked = await clickPane(hosts.B, "Join with a link…");
+      const opened = await hosts.B
+        .waitUntil(() => on(hosts.B, () => document.querySelector(".openlfcp-pane input.openlfcp-pane-join-input") !== null), { timeout: 5_000, interval: 100 })
+        .catch(() => false);
+      const notices = await on(hosts.B, () => [...document.querySelectorAll(".notice")].map((n) => n.textContent.slice(0, 200)));
+      evidence("TWO-HOSTS join button", { mode, before, clicked, opened, notices, pane: opened ? null : (await paneText(hosts.B)).slice(0, 400) });
+      expect(opened).toBe(true);
       const field = await on(
         hosts.B,
         async (_o, link) => {
