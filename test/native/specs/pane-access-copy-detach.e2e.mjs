@@ -155,6 +155,7 @@ describe("LFCP-03-019: access, copy and detach from the pane", () => {
       evidence("PANE-REMOVE no row", {
         member: cLabel,
         cAllowed: (await accessOf(c)).allowed,
+        notices: await inA(() => [...document.querySelectorAll(".notice")].map((n) => n.textContent.slice(0, 200))),
         cards: await inA(() => [...document.querySelectorAll(".modal-container .modal")].map((m) => m.textContent.slice(0, 1500))),
       });
       throw error;
