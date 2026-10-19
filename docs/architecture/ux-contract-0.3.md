@@ -585,7 +585,7 @@ preview (MARKDOWN-SECTIONS-01 §8).
 - **I2. Explicit role.** Read or Read + write is an explicit choice. No
   default raises access.
 - **I3. Hidden secret.** The link stays hidden until "Show link" or "Copy link".
-  After "Copy link" the pane says "Link copied". It never says
+  After "Copy link" the pane says "Link copied" for a short while (I8). It never says
   "invitation sent" or "invited".
 - **I4. Ready means hosted.** "Invite collaborator…" is offered only when the
   section is on its server and access is current. A local-only share is
@@ -619,9 +619,12 @@ preview (MARKDOWN-SECTIONS-01 §8).
   in its dialog." (A4: one invitation at a time). "Link copied" follows
   "Copy link" (I3). A range with 0.1 shared Tasks is shared only through
   the existing explicit import, which makes new Tasks with new identities;
-  the pane says so before it opens. "Ready to invite" and "Link copied"
-  are kept only for the current session: after a restart the pane says
-  only what the hosting and access facts say.
+  the pane says so before it opens. "Ready to invite" is kept only for
+  the current session: after a restart the pane says only what the hosting
+  and access facts say. "Link copied" is a short confirmation, not a
+  standing fact: shown for 8 s after the copy and again for 8 s after the
+  invitation dialog closes; a new link clears it. It does not gate creating
+  another link.
 - **I9. The join flow in the pane** (LFCP-03-015). "Join with a link…" in
   the pane opens a masked field and an optional "Name on this device"; no
   dialog, nothing is sent until the user chooses Join. One join flow
