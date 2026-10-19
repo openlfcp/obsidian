@@ -34,6 +34,7 @@ import {
   type WriteAccess,
 } from "@openlfcp/client";
 import {
+  bytesEqual,
   type DataUnitId,
   dataEpoch,
   dataUnitId,
@@ -49,6 +50,7 @@ import {
   dekCommitment,
   exportSecretKeyBytes,
   generateResourceDEK,
+  importResourceDEK,
   localStateCipher,
 } from "@openlfcp/crypto";
 import {
@@ -1320,6 +1322,7 @@ export class LfcpRuntime {
           (await this.#ready().storage.resources.get(wanted)) !== undefined
         )
           return wanted;
+        if (wanted !== undefined && (await this.#resumeGenesis(options, wanted))) return wanted;
         return (await this.#genesis(options, SECTIONS_PROFILE_ID, wanted)).R;
       });
     // LFCP-03-058: two runs of one creation (the share's flow and a resume at the
@@ -1711,6 +1714,60 @@ export class LfcpRuntime {
     await secrets.put(ref, exportSecretKeyBytes(dek));
     const saved = await saveControlChain(storage, chain, null);
     if (!saved.ok) throw new Error("the Resource was not stored");
+    await this.#storeResource(R, dataProfile, ref, options.name);
+    return { R, chain, dek };
+  }
+
+  /**
+   * LFCP-03-063: a creation a failure cut between its Control Chain and its
+   * Resource row (the first run saved Genesis, the row never came). The same
+   * ID runs again with the Genesis and the epoch-0 key it already made: a
+   * new key would not match that Genesis, and the Genesis cannot be saved
+   * twice. Only a Resource that is exactly that (the Genesis alone, the key
+   * stored for it and matching it) is finished; anything else is left as it
+   * is, never given another key. False: no Genesis stored for it.
+   */
+  async #resumeGenesis(
+    options: { readonly name: string },
+    resourceId: ResourceId,
+  ): Promise<boolean> {
+    const { storage, secrets } = this.#ready();
+    const head = await storage.control.head(resourceId);
+    if (head === undefined) return false;
+    const epoch0 = dataEpoch(0n);
+    const ref = dekSecretRef(resourceId, epoch0);
+    const epochs = await storage.control.epochs(resourceId);
+    const only = epochs[0];
+    const bytes = await secrets.get(ref);
+    let matches = false;
+    if (
+      head.controlSeq === 0n &&
+      epochs.length === 1 &&
+      only !== undefined &&
+      bytes !== undefined
+    ) {
+      try {
+        matches = bytesEqual(
+          dekCommitment(resourceId, epoch0, importResourceDEK(bytes)),
+          only.dekCommitment,
+        );
+      } finally {
+        bytes.fill(0);
+      }
+    }
+    if (!matches) throw new Error("the Resource was not stored");
+    await this.#storeResource(resourceId, SECTIONS_PROFILE_ID, ref, options.name);
+    return true;
+  }
+
+  /** A Resource's epoch keys' refs and its row, in one commit, and its name on this device. */
+  async #storeResource(
+    R: ResourceId,
+    dataProfile: string,
+    ref: ReturnType<typeof dekSecretRef>,
+    name: string,
+  ): Promise<void> {
+    const { storage, principal } = this.#ready();
     const epochs = await storage.control.epochs(R);
     const r = await storage.commit([
       ...epochs.map((e) => ({
@@ -1734,8 +1791,7 @@ export class LfcpRuntime {
       },
     ]);
     if (!r.ok) throw new Error("the Resource was not stored");
-    await this.localState.put(resourceNameKey(R), options.name);
-    return { R, chain, dek };
+    await this.localState.put(resourceNameKey(R), name);
   }
 
   /**
