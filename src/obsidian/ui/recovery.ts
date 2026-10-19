@@ -146,7 +146,10 @@ export class RecoveryModal extends Modal {
       let picked: RecoveryChoice | null =
         kept === undefined ? null : (choices[kept.index]?.choice ?? null);
       const list = box.createDiv();
-      const apply = box.createEl("button", { text: "Apply", cls: "mod-cta" });
+      const apply = box.createDiv({ cls: "modal-button-container" }).createEl("button", {
+        text: "Apply",
+        cls: "mod-cta",
+      });
       apply.disabled = picked === null;
       choices.forEach((c, k) => {
         const row = list.createEl("label", { cls: "openlfcp-recovery-choice" });
