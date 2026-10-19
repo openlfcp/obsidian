@@ -531,4 +531,31 @@ describe("problem hub in the pane (LFCP-03-018)", () => {
     items = CONFLICTS.slice(1);
     expect(draw()).toEqual(["conflict:stale:op-1"]);
   });
+
+  it("one conflict beside Review conflicts as the primary shows the button once (N4)", () => {
+    const structural = view({
+      problems: [{ kind: "structural", code: "PLACEMENT", nodeIds: ["n2"] }],
+    });
+    const pane = (recovery: RecoveryItem[]) =>
+      paneModel(
+        hostPane({
+          note: note(HEALTHY),
+          registry: null,
+          status: (k) => (k === KEY ? structural : undefined),
+          recovery: (k) => (k === KEY ? recovery : []),
+        }).facts,
+      );
+    const [one] = CONFLICTS;
+    const single = pane(one === undefined ? [] : [one]);
+    expect(single.primary?.id).toBe("review-conflicts");
+    // The row stays, with its text and source; its duplicate button does not.
+    expect(single.problems.map((p) => [p.category, p.action])).toEqual([["conflict", null]]);
+    // Several conflicts: each row's button opens on its own item, so each stays.
+    const several = pane(CONFLICTS);
+    expect(several.primary?.id).toBe("review-conflicts");
+    expect(several.problems.map((p) => p.action?.label)).toEqual([
+      "Review conflicts…",
+      "Review conflicts…",
+    ]);
+  });
 });
