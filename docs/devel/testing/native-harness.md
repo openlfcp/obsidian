@@ -100,6 +100,30 @@ Results:
   the spec reporter's error and stack are in `native.log` (search for
   `✖` or `failing`). Rerun only the failing spec with `-f specs=<name>`.
 
+### Launch screenshots and demo (LFCP-03-068)
+
+`test/native/showcase/showcase.showcase.mjs` is not a spec and never runs in
+the set (`wdio.conf.mjs` picks it only with `NATIVE_SHOWCASE=1`). It starts two
+real Obsidian apps (shown as the vaults "Alex" and "Sam"), shares, invites,
+joins, inserts, edits on both sides, damages and repairs a boundary and opens
+the section card, all from the pane, and shoots each moment at 1440x900,
+device pixel ratio 2, in the light and the dark theme. On screen, the sync
+server's address is rewritten to `https://sync.example.org`, and a frame
+that shows the address, the link, its secret or the machine's names fails
+the run.
+
+```sh
+gh workflow run native.yml --ref <branch> -f showcase=true -f os=macos-latest
+gh run watch <run id> --exit-status
+gh run download <run id> -n native-macos-latest-1.14.4 -D /tmp/lfcp-showcase-run
+test/native/showcase/build-media.sh /tmp/lfcp-showcase-run/screenshots/showcase /tmp/lfcp-showcase
+```
+
+The frames are `screenshots/showcase/NN-name-{light,dark}.png` in the
+artifact (a frame of each window: `NN-name-{alex,sam}-…`). `build-media.sh`
+(needs ffmpeg) adds the side-by-side `-pair-` frames and `demo.mp4` / `demo.gif`.
+Do not commit the frames.
+
 ### Known failing
 
 `test/native/known-failing.txt` lists the specs that fail for a known
