@@ -90,16 +90,19 @@ export class InsertSectionModal extends Modal {
     el.empty();
     el.createEl("h3", { text: `Insert section "${this.preview.title}"` });
     const where = this.place?.where ?? "into this note after the paragraph at the cursor";
-    const line = el.createEl("p", { text: `These lines go ${where}. Nothing is sent.` });
+    el.createEl("p", { text: `These lines go ${where}. Nothing is sent.` });
     const place = this.place;
     if (place !== undefined) {
       const change = place.change?.bind(place);
       if (change !== undefined)
-        line.createEl("button", { text: "Choose another note…" }).addEventListener("click", () => {
-          void change().then(() => {
-            if (!this.#closed) this.#draw();
+        // Its own row under the sentence, never inline in it.
+        el.createDiv({ cls: "openlfcp-insert-change" })
+          .createEl("button", { text: "Choose another note…" })
+          .addEventListener("click", () => {
+            void change().then(() => {
+              if (!this.#closed) this.#draw();
+            });
           });
-        });
       this.#placementsEl = el.createEl("p", {
         text: placementsText(place.placements),
         cls: "setting-item-description",
