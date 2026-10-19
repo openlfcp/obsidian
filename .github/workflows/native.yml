@@ -204,7 +204,7 @@ jobs:
       # which a release build leaves out (test/bundle.test.ts checks that one).
       - name: Build the plugin and the harness
         env:
-          LFCP_DEV_PANE: ${{ inputs.release_build && '' || '1' }}
+          LFCP_DEV_PANE: ${{ inputs.release_build && '0' || '1' }}
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
