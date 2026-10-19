@@ -32,7 +32,7 @@ Unchanged from [beta.1](candidate-0.5.0-beta.1.md): lockfile `pnpm-lock.yaml` sh
 
 | What | Run | Result |
 | --- | --- | --- |
-| Native set, 51 specs, Ubuntu / macOS / Windows x Obsidian 1.13.4 / 1.14.4, `release_build=true` (includes `two-hosts`, `upgrade-install`, `upgrade-rollback`, `section-tasks-done`) | [39215441248](https://github.com/openlfcp/obsidian/actions/runs/39215441248) | success. One job (Ubuntu, 1.13.4) failed at the first attempt in `pane-access-copy-detach` (a dialog the spec waited for did not open); `rerun --failed` once, it passed. The other five jobs passed at the first attempt. The log of the failed attempt is not kept in this report; treat it as a possible flake to watch |
+| Native set, 51 specs, Ubuntu / macOS / Windows x Obsidian 1.13.4 / 1.14.4, `release_build=true` (includes `two-hosts`, `upgrade-install`, `upgrade-rollback`, `section-tasks-done`) | [39215441248](https://github.com/openlfcp/obsidian/actions/runs/39215441248) | success. One job (Ubuntu, 1.13.4) failed at the first attempt in `pane-access-copy-detach` (a dialog the spec waited for did not open); `rerun --failed` once, it passed. The other five jobs passed at the first attempt. This is finding F7 of [mvp-0.3-native-matrix.md](mvp-0.3-native-matrix.md) ("product defect or click race, not settled"; earlier failures: run 39063362726 macOS 1.14.4, run 39163258296 Linux 1.14.4), so the flake is a known open item. The log of the failed attempt is not kept here |
 | Pane performance B1-B4, macOS, 1.14.4, `release_build=true` | [39215444645](https://github.com/openlfcp/obsidian/actions/runs/39215444645) | B1 p95 108.7 to 123.3 ms in six series (budget 150): PASS; B2 p95 22.1 ms, B4 p95 49.0 ms; B3 cold open p95 37.0 ms (no budget). Its `main.js` sha256 equals the table above |
 | Release workflow dry run (`workflow_dispatch`, version 0.5.0-beta.2, branch, after the notes) | [39223415292](https://github.com/openlfcp/obsidian/actions/runs/39223415292) | success: dependency check, build, lint, typecheck, `pnpm test`, release assets, notes exist; attest and release steps skipped |
 | Local `release-assets.mjs --tag 0.5.0-beta.2` | n/a | checksums above; the CI runs printed the same `main.js` and `styles.css`; the manifest asset (`manifest-beta.json`) `5c6136ab...` |
@@ -46,5 +46,5 @@ held deletion and saving that it was sent (055).
 
 ## Not done here
 
-Tag `0.5.0-beta.2` (annotated), the GitHub pre-release with the three attested assets, BRAT checks and
-the pilot (D26: about 2026-11-01): the owner.
+Tag `0.5.0-beta.2` (annotated), the GitHub pre-release with the three attested assets, BRAT check: the owner.
+No pilot before 0.5.0 (D31).
