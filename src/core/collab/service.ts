@@ -109,6 +109,14 @@ export interface CollabRuntime {
   collaborationContext(): CollaborationContext | null;
   /** Collaborators whose units this device cannot apply (LfcpRuntime.blockedCollaborators). */
   blockedCollaborators?(resource: ResourceId): Promise<readonly BlockedCollaborator[]>;
+  /** A shared section's title as this device holds it, when it holds the section (LfcpRuntime.sectionProfile). */
+  sectionProfile?(resource: ResourceId):
+    | {
+        readonly replica: {
+          snapshot(): { readonly title: { readonly value: string | null | undefined } };
+        };
+      }
+    | undefined;
   /** The server's terminal refusal not reported before (LfcpRuntime.newlyRefused). */
   newlyRefused?(
     resource: ResourceId,
@@ -851,8 +859,13 @@ export class Collaboration {
     if (refusal === null) return null;
     if (hosting === "pending" && refusal.code === "RESOURCE_NOT_HOSTED") return null;
     const entry = (await this.#runtime.registry()).find((e) => toHex(e.resourceId) === toHex(R));
+    // A section joined by invitation has no local name: its shared title names it.
+    const shared =
+      entry === undefined
+        ? undefined
+        : this.#runtime.sectionProfile?.(entry.resourceId)?.replica.snapshot().title.value;
     return refusalNotice(
-      entry?.localName ?? unnamedResource(entry?.profile),
+      entry?.localName ?? (shared ? shared : unnamedResource(entry?.profile)),
       refusal,
       entry?.profile,
     );

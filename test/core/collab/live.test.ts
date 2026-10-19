@@ -351,7 +351,7 @@ describe.skipIf(skip !== null)("LFCP-065 live, against the reference server", ()
       `Not hosted by ${url}: the server no longer has this collaboration (RESOURCE_NOT_HOSTED)`,
     );
     expect(await d.collab.refusalNotice(R)).toBe(
-      `Shared Tasks: "Gone" stopped syncing. Not hosted by ${url}: the server no longer has this collaboration (RESOURCE_NOT_HOSTED). Your tasks stay on this device; see "Resource status".`,
+      `Shared Tasks: "Gone" stopped syncing. Not hosted by the sync server: the server no longer has this collaboration (RESOURCE_NOT_HOSTED). Your tasks stay on this device; see "Resource status".`,
     );
     expect(await d.collab.refusalNotice(R)).toBeNull(); // once per collaboration
     // No reconnect storm: the session does not ask again.
