@@ -665,6 +665,8 @@ export class SectionsHost {
     // A discard a crash cut (LFCP-03-002): finished before any Resource is opened,
     // so the given-up Resource is neither listed nor opened again.
     await this.#creation.settleCancelled().catch((error) => this.#bookkeepingFailed(error));
+    // LFCP-03-063: a spoiled creation whose replacement was journaled before a crash.
+    await this.#creation.settleReplaced().catch((error) => this.#bookkeepingFailed(error));
     // LFCP-03-003: until every note with a section is found and checked, none is current.
     this.#heldChecks.begin();
     // LFCP-03-011: "not inserted anywhere" only once every note was read.

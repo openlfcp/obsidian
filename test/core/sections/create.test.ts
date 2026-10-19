@@ -647,4 +647,65 @@ describe("a section Resource whose epoch key is not its Genesis's", () => {
     expect(await creation.shareAgain(entry, note, t.preview(note))).toBeNull();
     expect(t.files.get("Launch.md")).toBe(note);
   });
+
+  it("two confirmations at once make one new creation (the second joins the first)", async () => {
+    const { t, note, entry, creation } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    const [a, b] = await Promise.all([
+      creation.shareAgain(entry, note, t.preview()),
+      creation.shareAgain(entry, note, t.preview()),
+    ]);
+    expect(a?.fresh.operationId).toBeDefined();
+    expect(b?.fresh.operationId).toBe(a?.fresh.operationId);
+    const open = await creation.unfinished();
+    expect(open.map((e) => e.operationId)).toEqual([a?.fresh.operationId]);
+    // Once done, another click finds the old one replaced: nothing more is made.
+    expect(await creation.shareAgain(entry, note, t.preview())).toBeNull();
+    expect((await creation.unfinished()).length).toBe(1);
+  });
+
+  it("after a crash between the new creation and the old one's cancel, the old one is not offered again and is cancelled at the next start", async () => {
+    const { t, note, entry, creation, R } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    // The crash: the new creation is journaled naming the old one; the old one is still prepared.
+    const fresh = await creation.prepare(
+      entry.path,
+      note,
+      t.preview(),
+      undefined,
+      undefined,
+      entry.operationId,
+    );
+    expect((await creation.current(entry.operationId))?.phase).toBe("prepared");
+    expect(await creation.canShareAgain(entry)).toBe(false);
+    expect(await creation.shareAgain(entry, note, t.preview())).toBeNull();
+    expect((await creation.unfinished()).map((e) => e.operationId).sort()).toEqual(
+      [entry.operationId, fresh.operationId].sort(),
+    );
+    await creation.settleReplaced();
+    expect((await creation.current(entry.operationId))?.phase).toBe("cancelled");
+    expect(await (t.r.storage as LfcpStorage).resources.get(R)).toBeUndefined();
+    expect((await creation.run(fresh)).kind).toBe("hosted");
+    expect(parseSections(t.files.get("Launch.md") as string).sections).toHaveLength(1);
+  });
+
+  it("after a crash that left only the old one's pointer, it is not offered again", async () => {
+    const { t, entry, creation } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    await t.r.localState.put(`section-create:${entry.operationId}`, {
+      ...entry,
+      replacedBy: "gone",
+    });
+    expect(await creation.canShareAgain(entry)).toBe(false);
+  });
+
+  it("a discard that keeps the old Resource still replaces it, and it is not offered again", async () => {
+    const { t, note, entry, creation } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    t.deps.host.discard = async () => ({ kind: "kept", reason: "DELETE_FAILED" });
+    const swapped = await creation.shareAgain(entry, note, t.preview());
+    expect(swapped?.old).toMatchObject({ phase: "cancelled", discarded: "kept" });
+    expect(await creation.canShareAgain(entry)).toBe(false);
+    expect(await creation.shareAgain(entry, note, t.preview())).toBeNull();
+  });
 });
