@@ -97,3 +97,26 @@ describe("repair dialog, lines missing from a note with a base (LFCP-03-057)", (
     expect(chosen).toEqual(["back k"]);
   });
 });
+
+describe("repair dialog, a boundary choice (LFCP-03-070)", () => {
+  it("puts Apply in its own button row after the choices, not inline in one", () => {
+    const actions = {} as RepairActions;
+    const item = {
+      kind: "missing-end" as const,
+      line: 5,
+      ref: {} as never,
+      candidates: [{ afterLine: 14, preview: "<!-- lfcp-ref: x -->" }],
+    };
+    const m = new RepairModal(new App() as never, [item], [], actions);
+    m.onOpen();
+    const box = (m.contentEl as unknown as FakeElement).children.find(
+      (c) => c.cls === "openlfcp-repair-item",
+    ) as FakeElement;
+    const kids = box.children;
+    const row = kids[kids.length - 1] as FakeElement;
+    expect(row.cls).toBe("modal-button-container");
+    expect(row.children.map((b) => b.text)).toEqual(["Apply"]);
+    expect(box.findAll("label")).toHaveLength(1);
+    expect(box.findAll("label")[0]?.findAll("button")).toEqual([]);
+  });
+});

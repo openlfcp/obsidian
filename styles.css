@@ -482,7 +482,20 @@
   margin: var(--size-4-2) 0;
 }
 
-/* Insert dialog (LFCP-03-070): its button on a row of its own. */
+/* Dialog rows (LFCP-03-070): a choice per line, its button on a row of its own. */
+.openlfcp-repair-choice,
+.openlfcp-recovery-choice {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+  margin: var(--size-4-1) 0;
+}
+
+.openlfcp-repair-item .modal-button-container,
+.openlfcp-recovery-item .modal-button-container {
+  margin-top: var(--size-4-2);
+}
+
 .openlfcp-insert-change {
   margin: var(--size-4-2) 0;
 }

@@ -89,10 +89,15 @@ export class RepairModal extends Modal {
         continue;
       }
       let picked: number | null = null;
-      const apply = box.createEl("button", { text: "Apply", cls: "mod-cta" });
+      // The choices, then Obsidian's own button row: Apply never sits inline in a choice.
+      const list = box.createDiv();
+      const apply = box.createDiv({ cls: "modal-button-container" }).createEl("button", {
+        text: "Apply",
+        cls: "mod-cta",
+      });
       apply.disabled = true;
       for (const c of lines) {
-        const row = box.createEl("label", { cls: "openlfcp-repair-choice" });
+        const row = list.createEl("label", { cls: "openlfcp-repair-choice" });
         const radio = row.createEl("input", { type: "radio" });
         radio.name = `boundary-${item.line}`;
         row.createSpan({ text: ` ${c.text}` });
@@ -101,7 +106,6 @@ export class RepairModal extends Modal {
           apply.disabled = false;
         });
       }
-      box.appendChild(apply);
       apply.addEventListener("click", () => {
         if (picked === null) return;
         const line = picked;
