@@ -8,10 +8,10 @@ and known limits, are the linked files in [docs/releases](docs/releases/).
 The Markdown format of your notes and the sync protocol have not changed
 since 0.4.0.
 
-## [0.5.0] — Unreleased
+## [0.5.0] — 2026-10-19
 
 Collaboration you can do without learning the commands.
-Draft notes: [docs/releases/0.5.0.md](docs/releases/0.5.0.md). Pre-releases
+Notes: [docs/releases/0.5.0.md](docs/releases/0.5.0.md). Pre-releases
 (BRAT only): [0.5.0-beta.1](docs/releases/0.5.0-beta.1.md) and
 [0.5.0-beta.2](docs/releases/0.5.0-beta.2.md) (fixes #79, #80 and #82, listed
 below).
