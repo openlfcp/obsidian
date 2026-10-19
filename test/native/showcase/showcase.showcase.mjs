@@ -161,6 +161,9 @@ const setTheme = (h, mode) =>
 
 /** One moment, both themes: a frame of each host in `who`. Ends in the light theme. */
 async function snap(name, who = ["A"]) {
+  // A toast over the pane's header hides a frame's point: wait until none is left (it goes after a few seconds).
+  for (const w of who)
+    await hosts[w].waitUntil(() => on(hosts[w], () => document.querySelector(".notice") === null), { timeout: 12_000, interval: 300 }).catch(() => undefined);
   for (const mode of ["light", "dark"]) {
     for (const w of who) {
       const r = await setTheme(hosts[w], mode);
@@ -183,7 +186,7 @@ async function snap(name, who = ["A"]) {
 
 /** 1440x900 at device pixel ratio 2, through the driver's DevTools endpoint when it has one. */
 async function sizeHost(h, who) {
-  await h.setWindowSize(1440, 900).catch((e) => evidence("SHOWCASE window size", { who, error: String(e).slice(0, 200) }));
+  // (The window's own size cannot be set through this driver; the DevTools override below fixes the viewport.)
   let cdp = null;
   try {
     const o = h.options;
