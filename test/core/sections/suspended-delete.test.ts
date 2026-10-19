@@ -210,4 +210,21 @@ describe("a deletion while the section is suspended (LFCP-03-055)", () => {
     expect(created.filter((n) => model?.nodes[n] !== undefined)).toEqual([]);
     expect((await v.run(engine, BEFORE)).pass.changes).toEqual([]);
   });
+
+  it("a node deleted while suspended and back in the note before the repair is kept", async () => {
+    const v = vault();
+    const engine = v.start();
+    await v.run(engine, BEFORE);
+    const suspended = NO_X(NO_Q(BEFORE));
+    const a = (await v.run(engine, suspended, { ...CTX, deletedIds: new Set([X]) })).pass;
+    expect(a.sections[0]?.lost).toEqual([Q]);
+    expect((await v.bases.load("projection-1"))?.deleted).toEqual([X]);
+    // Old is back (undone) while Notes is still lost, then Notes is repaired.
+    expect((await v.run(engine, NO_Q(BEFORE))).pass.sections[0]?.lost).toEqual([Q]);
+    const c = (await v.run(engine, BEFORE)).pass;
+    expect(c.sections[0]?.lost).toEqual([]);
+    expect(v.port.changes).toHaveLength(0);
+    expect(v.port.sections.get(R)?.state.nodes[X]?.text).toBe("Old");
+    expect((await v.bases.load("projection-1"))?.deleted).toBeUndefined();
+  });
 });
