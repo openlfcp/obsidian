@@ -23,6 +23,11 @@ on:
         description: "Obsidian versions, comma-separated (pinned: 1.13.4, 1.14.4)"
         required: false
         default: "1.14.4"
+      release_build:
+        description: "Test the release build (no LFCP_DEV_PANE): the exact main.js a release ships; specs/pane-prototype is left out; main.js sha256 is printed (LFCP-03-027)"
+        type: boolean
+        required: false
+        default: false
       perf:
         description: "Run the performance measurements (test/native/perf, LFCP-03-026) instead of the specs; never gating"
         type: boolean
@@ -135,6 +140,7 @@ jobs:
       LFCP_REQUIRE_LIVE: "1"
       # perf: wdio.conf.mjs runs test/native/perf/*.perf.mjs; raw samples go to perf-results/.
       NATIVE_PERF: ${{ inputs.perf && '1' || '' }}
+      NATIVE_RELEASE_BUILD: ${{ inputs.release_build && '1' || '' }}
       LFCP_PERF_DIR: ${{ github.workspace }}/obsidian/perf-results
       # The older plugin releases specs/upgrade-install.e2e.mjs and
       # specs/upgrade-rollback.e2e.mjs update from (and roll back to).
@@ -198,10 +204,14 @@ jobs:
       # which a release build leaves out (test/bundle.test.ts checks that one).
       - name: Build the plugin and the harness
         env:
-          LFCP_DEV_PANE: "1"
+          LFCP_DEV_PANE: ${{ inputs.release_build && '' || '1' }}
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
+          if [ "$NATIVE_RELEASE_BUILD" = "1" ]; then
+            echo "release build: $(git rev-parse HEAD)"
+            sha256sum main.js manifest.json manifest-beta.json styles.css | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           node scripts/build-native-harness.mjs
           pnpm --dir test/native install --frozen-lockfile
       - name: Choose the specs
@@ -234,6 +244,16 @@ jobs:
           args=()
           for f in "${selected[@]}"; do args+=("--spec" "${f#test/native/}"); done
           if [ ${#selected[@]} -eq 0 ]; then selected=(test/native/specs/*.e2e.mjs); fi
+          # A release build has no pane prototype (D11): its spec cannot run.
+          if [ "$NATIVE_RELEASE_BUILD" = "1" ]; then
+            kept=()
+            for f in "${selected[@]}"; do [ "$f" = "test/native/specs/pane-prototype.e2e.mjs" ] || kept+=("$f"); done
+            selected=("${kept[@]}")
+            if [ -z "$SPECS" ]; then
+              args=()
+              for f in "${selected[@]}"; do args+=("--spec" "${f#test/native/}"); done
+            fi
+          fi
           # Known failing specs (test/native/known-failing.txt): out of the gating run.
           : > "$RUNNER_TEMP/known-failing"
           known=0
