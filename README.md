@@ -53,10 +53,6 @@ troubleshooting:
 **[the user guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md)**
 (describes the command flow of 0.4; the pane is described above).
 
-<!-- TODO(LFCP-03-069): the screenshot files in docs/assets/screenshots/ are
-produced separately (light and dark); the links above are placeholders until
-they land. -->
-
 ## What it does
 
 - **Collaboration without learning the commands.** A visible pane and a
@@ -140,15 +136,15 @@ do all of it from the pane; the matching commands are in brackets.
 4. **Work together.** When either of you ticks a task or edits a line, the
    other note shows it within seconds.
 
-   ![Two vaults, one shared section, in sync](docs/assets/screenshots/04-two-vaults-synced-light.png)
+   ![Two Obsidian windows side by side, Alex on the left and Sam on the right, both showing the same shared section with four tasks](docs/assets/screenshots/04-two-vaults-synced-light.png)
 5. **If something needs you,** the pane's problem list says what and opens
    the conflict dialog or "Repair shared sections in this note".
 
-   ![The problem list of the pane with a direct way to the fix](docs/assets/screenshots/05-problem-hub-light.png)
+   ![The pane lists a damaged section marker as a problem, with the Repair dialog open on top asking where the section ends](docs/assets/screenshots/05-problem-hub-light.png)
 
 The section card, shown beside a shared heading, offers the same next step:
 
-![The card of a shared section](docs/assets/screenshots/06-section-card-light.png)
+![The card of a shared section: what is shared, who has access, and how to invite](docs/assets/screenshots/06-section-card-light.png)
 
 ### One task at a time
 
