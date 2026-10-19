@@ -28,6 +28,11 @@ on:
         type: boolean
         required: false
         default: false
+      showcase:
+        description: "Take the launch screenshots (test/native/showcase, LFCP-03-068) instead of the specs; never gating. Frames are in the artifact (screenshots/showcase)"
+        type: boolean
+        required: false
+        default: false
       perf:
         description: "Run the performance measurements (test/native/perf, LFCP-03-026) instead of the specs; never gating"
         type: boolean
@@ -140,6 +145,7 @@ jobs:
       LFCP_REQUIRE_LIVE: "1"
       # perf: wdio.conf.mjs runs test/native/perf/*.perf.mjs; raw samples go to perf-results/.
       NATIVE_PERF: ${{ inputs.perf && '1' || '' }}
+      NATIVE_SHOWCASE: ${{ inputs.showcase && '1' || '' }}
       NATIVE_RELEASE_BUILD: ${{ inputs.release_build && '1' || '' }}
       LFCP_PERF_DIR: ${{ github.workspace }}/obsidian/perf-results
       # The older plugin releases specs/upgrade-install.e2e.mjs and
@@ -221,12 +227,12 @@ jobs:
         run: |
           shopt -s nullglob
           # The measurements: every perf/*.perf.mjs (wdio.conf.mjs picks them), no spec, no known-failing list.
-          if [ "$NATIVE_PERF" = "1" ]; then
+          if [ "$NATIVE_PERF" = "1" ] || [ "$NATIVE_SHOWCASE" = "1" ]; then
             : > "$RUNNER_TEMP/native-args"
             : > "$RUNNER_TEMP/known-failing"
             echo "gating=1" >> "$GITHUB_OUTPUT"
             echo "known=0" >> "$GITHUB_OUTPUT"
-            echo "perf measurements"
+            echo "perf measurements or showcase frames"
             exit 0
           fi
           IFS=', ' read -r -a patterns <<<"$SPECS"

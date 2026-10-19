@@ -42,7 +42,14 @@ export const config = {
   framework: "mocha",
   // NATIVE_PERF=1: the performance measurements (perf/*.perf.mjs, LFCP-03-026) instead of the specs;
   // native.yml runs them only when asked (its "perf" input), never in the gating set.
-  specs: [process.env.NATIVE_PERF === "1" ? path.join(here, "perf/**/*.perf.mjs") : path.join(here, "specs/**/*.e2e.mjs")],
+  // NATIVE_SHOWCASE=1: the launch screenshots (showcase/*.showcase.mjs, LFCP-03-068), likewise never in the set.
+  specs: [
+    process.env.NATIVE_PERF === "1"
+      ? path.join(here, "perf/**/*.perf.mjs")
+      : process.env.NATIVE_SHOWCASE === "1"
+        ? path.join(here, "showcase/**/*.showcase.mjs")
+        : path.join(here, "specs/**/*.e2e.mjs"),
+  ],
   // One Obsidian at a time (run.mjs also refuses to start next to another).
   maxInstances: 1,
   capabilities: versions.map((version) => ({
