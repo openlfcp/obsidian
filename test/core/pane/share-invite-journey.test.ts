@@ -284,6 +284,12 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
     async cancel(e: CreationEntry) {
       return e;
     },
+    async canShareAgain() {
+      return false;
+    },
+    async shareAgain() {
+      return null;
+    },
     async imports() {
       return [];
     },

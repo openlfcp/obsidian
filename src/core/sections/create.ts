@@ -114,6 +114,22 @@ export type HostResult =
   | { readonly kind: "pending"; readonly reason: string }
   | { readonly kind: "refused"; readonly code: string; readonly message: string };
 
+/**
+ * LFCP-03-063: a creation whose Resource can never be written: the epoch-0
+ * key stored for it is not the one its Genesis commits to (two runs of one
+ * creation made it at once, 0.4.1 and 0.4.2; LFCP-03-058 stops new ones).
+ * Typed by the SDK's code, not by its message; thrown only when no part of
+ * the batch was committed, so the creation is still at "prepared" and the
+ * note was not touched.
+ */
+export class CreationKeyMismatch extends Error {
+  readonly code = "DEK_COMMITMENT_MISMATCH";
+  constructor(override readonly cause: unknown) {
+    super("the section's encryption key does not match its section");
+    this.name = "CreationKeyMismatch";
+  }
+}
+
 export interface CreationHost {
   createSectionResource(o: {
     readonly name: string;
@@ -129,6 +145,12 @@ export interface CreationHost {
    * only when it was never sent, else kept, marked.
    */
   discard(resource: ResourceId): Promise<DiscardResult>;
+  /**
+   * Whether nobody but this device has the Resource: its Control Chain is the
+   * Genesis alone and nothing of it waits to be sent. Absent: not known, so
+   * a Resource is never given up as unshared.
+   */
+  neverShared?(resource: ResourceId): Promise<boolean>;
 }
 
 export interface CreationDeps {
@@ -402,7 +424,11 @@ export class SectionCreation {
         }
         // The outcome is unknown: a receipt says it committed; without one the next run commits again.
         receipt = await this.deps.port.receiptOf(e.resource, e.operationId);
-        if (receipt === undefined) throw error;
+        if (receipt === undefined) {
+          if ((error as { code?: unknown } | null)?.code === "DEK_COMMITMENT_MISMATCH")
+            throw new CreationKeyMismatch(error);
+          throw error;
+        }
       }
       e = { ...e, phase: "local", receipt };
       await this.#save(e);
@@ -428,6 +454,46 @@ export class SectionCreation {
       await this.#save(e);
     }
     return { kind: "hosted", entry: e };
+  }
+
+  /**
+   * Whether the creation's Resource may be given up and the section made
+   * again (LFCP-03-063): it never got past "prepared" (no receipt, so no
+   * part of the batch committed), it is not an import, the note holds no
+   * marker of it, and nobody but this device has the Resource. Anything
+   * else is left as it is.
+   */
+  async canShareAgain(entry: CreationEntry): Promise<boolean> {
+    const e = (await this.current(entry.operationId)) ?? entry;
+    if (e.phase !== "prepared" || e.receipt !== undefined || e.legacy !== undefined) return false;
+    const R = fromBase64url(e.resource) as ResourceId;
+    if ((await this.deps.port.receiptOf(e.resource, e.operationId)) !== undefined) return false;
+    if ((await this.deps.host.neverShared?.(R)) !== true) return false;
+    let marked = true;
+    await this.deps.edit(e.path, (current) => {
+      marked = parseSections(current).sections.some((s) => s.ref.sectionId === e.sectionId);
+      return null;
+    });
+    return !marked;
+  }
+
+  /**
+   * Gives up a spoiled creation for a new one under a new operation ID, by
+   * the user's explicit choice (LFCP-03-063): the new creation is journaled
+   * first, then the old one is cancelled (its unshared Resource discarded on
+   * this device). The note is not written here: its text, the old section's
+   * (absent) markers included, changes only when the new creation binds it.
+   * Refused (null) when the old creation may not be given up.
+   */
+  async shareAgain(
+    old: CreationEntry,
+    markdown: string,
+    preview: SharePreview,
+  ): Promise<{ readonly fresh: CreationEntry; readonly old: CreationEntry } | null> {
+    if (!(await this.canShareAgain(old))) return null;
+    const current = (await this.current(old.operationId)) ?? old;
+    const fresh = await this.prepare(current.path, markdown, preview);
+    return { fresh, old: await this.cancel(current) };
   }
 
   /**

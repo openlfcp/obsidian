@@ -347,6 +347,7 @@ const paneFlow = (f: ActiveFlow): PaneFlow => ({
   outcome: f.outcome,
   generation: f.generation,
   ...(f.path === null ? {} : { target: f.path }),
+  ...(f.problem === undefined ? {} : { problem: f.problem }),
 });
 
 /** The section a row of the registry is about, by key or, before its model is open, by Resource. */

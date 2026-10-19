@@ -281,6 +281,14 @@ export interface CreationService {
   /** The creation as its journal holds it now (a reconcile resumes from there), if journaled. */
   current(operationId: string): Promise<CreationEntry | undefined>;
   cancel(entry: CreationEntry): Promise<CreationEntry>;
+  /** LFCP-03-063: whether a spoiled creation's unshared Resource may be given up for a new creation. */
+  canShareAgain(entry: CreationEntry): Promise<boolean>;
+  /** LFCP-03-063: the new creation journaled, the old one cancelled; null when it may not be given up. */
+  shareAgain(
+    old: CreationEntry,
+    markdown: string,
+    preview: SharePreview,
+  ): Promise<{ readonly fresh: CreationEntry; readonly old: CreationEntry } | null>;
   imports(path?: string): Promise<CreationEntry[]>;
   rollback(
     entry: CreationEntry,

@@ -13,10 +13,12 @@ import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
 import {
   type CreationDeps,
   type CreationHost,
+  CreationKeyMismatch,
   type HostResult,
   SectionCreation,
 } from "../../../src/core/sections/create";
 import { applyChanges, SectionEngine } from "../../../src/core/sections/engine";
+import { formatBoundary } from "../../../src/core/sections/grammar";
 import { parseSections } from "../../../src/core/sections/parser";
 import { CommitRefused, type SectionPort } from "../../../src/core/sections/port";
 import { preflight, proposeRange } from "../../../src/core/sections/share";
@@ -53,7 +55,8 @@ afterEach(async () => {
 
 /** One runtime, one note, and the creation's dependencies with hooks to fail a step. */
 async function setup(note = NOTE) {
-  const r = await LfcpRuntime.start(new Device().env(new FakeLocal()));
+  const device = new Device();
+  const r = await LfcpRuntime.start(device.env(new FakeLocal()));
   running.push(r);
   const status = r.status;
   if (status.kind !== "ready") throw new Error(status.kind);
@@ -64,6 +67,7 @@ async function setup(note = NOTE) {
     storage: r.storage as LfcpStorage,
     canWrite: (res) => r.canWriteSection(res),
   });
+  let shared = false;
   const fail = { create: false, commit: "" as "" | "before" | "after", edit: false, host: false };
   let hostResult: HostResult = { kind: "hosted" };
   const hosted: string[] = [];
@@ -75,6 +79,7 @@ async function setup(note = NOTE) {
     },
     openSection: (R) => r.openSection(R),
     discard: (R) => r.discardUnhosted(R),
+    neverShared: async (R) => !shared && (await r.sectionNeverShared(R)),
     host: async (R) => {
       if (fail.host) throw new Error("crash while hosting");
       if (hostResult.kind === "hosted") hosted.push(toBase64url(R));
@@ -123,6 +128,10 @@ async function setup(note = NOTE) {
     (await r.registry()).filter((e) => e.profile !== undefined && e.profile.includes("sections"));
   return {
     r,
+    device,
+    markShared: () => {
+      shared = true;
+    },
     port,
     files,
     fail,
@@ -539,5 +548,103 @@ describe("creating a shared section", () => {
     expect(out.kind).toBe("stale");
     expect(env.files.get("Launch.md")).toBe(NOTE);
     expect(await env.sectionResources()).toEqual([]);
+  });
+});
+
+/**
+ * LFCP-03-063: a Resource spoiled by two creations at once (0.4.1, 0.4.2) has an
+ * epoch-0 key that is not its Genesis's. Made here by putting another key
+ * under its slot, the state the race left.
+ */
+describe("a section Resource whose epoch key is not its Genesis's", () => {
+  async function spoiled() {
+    const t = await setup();
+    const note = t.files.get("Launch.md") as string;
+    const entry = await new SectionCreation(t.deps).prepare("Launch.md", note, t.preview());
+    const creation = new SectionCreation(t.deps);
+    const R = fromBase64url(entry.resource) as ResourceId;
+    const slots = () => new Set(t.device.slots.values.keys());
+    const before = slots();
+    await t.deps.host.createSectionResource({
+      name: "x",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+      resourceId: R,
+    });
+    const mine = [...slots()].filter((k) => !before.has(k));
+    const mid = slots();
+    await t.r.createSectionResource({
+      name: "donor",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+      resourceId: new Uint8Array(32).fill(250) as ResourceId,
+    });
+    const donor = [...slots()].filter((k) => !mid.has(k));
+    expect(mine).toHaveLength(1);
+    expect(donor).toHaveLength(1);
+    t.device.slots.values.set(
+      mine[0] as string,
+      t.device.slots.values.get(donor[0] as string) as string,
+    );
+    return { t, note, entry, creation, R };
+  }
+
+  it("the commit fails typed (by the SDK's code, through the real port), nothing else is touched", async () => {
+    const { t, note, entry, creation } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    expect(t.files.get("Launch.md")).toBe(note);
+    expect((await creation.current(entry.operationId))?.phase).toBe("prepared");
+    expect(await creation.canShareAgain(entry)).toBe(true);
+    // The same again: still typed, nothing created.
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+  });
+
+  it("Share again journals a new creation, gives the old Resource up, and the new one binds the note", async () => {
+    const { t, note, entry, creation, R } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    const swapped = await creation.shareAgain(entry, note, t.preview());
+    if (swapped === null) throw new Error("refused");
+    expect(swapped.fresh.operationId).not.toBe(entry.operationId);
+    expect(swapped.fresh.resource).not.toBe(entry.resource);
+    expect(swapped.old.phase).toBe("cancelled");
+    // The spoiled Resource is gone from this device; the note's text is as it was.
+    const storage = t.r.storage as LfcpStorage;
+    expect(await storage.resources.get(R)).toBeUndefined();
+    expect(await storage.control.epochs(R)).toEqual([]);
+    expect(t.files.get("Launch.md")).toBe(note);
+    const done = await creation.run(swapped.fresh);
+    expect(done.kind).toBe("hosted");
+    const bound = parseSections(t.files.get("Launch.md") as string).sections;
+    expect(bound.map((s) => s.ref.sectionId)).toEqual([swapped.fresh.sectionId]);
+    expect(await t.sectionResources()).toHaveLength(2);
+  });
+
+  it("is not given up when the Resource may be shared, the note holds its markers, or it was committed", async () => {
+    const { t, note, entry, creation } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    const before = JSON.stringify([...((await t.r.localState.get("section-creates")) as string[])]);
+    // Maybe shared: refused, and not even a new creation is journaled.
+    t.markShared();
+    expect(await creation.canShareAgain(entry)).toBe(false);
+    expect(await creation.shareAgain(entry, note, t.preview())).toBeNull();
+    expect(JSON.stringify([...((await t.r.localState.get("section-creates")) as string[])])).toBe(
+      before,
+    );
+    // A committed creation (a receipt, phase local) is not a spoiled one.
+    expect(await creation.canShareAgain({ ...entry, phase: "local" })).toBe(false);
+  });
+
+  it("is not given up once the note holds the section's markers", async () => {
+    const { t, entry, creation, R } = await spoiled();
+    await expect(creation.run(entry)).rejects.toBeInstanceOf(CreationKeyMismatch);
+    const ref = { resourceId: R, sectionId: entry.sectionId };
+    const note = (t.files.get("Launch.md") as string)
+      .replace("## Launch\n", `## Launch\n${formatBoundary("start", ref)}\n`)
+      .replace("## Other\n", `${formatBoundary("end", ref)}\n## Other\n`);
+    expect(parseSections(note).sections.map((s) => s.ref.sectionId)).toContain(entry.sectionId);
+    t.files.set("Launch.md", note);
+    expect(await creation.canShareAgain(entry)).toBe(false);
+    expect(await creation.shareAgain(entry, note, t.preview(note))).toBeNull();
+    expect(t.files.get("Launch.md")).toBe(note);
   });
 });

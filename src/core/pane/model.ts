@@ -507,6 +507,7 @@ function flowLines(flow: PaneFlow): string[] {
         return [
           `The last step (${stage.label.toLowerCase()}) started and its result is not known yet.`,
           "Check the result: it resumes the same operation.",
+          ...(flow.problem == null ? [] : [flow.problem]),
         ];
     }
   }
