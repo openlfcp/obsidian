@@ -41,6 +41,26 @@ describe("sectionPresentation", () => {
     });
   });
 
+  it("keeps a child-line ref hidden after Tasks completes the Task (C-7: its ✅ date, a recurrence)", () => {
+    // The lines Obsidian Tasks writes (test/native/specs/tasks-plugin.e2e.mjs): the
+    // child-line ref is untouched; a recurring Task's next occurrence goes above, unbound.
+    const note = (...task: string[]) =>
+      ["## Shared", formatBoundary("start", S), ...task, formatBoundary("end", S)].join("\n");
+    expect(
+      sectionPresentation(note("- [x] Alpha 📅 2026-11-01 ✅ 2026-10-19", `  ${ref(2)}`))
+        .bindingLines,
+    ).toEqual([1, 3, 4]);
+    expect(
+      sectionPresentation(
+        note(
+          "- [ ] Water 🔁 every day 📅 2026-11-02",
+          "- [x] Water 🔁 every day 📅 2026-11-01 ✅ 2026-10-19",
+          `  ${ref(2)}`,
+        ),
+      ).bindingLines,
+    ).toEqual([1, 4, 5]);
+  });
+
   it("hides nothing in a note without sections or with a damaged one", () => {
     expect(sectionPresentation(`- [ ] A\n  ${ref(2)}\n`)).toEqual({
       bindingLines: [],
