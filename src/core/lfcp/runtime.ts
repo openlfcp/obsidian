@@ -1405,6 +1405,22 @@ export class LfcpRuntime {
   }
 
   /**
+   * LFCP-03-063: whether a section Resource is only this device's, never
+   * shared: its Control Chain is the Genesis alone (no member, no
+   * invitation, no key rotation) and nothing of it waits to be sent. A
+   * repair of a spoiled Resource is offered only for one that is.
+   */
+  sectionNeverShared(resource: ResourceId): Promise<boolean> {
+    return this.#engine(async () => {
+      const { storage } = this.#ready();
+      if ((await storage.resources.get(resource)) === undefined) return false;
+      const head = await storage.control.head(resource);
+      if (head === undefined || head.controlSeq !== 0n) return false;
+      return (await storage.outbound.list(resource)).length === 0;
+    });
+  }
+
+  /**
    * Section Resources a creation gave up that are still stored on this
    * device, for the diagnostics and a later recovery; never listed as
    * collaborations. `sent`: its data may have been sent (RESOURCE_SENT),

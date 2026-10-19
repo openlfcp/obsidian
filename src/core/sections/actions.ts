@@ -68,7 +68,7 @@ import type {
 } from "./action-ports";
 import { looseLines, markdownState, newProjectionId, type StoredBase } from "./base";
 import { sectionAtLine, sectionKey } from "./context";
-import type { CreationEntry, CreationResult } from "./create";
+import { type CreationEntry, CreationKeyMismatch, type CreationResult } from "./create";
 import { heldPasted, pastedBase, showsModel } from "./engine";
 import { type SectionRef, sameSection } from "./grammar";
 import {
@@ -141,6 +141,8 @@ export interface ActiveFlow {
   readonly outcome: "running" | "unknown" | "unfinished";
   /** A check of the unknown result runs now. */
   readonly checking: boolean;
+  /** Why the flow cannot go on as it is, in words (a spoiled Resource, LFCP-03-063); absent: none. */
+  readonly problem?: string;
 }
 
 /** What a creation came to: its journal's result, or unknown (it threw). */
@@ -174,6 +176,10 @@ const SHARE_AGAIN = "Share the section again in a moment.";
  * same operation again, never a new one.
  */
 export const CREATION_DEADLINE_MS = 45_000;
+
+/** LFCP-03-063: what a spoiled section Resource is, in words. */
+const KEY_MISMATCH_PROBLEM =
+  "its encryption key on this device does not match the one the section was created with (two starts of sharing ran at once).";
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -440,6 +446,7 @@ export class SectionActions {
         // An unfinished flow being continued (its preview open) runs again.
         outcome: f.unfinished && !f.checking ? "unfinished" : f.unknown ? "unknown" : "running",
         checking: f.checking,
+        ...(f.problem === null ? {} : { problem: f.problem }),
       });
     }
     return out;
@@ -963,7 +970,11 @@ export class SectionActions {
    * the flow's note reserved (D12) until a reconcile of the same operation
    * settles it; without a flow it is left to its journal.
    */
-  async #settle(entry: CreationEntry, target?: NoteTarget, flow?: Flow): Promise<void> {
+  async #settle(
+    entry: CreationEntry,
+    target?: NoteTarget,
+    flow?: Flow,
+  ): Promise<"settled" | "unknown"> {
     const running = this.#outcome(entry, target);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<"late">((r) => {
@@ -971,21 +982,39 @@ export class SectionActions {
     });
     const first = await Promise.race([running, late]);
     clearTimeout(timer);
-    if (first === "late") return this.#notAnswering(entry, running, target, flow);
+    if (first === "late") {
+      await this.#notAnswering(entry, running, target, flow);
+      return "unknown";
+    }
     const out = first;
     if (out.kind === "known") {
       this.#notifyCreation(entry, out.result);
-      return;
+      return "settled";
     }
     const title = entry.preview.title;
+    if (out.error instanceof CreationKeyMismatch) {
+      // LFCP-03-063: the Resource can never be written; nothing is done until the user chooses.
+      if (flow !== undefined)
+        flow.problem = `This section cannot be shared: ${KEY_MISMATCH_PROBLEM} Check the result offers to share it again.`;
+      this.env.prompter.notice(
+        `Shared Tasks: section "${title}" cannot be shared as it is: ${KEY_MISMATCH_PROBLEM} Check the result on this note offers to share it again; nothing changes until you choose.`,
+      );
+      this.#unresolvedSoon();
+      flow?.unresolved(
+        `section "${title}" cannot be shared as it is. Check the result offers to share it again.`,
+        () => this.#reconcileCreation(entry, target, flow),
+      );
+      return "unknown";
+    }
     this.env.prompter.notice(
       `Shared Tasks: creating section "${title}" stopped (${errorText(out.error)}); its result is not known yet. Share section… on this note checks it again and creates nothing new; it also goes on at the next start.`,
     );
     this.#unresolvedSoon();
     flow?.unresolved(
       `the result of sharing section "${title}" from this note is being checked. Nothing new is created.`,
-      () => this.#reconcileCreation(entry, target),
+      () => this.#reconcileCreation(entry, target, flow),
     );
+    return "unknown";
   }
 
   /**
@@ -1057,11 +1086,17 @@ export class SectionActions {
   }
 
   /** A creation whose outcome was unknown, run again from its journal: the same operation ID (D12). */
-  async #reconcileCreation(entry: CreationEntry, target?: NoteTarget): Promise<Reconciled> {
+  async #reconcileCreation(
+    entry: CreationEntry,
+    target?: NoteTarget,
+    flow?: Flow,
+  ): Promise<Reconciled> {
     const creation = this.env.services.creation();
     if (creation === null) return "unknown";
     const current = (await creation.current(entry.operationId)) ?? entry;
     const out = await this.#joined(current, target);
+    if (out.kind === "unknown" && out.error instanceof CreationKeyMismatch)
+      return this.#offerShareAgain(current, target, flow);
     if (out.kind === "unknown") {
       this.env.prompter.notice(
         `Shared Tasks: the result of creating section "${entry.preview.title}" is still not known (${out.error === undefined ? "it is still running" : errorText(out.error)}). Nothing new was created.`,
@@ -1070,6 +1105,88 @@ export class SectionActions {
     }
     this.#notifyCreation(current, out.result);
     return "settled";
+  }
+
+  /**
+   * LFCP-03-063: a creation whose Resource can never be written (its epoch key
+   * is not its Genesis's), found again by "Check the result". Only for a
+   * Resource nobody but this device has, and never by itself: the user
+   * chooses "Share again", which journals a new creation of the note's
+   * current text under a new operation ID, then discards the unusable
+   * Resource on this device. The note's text is not touched until the new
+   * creation binds it. Anything else is left as it is.
+   */
+  async #offerShareAgain(
+    entry: CreationEntry,
+    target?: NoteTarget,
+    flow?: Flow,
+  ): Promise<Reconciled> {
+    const { prompter, services } = this.env;
+    const creation = services.creation();
+    if (creation === null) return "unknown";
+    const title = entry.preview.title;
+    if (!(await creation.canShareAgain(entry))) {
+      prompter.notice(
+        `Shared Tasks: section "${title}" cannot be shared: its encryption key does not match its section. It may already be shared or changed, so nothing was discarded or replaced. Details are in the diagnostics.`,
+      );
+      return "unknown";
+    }
+    const ask = prompter.confirm({
+      title: "Share again",
+      message: `Section "${title}" cannot be shared: ${KEY_MISMATCH_PROBLEM} It was never shared with anyone, so nothing is lost. Share again throws away that unused copy on this device and shares the section from this note as it is now, as a new section. This note's text is not changed until the new section is created.`,
+      action: "Share again",
+      destructive: false,
+    });
+    this.#showing(flow, ask, "the choice to share again", "creating");
+    const chosen = await ask.result;
+    flow?.showing(null);
+    if (!chosen) return "unknown";
+    const path = target === undefined ? entry.path : target.path;
+    const now = path === null ? null : await this.#now(path);
+    if (path === null || now === null) {
+      prompter.notice("Shared Tasks: the note is gone. Nothing was shared again.");
+      return "unknown";
+    }
+    if (now.composing) {
+      prompter.notice(invalidationText("composing", "shared"));
+      return "unknown";
+    }
+    let again = revalidate(now.text, entry.preview);
+    if (again.kind === "changed") {
+      if (again.preview === null) {
+        prompter.notice("Shared Tasks: the section's heading is gone. Nothing was shared again.");
+        return "unknown";
+      }
+      // Not what was approved: the new range is reviewed first.
+      const dialog = prompter.sharePreview(
+        again.preview,
+        "The note changed since the first share. Review the section again.",
+      );
+      this.#showing(flow, dialog, `the share preview of "${again.preview.title}"`, "creating");
+      const approved = await dialog.result;
+      flow?.showing(null);
+      if (!approved) return "unknown";
+      again = revalidate((await this.#now(path))?.text ?? now.text, again.preview);
+      if (again.kind === "changed" || again.preview === null) {
+        prompter.notice(
+          "Shared Tasks: the note changed while the preview was open. Nothing was shared again.",
+        );
+        return "unknown";
+      }
+    }
+    const swapped = await creation.shareAgain(entry, now.text, again.preview);
+    if (swapped === null) {
+      prompter.notice(
+        `Shared Tasks: section "${title}" can no longer be shared again (it changed meanwhile). Nothing was replaced.`,
+      );
+      return "unknown";
+    }
+    services.registryChanged();
+    if (flow !== undefined) flow.problem = null;
+    prompter.notice(
+      `Shared Tasks: the unusable copy of section "${title}" was discarded on this device; sharing it again.`,
+    );
+    return this.#settle(swapped.fresh, target, flow);
   }
 
   /** A creation's typed outcome: hosted, local, stale, failed or cancelled; unknown when it threw. */

@@ -41,7 +41,11 @@ import {
   markdownState,
   type SectionState,
 } from "../../../src/core/sections/base";
-import type { CreationEntry, CreationResult } from "../../../src/core/sections/create";
+import {
+  type CreationEntry,
+  CreationKeyMismatch,
+  type CreationResult,
+} from "../../../src/core/sections/create";
 import { applyChanges, type PassContext, SectionEngine } from "../../../src/core/sections/engine";
 import {
   formatBoundary,
@@ -218,6 +222,8 @@ interface FakeCreation extends CreationService {
   readonly journal: Map<string, CreationEntry>;
   /** The note path getter `run` was last given. */
   lastAt: (() => string | null) | undefined;
+  /** Whether the spoiled creation may be shared again (`canShareAgain`). */
+  shareable: boolean;
 }
 
 /** A creation journal that records its calls; `result` decides what `run` does. */
@@ -227,6 +233,7 @@ function fakeCreation(calls: string[]) {
     result: (entry: CreationEntry): Promise<CreationResult> =>
       Promise.resolve({ kind: "hosted", entry }),
     lastAt: undefined,
+    shareable: false,
     journal: new Map(),
     async current(operationId: string) {
       calls.push(`current ${operationId}`);
@@ -248,6 +255,14 @@ function fakeCreation(calls: string[]) {
     async cancel(e: CreationEntry) {
       calls.push(`cancel ${e.operationId}`);
       return e;
+    },
+    async canShareAgain() {
+      return c.shareable;
+    },
+    async shareAgain(old: CreationEntry, _markdown: string, preview: SharePreview) {
+      if (!c.shareable) return null;
+      calls.push(`shareAgain ${old.operationId} "${preview.title}"`);
+      return { fresh: entry(`op-${++n}`, old.path, preview), old };
     },
     async imports() {
       return [];
@@ -2128,6 +2143,91 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
     expect(t.calls).not.toContain("run op-2");
     expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
     expect(t.actions.flows()).toEqual([]);
+  });
+
+  describe("a spoiled Resource (LFCP-03-063)", () => {
+    const spoil = (t: ReturnType<typeof setup>) => {
+      t.prompter.script.share = [true];
+      t.creation.result = () => Promise.reject(new CreationKeyMismatch(new Error("DEK")));
+      t.creation.shareable = true;
+    };
+
+    it("says what is wrong, does nothing by itself, and Check the result offers Share again", async () => {
+      const t = setup();
+      const { d } = dispatch(t);
+      spoil(t);
+      await d.run("share-section", { target: t.editor.at() }, "palette");
+      expect(t.prompter.notices.at(-1)).toContain("cannot be shared as it is");
+      const [flow] = t.actions.flows();
+      expect(flow?.outcome).toBe("unknown");
+      expect(flow?.problem).toContain("encryption key");
+      // Nothing was discarded or created: no dialog was opened, no second operation.
+      expect(t.prompter.open("confirm")).toHaveLength(0);
+      expect(t.calls.filter((c) => c.startsWith("shareAgain") || c.startsWith("cancel"))).toEqual(
+        [],
+      );
+      const note = t.notes.files.get("Plan.md");
+      // Check the result: asks first (never automatic).
+      const checking = d.run("check-result", { flow: flow?.generation ?? 0 }, "pane");
+      await flush(100);
+      expect(t.prompter.open("confirm")).toHaveLength(1);
+      expect(t.calls.filter((c) => c.startsWith("shareAgain"))).toEqual([]);
+      // Chosen: the new creation under a new operation ID, then the old one given up.
+      t.creation.result = (e) => Promise.resolve({ kind: "hosted", entry: e });
+      t.prompter.open("confirm")[0]?.answer(true);
+      await checking;
+      expect(t.calls.filter((c) => c.startsWith("shareAgain"))).toEqual(['shareAgain op-1 "Plan"']);
+      expect(t.calls).toContain("run op-2");
+      expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
+      expect(t.actions.flows()).toEqual([]);
+      // The note's text was written by no step of the repair.
+      expect(t.notes.files.get("Plan.md")).toBe(note);
+    });
+
+    it("declined: nothing is discarded, created or written; the flow stays checkable", async () => {
+      const t = setup();
+      const { d } = dispatch(t);
+      spoil(t);
+      await d.run("share-section", { target: t.editor.at() }, "palette");
+      const [flow] = t.actions.flows();
+      t.prompter.script.confirm = [false];
+      await d.run("check-result", { flow: flow?.generation ?? 0 }, "pane");
+      expect(t.calls.filter((c) => c.startsWith("shareAgain") || c.startsWith("cancel"))).toEqual(
+        [],
+      );
+      expect(t.calls).not.toContain("run op-2");
+      expect(t.actions.flows()[0]?.outcome).toBe("unknown");
+    });
+
+    it("a Resource that may be shared or changed is not offered, nothing replaced", async () => {
+      const t = setup();
+      const { d } = dispatch(t);
+      spoil(t);
+      t.creation.shareable = false;
+      await d.run("share-section", { target: t.editor.at() }, "palette");
+      const [flow] = t.actions.flows();
+      await d.run("check-result", { flow: flow?.generation ?? 0 }, "pane");
+      expect(t.prompter.open("confirm")).toHaveLength(0);
+      expect(t.prompter.notices.at(-1)).toContain("nothing was discarded or replaced");
+      expect(t.calls.filter((c) => c.startsWith("shareAgain") || c.startsWith("cancel"))).toEqual(
+        [],
+      );
+      expect(t.actions.flows()[0]?.outcome).toBe("unknown");
+    });
+
+    it("an ordinary unknown result is still only checked, never offered Share again", async () => {
+      const t = setup();
+      const { d } = dispatch(t);
+      t.prompter.script.share = [true];
+      t.creation.shareable = true;
+      t.creation.result = () => Promise.reject(new Error("socket closed"));
+      await d.run("share-section", { target: t.editor.at() }, "palette");
+      const [flow] = t.actions.flows();
+      expect(flow?.problem).toBeUndefined();
+      await d.run("check-result", { flow: flow?.generation ?? 0 }, "pane");
+      expect(t.prompter.open("confirm")).toHaveLength(0);
+      expect(t.calls.filter((c) => c.startsWith("shareAgain"))).toEqual([]);
+    });
   });
 
   it("the card, the pane and the palette reach the same collaboration handlers", async () => {

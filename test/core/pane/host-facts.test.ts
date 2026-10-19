@@ -328,6 +328,32 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(d.identity("insert-into-note")).not.toBe(d.identity("open-details"));
   });
 
+  it("LFCP-03-063: a share whose Resource cannot be written says why in its flow, and the primary is Check the result", () => {
+    const d = hostPane({
+      note: note(1),
+      registry: registry(),
+      status: () => current,
+      flows: [
+        {
+          generation: 7,
+          kind: "share" as const,
+          path: "Plan.md",
+          stage: "",
+          step: "creating",
+          outcome: "unknown" as const,
+          checking: false,
+          problem: "This section cannot be shared: its encryption key does not match.",
+        },
+      ],
+    });
+    const m = paneModel(d.facts);
+    expect(m.primary?.id).toBe("check-result");
+    expect(m.flow?.lines).toContain(
+      "This section cannot be shared: its encryption key does not match.",
+    );
+    expect(d.request("check-result")).toEqual({ flow: 7 });
+  });
+
   it("P6: an insert a restart left unfinished owns only its own note's area (LFCP-03-017)", () => {
     const unfinished = {
       generation: 4,

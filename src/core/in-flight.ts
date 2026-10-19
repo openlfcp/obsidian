@@ -38,6 +38,8 @@ export class Flow {
   /** The reconcile running now (it may outlive a check that timed out). */
   #running: Promise<void> | null = null;
   #checking = false;
+  /** Why the flow cannot go on as it is, in words, for the pane (LFCP-03-063); null: nothing to say. */
+  problem: string | null = null;
 
   constructor(
     /** This flow's number, never reused: a late callback for an earlier flow names another one. */

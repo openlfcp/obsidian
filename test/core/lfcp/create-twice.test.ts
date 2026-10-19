@@ -75,6 +75,7 @@ describe("createSectionResource twice at once under one ID", () => {
     // The same key: no second one was made, and the Resource can be written.
     expect([...device.slots.values.keys()].filter((k) => !before.has(k))).toEqual(made);
     expect(device.slots.values.get(made[0] as string)).toBe(key);
+    expect(await r.sectionNeverShared(R)).toBe(true);
     await r.openSection(R);
     const status = r.status;
     if (status.kind !== "ready") throw new Error("not ready");

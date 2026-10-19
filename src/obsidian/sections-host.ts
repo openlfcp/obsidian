@@ -626,6 +626,7 @@ export class SectionsHost {
         },
         openSection: (R) => runtime.openSection(R),
         discard: (R) => runtime.discardUnhosted(R),
+        neverShared: (R) => runtime.sectionNeverShared(R),
         host: async (R) => {
           const flows = this.collab();
           if (flows === null)

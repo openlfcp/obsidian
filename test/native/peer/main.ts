@@ -230,6 +230,7 @@ export async function peer(
       createSectionResource: (o) => runtime.createSectionResource(o),
       openSection: (R) => runtime.openSection(R),
       discard: (R) => runtime.discardUnhosted(R),
+      neverShared: (R) => runtime.sectionNeverShared(R),
       host: async (R) => {
         const h = await collab.host(R);
         return h.kind === "hosted" ? { kind: "hosted" } : (h as never);
