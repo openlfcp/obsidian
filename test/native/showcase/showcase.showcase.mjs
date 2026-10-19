@@ -169,7 +169,9 @@ async function snap(name, who = ["A"]) {
     }
     await hosts.A.pause(500);
     for (const w of who) {
-      expect(await leaks(hosts[w])).toEqual([]);
+      const hit = await leaks(hosts[w]);
+      if (hit.length > 0) evidence("SHOWCASE leak", { name, w, hit: hit.map((x) => (x.length > 40 ? `${x.slice(0, 6)}…(${x.length})` : x)) });
+      expect(hit.length).toBe(0);
       const file = who.length === 1 ? `${name}-${mode}.png` : `${name}-${names[w].toLowerCase()}-${mode}.png`;
       await hosts[w].saveScreenshot(path.join(OUT, file));
     }
