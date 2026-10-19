@@ -48,6 +48,12 @@ Runs on earlier commits of this branch were not used: the first `release_build` 
 developer pane by mistake (a workflow expression bug, fixed) and were discarded; Platform smoke on
 `159db89` failed twice in `section-registry` (a stale snapshot in the test, fixed on `main` by 063).
 
+The native and performance runs used the catalog `manifest.json` (0.4.2); the manifest asset differs
+from it only in `version`. `main.js` and `styles.css` are the tested files. The repository merges
+by rebase, so the tag commit has a new SHA with the same `src/`, lockfile and styles; the owner
+re-verifies the checksums after the release dry run. Not rehearsed: rollback to 0.4.2 with the
+kept copies of a deleted note (048), and a crashed share discard followed by rollback (#53).
+
 ## Evidence of 023-026 and 025
 
 The reports of 025 (`mvp-0.3-native-matrix.md`) and 026 (`upgrade-rollback-perf-0.5.md`) were taken on
