@@ -21,7 +21,7 @@
 | [assets/screenshots/02-share-invite-light.png](assets/screenshots/02-share-invite-light.png) | everyone | README screenshot from real Obsidian 1.14.4 (synthetic notes): sharing a section and the invitation dialog |
 | [assets/screenshots/03-join-insert-preview-light.png](assets/screenshots/03-join-insert-preview-light.png) | everyone | README screenshot from real Obsidian 1.14.4 (synthetic notes): joining with a link and the insert preview |
 | [assets/screenshots/04-two-vaults-synced-light.png](assets/screenshots/04-two-vaults-synced-light.png) | everyone | README screenshot from real Obsidian 1.14.4 (synthetic notes): two vaults, Alex and Sam, with the same shared section |
-| [assets/screenshots/05-problem-hub-light.png](assets/screenshots/05-problem-hub-light.png) | everyone | README screenshot from real Obsidian 1.14.4 (synthetic notes): a damaged section marker in the problem list and the Repair dialog |
+| [assets/screenshots/05-problem-hub-light.png](assets/screenshots/05-problem-hub-light.png) | everyone | README screenshot from real Obsidian 1.14.4 (synthetic notes): the pane with a damaged section marker in the problem list and the Repair button |
 | [assets/screenshots/06-section-card-light.png](assets/screenshots/06-section-card-light.png) | everyone | README screenshot from real Obsidian 1.14.4 (synthetic notes): the card of a shared section |
 | [guides/user-guide.md](guides/user-guide.md) | everyone | Step-by-step user guide: install, create, share, invite, join, many tasks at once, offline, conflicts, troubleshooting |
 | [guides/shared-sections.md](guides/shared-sections.md) | everyone | Shared sections: share, invite, join and insert, what the marks mean, offline, conflicts, copying, removing access, detaching, repair, limits |
