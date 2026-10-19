@@ -140,7 +140,7 @@ do all of it from the pane; the matching commands are in brackets.
 5. **If something needs you,** the pane's problem list says what and opens
    the conflict dialog or "Repair shared sections in this note".
 
-   ![The pane lists a damaged section marker as a problem, with the Repair dialog open on top asking where the section ends](docs/assets/screenshots/05-problem-hub-light.png)
+   ![The Shared Tasks pane lists a problem with the shared section and offers Repair shared sections… right under it](docs/assets/screenshots/05-problem-hub-light.png)
 
 The section card, shown beside a shared heading, offers the same next step:
 
