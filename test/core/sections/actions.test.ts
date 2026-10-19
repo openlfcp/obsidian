@@ -2199,6 +2199,32 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
       expect(t.actions.flows()[0]?.outcome).toBe("unknown");
     });
 
+    it("a discard that kept the old Resource: said once, shared again, no second offer", async () => {
+      const t = setup();
+      const { d } = dispatch(t);
+      spoil(t);
+      const again = t.creation.shareAgain.bind(t.creation);
+      t.creation.shareAgain = async (...args) => {
+        const out = await again(...args);
+        t.creation.shareable = false;
+        return out === null ? null : { ...out, old: { ...out.old, discarded: "kept" as const } };
+      };
+      await d.run("share-section", { target: t.editor.at() }, "palette");
+      const [flow] = t.actions.flows();
+      t.creation.result = (e) =>
+        e.operationId === "op-1"
+          ? Promise.reject(new CreationKeyMismatch(new Error("DEK")))
+          : Promise.resolve({ kind: "hosted", entry: e });
+      t.prompter.script.confirm = [true];
+      await d.run("check-result", { flow: flow?.generation ?? 0 }, "pane");
+      expect(
+        t.prompter.notices.some((n) => n.includes("stays on this device, hidden and unused")),
+      ).toBe(true);
+      expect(t.prompter.notices.at(-1)).toBe('Shared Tasks: section "Plan" is shared.');
+      expect(t.prompter.dialogs.filter((x) => x.kind === "confirm")).toHaveLength(1);
+      expect(t.actions.flows()).toEqual([]);
+    });
+
     it("a Resource that may be shared or changed is not offered, nothing replaced", async () => {
       const t = setup();
       const { d } = dispatch(t);
@@ -2208,7 +2234,7 @@ describe("one dispatcher for every surface (LFCP-03-010, U03-07, U03-09)", () =>
       const [flow] = t.actions.flows();
       await d.run("check-result", { flow: flow?.generation ?? 0 }, "pane");
       expect(t.prompter.open("confirm")).toHaveLength(0);
-      expect(t.prompter.notices.at(-1)).toContain("nothing was discarded or replaced");
+      expect(t.prompter.notices.at(-1)).toContain("Nothing was discarded or replaced");
       expect(t.calls.filter((c) => c.startsWith("shareAgain") || c.startsWith("cancel"))).toEqual(
         [],
       );

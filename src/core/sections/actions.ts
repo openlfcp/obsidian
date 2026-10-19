@@ -179,7 +179,7 @@ export const CREATION_DEADLINE_MS = 45_000;
 
 /** LFCP-03-063: what a spoiled section Resource is, in words. */
 const KEY_MISMATCH_PROBLEM =
-  "its encryption key on this device does not match the one the section was created with (two starts of sharing ran at once).";
+  "its encryption key on this device does not match the one the section was created with (most likely two starts of sharing ran at once).";
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -1127,13 +1127,13 @@ export class SectionActions {
     const title = entry.preview.title;
     if (!(await creation.canShareAgain(entry))) {
       prompter.notice(
-        `Shared Tasks: section "${title}" cannot be shared: its encryption key does not match its section. It may already be shared or changed, so nothing was discarded or replaced. Details are in the diagnostics.`,
+        `Shared Tasks: section "${title}" cannot be shared: its encryption key does not match its section. Nothing was discarded or replaced, because this section may already be shared or its markers may be in the note. Copy the section's text somewhere safe, remove its markers from the note (or detach it), and share it again as a new section; if others use it, ask them first.`,
       );
       return "unknown";
     }
     const ask = prompter.confirm({
       title: "Share again",
-      message: `Section "${title}" cannot be shared: ${KEY_MISMATCH_PROBLEM} It was never shared with anyone, so nothing is lost. Share again throws away that unused copy on this device and shares the section from this note as it is now, as a new section. This note's text is not changed until the new section is created.`,
+      message: `Section "${title}" cannot be shared: ${KEY_MISMATCH_PROBLEM} It was never shared with anyone, so no one else loses anything. Share again throws away that unused copy on this device and shares the section from this note as it is now, as a new section. This note's text is not changed until the new section is created.`,
       action: "Share again",
       destructive: false,
     });
@@ -1184,7 +1184,9 @@ export class SectionActions {
     services.registryChanged();
     if (flow !== undefined) flow.problem = null;
     prompter.notice(
-      `Shared Tasks: the unusable copy of section "${title}" was discarded on this device; sharing it again.`,
+      swapped.old.discarded === "kept"
+        ? `Shared Tasks: the unusable copy of section "${title}" could not be deleted and stays on this device, hidden and unused; sharing it again. Nothing more is asked about it.`
+        : `Shared Tasks: the unusable copy of section "${title}" was discarded on this device; sharing it again.`,
     );
     return this.#settle(swapped.fresh, target, flow);
   }

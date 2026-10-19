@@ -90,6 +90,10 @@ export interface CreationEntry {
   readonly reason?: string;
   /** Present for an import of 0.1 shared Tasks. */
   readonly legacy?: LegacyImport;
+  /** LFCP-03-063: the creation that replaced this spoiled one (Share again); it is not offered again. */
+  readonly replacedBy?: string;
+  /** LFCP-03-063: the spoiled creation this one replaces: a crash before its cancel is finished at the next start. */
+  readonly replaces?: string;
   /**
    * A cancelled creation's Resource: "pending" until its discard ran (a
    * start finishes it), then what the discard did with it.
@@ -236,6 +240,7 @@ export class SectionCreation {
     /** A Task node's own content instead of its line's (an import's copied values), by line. */
     taskAt?: (line: number, id: string) => NewSectionTask | undefined,
     legacy?: LegacyImport,
+    replaces?: string,
   ): Promise<CreationEntry> {
     if (preview.problems.length > 0) throw new Error("the preview has problems: nothing to share");
     const R = this.deps.newResourceId();
@@ -286,6 +291,7 @@ export class SectionCreation {
       preview,
       phase: "prepared",
       ...(legacy === undefined ? {} : { legacy }),
+      ...(replaces === undefined ? {} : { replaces }),
     };
     await this.#save(entry);
     return entry;
@@ -466,6 +472,9 @@ export class SectionCreation {
   async canShareAgain(entry: CreationEntry): Promise<boolean> {
     const e = (await this.current(entry.operationId)) ?? entry;
     if (e.phase !== "prepared" || e.receipt !== undefined || e.legacy !== undefined) return false;
+    // Already replaced (a crash cut the cancel, or another click got there first).
+    if (e.replacedBy !== undefined) return false;
+    if ((await this.unfinished()).some((x) => x.replaces === e.operationId)) return false;
     const R = fromBase64url(e.resource) as ResourceId;
     if ((await this.deps.port.receiptOf(e.resource, e.operationId)) !== undefined) return false;
     if ((await this.deps.host.neverShared?.(R)) !== true) return false;
@@ -490,10 +499,49 @@ export class SectionCreation {
     markdown: string,
     preview: SharePreview,
   ): Promise<{ readonly fresh: CreationEntry; readonly old: CreationEntry } | null> {
+    // One at a time per old creation: a second confirmation (pane and card) joins the first.
+    const running = this.#replacing.get(old.operationId);
+    if (running !== undefined) return running;
+    const run = this.#shareAgain(old, markdown, preview).finally(() =>
+      this.#replacing.delete(old.operationId),
+    );
+    this.#replacing.set(old.operationId, run);
+    return run;
+  }
+
+  readonly #replacing = new Map<
+    string,
+    Promise<{ readonly fresh: CreationEntry; readonly old: CreationEntry } | null>
+  >();
+
+  async #shareAgain(old: CreationEntry, markdown: string, preview: SharePreview) {
     if (!(await this.canShareAgain(old))) return null;
     const current = (await this.current(old.operationId)) ?? old;
-    const fresh = await this.prepare(current.path, markdown, preview);
-    return { fresh, old: await this.cancel(current) };
+    // The new one names what it replaces in its first save, the old one names it next:
+    // whichever a crash leaves, the old one is not offered again and is cancelled at the next start.
+    const fresh = await this.prepare(
+      current.path,
+      markdown,
+      preview,
+      undefined,
+      undefined,
+      current.operationId,
+    );
+    const marked: CreationEntry = { ...current, replacedBy: fresh.operationId };
+    await this.#save(marked);
+    return { fresh, old: await this.cancel(marked) };
+  }
+
+  /** At start: an old creation a crash left uncancelled after its replacement was journaled is cancelled now. */
+  async settleReplaced(): Promise<CreationEntry[]> {
+    const out: CreationEntry[] = [];
+    for (const e of await this.unfinished()) {
+      const oldId = e.replaces ?? (e.replacedBy === undefined ? undefined : e.operationId);
+      if (oldId === undefined) continue;
+      const old = await this.current(oldId);
+      if (old?.phase === "prepared") out.push(await this.cancel(old));
+    }
+    return out;
   }
 
   /**
