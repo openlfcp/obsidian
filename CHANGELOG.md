@@ -62,6 +62,9 @@ below).
   server address.
 - One "Review conflicts" button beside a single conflict.
 - A pending status timer no longer runs after the plugin is unloaded.
+- "Choose another note…" in the insert dialog and Apply in the repair and
+  recovery dialogs no longer overlap the text.
+- "Link copied" is a short confirmation and no longer lingers in the pane.
 
 ## [0.4.2] — Task edits in copied sections
 
