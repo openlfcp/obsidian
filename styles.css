@@ -481,3 +481,8 @@
   align-items: center;
   margin: var(--size-4-2) 0;
 }
+
+/* Insert dialog (LFCP-03-070): its button on a row of its own. */
+.openlfcp-insert-change {
+  margin: var(--size-4-2) 0;
+}

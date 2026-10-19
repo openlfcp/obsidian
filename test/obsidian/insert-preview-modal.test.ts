@@ -147,3 +147,20 @@ describe("the insert choice (UX contract N1–N3, F-10)", () => {
     expect(choiceLabel({ ...sprint, title: "", alias: null }).primary).toBe("Untitled section");
   });
 });
+
+describe("the insert preview, choosing another note (LFCP-03-070)", () => {
+  it("offers the button on a row of its own, never inside the sentence", () => {
+    const place = {
+      where: "into this note after the paragraph at the cursor",
+      placements: [] as string[],
+      change: async () => undefined,
+    };
+    const m = new InsertSectionModal(new App() as never, preview, place);
+    m.open();
+    const el = m.contentEl as unknown as FakeElement;
+    const sentence = el.children.find((c) => c.text.startsWith("These lines go"));
+    expect(sentence?.findAll("button")).toEqual([]);
+    const row = el.children.find((c) => c.cls === "openlfcp-insert-change");
+    expect(row?.findAll("button").map((b) => b.text)).toEqual(["Choose another note…"]);
+  });
+});
