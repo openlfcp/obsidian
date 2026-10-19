@@ -7,6 +7,7 @@ import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import type { ResourceStatus } from "../../../src/core/collab/service";
 import {
+  noticeName,
   refusalNotice,
   refusalText,
   rehostNotice,
@@ -96,6 +97,18 @@ describe("a collaboration the server refused (POST-017)", () => {
     ).toBe(
       'Shared Tasks: "Core with Tasks" stopped syncing. No access on the sync server: this device\'s identity may no longer read this section (AUTHORIZATION_FAILED). Your tasks stay on this device; see "Resource status".',
     );
+  });
+
+  it("folds and cuts a long or multi-line name in a notice (F1)", () => {
+    const refusal = { code: "AUTHORIZATION_FAILED", url: URL };
+    expect(noticeName("  Core\n\n with \t Tasks\r\n")).toBe("Core with Tasks");
+    const long = noticeName(`Line one\n${"x".repeat(500)}`);
+    expect([...long]).toHaveLength(80);
+    expect(long.endsWith("…")).toBe(true);
+    const text = refusalNotice(`A\nB ${"y".repeat(1000)}`, refusal, SECTIONS_PROFILE_ID);
+    expect(text).toMatch(/^Shared Tasks: "A B y+…" stopped syncing\./);
+    expect(text.length).toBeLessThan(400);
+    expect(text).not.toContain("\n");
   });
 
   it("says section for a shared section, collaboration for a 0.1 Resource (LFCP-03-042)", () => {
