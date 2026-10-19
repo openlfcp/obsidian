@@ -45,26 +45,29 @@ export const resourceNoun = (profile: string | undefined): string =>
  * What a server's terminal refusal (POST-017) means for the user, in one
  * sentence: the server named, the §62 code at the end. Syncing this
  * collaboration stops (no retries) until Obsidian restarts; the tasks stay
- * on this device either way.
+ * on this device either way. `named: false` says "the sync server" instead
+ * of its address (a notice: the address stays in "Resource status").
  */
 export function refusalText(
   refusal: { readonly code: string; readonly url: string },
   profile?: string,
+  named = true,
 ): string {
   const noun = resourceNoun(profile);
+  const server = named ? refusal.url : "the sync server";
   switch (refusal.code) {
     case "RESOURCE_NOT_HOSTED":
     case "RESOURCE_NOT_FOUND":
-      return `Not hosted by ${refusal.url}: the server no longer has this ${noun} (${refusal.code})`;
+      return `Not hosted by ${server}: the server no longer has this ${noun} (${refusal.code})`;
     case "AUTHORIZATION_FAILED":
-      return `No access on ${refusal.url}: this device's identity may no longer read this ${noun} (${refusal.code})`;
+      return `No access on ${server}: this device's identity may no longer read this ${noun} (${refusal.code})`;
     case "RESOURCE_TOMBSTONED":
-      return `Deleted on ${refusal.url} (${refusal.code})`;
+      return `Deleted on ${server} (${refusal.code})`;
     // ADR 0008: the server lost the collaboration and does not let this device host it again.
     case "HOSTING_DENIED":
-      return `Not hosted by ${refusal.url}, and this device may not host it again: ask the owner to host it again (${refusal.code})`;
+      return `Not hosted by ${server}, and this device may not host it again: ask the owner to host it again (${refusal.code})`;
     default:
-      return `Refused by ${refusal.url} (${refusal.code})`;
+      return `Refused by ${server} (${refusal.code})`;
   }
 }
 
@@ -86,7 +89,8 @@ export function refusalNotice(
   refusal: { readonly code: string; readonly url: string },
   profile?: string,
 ): string {
-  return `Shared Tasks: "${name}" stopped syncing. ${refusalText(refusal, profile)}. Your tasks stay on this device; see "Resource status".`;
+  // The server's address is for "Resource status", not for a notice.
+  return `Shared Tasks: "${name}" stopped syncing. ${refusalText(refusal, profile, false)}. Your tasks stay on this device; see "Resource status".`;
 }
 
 export function statusView(s: ResourceStatus): StatusView {

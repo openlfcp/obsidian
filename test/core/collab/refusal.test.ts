@@ -71,7 +71,30 @@ describe("a collaboration the server refused (POST-017)", () => {
 
   it("words the notice as Shared Tasks, with the collaboration's name", () => {
     expect(refusalNotice("Team", { code: "RESOURCE_NOT_HOSTED", url: URL })).toBe(
-      `Shared Tasks: "Team" stopped syncing. Not hosted by ${URL}: the server no longer has this collaboration (RESOURCE_NOT_HOSTED). Your tasks stay on this device; see "Resource status".`,
+      `Shared Tasks: "Team" stopped syncing. Not hosted by the sync server: the server no longer has this collaboration (RESOURCE_NOT_HOSTED). Your tasks stay on this device; see "Resource status".`,
+    );
+  });
+
+  it("never shows the server's address in a notice, only in the status row (C-8)", () => {
+    for (const code of [
+      "RESOURCE_NOT_HOSTED",
+      "AUTHORIZATION_FAILED",
+      "RESOURCE_TOMBSTONED",
+      "HOSTING_DENIED",
+      "MALFORMED_MESSAGE",
+    ]) {
+      const refusal = { code, url: URL };
+      expect(refusalNotice("Core with Tasks", refusal, SECTIONS_PROFILE_ID)).not.toContain(URL);
+      expect(refusalText(refusal)).toContain(URL);
+    }
+    expect(
+      refusalNotice(
+        "Core with Tasks",
+        { code: "AUTHORIZATION_FAILED", url: URL },
+        SECTIONS_PROFILE_ID,
+      ),
+    ).toBe(
+      'Shared Tasks: "Core with Tasks" stopped syncing. No access on the sync server: this device\'s identity may no longer read this section (AUTHORIZATION_FAILED). Your tasks stay on this device; see "Resource status".',
     );
   });
 

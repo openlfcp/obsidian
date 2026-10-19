@@ -184,6 +184,35 @@ describe("Invite collaborator (LFCP-065)", () => {
     expect(await queuedRecords(runtime, R)).toEqual([]);
   });
 
+  it("names a revoked section by its shared title, without the server's address (C-8)", async () => {
+    const { runtime, collab } = await offline();
+    const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
+    const entries = await runtime.registry();
+    vi.spyOn(runtime, "registry").mockResolvedValue(
+      entries.map((e) => ({ ...e, localName: null, profile: SECTIONS })),
+    );
+    vi.spyOn(runtime, "newlyRefused").mockResolvedValue({
+      code: "AUTHORIZATION_FAILED",
+      url: SERVER,
+    } as never);
+    vi.spyOn(runtime, "sectionProfile").mockReturnValue({
+      replica: { snapshot: () => ({ title: { value: "Core with Tasks" } }) },
+    } as never);
+    const text = await collab.refusalNotice(R);
+    expect(text).toContain('"Core with Tasks" stopped syncing');
+    expect(text).not.toContain("a shared section");
+    expect(text).not.toContain(SERVER);
+    // Without a title it falls back to the words, still no address.
+    vi.spyOn(runtime, "newlyRefused").mockResolvedValue({
+      code: "AUTHORIZATION_FAILED",
+      url: SERVER,
+    } as never);
+    vi.spyOn(runtime, "sectionProfile").mockReturnValue(undefined);
+    const bare = await collab.refusalNotice(R);
+    expect(bare).toContain('"a shared section" stopped syncing');
+    expect(bare).not.toContain(SERVER);
+  });
+
   it("is refused while the Control Chain is forked", async () => {
     const { runtime, collab } = await offline();
     const { resourceId: R } = await collab.create({ name: "Team", server: SERVER });
