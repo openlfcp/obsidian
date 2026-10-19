@@ -734,6 +734,23 @@ function primaryOf(
 }
 
 /**
+ * The problem rows with their actions. One conflict row beside a primary
+ * "Review conflicts…" would show the same button twice, and both open the
+ * same single item (LFCP-03-062, N4): the row keeps its text and the primary
+ * is the way in. With several conflicts each row's button opens on its own item.
+ */
+function problemViews(f: PaneFacts, primary: ActionId | null): PaneProblemView[] {
+  const rows = f.problems ?? [];
+  const sole =
+    primary === "review-conflicts" &&
+    rows.filter((r) => r.action === "review-conflicts").length === 1;
+  return rows.map((r) => {
+    const v = problemView(f, r);
+    return sole && r.action === "review-conflicts" ? { ...v, action: null } : v;
+  });
+}
+
+/**
  * A problem row's action (LFCP-03-018): the host guard, and in Reading view
  * a repair of that note waits for an editor (T4). The executor checks again.
  */
@@ -870,7 +887,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
         ? null
         : flowView(f.context.flow),
     status,
-    problems: (f.problems ?? []).map((p) => problemView(f, p)),
+    problems: problemViews(f, p.id),
     preview:
       preview === undefined
         ? []
