@@ -431,6 +431,15 @@ export interface StoredBase {
    * here because the editor's hint lasts one pass, a restart included.
    */
   readonly pasted?: readonly string[];
+  /**
+   * Bound nodes the user removed (or a resumed batch's nodes whose lines
+   * are gone) in a pass that did not send the deletion because the section
+   * was suspended by a lost binding (LFCP-03-055). The editor's hint lasts
+   * one pass, so without this the next pass read them as lost bindings too.
+   * Dropped by the first pass that stores a base after sending them. Absent
+   * (bases before 0.4.3): none; older versions ignore it.
+   */
+  readonly deleted?: readonly string[];
 }
 
 /** Bases by projection ID (local state, never synced; OP-24). */
