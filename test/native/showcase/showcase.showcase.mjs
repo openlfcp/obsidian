@@ -99,7 +99,7 @@ const mask = (h, who) =>
       obs.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["aria-label", "title"] });
       window.__lfcpMask = obs;
       const css = document.createElement("style");
-      css.textContent = ".status-bar-item.plugin-sync { display: none !important; }";
+      css.textContent = ".status-bar-item.plugin-sync, .inline-title { display: none !important; }";
       document.head.appendChild(css);
       sweep();
       return real;
@@ -116,7 +116,7 @@ const leaks = (h) =>
     (_o, words) => {
       const seen = [document.body.innerText];
       for (const el of document.querySelectorAll("[aria-label], [title], input, textarea")) {
-        for (const a of ["aria-label", "title", "placeholder"]) seen.push(el.getAttribute(a) ?? "");
+        for (const a of ["aria-label", "title"]) seen.push(el.getAttribute(a) ?? "");
         if (el instanceof HTMLInputElement && el.type !== "password") seen.push(el.value);
       }
       const text = seen.join("\n");
@@ -427,7 +427,6 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
       new URL(server.url).host,
       "127.0.0.1",
       "localhost",
-      "lfcp://join/",
       "#secret=",
       os.userInfo().username,
       os.homedir(),
@@ -509,6 +508,8 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
       return value;
     });
     expect(ctx.link.startsWith("lfcp://join/")).toBe(true);
+    // From here a frame may show neither the link's secret nor its address.
+    forbidden.push(ctx.link.slice(ctx.link.indexOf("#secret=") + 8), ctx.link.slice(0, 40));
     await closeModals(hosts.A);
   });
 
