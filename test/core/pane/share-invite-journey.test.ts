@@ -18,12 +18,13 @@
 
 import { fromBase64url, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionId } from "../../../src/core/actions/catalog";
 import { ActionDispatcher, coreHandlers } from "../../../src/core/actions/dispatcher";
 import {
   type Choice,
   CollabCommands,
+  LINK_COPIED_MS,
   ONE_TIME_LINK,
   type Prompter,
 } from "../../../src/core/collab/commands";
@@ -463,7 +464,10 @@ const enabled = (m: PaneModel, id: ActionId) =>
   [m.primary, ...m.secondary].find((a) => a?.id === id);
 
 describe("share → invite in the pane (LFCP-03-014)", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("heading → preview with the policy and server → hosted → explicit invite → Link copied", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const t = journey();
     // The pane before anything: the heading's preview, its content policy and the sync server.
     const first = t.pane();
@@ -530,6 +534,12 @@ describe("share → invite in the pane (LFCP-03-014)", () => {
       expect(text.toLowerCase()).not.toContain("invitation sent");
       expect(text.toLowerCase()).not.toContain("invited");
     }
+
+    // LFCP-03-070: "Link copied" is a short confirmation, not a standing fact.
+    vi.advanceTimersByTime(LINK_COPIED_MS - 1);
+    expect(t.pane().model.notice).toBe("Link copied");
+    vi.advanceTimersByTime(1);
+    expect(t.pane().model.notice).toBeNull();
   });
 
   it("created on this device only: told apart, and not ready to invite (I4)", async () => {
