@@ -14,22 +14,53 @@ Website: [openlfcp.org](https://openlfcp.org)
 
 ## Quick start
 
+Shared Tasks 0.5 leads you through sharing, inviting and joining from a
+visible pane and from a card on the section, so you do not need to know the
+commands. (Stable 0.5.0 reaches Community plugins at its release; until then
+0.5.0 pre-releases are installed with BRAT, see [Install](#install).)
+
 1. **Install.** In Obsidian 1.13.4 or later, open Settings → Community
    plugins → Browse, search for "Shared Tasks", install it and enable it.
-2. **Share.** Put the cursor on a heading and run "Shared Tasks: Share
-   section…" to share it with everything under it. Or share single tasks:
-   run "Shared Tasks: Create collaboration", put the cursor on a task and
-   run "Shared Tasks: Share task under cursor".
-3. **Invite.** Run "Shared Tasks: Invite collaborator" and send the
-   one-time link privately. The other person runs "Join collaboration",
-   then "Insert shared section…" (for a section) or "Insert shared object"
-   (for a task).
+2. **Open the pane.** Click the Shared Tasks icon in the ribbon. The pane
+   follows the note you are in and offers the next step for the cursor. The
+   first time, short tips explain what each action does; "Hide tip" hides
+   one and "Show tips again" brings them back.
 
-Step by step, with everyday use and troubleshooting:
+   ![The Shared Tasks pane the first time it is opened, next to a note](docs/assets/screenshots/01-pane-first-use.png)
+3. **Share.** Put the cursor on a heading. The pane offers "Share
+   section…" and shows what will be shared and what stays private before
+   you confirm. Then it offers "Invite collaborator…": choose Read or
+   Read + write and copy the one-time link. **Send it privately**; Shared
+   Tasks does not send it.
+
+   ![Sharing a section and inviting from the pane](docs/assets/screenshots/02-share-invite.png)
+4. **Join.** Your collaborator opens their pane, chooses "Join with a
+   link…" and pastes the link. The pane shows each step, then asks which
+   note to put the section in and previews the result.
+
+   ![Joining with a link and choosing where to insert, with a preview](docs/assets/screenshots/03-join-insert-preview.png)
+5. **Work together.** Edits sync both ways, offline too. When something
+   needs you, the pane's problem list opens the matching fix in one click.
+
+The same steps work from the command palette ("Shared Tasks: Share
+section…", "Invite collaborator", "Join collaboration", "Insert shared
+section…"); the commands keep their names. Step by step, with everyday use
+and troubleshooting:
 **[the user guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md)**.
+
+<!-- TODO(LFCP-03-069): the screenshot files in docs/assets/screenshots/ are
+produced separately (light and dark); the links above are placeholders until
+they land. -->
 
 ## What it does
 
+- **Collaboration without the command palette.** A visible pane and a
+  card on each shared section lead you from Share to Invite, and from Join
+  to choosing where the section goes.
+- **Problems with a way out.** The pane lists what needs attention (a
+  conflict, a line that went missing) and opens the matching fix.
+- **Picks up where you left off.** A share, an insert or a join cut short by
+  closing Obsidian continues after the restart instead of starting over.
 - **Share one task, not your vault.** Put the cursor on a task and share
   it; the rest of the note stays on your device.
 - **Invite with a one-time link.** The other person joins with it, from
@@ -78,33 +109,53 @@ Settings → Community plugins.
 Upgrading from 0.1.0, which was called "OpenLFCP": see
 [docs/releases/0.2.0.md](docs/releases/0.2.0.md).
 
-## Your first shared task
+## Your first shared section
 
 New here? The [step-by-step guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md) covers setup
 and everyday use, including what to do when something goes wrong.
 
-Two people, each with their own vault and Shared Tasks installed. The
-commands are in the command palette.
+Two people, each with their own vault and Shared Tasks installed. You can
+do all of it from the pane; the matching commands are in brackets.
 
-1. **Create a collaboration.** Run "Shared Tasks: Create collaboration",
-   give it a name only you see, and keep the suggested server
-   (`wss://sync.openlfcp.org/v1/ws`, see "Which server").
-2. **Share the task.** Put the cursor on a task, for example
-   `- [ ] Prepare API contract 📅 2026-10-20`, run "Shared Tasks: Share
-   task under cursor" and pick the collaboration. A `lfcp-ref` comment
-   appears under the task; nothing else in the note changes.
-3. **Invite.** Run "Shared Tasks: Invite collaborator", pick the
-   collaboration and "Read + write", and copy the link. **The link is a
-   secret**: anyone who has it can join until it is used. Send it
-   privately.
-4. **The other person joins and inserts the task.** In their vault they run
-   "Shared Tasks: Join collaboration", paste the link, then put the cursor
-   on an empty line in any note and run "Shared Tasks: Insert shared
-   object" to place the same task there.
-5. **Tick it.** When either of you ticks the task (`- [x]`), the other
-   note shows it done, with its `✅` date, within seconds.
+1. **Share.** Put the cursor on a heading and click "Share section…" in the
+   pane ("Shared Tasks: Share section…"). Check the preview, keep the
+   suggested server (`wss://sync.openlfcp.org/v1/ws`, see "Which server")
+   and confirm. A `lfcp-` comment appears after the heading and beside each
+   line; nothing outside the section changes.
+2. **Invite.** Click "Invite collaborator…" ("Shared Tasks: Invite
+   collaborator"), choose Read or Read + write, and copy the link. **The
+   link is a secret**: it is one-time and does not expire, and whoever opens
+   it first joins. Send it privately.
+3. **Join and insert.** In their vault the other person clicks "Join with a
+   link…" ("Shared Tasks: Join collaboration"), pastes the link, then picks
+   the note and the place to insert the section ("Shared Tasks: Insert
+   shared section…") and checks the preview.
+4. **Work together.** When either of you ticks a task or edits a line, the
+   other note shows it within seconds.
 
-The full walkthrough, with what to expect at each step:
+   ![Two vaults, one shared section, in sync](docs/assets/screenshots/04-two-vaults-synced.png)
+5. **If something needs you,** the pane's problem list says what and opens
+   the conflict dialog or "Repair shared sections in this note".
+
+   ![The problem list of the pane with a direct way to the fix](docs/assets/screenshots/05-problem-hub.png)
+
+The section card, shown beside a shared heading, offers the same next step:
+
+![The card of a shared section](docs/assets/screenshots/06-section-card.png)
+
+### One task at a time
+
+You can still share single tasks. Run "Shared Tasks: Create collaboration",
+give it a name only you see and keep the suggested server. Put the cursor on
+a task, for example `- [ ] Prepare API contract 📅 2026-10-20`, run "Shared
+Tasks: Share task under cursor" and pick the collaboration; a `lfcp-ref`
+comment appears under the task. Invite with "Shared Tasks: Invite
+collaborator". The other person runs "Join collaboration", puts the cursor
+on an empty line and runs "Shared Tasks: Insert shared object". When either
+of you ticks the task (`- [x]`), the other note shows it done, with its `✅`
+date.
+
+The full command walkthrough, with what to expect at each step:
 [docs/demos/two-vault-demo.md](docs/demos/two-vault-demo.md).
 
 ### Many tasks at once
