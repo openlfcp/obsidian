@@ -78,6 +78,25 @@ export function refusalText(
 export const unnamedResource = (profile: string | undefined): string =>
   profile === SECTIONS_PROFILE_ID ? "a shared section" : "a collaboration";
 
+/** The longest name a notice shows. */
+const NOTICE_NAME_MAX = 80;
+
+/**
+ * A name as a notice shows it: a peer's shared title is unbounded and may
+ * span lines, so whitespace (line breaks too) folds to one space and a long
+ * name is cut with an ellipsis.
+ */
+export function noticeName(name: string): string {
+  const flat = name.replace(/\s+/gu, " ").trim();
+  const chars = [...flat];
+  return chars.length <= NOTICE_NAME_MAX
+    ? flat
+    : `${chars
+        .slice(0, NOTICE_NAME_MAX - 1)
+        .join("")
+        .trimEnd()}…`;
+}
+
 /** The quiet notice after the client hosted a collaboration again on a server that had lost it (ADR 0008). */
 export function rehostNotice(name: string, url: string): string {
   return `Shared Tasks: "${name}" was hosted again on ${url}, which had lost it. Changes are being sent again.`;
@@ -90,7 +109,7 @@ export function refusalNotice(
   profile?: string,
 ): string {
   // The server's address is for "Resource status", not for a notice.
-  return `Shared Tasks: "${name}" stopped syncing. ${refusalText(refusal, profile, false)}. Your tasks stay on this device; see "Resource status".`;
+  return `Shared Tasks: "${noticeName(name)}" stopped syncing. ${refusalText(refusal, profile, false)}. Your tasks stay on this device; see "Resource status".`;
 }
 
 export function statusView(s: ResourceStatus): StatusView {
