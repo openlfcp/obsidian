@@ -184,6 +184,9 @@ export interface InvitationState {
   readonly confirmed: boolean | null;
 }
 
+/** How long "Link copied" stays in the pane after the copy, or after the dialog closes. */
+export const LINK_COPIED_MS = 8000;
+
 export class CollabCommands {
   readonly #env: CommandEnv;
   /** An invitation being created: a second "Invite collaborator" meanwhile makes no second one. */
@@ -192,6 +195,8 @@ export class CollabCommands {
   #invitation: InvitationState | null = null;
   /** The Resources (hex) whose last invitation's link was copied in this session (I3). */
   readonly #copied = new Set<string>();
+  /** The timers that take "Link copied" off the pane again, by Resource (hex). */
+  readonly #copiedTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #invitationListeners = new Set<() => void>();
   /**
    * The one join (F-C04, LFCP-03-015): the palette's dialogs and the pane's
@@ -751,8 +756,27 @@ export class CollabCommands {
     return () => this.#invitationListeners.delete(listener);
   }
 
+  /**
+   * "Link copied" is a short confirmation of the last step, not a standing
+   * fact (I3): it leaves the pane `LINK_COPIED_MS` after the copy, and again
+   * that long after the invitation dialog closes.
+   */
+  #expireCopied(key: string): void {
+    const old = this.#copiedTimers.get(key);
+    if (old !== undefined) clearTimeout(old);
+    if (!this.#copied.has(key)) return;
+    const timer = setTimeout(() => {
+      this.#copiedTimers.delete(key);
+      if (this.#copied.delete(key)) for (const l of [...this.#invitationListeners]) l();
+    }, LINK_COPIED_MS);
+    (timer as { unref?: () => void }).unref?.();
+    this.#copiedTimers.set(key, timer);
+  }
+
   #invitationAt(next: InvitationState | null): void {
+    const ended = this.#invitation;
     this.#invitation = next;
+    if (next === null && ended !== null) this.#expireCopied(toHex(ended.resource));
     for (const l of [...this.#invitationListeners]) l();
   }
 
@@ -810,6 +834,7 @@ export class CollabCommands {
     }
     // A new link: "Link copied" is said of this one only once it is copied.
     this.#copied.delete(toHex(R));
+    this.#expireCopied(toHex(R));
     this.#invitationAt({ resource: R, stage: "link", confirmed: invitation.confirmed });
     await p.invitation({
       link: invitation.link,
@@ -817,6 +842,7 @@ export class CollabCommands {
       confirmed: invitation.confirmed,
       copied: () => {
         this.#copied.add(toHex(R));
+        this.#expireCopied(toHex(R));
         this.#invitationAt(this.#invitation);
       },
     });
