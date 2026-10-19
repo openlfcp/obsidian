@@ -141,3 +141,27 @@ describe("SectionsHost.inviteRefusal (LFCP-03-041)", () => {
     expect(t.schedule).not.toHaveBeenCalled();
   });
 });
+
+describe("the status pass timer (LFCP-03-064)", () => {
+  function plain() {
+    return new SectionsHost(
+      new mock.App() as never,
+      () => undefined,
+      () => "child-line",
+      () => "local",
+      () => null,
+      () => "wss://sync.example/v1/ws",
+    );
+  }
+
+  it("stop() cancels the pending pass and none is scheduled after", () => {
+    vi.useFakeTimers();
+    const h = plain();
+    h.scheduleStatus();
+    expect(vi.getTimerCount()).toBe(1);
+    h.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    h.scheduleStatus();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
