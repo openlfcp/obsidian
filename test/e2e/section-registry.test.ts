@@ -75,7 +75,9 @@ describe("U03-02: the registry view on the real plugin", () => {
     expect(rows.every((r) => r.placed === "placed" && r.placementCount === 1)).toBe(true);
     // Created here, so watched: a status, whatever it says offline.
     await settled((s) => s.rows.every((r) => r.status.state !== null), "statuses");
-    expect(rows.every((r) => r.status.watched)).toBe(true);
+    // Read again: `rows` was taken before the statuses settled, and a snapshot built
+    // before the section was watched says it is not (a slow machine saw that).
+    expect(snap().rows.every((r) => r.status.watched)).toBe(true);
     expect(snap().unplaced).toBe(0);
   });
 
