@@ -10,9 +10,11 @@ since 0.4.0.
 
 ## [0.5.0] — Unreleased
 
-Collaboration you can do without knowing the commands.
+Collaboration you can do without learning the commands.
 Draft notes: [docs/releases/0.5.0.md](docs/releases/0.5.0.md). Pre-releases
-(BRAT only): [0.5.0-beta.1](docs/releases/0.5.0-beta.1.md); beta.2 follows.
+(BRAT only): [0.5.0-beta.1](docs/releases/0.5.0-beta.1.md) and
+[0.5.0-beta.2](docs/releases/0.5.0-beta.2.md) (fixes #79, #80 and #82, listed
+below).
 
 ### Added
 
@@ -27,7 +29,10 @@ Draft notes: [docs/releases/0.5.0.md](docs/releases/0.5.0.md). Pre-releases
   twice.
 - A problem hub that opens the matching conflict dialog or "Repair shared
   sections in this note".
-- Unfinished shares, inserts and joins resume after a restart.
+- A share cut short by a restart resumes by itself; an unfinished insert or
+  join is listed in the pane, where you continue it or check the result.
+- The pane and its dialogs work from the keyboard (commands have no default
+  hotkeys).
 - Short tips when an action is offered ("Hide tip", "Show tips again"); no
   tour on install or update.
 
