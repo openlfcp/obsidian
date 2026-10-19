@@ -1090,6 +1090,9 @@ export class SectionsHost {
   /** The plugin unloads: an invite check waiting now ends at once, and none asks again. */
   stop(): void {
     this.#stopped = true;
+    // The pending status pass would fire after the window is gone.
+    if (this.#statusDue !== null) window.clearTimeout(this.#statusDue);
+    this.#statusDue = null;
     for (const w of [...this.#inviteWaits]) w();
   }
 
@@ -1211,7 +1214,7 @@ export class SectionsHost {
 
   /** Recomputes the sections' statuses soon (several triggers make one pass). */
   scheduleStatus(): void {
-    if (this.#statusDue !== null) return;
+    if (this.#stopped || this.#statusDue !== null) return;
     this.#statusDue = window.setTimeout(() => {
       this.#statusDue = null;
       void this.#refreshStatus().catch(() => undefined);
