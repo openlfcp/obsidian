@@ -1054,7 +1054,12 @@ export class SectionEngine {
       baseState,
       note.state,
       shared,
-      new Set([...(ctx.cut ?? []), ...ctx.deletedIds, ...(ctx.inserted ?? [])]),
+      new Set([
+        ...(ctx.cut ?? []),
+        ...ctx.deletedIds,
+        ...(stored.deleted ?? []),
+        ...(ctx.inserted ?? []),
+      ]),
     );
     const reappeared = Object.keys(note.state.nodes).filter(
       (id) => snap.nodes[id]?.lifecycle === "deleted",
@@ -1167,7 +1172,11 @@ export class SectionEngine {
     );
     const adoptedBase =
       adopted.length === 0 ? baseState : withRestored(baseState, note.state, adopted);
-    const removedHere = (id: string) => ctx.deletedIds.has(id) || vanished.has(id);
+    // LFCP-03-055: removals an earlier pass could not send (the section was
+    // suspended by a lost binding) are still the user's.
+    const earlier = new Set(stored.deleted ?? []);
+    const removedHere = (id: string) =>
+      ctx.deletedIds.has(id) || vanished.has(id) || earlier.has(id);
     const deletes = [...new Set([...comp.deletes, ...comp.lost.filter(removedHere)])];
     const lost = comp.lost.filter((id) => !removedHere(id));
     /** The stored base with the batches this pass resumed (and finishes), nothing else. */
@@ -1177,7 +1186,23 @@ export class SectionEngine {
       ...(stored.revision === undefined ? {} : { revision: stored.revision }),
       ...(stored.nodeRevisions === undefined ? {} : { nodeRevisions: stored.nodeRevisions }),
     };
-    if (lost.length > 0)
+    if (lost.length > 0) {
+      // The removals this pass could not send, kept for the next one (a
+      // deletion made while suspended is not a lost binding too).
+      const unsentRemoved = comp.lost.filter(removedHere).sort();
+      const changed = JSON.stringify(unsentRemoved) !== JSON.stringify([...earlier].sort());
+      const suspendedBase: StoredBase | undefined =
+        entries.length > 0
+          ? { ...resumedBase, ...(unsentRemoved.length === 0 ? {} : { deleted: unsentRemoved }) }
+          : changed
+            ? (() => {
+                const { deleted: _d, ...rest } = stored;
+                return {
+                  ...rest,
+                  ...(unsentRemoved.length === 0 ? {} : { deleted: unsentRemoved }),
+                };
+              })()
+            : undefined;
       // NODE_BINDING_LOST (§7, MS18, MS21): the section's publication is
       // suspended until the binding is repaired; the base stays as it was,
       // but for the batches resumed here: their operations finish once the
@@ -1190,10 +1215,11 @@ export class SectionEngine {
           lost,
           held: [],
           entries,
-          ...(entries.length > 0 ? { base: resumedBase } : {}),
+          ...(suspendedBase === undefined ? {} : { base: suspendedBase }),
         },
         changes: resumedChanges,
       };
+    }
     const revisionOf = (id: string) => {
       if (id in pendingMarks) return null;
       if (healing.has(id)) return snap.revision;
