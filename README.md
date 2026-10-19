@@ -15,38 +15,43 @@ Website: [openlfcp.org](https://openlfcp.org)
 ## Quick start
 
 Shared Tasks 0.5 leads you through sharing, inviting and joining from a
-visible pane and from a card on the section, so you do not need to know the
-commands. (Stable 0.5.0 reaches Community plugins at its release; until then
+visible pane and from a card on the section, so you don't have to learn the
+commands. Everything about sections (share, invite, join, insert, repair,
+conflicts, copy, detach) is in the pane and the card; single tasks are still
+shared with commands. The pane and its dialogs work from the keyboard. (Stable 0.5.0 reaches Community plugins at its release; until then
 0.5.0 pre-releases are installed with BRAT, see [Install](#install).)
 
 1. **Install.** In Obsidian 1.13.4 or later, open Settings → Community
-   plugins → Browse, search for "Shared Tasks", install it and enable it.
+   plugins → Browse, search for "Shared Tasks", install it and enable it
+   (0.5.0 once released; until then the beta via BRAT, see below).
 2. **Open the pane.** Click the Shared Tasks icon in the ribbon. The pane
    follows the note you are in and offers the next step for the cursor. The
    first time, short tips explain what each action does; "Hide tip" hides
    one and "Show tips again" brings them back.
 
-   ![The Shared Tasks pane the first time it is opened, next to a note](docs/assets/screenshots/01-pane-first-use.png)
+   ![The Shared Tasks pane the first time it is opened, next to a note](docs/assets/screenshots/01-pane-first-use-light.png)
 3. **Share.** Put the cursor on a heading. The pane offers "Share
    section…" and shows what will be shared and what stays private before
    you confirm. Then it offers "Invite collaborator…": choose Read or
    Read + write and copy the one-time link. **Send it privately**; Shared
    Tasks does not send it.
 
-   ![Sharing a section and inviting from the pane](docs/assets/screenshots/02-share-invite.png)
+   ![Sharing a section and inviting from the pane](docs/assets/screenshots/02-share-invite-light.png)
 4. **Join.** Your collaborator opens their pane, chooses "Join with a
    link…" and pastes the link. The pane shows each step, then asks which
    note to put the section in and previews the result.
 
-   ![Joining with a link and choosing where to insert, with a preview](docs/assets/screenshots/03-join-insert-preview.png)
+   ![Joining with a link and choosing where to insert, with a preview](docs/assets/screenshots/03-join-insert-preview-light.png)
 5. **Work together.** Edits sync both ways, offline too. When something
-   needs you, the pane's problem list opens the matching fix in one click.
+   needs you, the pane's problem list opens the matching fix.
 
 The same steps work from the command palette ("Shared Tasks: Share
 section…", "Invite collaborator", "Join collaboration", "Insert shared
-section…"); the commands keep their names. Step by step, with everyday use
-and troubleshooting:
-**[the user guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md)**.
+section…"); the commands keep their names and have no default hotkeys (assign
+them in Obsidian's Hotkeys settings). Step by step, with everyday use and
+troubleshooting:
+**[the user guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md)**
+(describes the command flow of 0.4; the pane is described above).
 
 <!-- TODO(LFCP-03-069): the screenshot files in docs/assets/screenshots/ are
 produced separately (light and dark); the links above are placeholders until
@@ -54,13 +59,14 @@ they land. -->
 
 ## What it does
 
-- **Collaboration without the command palette.** A visible pane and a
+- **Collaboration without learning the commands.** A visible pane and a
   card on each shared section lead you from Share to Invite, and from Join
   to choosing where the section goes.
 - **Problems with a way out.** The pane lists what needs attention (a
   conflict, a line that went missing) and opens the matching fix.
-- **Picks up where you left off.** A share, an insert or a join cut short by
-  closing Obsidian continues after the restart instead of starting over.
+- **Nothing half-done is lost.** A share cut short by closing Obsidian resumes
+  by itself after the restart; an unfinished insert or join is listed in the pane,
+  where you continue it or check the result.
 - **Share one task, not your vault.** Put the cursor on a task and share
   it; the rest of the note stays on your device.
 - **Invite with a one-time link.** The other person joins with it, from
@@ -111,7 +117,8 @@ Upgrading from 0.1.0, which was called "OpenLFCP": see
 
 ## Your first shared section
 
-New here? The [step-by-step guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md) covers setup
+New here? The [step-by-step guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md)
+(describes the command flow of 0.4; the pane is described above) covers setup
 and everyday use, including what to do when something goes wrong.
 
 Two people, each with their own vault and Shared Tasks installed. You can
@@ -133,15 +140,15 @@ do all of it from the pane; the matching commands are in brackets.
 4. **Work together.** When either of you ticks a task or edits a line, the
    other note shows it within seconds.
 
-   ![Two vaults, one shared section, in sync](docs/assets/screenshots/04-two-vaults-synced.png)
+   ![Two vaults, one shared section, in sync](docs/assets/screenshots/04-two-vaults-synced-light.png)
 5. **If something needs you,** the pane's problem list says what and opens
    the conflict dialog or "Repair shared sections in this note".
 
-   ![The problem list of the pane with a direct way to the fix](docs/assets/screenshots/05-problem-hub.png)
+   ![The problem list of the pane with a direct way to the fix](docs/assets/screenshots/05-problem-hub-light.png)
 
 The section card, shown beside a shared heading, offers the same next step:
 
-![The card of a shared section](docs/assets/screenshots/06-section-card.png)
+![The card of a shared section](docs/assets/screenshots/06-section-card-light.png)
 
 ### One task at a time
 
