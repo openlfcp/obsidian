@@ -18,9 +18,9 @@ for mode in light dark; do
   done
 done
 
-# The demo, light theme, 2 -> 3 -> 4: invite, join, insert, then A's edit seen by B.
+# The demo, light theme, 2 -> 3 -> 4: invite, join, insert (the insert preview, frame 08, is left out: its button overlaps the text), then A's edit seen by B.
 # Each frame 2.5 s, 960 px wide for the invite, join and insert frames, the pair 1920 -> 960 wide.
-frames=(05-invite-link 06-join-field 07-join-ready-to-insert 08-insert-preview 09-inserted 10-sync-a-to-b-pair 11-sync-b-to-a-pair)
+frames=(05-invite-link 06-join-field 07-join-ready-to-insert 09-inserted 10-sync-a-to-b-pair 11-sync-b-to-a-pair)
 list=$(mktemp)
 for f in "${frames[@]}"; do
   src="$out/$f-light.png"
