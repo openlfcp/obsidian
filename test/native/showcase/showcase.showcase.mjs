@@ -45,7 +45,7 @@ const A_FILE = "Team offsite.md";
 const B_FILE = "Trip prep.md";
 const TITLE = "Packing list";
 const A_TEXT = [
-  "# Team offsite",
+  "# June offsite",
   "",
   "Planning notes for the June offsite.",
   "",
@@ -98,6 +98,9 @@ const mask = (h, who) =>
       const obs = new MutationObserver(sweep);
       obs.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["aria-label", "title"] });
       window.__lfcpMask = obs;
+      const css = document.createElement("style");
+      css.textContent = ".status-bar-item.plugin-sync { display: none !important; }";
+      document.head.appendChild(css);
       sweep();
       return real;
     },
@@ -126,15 +129,32 @@ const setTheme = (h, mode) =>
   on(
     h,
     async ({ app }, mode) => {
-      const want = mode === "dark" ? "obsidian" : "moonstone";
-      if (typeof app.setTheme === "function") app.setTheme(want);
-      else {
-        app.vault.setConfig("theme", want);
-        app.updateTheme?.();
+      const dark = mode === "dark";
+      const is = () => document.body.classList.contains("theme-dark") === dark;
+      const wait = async () => {
+        for (let i = 0; i < 40 && !is(); i++) await new Promise((r) => setTimeout(r, 50));
+        return is();
+      };
+      const tries = [
+        () => app.setTheme?.(dark ? "obsidian" : "moonstone"),
+        () => {
+          app.vault.setConfig("theme", dark ? "obsidian" : "moonstone");
+          app.updateTheme?.();
+        },
+        () => app.setTheme?.(dark ? "dark" : "light"),
+        // Last resort: the classes Obsidian's own stylesheet keys on.
+        () => {
+          document.body.classList.toggle("theme-dark", dark);
+          document.body.classList.toggle("theme-light", !dark);
+        },
+      ];
+      for (let i = 0; i < tries.length; i++) {
+        try {
+          tries[i]();
+        } catch {}
+        if (await wait()) return { ok: true, method: i };
       }
-      for (let i = 0; i < 60 && document.body.classList.contains("theme-dark") !== (mode === "dark"); i++)
-        await new Promise((r) => setTimeout(r, 50));
-      return document.body.classList.contains("theme-dark");
+      return { ok: false, method: -1 };
     },
     mode,
   );
@@ -142,7 +162,11 @@ const setTheme = (h, mode) =>
 /** One moment, both themes: a frame of each host in `who`. Ends in the light theme. */
 async function snap(name, who = ["A"]) {
   for (const mode of ["light", "dark"]) {
-    for (const w of who) expect(await setTheme(hosts[w], mode)).toBe(mode === "dark");
+    for (const w of who) {
+      const r = await setTheme(hosts[w], mode);
+      if (r.method !== 0) evidence("SHOWCASE theme method", { w, mode, ...r });
+      expect(r.ok).toBe(true);
+    }
     await hosts.A.pause(500);
     for (const w of who) {
       expect(await leaks(hosts[w])).toEqual([]);
@@ -548,7 +572,7 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
     );
     await hosts.B.waitUntil(async () => (await noteOf(hosts.B, B_FILE)).includes("Bring the speakers"), { timeout: 60_000, timeoutMsg: "A's new Task in B's note" });
     await converged("A's edit");
-    await snap("10-sync-alex-edits", ["A", "B"]);
+    await snap("10-sync-a-to-b", ["A", "B"]);
     await on(
       hosts.B,
       ({ app }, file) => {
@@ -563,7 +587,7 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
     );
     await hosts.A.waitUntil(async () => /\[x\] Order name badges/.test(await noteOf(hosts.A, A_FILE)), { timeout: 60_000, timeoutMsg: "B's ticked Task in A's note" });
     await converged("B's edit");
-    await snap("11-sync-sam-edits", ["A", "B"]);
+    await snap("11-sync-b-to-a", ["A", "B"]);
   });
 
   it("12-14 A: a damaged boundary is a problem row in the pane; Repair shared sections… fixes it", async () => {
