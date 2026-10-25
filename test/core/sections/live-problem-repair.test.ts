@@ -18,7 +18,9 @@ import type {
   TextChange,
 } from "../../../src/core/sections/action-ports";
 import { SectionActions } from "../../../src/core/sections/actions";
+import { sectionKey } from "../../../src/core/sections/context";
 import { applyChanges } from "../../../src/core/sections/engine";
+import { parseBoundary } from "../../../src/core/sections/grammar";
 import { keyedRepairs, type RepairItem } from "../../../src/core/sections/repair";
 import {
   KeyValueSectionBaseStore,
@@ -90,6 +92,7 @@ function executor(p: Peer) {
       task: (r: string, id: string) => p.port.task(r, id),
     }),
     bases: () => new KeyValueSectionBaseStore(p.runtime.localState),
+    sectionChoices: async () => [],
     candidates: () => new KeyValueSectionJournalStore(p.runtime.localState),
     unavailable: () => null,
     readOnly: () => false,
@@ -166,6 +169,61 @@ describe.skipIf(skip !== null)("a held edit after a repair (U03-16)", () => {
     await waitFor(async () => {
       await b.pass("B.md");
       return (b.files.get("B.md") as string).includes("Alpha edited while damaged")
+        ? true
+        : undefined;
+    }, 30_000);
+  }, 120_000);
+
+  it("a letter typed into the start marker: one Restore from its row, then the edit reaches the peer (UX-05)", async () => {
+    const a = await peer(server.url);
+    stopping.push(a);
+    a.files.set("A.md", NOTE);
+    const { resource } = await a.share("A.md", "## Plan");
+    await a.pass("A.md");
+    const b = await peer(server.url);
+    stopping.push(b);
+    b.files.set("B.md", ["# B", "", "Insert below.", ""].join("\n"));
+    await b.joinAndInsert((await a.collab.invite(resource, "read-write")).link.reveal(), "B.md", 3);
+    await waitFor(async () =>
+      (b.files.get("B.md") as string).includes("Beta") ? true : undefined,
+    );
+
+    // The collaborator's typo: an "h" in the start marker, and an edit under it.
+    const shared = a.files.get("A.md") as string;
+    const startLine = shared.split("\n").find((l) => l.startsWith("<!-- lfcp-section: ")) as string;
+    const marker = parseBoundary(startLine);
+    if (marker === null || marker.kind === "malformed") throw new Error("no start marker");
+    const typed = startLine.replace("lfcp1:", "hlfcp1:");
+    a.files.set(
+      "A.md",
+      shared.replace(startLine, typed).replace("- [ ] Alpha", "- [ ] Alpha typed while damaged"),
+    );
+    expect((await a.pass("A.md")).pass.sections).toEqual([]);
+
+    // One problem, found by its key with the held section: not two.
+    const now = a.files.get("A.md") as string;
+    const rows = keyedRepairs(now, [sectionKey(marker.ref)]);
+    expect(rows.map((k) => k.item.kind)).toEqual(["restore"]);
+    const row = rows[0];
+    if (row === undefined) throw new Error("no row");
+    const x = executor(a);
+    await x.actions.repairProblem({
+      path: "A.md",
+      key: row.key,
+      line: row.item.line,
+      revision: contentHash(now),
+    });
+    // No dialog: the line is rewritten, nothing else; the pass runs on the note.
+    expect(x.repairs).toEqual([]);
+    expect(x.passed).toEqual(["A.md"]);
+    expect(a.files.get("A.md")).toBe(now.replace(typed, startLine));
+
+    const { pass } = await a.pass("A.md");
+    expect(pass.sections).toHaveLength(1);
+    expect(pass.sections[0]?.skipped).toBeUndefined();
+    await waitFor(async () => {
+      await b.pass("B.md");
+      return (b.files.get("B.md") as string).includes("Alpha typed while damaged")
         ? true
         : undefined;
     }, 30_000);

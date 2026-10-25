@@ -11,6 +11,7 @@ function buttons(lost: LostBase) {
   const chosen: string[] = [];
   const actions: RepairActions = {
     boundary: async () => undefined,
+    restore: async () => undefined,
     locate: () => undefined,
     shareMine: async (key) => {
       chosen.push(`mine ${key}`);

@@ -22,6 +22,7 @@
     { "id": "review-local-changes", "label": "Review local changes", "destructive": false },
     { "id": "review-conflicts", "label": "Review conflicts…", "destructive": false },
     { "id": "repair-sections", "label": "Repair shared sections…", "destructive": false },
+    { "id": "restore-marker", "label": "Restore", "destructive": false },
     { "id": "go-to-problem", "label": "Go to the problem", "destructive": false },
     { "id": "check-result", "label": "Check the result", "destructive": false },
     { "id": "continue-flow", "label": "Continue", "destructive": false },

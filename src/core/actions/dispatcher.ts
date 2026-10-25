@@ -197,6 +197,10 @@ export function coreHandlers(env: {
       else if (r.at !== undefined) await a.repairAt(r.at.path);
       else if (r.flow !== undefined) await a.continueFlow(r.flow);
     },
+    "restore-marker": async (r) => {
+      const a = env.sections();
+      if (a !== null && r.problem?.kind === "repair") await a.repairProblem(r.problem);
+    },
     "detach-section": withTarget((a, at) => a.detachSectionAt(at)),
     "open-details": card,
     // UX §3: the card, at its sync facts, its held edits, its access list (where removal is asked).

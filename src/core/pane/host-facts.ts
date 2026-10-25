@@ -25,7 +25,7 @@ import type { ActionRequest } from "../actions/dispatcher";
 import type { JoinFlowState } from "../collab/join-flow";
 import { contentHash } from "../projection/guard";
 import type { ActiveFlow } from "../sections/actions";
-import { sectionAtLine } from "../sections/context";
+import { sectionAtLine, sectionKey } from "../sections/context";
 import type { RecoveryItem } from "../sections/recovery";
 import type { RegistryRow, RegistrySnapshot } from "../sections/registry-view";
 import { keyedRepairs } from "../sections/repair";
@@ -172,7 +172,10 @@ export function unknownStatus(): StatusView {
   });
 }
 
-function registryOf(s: RegistrySnapshot | null): PaneRegistry {
+function registryOf(
+  s: RegistrySnapshot | null,
+  damaged: ReadonlySet<string> = new Set(),
+): PaneRegistry {
   if (s === null) return OFF;
   return {
     status: s.status,
@@ -186,6 +189,7 @@ function registryOf(s: RegistrySnapshot | null): PaneRegistry {
       localAlias: r.localAlias,
       notes: r.placements.map((p) => p.path),
       placed: r.placed,
+      ...(damaged.has(r.key ?? r.resource) ? { damaged: true as const } : {}),
       state: r.status.state,
       label: r.status.label,
     })),
@@ -226,6 +230,7 @@ function sectionOf(
   at: { key: string; title: string },
   rows: readonly RegistryRow[],
   src: PaneHostSources,
+  damaged: ReadonlySet<string>,
 ): PaneSection {
   const row = rows.find((r) => r.key === at.key);
   const access = src.access?.(at.key);
@@ -239,6 +244,7 @@ function sectionOf(
       (row !== undefined && row.localAlias !== null ? null : at.title === "" ? null : at.title),
     localAlias: row?.localAlias ?? null,
     placements: row?.placementCount ?? null,
+    ...(damaged.has(at.key) ? { damaged: true as const } : {}),
     view: src.status(at.key) ?? unknownStatus(),
     // The access list's (AccessView, the card's): unknown until read, never a default.
     canInvite: access?.canInvite ?? null,
@@ -424,16 +430,27 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     ...(inviting && flow !== null ? [flow, ...others] : others).map(paneFlow),
     ...(join !== null && !joining ? [joinFlow(join)] : []),
   ];
-  const section = at === null ? null : sectionOf(at, rows, src);
+  // The sections this device holds: a damaged marker of one of them can be restored.
+  const repairs = noteRepairs(
+    note,
+    rows.flatMap((r) => r.key ?? []),
+  );
+  // Sections whose copy in this note is damaged: in the note, not "not inserted yet".
+  const damaged = new Set(
+    (repairs?.items ?? []).flatMap((k) =>
+      k.item.kind === "restore" ? sectionKey(k.item.ref) : [],
+    ),
+  );
+  const section = at === null ? null : sectionOf(at, rows, src, damaged);
   const problems = paneProblems({
     // A section whose status is not computed yet has no problems to claim.
     view: at === null || src.status(at.key) === undefined ? null : (section?.view ?? null),
     recovery: at === null ? [] : (src.recovery?.(at.key) ?? []),
-    repairs: noteRepairs(note),
+    repairs,
   });
   const facts: PaneFacts = {
     context,
-    registry: registryOf(src.registry),
+    registry: registryOf(src.registry, damaged),
     section,
     ...(unfinished.length === 0 ? {} : { unfinished }),
     host: src.host ?? RUNNING,
@@ -516,6 +533,7 @@ const ABOUT_A_SECTION: ReadonlySet<ActionId> = new Set<ActionId>([
 /** The last note text parsed for repairs, and what it gave: a redraw of the same text parses nothing. */
 let lastRepairs: {
   readonly text: string;
+  readonly held: string;
   readonly items: NoteRepairs["items"];
   readonly revision: string;
 } | null = null;
@@ -525,12 +543,17 @@ let lastRepairs: {
  * when there are some). Memoized by the note's text: most redraws (a cursor
  * move, a status change) see the same text, and parse it once.
  */
-export function noteRepairs(note: TargetCapture | null): NoteRepairs | null {
+export function noteRepairs(
+  note: TargetCapture | null,
+  held: readonly string[] = [],
+): NoteRepairs | null {
   if (note === null) return null;
-  if (lastRepairs?.text !== note.text) {
-    const items = keyedRepairs(note.text);
+  const heldKey = held.join(",");
+  if (lastRepairs?.text !== note.text || lastRepairs.held !== heldKey) {
+    const items = keyedRepairs(note.text, held);
     lastRepairs = {
       text: note.text,
+      held: heldKey,
       items,
       revision: items.length === 0 ? "" : contentHash(note.text),
     };

@@ -110,6 +110,8 @@ export interface PaneRow {
   readonly notes: readonly string[];
   /** "unplaced" only with a complete placement index (registry-view.ts). */
   readonly placed: "placed" | "unplaced" | "unknown";
+  /** Its copy in the note in view has a damaged marker (the note does not count it as a copy). */
+  readonly damaged?: true;
   /** null: unknown, never healthy. */
   readonly state: StatusState | null;
   /** The status in the view's own words (StatusView.label), as the card and the badge say it. */
@@ -136,6 +138,8 @@ export interface PaneSection {
   readonly localAlias: string | null;
   /** Notes with a copy; null until the placement index is complete. */
   readonly placements: number | null;
+  /** Its copy in the note in view has a damaged marker: it is there, not "not inserted yet". */
+  readonly damaged?: true;
   /** The one status path (StatusView of SectionsHost). */
   readonly view: StatusView;
   /** From the access list (AccessView), not the status facts; null: not known. */
@@ -349,6 +353,9 @@ export function paneFocus(keys: {
   return keys.underCursor ?? keys.chosen ?? keys.justJoined;
 }
 
+/** A section whose copy in this note has a damaged marker. */
+const DAMAGED_HERE = "Damaged in this note";
+
 const DENIED = new Set(["refused", "revoked", "not-member"]);
 
 /** Row 6 of P1: the first source condition, mapped by that projection's own facts. */
@@ -474,7 +481,9 @@ function sectionLabel(s: Pick<PaneSection, "sharedTitle" | "localAlias">): {
 function placementText(
   placements: number | null,
   index: PaneRegistry["placementIndex"],
+  damaged = false,
 ): string | null {
+  if (damaged && placements === 0) return DAMAGED_HERE;
   if (placements === null || (placements === 0 && index !== "complete"))
     return index === "building" ? "Looking for copies in your notes…" : null;
   if (placements === 0) return "Not inserted yet";
@@ -586,11 +595,13 @@ function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGrou
       alias: l.alias,
       status: row.state === null ? "Status not known yet" : (row.label ?? STATE_LABEL[row.state]),
       places:
-        row.placed === "unplaced"
-          ? "Not inserted yet"
-          : row.placed === "unknown"
-            ? "Looking for copies in your notes…"
-            : `In ${plural(row.notes.length, "note")}`,
+        row.damaged === true && row.placed === "unplaced"
+          ? DAMAGED_HERE
+          : row.placed === "unplaced"
+            ? "Not inserted yet"
+            : row.placed === "unknown"
+              ? "Looking for copies in your notes…"
+              : `In ${plural(row.notes.length, "note")}`,
     };
   };
   const note = f.context.note;
@@ -598,19 +609,26 @@ function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGrou
     {
       id: "in-note",
       title: "In this note",
-      rows: rows.filter((x) => note !== null && x.notes.includes(note)).map(view),
+      rows: rows
+        .filter((x) => (note !== null && x.notes.includes(note)) || x.damaged === true)
+        .map(view),
     },
     {
       id: "elsewhere",
       title: "Placed elsewhere",
       rows: rows
-        .filter((x) => x.placed === "placed" && (note === null || !x.notes.includes(note)))
+        .filter(
+          (x) =>
+            x.placed === "placed" &&
+            x.damaged !== true &&
+            (note === null || !x.notes.includes(note)),
+        )
         .map(view),
     },
     {
       id: "not-inserted",
       title: "Not inserted yet",
-      rows: rows.filter((x) => x.placed === "unplaced").map(view),
+      rows: rows.filter((x) => x.placed === "unplaced" && x.damaged !== true).map(view),
     },
     {
       id: "unknown",
@@ -640,17 +658,36 @@ function availability(f: PaneFacts): Map<ActionId, Avail> {
   return a;
 }
 
+/**
+ * The action that fixes a damaged section boundary of the note in view
+ * (UX-06): the first boundary problem row of that note with its own fix.
+ */
+function noteFix(f: PaneFacts): ActionId | null {
+  const note = f.context.note;
+  if (note === null) return null;
+  for (const p of f.problems ?? [])
+    if (
+      p.category === "boundary" &&
+      (p.action === "restore-marker" || p.action === "repair-sections") &&
+      p.ref?.kind === "repair" &&
+      p.ref.path === note
+    )
+      return p.action;
+  return null;
+}
+
 /** P1: the first matching row decides the primary action; null with the reason when none. */
 function primaryOf(
   f: PaneFacts,
   a: ReadonlyMap<ActionId, Avail>,
 ): { id: ActionId | null; none: string | null } {
+  type Pick = { id: ActionId | null; none: string | null; fix?: true };
   const ctx = f.context;
   const s = f.section;
   const v = s?.view;
   const conditions = v?.conditions ?? [];
   const flow = ctx.flow;
-  const ordinary = (): { id: ActionId | null; none: string | null } => {
+  const ordinary = (): Pick => {
     if (f.setup) return { id: "open-settings", none: null };
     if (ctx.editor === "none")
       return {
@@ -667,8 +704,12 @@ function primaryOf(
         ? { id: null, none: NO_PRIMARY.noSection }
         : { id: "share-whole-section", none: null };
     if (ctx.cursor === "private-heading") return { id: "share-section", none: null };
+    // UX-06: a damaged marker in this note is fixed before anything else is offered
+    // (a share the cursor or selection asks for stays first).
+    const fix = noteFix(f);
+    if (fix !== null) return { id: fix, none: null, fix: true };
     if (s !== null && v !== undefined) {
-      if (s.placements === 0 && f.registry.placementIndex === "complete")
+      if (s.placements === 0 && s.damaged !== true && f.registry.placementIndex === "complete")
         return { id: "insert-into-note", none: null };
       if (a.get("invite")?.enabled === true && v.sync.current) return { id: "invite", none: null };
       return { id: "open-details", none: null };
@@ -678,7 +719,7 @@ function primaryOf(
       none: NO_PRIMARY.noHeading,
     };
   };
-  const pick = (): { id: ActionId | null; none: string | null } => {
+  const pick = (): Pick => {
     const first = conditions[0];
     // Row 1: a local save failure comes before everything, flows too.
     if (first?.kind === "save-failed") return { id: "open-details", none: null };
@@ -736,6 +777,8 @@ function primaryOf(
   // T4: in Reading view a source-changing primary becomes "Open for editing".
   if (p.id !== null && ctx.editor === "reading" && SOURCE_CHANGING.has(p.id))
     return { id: "open-for-editing", none: null };
+  // The fix of a damaged marker is the problem row's own action: it needs no section status.
+  if (p.fix === true) return { id: p.id, none: null };
   if (p.id !== null && a.get(p.id)?.enabled !== true)
     return { id: null, none: a.get(p.id)?.reason ?? "Not available now." };
   return p;
@@ -749,12 +792,11 @@ function primaryOf(
  */
 function problemViews(f: PaneFacts, primary: ActionId | null): PaneProblemView[] {
   const rows = f.problems ?? [];
-  const sole =
-    primary === "review-conflicts" &&
-    rows.filter((r) => r.action === "review-conflicts").length === 1;
+  const sole = (id: ActionId) => primary === id && rows.filter((r) => r.action === id).length === 1;
+  const same = (id: ActionId) => sole(id) && (id === "review-conflicts" || id === "restore-marker");
   return rows.map((r) => {
     const v = problemView(f, r);
-    return sole && r.action === "review-conflicts" ? { ...v, action: null } : v;
+    return r.action !== null && same(r.action) ? { ...v, action: null } : v;
   });
 }
 
@@ -768,7 +810,7 @@ function problemView(f: PaneFacts, p: PaneProblem): PaneProblemView {
     const refusal = hostRefusal(f.host ?? RUNNING);
     const path = p.ref === null || p.ref.kind === "conflict" ? null : p.ref.path;
     const reading =
-      p.action === "repair-sections" &&
+      (p.action === "repair-sections" || p.action === "restore-marker") &&
       f.context.editor === "reading" &&
       path !== null &&
       path === f.context.note;
@@ -807,7 +849,7 @@ function contextArea(f: PaneFacts): { heading: string; lines: string[] } {
     const l = sectionLabel(s);
     lines.push(l.label);
     if (l.alias !== null) lines.push(l.alias);
-    const places = placementText(s.placements, f.registry.placementIndex);
+    const places = placementText(s.placements, f.registry.placementIndex, s.damaged === true);
     if (places !== null) lines.push(places);
   }
   const sel = ctx.selection;
