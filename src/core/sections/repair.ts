@@ -128,6 +128,13 @@ function titleAbove(lines: readonly { readonly text: string }[], line: number): 
   return null;
 }
 
+/** A readable boundary marker of the note. */
+interface IntactMarker {
+  readonly line: number;
+  readonly boundary: "start" | "end";
+  readonly ref: SectionRef;
+}
+
 /**
  * A malformed boundary line's restore: the one held section whose start or
  * end marker is within RESTORE_DISTANCE of the line. Two candidates, or
@@ -137,14 +144,31 @@ function restoreOf(
   lines: readonly { readonly text: string }[],
   line: number,
   held: readonly SectionRef[],
+  intact: readonly IntactMarker[],
+  mates: ReadonlySet<string>,
 ): Extract<RepairItem, { kind: "restore" }> | null {
   const original = lines[line]?.text ?? "";
-  const boundary = SLASH.test(original) ? "end" : "start";
-  const near = held
-    .map((ref) => ({ ref, text: formatBoundary(boundary, ref) }))
-    .filter((c) => editDistance(original.trim(), c.text, RESTORE_DISTANCE) <= RESTORE_DISTANCE);
-  const only = near[0];
-  if (near.length !== 1 || only === undefined) return null;
+  // The slash says which boundary it was; with a typo that could be either, the
+  // one that pairs with a marker left without its mate is the cause.
+  const candidates = held.flatMap((ref) =>
+    (["start", "end"] as const).map((boundary) => ({
+      ref,
+      boundary,
+      text: formatBoundary(boundary, ref),
+    })),
+  );
+  const near = candidates.filter(
+    (c) => editDistance(original.trim(), c.text, RESTORE_DISTANCE) <= RESTORE_DISTANCE,
+  );
+  const spelled = SLASH.test(original) ? "end" : "start";
+  const bySlash = near.filter((c) => c.boundary === spelled);
+  const pairing = near.filter((c) => mates.has(`${c.boundary}:${sectionKey(c.ref)}`));
+  const pool = bySlash.length > 0 ? bySlash : pairing;
+  const only = pool[0];
+  if (pool.length !== 1 || only === undefined) return null;
+  // A section that already has an intact marker of this kind would have two.
+  if (intact.some((m) => m.boundary === only.boundary && sameSection(m.ref, only.ref))) return null;
+  const boundary = only.boundary;
   return {
     kind: "restore",
     line,
@@ -168,17 +192,38 @@ export function repairItems(markdown: string, held: readonly string[] = []): Rep
   const refs = held.flatMap((k) => heldRef(k) ?? []);
   const out: RepairItem[] = [];
   /** A damaged marker line and, when known, the section it belongs to. */
-  const damagedMarkers: { line: number; ref: SectionRef | null }[] = [];
+  const damagedMarkers: {
+    line: number;
+    boundary: "start" | "end";
+    ref: SectionRef | null;
+  }[] = [];
+  const intact: IntactMarker[] = [];
+  /** The marker each orphan needs: "start:<key>" for an end without its start. */
+  const mates = new Set<string>();
+  lines.forEach((l, line) => {
+    const m = parseBoundary(l.text);
+    if (m !== null && m.kind !== "malformed") intact.push({ line, boundary: m.kind, ref: m.ref });
+  });
+  for (const d of scan.diagnostics)
+    if (d.code === "SECTION_BOUNDARY_MISSING") {
+      const m = intact.find((x) => x.line === d.line);
+      if (m !== undefined)
+        mates.add(`${m.boundary === "start" ? "end" : "start"}:${sectionKey(m.ref)}`);
+    }
   for (const d of scan.diagnostics) {
     if (d.severity === "info" || d.code === "SECTION_PRIVATE_TAIL") continue;
     if (d.code === "SECTION_MARKER_MALFORMED") {
-      const restore = restoreOf(lines, d.line, refs);
+      const restore = restoreOf(lines, d.line, refs, intact, mates);
       if (restore !== null) {
         out.push(restore);
-        damagedMarkers.push({ line: d.line, ref: restore.ref });
+        damagedMarkers.push({ line: d.line, boundary: restore.boundary, ref: restore.ref });
         continue;
       }
-      damagedMarkers.push({ line: d.line, ref: null });
+      damagedMarkers.push({
+        line: d.line,
+        boundary: SLASH.test(lines[d.line]?.text ?? "") ? "end" : "start",
+        ref: null,
+      });
     }
     if (d.code === "SECTION_BOUNDARY_MISSING") {
       const marker = parseBoundary(lines[d.line]?.text ?? "");
@@ -216,15 +261,28 @@ export function repairItems(markdown: string, held: readonly string[] = []): Rep
   return out.filter((item) => {
     if (item.kind !== "missing-start" && item.kind !== "missing-end") return true;
     // A damaged marker of this section sits where its mate is missing: it is the cause.
+    // It must be the orphan's mate (a damaged start for an end without a start), in the
+    // same block: between the orphan and the nearest readable marker of that section.
+    const mate = item.kind === "missing-start" ? "start" : "end";
+    const others = intact.filter((x) => sameSection(x.ref, item.ref) && x.line !== item.line);
+    const lo = Math.max(-1, ...others.filter((x) => x.line < item.line).map((x) => x.line));
+    const hi = Math.min(
+      lines.length,
+      ...others.filter((x) => x.line > item.line).map((x) => x.line),
+    );
     return !damagedMarkers.some((m) => {
-      const inGap = item.kind === "missing-start" ? m.line < item.line : m.line > item.line;
+      if (m.boundary !== mate) return false;
+      const inGap =
+        item.kind === "missing-start"
+          ? m.line < item.line && m.line > lo
+          : m.line > item.line && m.line < hi;
       if (!inGap) return false;
       if (m.ref !== null) return sameSection(m.ref, item.ref);
       // Not a held section: the orphan marker's own spelling says it is the same one.
-      const orphan = formatBoundary(item.kind === "missing-start" ? "start" : "end", item.ref);
       const text = (lines[m.line]?.text ?? "").trim();
-      const same = SLASH.test(text) === (item.kind === "missing-end");
-      return same && editDistance(text, orphan, RESTORE_DISTANCE) <= RESTORE_DISTANCE;
+      return (
+        editDistance(text, formatBoundary(mate, item.ref), RESTORE_DISTANCE) <= RESTORE_DISTANCE
+      );
     });
   });
 }
