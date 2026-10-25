@@ -405,7 +405,10 @@ export async function inviteToSectionInA(title) {
 
 /** A invites to the section titled `title` (Read + write or Read only) with its own UI; the link. */
 export async function inviteFromA(title, access = "Read + write") {
-  await inviteToSectionInA(title);
+  // The upgrade specs run this on older builds, whose palette invite is a picker of every Resource.
+  const picker = await inA(({ app }) => app.commands.commands["shared-tasks:invite-to-section"] === undefined);
+  if (picker) await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+  else await inviteToSectionInA(title);
   const pick = (label) =>
     inA(async ({}, label) => {
       let items = [];
@@ -415,6 +418,7 @@ export async function inviteFromA(title, access = "Read + write") {
       }
       items.find((x) => x.textContent.includes(label)).click();
     }, label);
+  if (picker) await pick(title);
   await pick(access);
   return inA(async () => {
     let modal;
