@@ -675,10 +675,11 @@ export class Collaboration {
     const c = this.#context();
     const R = parseInviteUri(uri.trim()).resourceId;
     const profiles = this.#o.sections ? [PROFILE_ID, SECTIONS_PROFILE_ID] : [PROFILE_ID];
+    // With shared sections off there is nothing to narrow to: 0.1 is all this device opens,
+    // so the list is never empty and a 0.1 link joins as it did before.
+    const accept = this.#o.sections ? (options.accept ?? "any") : "any";
     const wanted = profiles.filter(
-      (p) =>
-        (options.accept ?? "any") === "any" ||
-        p === (options.accept === "legacy" ? PROFILE_ID : SECTIONS_PROFILE_ID),
+      (p) => accept === "any" || p === (accept === "legacy" ? PROFILE_ID : SECTIONS_PROFILE_ID),
     );
     if (await this.#runtime.hasResource(R)) {
       const profile = (await c.storage.resources.get(R))?.dataProfile;
