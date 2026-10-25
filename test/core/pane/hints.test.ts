@@ -19,6 +19,7 @@ import {
 import { type FixtureFacts, paneFactsOf } from "../../../src/core/pane/mock-facts";
 import {
   EMPTY_SECTIONS,
+  EMPTY_SECTIONS_LEGACY,
   NO_PRIMARY,
   type PaneFacts,
   paneModel,
@@ -52,6 +53,19 @@ const FIRST: PaneFacts = {
   section: null,
   hints: { hidden: [] },
 };
+
+describe("an older task collaboration only (UX-04)", () => {
+  it("the empty list says why it is empty and what to do", () => {
+    const m = model({ ...FIRST, registry: { ...FIRST.registry, legacy: 1 } });
+    expect(m.sections.summary).toBe(EMPTY_SECTIONS_LEGACY);
+    expect(m.sections.summary).toBe(
+      "No shared sections here yet. This device has an older task collaboration, which is not a section. Share a section from a note, or join with a section link.",
+    );
+    expect(model({ ...FIRST, registry: { ...FIRST.registry, legacy: 0 } }).sections.summary).toBe(
+      EMPTY_SECTIONS,
+    );
+  });
+});
 
 describe("first use (U03-01, U03-02)", () => {
   it("leads to share and join, with the first-use tip, and no tour or dialog", () => {

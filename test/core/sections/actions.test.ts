@@ -772,12 +772,16 @@ function fakeInsertion(calls: string[]) {
 
 describe("insert (LFCP-03-008 over 052)", () => {
   const choice = { resource: new Uint8Array(32), sectionId: "s1", title: "Shared" };
-  function insertSetup(choices: (typeof choice)[] | null = [choice]) {
+  function insertSetup(
+    choices: (typeof choice)[] | null = [choice],
+    facts?: { arriving: string[]; legacy: number },
+  ) {
     const calls: string[] = [];
     const insertion = fakeInsertion(calls);
     const t = setup(() => ({
       insertion: () => insertion,
       sectionChoices: async () => choices,
+      ...(facts === undefined ? {} : { noSectionFacts: async () => facts }),
       watch: async () => {
         calls.push("watch");
       },
@@ -899,6 +903,21 @@ describe("insert (LFCP-03-008 over 052)", () => {
     const none = insertSetup([]);
     await none.actions.insertSection(none.editor.at());
     expect(none.prompter.notices).toEqual(["Shared Tasks: no shared section on this device yet."]);
+    const older = insertSetup([], { arriving: [], legacy: 1 });
+    await older.actions.insertSection(older.editor.at());
+    expect(older.prompter.notices).toEqual([
+      "Shared Tasks: no shared sections here yet. This device has an older task collaboration, which is not a section. Share a section from a note, or join with a section link.",
+    ]);
+    const arriving = insertSetup([], { arriving: ["Launch"], legacy: 1 });
+    await arriving.actions.insertSection(arriving.editor.at());
+    expect(arriving.prompter.notices).toEqual([
+      'Shared Tasks: the shared section "Launch" is still arriving on this device. Try again in a moment.',
+    ]);
+    const unnamed = insertSetup([], { arriving: [""], legacy: 0 });
+    await unnamed.actions.insertSection(unnamed.editor.at());
+    expect(unnamed.prompter.notices).toEqual([
+      "Shared Tasks: a shared section is still arriving on this device. Try again in a moment.",
+    ]);
     const starting = insertSetup(null);
     await starting.actions.insertSection(starting.editor.at());
     expect(starting.prompter.notices).toEqual([

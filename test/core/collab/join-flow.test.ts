@@ -6,6 +6,7 @@
 // palette, and no link or secret anywhere in the state.
 
 import { fromBase64url, type ResourceId, toHex } from "@openlfcp/core";
+import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { describe, expect, it } from "vitest";
 import {
@@ -14,7 +15,12 @@ import {
   JoinFlow,
   type JoinFlowState,
 } from "../../../src/core/collab/join-flow";
-import { ALREADY_HELD, REMOVED_REJOIN } from "../../../src/core/collab/messages";
+import {
+  ALREADY_HELD,
+  ALREADY_HELD_LEGACY,
+  LEGACY_LINK_FOR_SECTION,
+  REMOVED_REJOIN,
+} from "../../../src/core/collab/messages";
 import type { JoinOutcome, JoinStage } from "../../../src/core/collab/service";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -40,11 +46,19 @@ type Step = { stages: JoinStage[]; outcome: JoinOutcome } | { throws: Error };
 
 /** A collaboration whose join answers as scripted, and records what it was asked. */
 function scripted(steps: Step[], resume: Awaited<ReturnType<JoinCollab["resumeJoin"]>>[] = []) {
-  const calls = { join: [] as { link: string; name: string }[], resume: 0, abandon: 0 };
+  const calls = {
+    join: [] as { link: string; name: string; accept?: string }[],
+    resume: 0,
+    abandon: 0,
+  };
   let profile: string | null = null;
   const collab: JoinCollab = {
     join: async (link, o) => {
-      calls.join.push({ link, name: o.name });
+      calls.join.push({
+        link,
+        name: o.name,
+        ...(o.accept === undefined ? {} : { accept: o.accept }),
+      });
       const step = steps.shift();
       if (step === undefined) throw new Error("no scripted join");
       if ("throws" in step) throw step.throws;
@@ -121,7 +135,7 @@ describe("the join flow (LFCP-03-015)", () => {
     expect(f.state()).toMatchObject({ stage: "link", outcome: "running", problem: null });
     expect(s.calls.join).toHaveLength(0);
     await f.submit(LINK);
-    expect(s.calls.join).toEqual([{ link: LINK, name: "" }]);
+    expect(s.calls.join).toEqual([{ link: LINK, name: "", accept: "sections" }]);
     const stages = seen.map((x) => x?.stage);
     expect(stages).toContain("claiming capability");
     expect(stages.indexOf("access")).toBeGreaterThan(stages.indexOf("claiming capability"));
@@ -179,6 +193,44 @@ describe("the join flow (LFCP-03-015)", () => {
     f.open();
     await f.submit(LINK);
     expect(notices.at(-1)).toBe(`Shared Tasks: ${ALREADY_HELD}`);
+  });
+
+  it("already joined, a 0.1 Resource: says what it is and what to ask for (UX-04)", async () => {
+    const s = scripted([{ stages: [], outcome: { kind: "already-member", resourceId: R } }]);
+    s.held(PROFILE_ID);
+    const { f, notices } = flow(s.collab);
+    f.open();
+    await f.submit(LINK);
+    expect(notices.at(-1)).toBe(`Shared Tasks: ${ALREADY_HELD_LEGACY}`);
+    expect(ALREADY_HELD_LEGACY).toBe(
+      'This device already joined this link, but it is an older task collaboration, not a shared section. Ask the sender for a link from the section\'s "Invite collaborator…".',
+    );
+  });
+
+  it("a 0.1 link in the pane: refused before the claim, in words, kept in the field (UX-03)", async () => {
+    const s = scripted([
+      { stages: [], outcome: { kind: "other-profile", resourceId: R, profile: PROFILE_ID } },
+    ]);
+    const { f } = flow(s.collab);
+    f.open();
+    await f.submit(LINK);
+    expect(s.calls.join[0]?.accept).toBe("sections");
+    expect(f.state()).toMatchObject({
+      stage: "link",
+      outcome: "running",
+      problemKind: "other-profile",
+      problem: LEGACY_LINK_FOR_SECTION,
+    });
+    expect(LEGACY_LINK_FOR_SECTION).toBe(
+      'This link is for an older task collaboration, not a shared section. Ask the sender for a new link from the section\'s "Invite collaborator…".',
+    );
+  });
+
+  it("the palette's join takes either kind unless told otherwise", async () => {
+    const s = scripted([joinedSection()]);
+    const { f } = flow(s.collab);
+    await f.run(LINK, { name: "", from: "palette" });
+    expect(s.calls.join[0]?.accept).toBe("any");
   });
 
   it("errors by their real cause, kept in the field until the next Join", async () => {

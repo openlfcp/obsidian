@@ -96,8 +96,13 @@ const ALLOWED: readonly { readonly file: string; readonly text: RegExp }[] = [
     file: "src/obsidian/plugin.ts",
     text: /^"another Shared Tasks instance holds this vault's data/,
   },
-  // Said only when the Resource joined is a 0.1 collaboration, not a shared section.
-  { file: "src/core/collab/join-flow.ts", text: /already in that collaboration\./ },
+  // UX-03, UX-04: a 0.1 link or Resource met where a shared section was asked for says what it is.
+  { file: "src/core/collab/messages.ts", text: /an older task collaboration/ },
+  { file: "src/core/pane/model.ts", text: /an older task collaboration, which is not a section/ },
+  {
+    file: "src/core/sections/insert.ts",
+    text: /an older task collaboration, which is not a section/,
+  },
   // "Create collaboration" (0.1 only): its name and its hosting later.
   { file: "src/core/collab/service.ts", text: /^"Give the collaboration a name\."$/ },
   {
@@ -123,10 +128,6 @@ const ALLOWED: readonly { readonly file: string; readonly text: RegExp }[] = [
   {
     file: "src/core/collab/commands.ts",
     text: /^`Shared Tasks: joined "\$\{name\.trim\(\) \|\| "Shared/,
-  },
-  {
-    file: "src/core/collab/commands.ts",
-    text: /^"Shared Tasks: this device is already in that collaboration\."$/,
   },
   {
     file: "src/core/collab/commands.ts",

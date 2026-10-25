@@ -55,6 +55,29 @@ export function insertRefusalMessage(refused: InsertRefusal): string {
   }
 }
 
+/** What this device holds when no section is ready to insert. */
+export interface NoSectionFacts {
+  /** The sections on this device whose model has not loaded yet: their names ("" when none is known). */
+  readonly arriving: readonly string[];
+  /** The 0.1 task collaborations on this device. */
+  readonly legacy: number;
+}
+
+/** What "Insert shared section…" says when no section is loaded: the cause, then the next step. */
+export function noSectionMessage(f: NoSectionFacts | null): string {
+  if (f !== null && f.arriving.length > 0) {
+    const name = f.arriving.length === 1 ? (f.arriving[0]?.trim() ?? "") : "";
+    return f.arriving.length > 1
+      ? `Shared Tasks: ${f.arriving.length} shared sections are still arriving on this device. Try again in a moment.`
+      : name === ""
+        ? "Shared Tasks: a shared section is still arriving on this device. Try again in a moment."
+        : `Shared Tasks: the shared section "${name}" is still arriving on this device. Try again in a moment.`;
+  }
+  if (f !== null && f.legacy > 0)
+    return "Shared Tasks: no shared sections here yet. This device has an older task collaboration, which is not a section. Share a section from a note, or join with a section link.";
+  return "Shared Tasks: no shared section on this device yet.";
+}
+
 export interface InsertPreview {
   readonly resource: string;
   readonly sectionId: string;

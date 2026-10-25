@@ -189,6 +189,9 @@ const SDK_STAGE: Readonly<Record<AcceptInvitationStage, JoinStage>> = {
   "claiming-capability": "claiming capability",
 };
 
+/** Which kind of link a join claims (see `Collaboration.join`). */
+export type JoinAccept = "sections" | "legacy" | "any";
+
 export type JoinOutcome =
   | {
       readonly kind: "joined";
@@ -198,6 +201,12 @@ export type JoinOutcome =
       /** A shared section (MVP 0.2): whether it was ready and fully loaded when the join returned. */
       readonly section?: { readonly loaded: boolean };
     }
+  /**
+   * The link is for a Data Profile this plugin opens, but not the one the
+   * caller asked for (`accept`): refused before the claim, so the invitation
+   * is not used and nothing is stored.
+   */
+  | { readonly kind: "other-profile"; readonly resourceId: ResourceId; readonly profile: string }
   | { readonly kind: "already-member"; readonly resourceId: ResourceId }
   /**
    * This vault was removed from the collaboration (its access revoked, or
@@ -646,7 +655,16 @@ export class Collaboration {
   /** "Join collaboration": claim a bearer invitation (§73) as this vault's identity. */
   async join(
     uri: string,
-    options: { readonly name: string; readonly onStage?: (stage: JoinStage) => void },
+    options: {
+      readonly name: string;
+      readonly onStage?: (stage: JoinStage) => void;
+      /**
+       * Which links to claim: "sections" only a shared section's, "legacy"
+       * only a 0.1 task collaboration's, "any" (default) both. A link of the
+       * other kind is refused before the claim and stays unused.
+       */
+      readonly accept?: JoinAccept;
+    },
   ): Promise<JoinOutcome> {
     const reported = options.onStage ?? (() => undefined);
     let last: JoinStage | null = null;
@@ -657,6 +675,11 @@ export class Collaboration {
     const c = this.#context();
     const R = parseInviteUri(uri.trim()).resourceId;
     const profiles = this.#o.sections ? [PROFILE_ID, SECTIONS_PROFILE_ID] : [PROFILE_ID];
+    const wanted = profiles.filter(
+      (p) =>
+        (options.accept ?? "any") === "any" ||
+        p === (options.accept === "legacy" ? PROFILE_ID : SECTIONS_PROFILE_ID),
+    );
     if (await this.#runtime.hasResource(R)) {
       const profile = (await c.storage.resources.get(R))?.dataProfile;
       if (profile === undefined || !profiles.includes(profile))
@@ -679,10 +702,12 @@ export class Collaboration {
       ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
       timeout: this.#o.sleep(this.#o.joinTimeoutMs),
       // Another profile is refused before the claim, so the link stays unused.
-      dataProfiles: profiles,
+      dataProfiles: wanted,
     });
     if (accepted.kind === "profile-unsupported")
-      return { kind: "needs-newer-version", resourceId: R };
+      return profiles.includes(accepted.dataProfile)
+        ? { kind: "other-profile", resourceId: R, profile: accepted.dataProfile }
+        : { kind: "needs-newer-version", resourceId: R };
     if (accepted.kind === "refused")
       return { kind: "refused", code: accepted.code, message: plainCode(accepted.code) };
     if (accepted.kind === "unavailable") {

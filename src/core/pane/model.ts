@@ -123,6 +123,8 @@ export interface PaneRegistry {
   readonly sections: number | null;
   /** null unless ready and the index is complete. */
   readonly unplaced: number | null;
+  /** The older (0.1) task collaborations on this device; absent or null: not known, none claimed. */
+  readonly legacy?: number | null;
   /** The rows to list; absent: only the summary is known. */
   readonly rows?: readonly PaneRow[];
 }
@@ -309,6 +311,10 @@ export function selectionReasonText(s: PaneSelection): string {
 /** The empty section list (LFCP-03-021): where to start, share or join. */
 export const EMPTY_SECTIONS =
   "No shared sections on this device yet. Share one from a note, or join one with a link.";
+
+/** The empty list on a device that holds only an older task collaboration: says why, then what to do. */
+export const EMPTY_SECTIONS_LEGACY =
+  "No shared sections here yet. This device has an older task collaboration, which is not a section. Share a section from a note, or join with a section link.";
 
 /** After "Copy link" (I3): never "sent" or "invited". */
 export const LINK_COPIED = "Link copied";
@@ -565,7 +571,9 @@ function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGrou
       : r.status === "error"
         ? "The list of shared sections could not be read again; it shows the last one."
         : r.sections === 0
-          ? EMPTY_SECTIONS
+          ? (r.legacy ?? 0) > 0
+            ? EMPTY_SECTIONS_LEGACY
+            : EMPTY_SECTIONS
           : r.sections === null
             ? null
             : `${plural(r.sections, "shared section")} on this device`;

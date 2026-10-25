@@ -353,3 +353,15 @@ describe("U03-02 registry view", () => {
     expect(told).toBe(0);
   });
 });
+
+describe("UX-04 older collaborations in the registry", () => {
+  it("counts the 0.1 Resources apart from the sections, and says nothing until read", async () => {
+    const { s, src } = sources();
+    const v = new SectionRegistryView(src);
+    expect(v.snapshot().legacy).toBeNull();
+    s.entries = [entry(1, "Old", { profile: PROFILE_ID }), entry(2, "Launch")];
+    await v.refresh();
+    expect(v.snapshot()).toMatchObject({ status: "ready", sections: 1, legacy: 1 });
+    expect(v.snapshot().rows.map((r) => r.localAlias)).toEqual(["Launch"]);
+  });
+});

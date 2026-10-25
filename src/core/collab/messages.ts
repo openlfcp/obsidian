@@ -15,6 +15,18 @@ export const REMOVED_REJOIN =
  */
 export const ALREADY_HELD = "This vault had already joined it. No new claim was made.";
 
+/** A link for an older (0.1) task collaboration, where a shared section was asked for; the link is not used. */
+export const LEGACY_LINK_FOR_SECTION =
+  'This link is for an older task collaboration, not a shared section. Ask the sender for a new link from the section\'s "Invite collaborator…".';
+
+/** A section link, where an older task collaboration was asked for; the link is not used. */
+export const SECTION_LINK_FOR_LEGACY =
+  "This link is for a shared section, not an older task collaboration. Use Join with a link in the Shared Tasks pane.";
+
+/** This device already holds the Resource of the link, and it is an older task collaboration. */
+export const ALREADY_HELD_LEGACY =
+  'This device already joined this link, but it is an older task collaboration, not a shared section. Ask the sender for a link from the section\'s "Invite collaborator…".';
+
 const WIRE: Readonly<Record<string, string>> = {
   PROTOCOL_UNSUPPORTED: "The server does not speak a compatible version of LFCP.",
   MALFORMED_MESSAGE: "The server rejected a malformed request. Update the plugin and try again.",
