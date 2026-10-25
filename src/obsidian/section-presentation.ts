@@ -99,6 +99,8 @@ class CueWidget extends WidgetType {
   }
 }
 
+const BOUNDARY_TEXT = /^[ \t]*<!--\s*\/?\s*lfcp-section\b/;
+
 /**
  * Whether a change edits the text of a binding line (not the lines around
  * it, and not the whole line at once): typing into a marker, deleting a
@@ -118,6 +120,12 @@ export function editsBindingText(
     const line = doc.line(n);
     // The whole line, with its text, goes: not an edit of it.
     if (from <= line.from && to >= line.to && to > from) continue;
+    // The indentation of a node marker or a Task's ref (Tab, Shift+Tab move it with its
+    // Task): whitespace only, within the leading whitespace. A section boundary stays at column 0.
+    if (!BOUNDARY_TEXT.test(line.text) && /^[ \t]*$/.test(insert)) {
+      const indentEnd = line.from + (/^[ \t]*/.exec(line.text)?.[0].length ?? 0);
+      if (from >= line.from && to <= indentEnd) continue;
+    }
     if (from === to) {
       // A pure insertion: a line break at the line's start or end leaves it as it is.
       if (from === line.from && insert.endsWith("\n")) continue;

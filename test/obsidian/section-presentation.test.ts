@@ -120,6 +120,27 @@ describe("markers cannot be typed into while metadata is hidden (UX-05)", () => 
     expect(typeAt(s, start + 6, "h", "undo")).not.toBe(NOTE);
   });
 
+  it("Tab and Shift+Tab move a Task's ref line with it; a boundary stays at column 0", () => {
+    const s = editor(NOTE);
+    const ref = s.doc.line(4);
+    const indented = s.update({
+      changes: { from: ref.from, insert: "  " },
+      userEvent: "input.indent",
+    });
+    expect(indented.state.doc.line(4).text).toBe(`  ${ref.text}`);
+    const dedented = indented.state.update({
+      changes: { from: ref.from, to: ref.from + 2 },
+      userEvent: "delete.dedent",
+    });
+    expect(dedented.state.doc.line(4).text).toBe(ref.text);
+    const boundary = s.doc.line(2);
+    const bad = s.update({
+      changes: { from: boundary.from, insert: "  " },
+      userEvent: "input.indent",
+    });
+    expect(bad.state.doc.toString()).toBe(NOTE);
+  });
+
   it("a whole line deleted (a cut Task with its ref) is not an edit of the marker", () => {
     const s = editor(NOTE);
     const from = s.doc.line(3).from;
