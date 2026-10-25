@@ -48,6 +48,8 @@ export interface ActionRequest {
   readonly target?: TargetCapture;
   /** The section the surface is about (the card, a pane row): its key and shared title. */
   readonly section?: { readonly key: string; readonly title: string };
+  /** Which links a palette join claims; absent: sections only ("Legacy: Join task collaboration" asks for "legacy"). */
+  readonly joinAccept?: "sections" | "legacy" | "any";
   /** The flow a "Check the result" or "Continue" was drawn for (ActiveFlow.generation). */
   readonly flow?: number;
   /** The join flow a "Check the result" was drawn for (JoinFlowState.generation, LFCP-03-015). */
@@ -74,7 +76,7 @@ export type ActionHandler = (request: ActionRequest, surface: Surface) => Promis
 /** The collaboration commands the dispatcher reaches (CollabCommands). */
 export interface CollabEntry {
   /** "Join collaboration" through its masked dialog (the palette). */
-  joinCollaboration(): Promise<void>;
+  joinCollaboration(accept?: "sections" | "legacy" | "any"): Promise<void>;
   /** The pane's field for a pasted link (I5): the same join lock as the dialog. */
   openJoin?(): void;
   /** "Check the result" of join flow `generation`: the same claim, from its journal (I7). */
@@ -264,10 +266,10 @@ export function coreHandlers(env: {
       if (a !== null && r.flow !== undefined) await a.checkResult(r.flow);
     },
     // The pane joins in its own field (I5); the palette and the menu through the masked dialog.
-    "join-with-link": async (_r, surface) => {
+    "join-with-link": async (r, surface) => {
       const open = env.collab.openJoin;
       if (surface === "pane" && open !== undefined) open.call(env.collab);
-      else await env.collab.joinCollaboration();
+      else await env.collab.joinCollaboration(r.joinAccept ?? "sections");
     },
     // A section (the card, the pane) or the cursor of a note (the palette's
     // "Invite to this section…") names what is invited to; neither: the

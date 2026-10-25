@@ -238,7 +238,8 @@ export default class OpenLfcpPlugin extends Plugin {
       "create-collaboration": () => ui.createCollaboration(),
       // The pane's "Join with a link…" and "Invite collaborator…": one handler, one lock.
       "join-collaboration": async () => {
-        await this.actions.run("join-with-link");
+        // The legacy command claims a 0.1 link only; a section is joined from the pane or "Insert".
+        await this.actions.run("join-with-link", { joinAccept: "legacy" });
         // A joined 0.1 collaboration brings the rest of the 0.1 commands.
         await this.syncLegacyCommands();
       },

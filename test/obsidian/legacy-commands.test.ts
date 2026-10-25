@@ -5,6 +5,7 @@
 import "fake-indexeddb/auto";
 import { PROFILE_ID as TASKS_PROFILE_ID } from "@openlfcp/shared-objects";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CollabCommands } from "../../src/core/collab/commands";
 import { COMMANDS } from "../../src/core/commands";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
@@ -76,5 +77,15 @@ describe("the 0.1 commands (UX-01)", () => {
     await first.plugin.stopRuntime();
     const { names } = await load(first.device, first.app);
     expect(LEGACY.filter((c) => names.has(c.id)).map((c) => c.id)).toEqual(["join-collaboration"]);
+  });
+
+  it("Legacy: Join task collaboration claims a 0.1 link only", async () => {
+    const join = vi.spyOn(CollabCommands.prototype, "joinCollaboration").mockResolvedValue();
+    const { plugin } = await load();
+    const command = (plugin as unknown as mock.Plugin).commands.find(
+      (c) => c.id === "join-collaboration",
+    );
+    command?.callback?.();
+    await vi.waitFor(() => expect(join).toHaveBeenCalledWith("legacy"));
   });
 });
