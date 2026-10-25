@@ -241,7 +241,10 @@ export default class OpenLfcpPlugin extends Plugin {
       if (this.needsRestart === null) bar.setText(this.conflicts.summary());
     });
     this.registerEditorExtension(conflictDecorations(this.conflicts));
-    const sections = sectionPresentationExtension(() => this.settings.showSharingMetadata);
+    const sections = sectionPresentationExtension(
+      () => this.settings.showSharingMetadata,
+      () => this.#markerRefused(),
+    );
     this.#sectionViews = sections.views;
     this.registerEditorExtension(sections.extension);
     // Shared sections: on unless `sectionsDisabled` (data.json); read-only on mobile.
@@ -360,6 +363,18 @@ export default class OpenLfcpPlugin extends Plugin {
 
   /** Pane listeners told of a change no other source reports (cursor moves, the runtime started). */
   readonly #paneNudges = new Set<() => void>();
+
+  #markerNoticeAt = 0;
+
+  /** The user's edit of a hidden marker was refused: say why, at most once in ten seconds. */
+  #markerRefused(): void {
+    const now = Date.now();
+    if (now - this.#markerNoticeAt < 10_000) return;
+    this.#markerNoticeAt = now;
+    new Notice(
+      "Shared Tasks: this line keeps the section shared. Switch to Source mode to edit it.",
+    );
+  }
 
   #nudgePane(): void {
     for (const f of [...this.#paneNudges]) f();

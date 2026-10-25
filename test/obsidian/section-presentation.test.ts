@@ -167,4 +167,29 @@ describe("markers cannot be typed into while metadata is hidden (UX-05)", () => 
     });
     expect(typeAt(metadata, start + 6, "h")).not.toBe(NOTE);
   });
+
+  it("typing over a whole marker line is refused, and the refusal is reported", () => {
+    let refused = 0;
+    const s = EditorState.create({
+      doc: NOTE,
+      extensions: [
+        editorLivePreviewField.init(() => true),
+        sectionPresentationExtension(
+          () => false,
+          () => refused++,
+        ).extension,
+      ],
+    });
+    const line = s.doc.line(2);
+    const over = s.update({
+      changes: { from: line.from, to: line.to, insert: "x" },
+      userEvent: "input.type",
+    });
+    expect(over.state.doc.toString()).toBe(NOTE);
+    expect(refused).toBe(1);
+    // Deleting that whole line outright is not refused.
+    const del = s.update({ changes: { from: line.from, to: line.to }, userEvent: "delete.cut" });
+    expect(del.state.doc.line(2).text).toBe("");
+    expect(refused).toBe(1);
+  });
 });

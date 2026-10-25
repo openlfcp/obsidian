@@ -118,8 +118,8 @@ export function editsBindingText(
   for (let n = doc.lineAt(from).number; n <= doc.lineAt(to).number; n++) {
     if (!binding.has(n - 1)) continue;
     const line = doc.line(n);
-    // The whole line, with its text, goes: not an edit of it.
-    if (from <= line.from && to >= line.to && to > from) continue;
+    // The whole line, with its text, goes (no text typed over it): not an edit of it.
+    if (from <= line.from && to >= line.to && to > from && insert === "") continue;
     // The indentation of a node marker or a Task's ref (Tab, Shift+Tab move it with its
     // Task): whitespace only, within the leading whitespace. A section boundary stays at column 0.
     if (!BOUNDARY_TEXT.test(line.text) && /^[ \t]*$/.test(insert)) {
@@ -201,7 +201,11 @@ function build(
  * The editor extension and the live editors it is in (to switch them all
  * when the setting changes). `show` is the setting's value at creation.
  */
-export function sectionPresentationExtension(show: () => boolean): {
+export function sectionPresentationExtension(
+  show: () => boolean,
+  /** Called when the user's edit of a marker was refused (the host says why, throttled). */
+  onRefused: () => void = () => undefined,
+): {
   readonly extension: Extension;
   readonly views: ReadonlySet<EditorView>;
 } {
@@ -249,6 +253,7 @@ export function sectionPresentationExtension(show: () => boolean): {
       if (!blocked && editsBindingText(tr.startState.doc, binding, from, to, inserted.toString()))
         blocked = true;
     });
+    if (blocked) onRefused();
     return blocked ? [] : tr;
   });
   const registry = ViewPlugin.fromClass(
