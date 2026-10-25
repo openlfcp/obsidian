@@ -158,6 +158,14 @@ describe("Join limited to one kind of link (UX-03)", () => {
     expect(accept.mock.calls[0]?.[0].dataProfiles).toEqual([PROFILE_ID]);
   });
 
+  it("with shared sections off, a sections-only request still asks for 0.1 (never an empty list)", async () => {
+    const { collab } = await offline();
+    const { link, R } = await invitation();
+    accept.mockResolvedValue(unsupported(R));
+    await collab.join(link, { name: "", accept: "sections" });
+    expect(accept.mock.calls[0]?.[0].dataProfiles).toEqual([PROFILE_ID]);
+  });
+
   it("unlimited (the default) asks for both, as before", async () => {
     const { collab } = await withSections();
     const { link, R } = await invitation();
