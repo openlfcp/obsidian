@@ -5,6 +5,8 @@
 // section's replica, with the new paragraph's marker written. The flag is
 // switched off again at the end.
 
+import { inviteToSectionInA } from "./support/section-checks.mjs";
+
 const SECTION_ID = "268a166f-4891-7243-840e-e7fea9fe6390";
 const FILE = "preview.md";
 
@@ -371,22 +373,11 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
     expect(cues.undone).toBe(true);
   });
 
-  it("Invite collaborator refuses a section its server does not hold yet (LFCP-02-051)", async () => {
+  it("Invite to this section refuses a section its server does not hold yet (LFCP-02-051)", async () => {
     await browser.executeObsidian(async () => {
       for (const n of document.querySelectorAll(".notice")) n.remove();
     });
-    await browser.executeObsidian(async ({ app }) => {
-      app.commands.executeCommandById("shared-tasks:invite-collaborator");
-      let item = null;
-      for (let i = 0; i < 40 && item === null; i++) {
-        await new Promise((r) => setTimeout(r, 50));
-        item =
-          [...document.querySelectorAll(".suggestion-item")].find(
-            (e) => e.firstElementChild?.textContent === "Launch",
-          ) ?? null;
-      }
-      item.click();
-    });
+    await inviteToSectionInA("Launch");
     const notice = await browser.waitUntil(
       () =>
         browser.executeObsidian(() =>
@@ -599,6 +590,8 @@ describe("Share section… preview (LFCP-02-049, flag on)", () => {
           endpoints: ["ws://127.0.0.1:9/v1/ws"],
           coordinatorUrl: "ws://127.0.0.1:9/v1/ws",
         });
+        // 0.1 data made through the runtime: the 0.1 commands appear (UX-01).
+        await app.plugins.plugins["shared-tasks"].syncLegacyCommands();
         const leaf = app.workspace.getLeaf(false);
         await leaf.openFile(app.vault.getFileByPath("import.md"), { state: { mode: "source", source: true } });
         app.workspace.setActiveLeaf(leaf, { focus: true });

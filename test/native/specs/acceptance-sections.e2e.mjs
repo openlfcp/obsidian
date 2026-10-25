@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { peer, restartableServer, waitFor } from "../peer.bundle.mjs";
-import { closeModals } from "./support/section-checks.mjs";
+import { closeModals, inviteToSectionInA } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const A_CANARY = `A_PRIVATE_${Date.now().toString(36)}`;
@@ -162,8 +162,7 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
 
   let link;
   it("C04 invitation: read + write, the link hidden until Show link, the section's wording", async () => {
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
-    const collaborations = await choose("Launch");
+    await inviteToSectionInA("Launch");
     const presets = await choose("Read + write");
     const shown = await inA(async () => {
       // find() gives undefined while there is no dialog: the loop waits on that.
@@ -185,7 +184,7 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
       return { before, after, visibleAfter, confirmed: text.includes("the link works now") };
     });
     link = shown.after;
-    evidence("C04", { collaborations, presets, before: shown.before, confirmed: shown.confirmed, linkShape: link.replace(/#secret=.*/, "#secret=…") });
+    evidence("C04", { presets, before: shown.before, confirmed: shown.confirmed, linkShape: link.replace(/#secret=.*/, "#secret=…") });
     expect(shown.before).toEqual({ type: "password", value: "", visible: false });
     expect(shown.visibleAfter).toBe(true);
     expect(link.startsWith("lfcp://join/")).toBe(true);
@@ -833,13 +832,14 @@ describe("shared sections end to end: Obsidian A, headless B, real server (LFCP-
 
   it("C15 a 0.1 Task beside the section is shared; inside the section it is refused", async () => {
     // A 0.1 collaboration on the same server.
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:create-collaboration"));
-    await answer("Create collaboration", "Team tasks");
-    await answer("Sync server", null);
-    await browser.waitUntil(async () => (await notices()).some((n) => n.includes('"Team tasks" created')), {
-      timeout: 30_000,
-      timeoutMsg: "the 0.1 collaboration created",
-    });
+    // The 0.1 commands show only in a vault that holds a 0.1 collaboration (UX-01), and
+    // "Create collaboration" is one of them: the collaboration is made through the runtime,
+    // and the commands are registered as they are after a legacy join.
+    await inA(async ({ app }, url) => {
+      const plugin = app.plugins.plugins["shared-tasks"];
+      await plugin.runtime.createResource({ name: "Team tasks", endpoints: [url], coordinatorUrl: url });
+      await plugin.syncLegacyCommands();
+    }, server.url);
     const note = (await noteOfA("Launch plan.md")).replace(`${A_CANARY}: follow-ups, private.`, `${A_CANARY}: follow-ups, private.\n- [ ] A legacy task beside the section`);
     await inA(async ({ app }, text) => {
       await app.vault.adapter.write("Launch plan.md", text);

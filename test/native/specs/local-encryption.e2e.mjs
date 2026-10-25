@@ -34,6 +34,8 @@ describe("local state encrypted at rest (LFCP-02-098)", () => {
           endpoints: [url],
           coordinatorUrl: url,
         });
+        // 0.1 data made through the runtime: the 0.1 commands appear (UX-01).
+        await app.plugins.plugins["shared-tasks"].syncLegacyCommands();
         await app.workspace.openLinkText("canary.md", "", false);
         const editor = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor;
         editor.setSelection({ line: 0, ch: 0 }, { line: 2, ch: editor.getLine(2).length });

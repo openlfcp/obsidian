@@ -8,6 +8,7 @@
 // PLACEMENT_CONFLICT on Gamma. On 0.4.0-beta.11, Beta was journaled as
 // moved and no conflict came, as in the owner's trace.
 import { peer, restartableServer } from "../peer.bundle.mjs";
+import { inviteToSectionInA } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
@@ -82,7 +83,7 @@ async function shareAndJoin(file, heading) {
       }, file, heading.replace(/^#+ /, "")),
     { timeout: 60_000, timeoutMsg: "the section shared and hosted" },
   );
-  await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+  await inviteToSectionInA(heading.replace(/^#+ /, ""));
   const pick = (label) =>
     inA(async ({}, label) => {
       let items = [];
@@ -92,7 +93,6 @@ async function shareAndJoin(file, heading) {
       }
       items.find((x) => x.textContent.includes(label)).click();
     }, label);
-  await pick(heading.replace(/^#+ /, ""));
   await pick("Read + write");
   const link = await inA(async () => {
     let modal;

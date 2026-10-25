@@ -5,6 +5,7 @@
 // line is deleted (a blank line to the eye) still binds, and the section
 // stays CURRENT. The reference server at LFCP_SERVER_BIN hosts the section.
 import { peer, restartableServer } from "../peer.bundle.mjs";
+import { inviteToSectionInA } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
@@ -79,7 +80,7 @@ describe("blank lines are local layout; an empty paragraph keeps its binding (0.
         }),
       { timeout: 60_000, timeoutMsg: "the section shared and hosted" },
     );
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+    await inviteToSectionInA("IME test");
     const pick = (label) =>
       inA(async ({}, label) => {
         let items = [];
@@ -89,7 +90,6 @@ describe("blank lines are local layout; an empty paragraph keeps its binding (0.
         }
         items.find((x) => x.textContent.includes(label)).click();
       }, label);
-    await pick("IME test");
     await pick("Read + write");
     const link = await inA(async () => {
       let modal;

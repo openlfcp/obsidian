@@ -23,6 +23,8 @@ describe("projection race (0.3.2 regression)", () => {
           endpoints: [url],
           coordinatorUrl: url,
         });
+        // 0.1 data made through the runtime: the 0.1 commands appear (UX-01).
+        await plugin.syncLegacyCommands();
         await app.workspace.openLinkText("race.md", "", false);
         app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor.setCursor({ line: 0, ch: 0 });
       },

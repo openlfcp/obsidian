@@ -14,8 +14,13 @@ describe("Shared Tasks in a real Obsidian", () => {
       };
     });
     expect(r.enabled).toBe(true);
-    expect(r.commands).toContain("shared-tasks:share-task-under-cursor");
+    // UX-01/02: a fresh vault has the section commands and the way into an older
+    // collaboration, but none of the other 0.1 task commands.
+    expect(r.commands).toContain("shared-tasks:invite-to-section");
+    expect(r.commands).toContain("shared-tasks:join-collaboration");
     expect(r.commands).toContain("shared-tasks:resource-status");
+    expect(r.commands).not.toContain("shared-tasks:share-task-under-cursor");
+    expect(r.commands).not.toContain("shared-tasks:invite-collaborator");
     expect(r.runtime).toBe("ready");
   });
 });

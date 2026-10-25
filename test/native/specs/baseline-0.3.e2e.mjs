@@ -24,6 +24,8 @@ describe("0.3 baselines (LFCP-02-005)", () => {
         for (let i = 0; i < 200 && plugin.runtime?.status.kind !== "ready"; i++)
           await new Promise((r) => setTimeout(r, 50));
         await plugin.runtime.createResource({ name: "Baseline", endpoints: [url], coordinatorUrl: url });
+        // 0.1 data made through the runtime: the 0.1 commands appear (UX-01).
+        await plugin.syncLegacyCommands();
         await app.workspace.openLinkText("big.md", "", false);
       },
       N,
