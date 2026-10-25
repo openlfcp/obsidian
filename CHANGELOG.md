@@ -8,7 +8,10 @@ and known limits, are the linked files in [docs/releases](docs/releases/).
 The Markdown format of your notes and the sync protocol have not changed
 since 0.4.0.
 
-## [Unreleased]
+## [0.5.1] — 2026-10-25
+
+Sharing a section is harder to get wrong.
+Notes: [docs/releases/0.5.1.md](docs/releases/0.5.1.md).
 
 ### Changed
 
@@ -22,6 +25,22 @@ since 0.4.0.
   gets them at once). "Legacy: Invite to task collaboration" (the old
   `invite-collaborator` ID, so hotkeys keep working) lists only those
   collaborations, never shared sections.
+- A join from the pane or a palette join accepts shared sections only: a
+  link to an older task collaboration is refused before it is used, says
+  what it is, and still works with "Legacy: Join task collaboration".
+- Dead ends say why and what next: "already joined" for an older task
+  collaboration, an empty section list on a device with only an older
+  collaboration, "Insert shared section…" with nothing to insert yet.
+- A section start or end marker changed by a typo shows one problem with
+  "Restore", says edits are not sent until it is fixed, and the section
+  reads "Damaged in this note"; the pane's main action is the fix.
+- With sharing metadata hidden, typing into a marker line in Live Preview
+  is refused with a notice; a damaged marker is hidden with a warning mark.
+
+### Fixed
+
+- A one-character change to a section's start marker showed every marker,
+  ignored "Show sharing metadata" and silently stopped sending edits (#89).
 
 ## [0.5.0] — 2026-10-19
 
