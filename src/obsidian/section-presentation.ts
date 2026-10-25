@@ -45,6 +45,30 @@ interface Value {
 const sectionLine = Decoration.line({ class: "openlfcp-section-line" });
 const sectionEnd = Decoration.line({ class: "openlfcp-section-line openlfcp-section-end" });
 const hiddenLine = Decoration.replace({ block: true });
+const damagedLine = Decoration.line({ class: "openlfcp-marker-damaged" });
+
+/**
+ * A damaged marker while sharing metadata is hidden (UX-05): the line's text
+ * is replaced by this warning, so it is found, not read as part of the note.
+ * Putting the cursor on the line shows the text, to be edited.
+ */
+class DamagedMarkerWidget extends WidgetType {
+  override eq(): boolean {
+    return true;
+  }
+  toDOM(view: EditorView): HTMLElement {
+    const el = view.dom.ownerDocument.createElement("span");
+    el.className = "openlfcp-marker-damaged-chip";
+    el.dataset.lfcpUi = "damaged-marker";
+    el.textContent = "Shared section line changed";
+    el.setAttribute("role", "note");
+    return el;
+  }
+  override ignoreEvent(): boolean {
+    return false;
+  }
+}
+const damagedChip = Decoration.replace({ widget: new DamagedMarkerWidget() });
 
 /**
  * A boundary cue after a line's text (LFCP-03-020). Its words are drawn by
@@ -88,7 +112,8 @@ function build(
   show: boolean,
   idle: boolean,
 ): DecorationSet {
-  if (model.sections.length === 0 && model.damaged.length === 0) return Decoration.none;
+  if (model.sections.length === 0 && model.damaged.length === 0 && model.malformed.length === 0)
+    return Decoration.none;
   const doc = state.doc;
   const hide =
     !show && state.field(editorLivePreviewField, false) === true
@@ -112,6 +137,17 @@ function build(
           : (end.has(l) ? sectionEnd : sectionLine).range(line.from),
       );
     }
+  const hideDamaged =
+    !show && state.field(editorLivePreviewField, false) === true && model.malformed.length > 0;
+  for (const l of model.malformed) {
+    if (l >= doc.lines) continue;
+    const line = doc.line(l + 1);
+    ranges.push(damagedLine.range(line.from));
+    // Not on a line the selection touches: its text is shown there to be edited.
+    const touched = state.selection.ranges.some((r) => r.from <= line.to && r.to >= line.from);
+    if (hideDamaged && !touched && line.to > line.from)
+      ranges.push(damagedChip.range(line.from, line.to));
+  }
   for (const c of cues) {
     if (c.line >= doc.lines || hide.has(c.line)) continue;
     const at = doc.line(c.line + 1).to;

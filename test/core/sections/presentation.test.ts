@@ -38,6 +38,7 @@ describe("sectionPresentation", () => {
       bindingLines: [3, 5, 6, 9],
       sections: [{ from: 2, to: 9 }],
       damaged: [],
+      malformed: [],
     });
   });
 
@@ -66,10 +67,16 @@ describe("sectionPresentation", () => {
       bindingLines: [],
       sections: [],
       damaged: [],
+      malformed: [],
     });
     const damaged = ["## Shared", formatBoundary("start", S), "- [ ] A", `  ${ref(2)}`].join("\n");
     // A damaged copy hides nothing and claims no range: only where it starts is named.
-    expect(sectionPresentation(damaged)).toEqual({ bindingLines: [], sections: [], damaged: [0] });
+    expect(sectionPresentation(damaged)).toEqual({
+      bindingLines: [],
+      sections: [],
+      damaged: [0],
+      malformed: [],
+    });
   });
 });
 
@@ -114,5 +121,16 @@ describe("boundary cues (LFCP-03-020)", () => {
         ends: [],
         cues: [{ line: 1, kind: "unknown" }],
       });
+  });
+});
+
+describe("a damaged marker (UX-05)", () => {
+  it("names the marker line that cannot be read, in a note with no readable section too", () => {
+    const start = formatBoundary("start", S);
+    const md = ["## Tasks", start.replace("lfcp1:", "hlfcp1:"), "- [ ] A", ""].join("\n");
+    expect(sectionPresentation(md).malformed).toEqual([1]);
+    expect(sectionPresentation(["## Tasks", start, "- [ ] A", ""].join("\n")).malformed).toEqual(
+      [],
+    );
   });
 });
