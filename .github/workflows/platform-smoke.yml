@@ -39,7 +39,7 @@ jobs:
       - name: Keep line endings as committed
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: obsidian
 
@@ -52,13 +52,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # Full history with tags: the tests check the tag still resolves to the commit in spec.lock.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: openlfcp/spec
           ref: refs/tags/${{ steps.pins.outputs.spec }}
           path: spec
           fetch-depth: 0
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: openlfcp/server
           ref: ${{ steps.pins.outputs.server }}
@@ -66,7 +66,7 @@ jobs:
       - id: sdk-rs
         working-directory: server
         run: echo "commit=$(jq -er .commit sdk-rs.lock)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: openlfcp/sdk-rs
           ref: ${{ steps.sdk-rs.outputs.commit }}
@@ -74,7 +74,7 @@ jobs:
 
       # The reference server, built on this OS (rusqlite is bundled).
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -92,10 +92,10 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then exe=lfcp-server.exe; fi
           echo "LFCP_SERVER_BIN=$LFCP_SERVER_TARGET_DIR/debug/$exe" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: obsidian/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -121,7 +121,7 @@ jobs:
         env:
           LFCP_SERVER_COMMIT: ${{ steps.pins.outputs.server }}
         run: node scripts/smoke-report.mjs "$RUNNER_TEMP/vitest.json" "$RUNNER_TEMP/platform-smoke-${{ runner.os }}.md"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: platform-smoke-${{ runner.os }}
