@@ -8,6 +8,8 @@
 import "fake-indexeddb/auto";
 import type { InvitationLink, WebSocketFactory, WebSocketLike } from "@openlfcp/client";
 import { vi } from "vitest";
+import type { ActionId } from "../../src/core/actions/catalog";
+import type { ActionRequest } from "../../src/core/actions/dispatcher";
 import type { ResourceStatus } from "../../src/core/collab";
 import type { Prompter } from "../../src/core/collab/commands";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
@@ -304,6 +306,10 @@ export class E2EVault {
       protected override createPrompter(): Prompter {
         return self.prompter;
       }
+      // The journeys drive the 0.1 commands on vaults that start without 0.1 data (UX-01).
+      protected override async hasLegacyData(): Promise<boolean> {
+        return true;
+      }
     }
     this.#plugin = new Plugin(this.app as never, manifest as never);
     await this.#plugin.onload();
@@ -467,13 +473,43 @@ export class E2EVault {
   ): Promise<string> {
     const command = this.host.commands.find((c) => c.id === id);
     if (command === undefined) throw new Error(`no command ${id}`);
+    return this.#drive(id, `"${command.name}"`, () => command.callback?.(), answers, done);
+  }
+
+  /**
+   * Runs an action through the plugin's one dispatcher (the pane's and the card's
+   * way in), with scripted answers. For what no palette command reaches any more:
+   * a section's invite by its Resource, and the section join.
+   */
+  async action(
+    id: ActionId,
+    request: ActionRequest,
+    answers: readonly Answer[] = [],
+    done?: () => boolean,
+  ): Promise<string> {
+    return this.#drive(
+      id,
+      `action "${id}"`,
+      () => void this.#plugin.actions.run(id, request, "card"),
+      answers,
+      done,
+    );
+  }
+
+  async #drive(
+    id: string,
+    what: string,
+    start: () => void,
+    answers: readonly Answer[],
+    done?: () => boolean,
+  ): Promise<string> {
     this.prompter.script(answers);
     narrate(
-      `[${this.name}] runs "${command.name}"${answers.length > 0 ? ` and answers ${answers.map(shown).join(", ")}` : ""}`,
+      `[${this.name}] runs ${what}${answers.length > 0 ? ` and answers ${answers.map(shown).join(", ")}` : ""}`,
     );
     const notices = this.prompter.notices.length;
     const invitations = this.prompter.invitations.length;
-    command.callback?.();
+    start();
     await until(
       `${this.name}: ${id} to finish`,
       () =>

@@ -17,6 +17,7 @@
 
 import { EditorView } from "@codemirror/view";
 import { fromBase64url, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
+import { PROFILE_ID as TASKS_PROFILE_ID } from "@openlfcp/shared-objects";
 import {
   apiVersion,
   type Editor,
@@ -35,7 +36,7 @@ import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/c
 import type { JoinFlow } from "../core/collab/join-flow";
 import { Collaboration } from "../core/collab/service";
 import { rehostNotice, unnamedResource } from "../core/collab/view";
-import { COMMANDS } from "../core/commands";
+import { COMMANDS, type CommandSpec, INVITE_TO_SECTION } from "../core/commands";
 import {
   type DiagnosticInput,
   DiagnosticLog,
@@ -151,6 +152,41 @@ export default class OpenLfcpPlugin extends Plugin {
   #starting: Promise<LfcpRuntime | null> | null = null;
   #unloaded = false;
 
+  #legacyHandlers: Readonly<Record<string, () => Promise<void>>> = {};
+  readonly #registeredCommands = new Set<string>();
+
+  #register(command: CommandSpec): void {
+    if (this.#registeredCommands.has(command.id)) return;
+    const run = this.#legacyHandlers[command.id];
+    if (run === undefined) throw new Error(`no handler for ${command.id}`);
+    this.#registeredCommands.add(command.id);
+    this.addCommand({ id: command.id, name: command.name, callback: () => void run() });
+  }
+
+  /**
+   * Whether this vault holds a 0.1 task collaboration (a Resource of the
+   * Shared Objects profile). Tests replace it.
+   */
+  protected async hasLegacyData(): Promise<boolean> {
+    const entries = (await this.runtime?.registry()) ?? [];
+    return entries.some((e) => e.profile === TASKS_PROFILE_ID);
+  }
+
+  /**
+   * Registers the 0.1 commands that wait for 0.1 data, once the registry
+   * holds some. Run at start and after a join; a caller that makes 0.1 data
+   * another way (the native specs, through the runtime) runs it too.
+   */
+  async syncLegacyCommands(): Promise<void> {
+    if (this.#unloaded) return;
+    const waiting = COMMANDS.filter(
+      (c) => c.legacy === "when-data" && !this.#registeredCommands.has(c.id),
+    );
+    if (waiting.length === 0) return;
+    if (!(await this.hasLegacyData().catch(() => false)) || this.#unloaded) return;
+    for (const command of waiting) this.#register(command);
+  }
+
   override async onload(): Promise<void> {
     this.settings = normalizeSettings(await this.loadData());
     // Back online, shown or focused again after a while: connect now, not at
@@ -201,7 +237,12 @@ export default class OpenLfcpPlugin extends Plugin {
       "insert-all-tasks": () => ui.insertAllTasks(),
       "create-collaboration": () => ui.createCollaboration(),
       // The pane's "Join with a link…" and "Invite collaborator…": one handler, one lock.
-      "join-collaboration": () => this.actions.run("join-with-link"),
+      "join-collaboration": async () => {
+        // The legacy command claims a 0.1 link only; a section is joined from the pane or "Insert".
+        await this.actions.run("join-with-link", { joinAccept: "legacy" });
+        // A joined 0.1 collaboration brings the rest of the 0.1 commands.
+        await this.syncLegacyCommands();
+      },
       "invite-collaborator": () => this.actions.run("invite"),
       "resource-status": () => this.actions.run("resource-status"),
       "detach-shared-task": () => ui.detachSharedTask(),
@@ -209,11 +250,12 @@ export default class OpenLfcpPlugin extends Plugin {
       "toggle-sharing-metadata": () =>
         this.setShowSharingMetadata(!this.settings.showSharingMetadata),
     };
-    for (const command of COMMANDS) {
-      const run = handlers[command.id];
-      if (run === undefined) throw new Error(`no handler for ${command.id}`);
-      this.addCommand({ id: command.id, name: command.name, callback: () => void run() });
-    }
+    // UX-01 (UXD-2): the 0.1 commands are registered only for a vault that has
+    // 0.1 data, except the way into an older collaboration. Obsidian cannot
+    // unregister a command, so the rest is added once the registry shows such
+    // a Resource (at start, or after a legacy join) and stays until a reload.
+    this.#legacyHandlers = handlers;
+    for (const command of COMMANDS) if (command.legacy !== "when-data") this.#register(command);
     this.addCommand({
       id: "rotate-local-encryption-key",
       name: "Rotate local encryption key",
@@ -282,6 +324,12 @@ export default class OpenLfcpPlugin extends Plugin {
       this.registerInterval(window.setInterval(() => this.sections?.scheduleStatus(), 2000));
       // Typing coalescing (025): a pause commits what waits.
       this.registerInterval(window.setInterval(() => this.sections?.tick(), 500));
+      // UX-02 (UXD-4): the pane's "Invite collaborator…" for the section at the cursor.
+      this.addCommand({
+        id: INVITE_TO_SECTION.id,
+        name: INVITE_TO_SECTION.name,
+        editorCallback: (editor, ctx) => void this.#runOnNote("invite", editor, ctx),
+      });
       this.addCommand({
         id: "share-section",
         name: "Share section…",
@@ -815,6 +863,7 @@ export default class OpenLfcpPlugin extends Plugin {
         for (const entry of await runtime.registry())
           if (entry.state !== "unsupported")
             void runtime.openResource(entry.resourceId).catch(() => undefined);
+      await this.syncLegacyCommands();
       this.app.workspace.onLayoutReady(() => this.#enqueue(() => this.reconcile()));
       // LFCP-02-110: a join whose claim went unanswered finishes, or asks.
       if (runtime.status.kind === "ready") void this.#resumeJoins();

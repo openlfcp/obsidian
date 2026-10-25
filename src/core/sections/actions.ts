@@ -42,6 +42,7 @@ import {
   sectionFacts,
 } from "../actions/descriptors";
 import type { ActionRequest, Surface } from "../actions/dispatcher";
+import { INVITE_CURSOR_NOTICE } from "../commands";
 import { type Flow, InFlight, type Reconciled } from "../in-flight";
 import { type NoteTarget, NoteTargets } from "../note-targets";
 import { contentHash } from "../projection/guard";
@@ -2244,6 +2245,20 @@ export class SectionActions {
       return;
     }
     void this.openCard(at.key, at.title);
+  }
+
+  /**
+   * "Invite to this section…" (UX-02): the section under the cursor of
+   * `target` is invited to by `invite`, the flow the pane's "Invite
+   * collaborator…" runs. Outside every section: one notice, no picker.
+   */
+  async inviteAt(target: TargetCapture, invite: (key: string) => Promise<void>): Promise<void> {
+    const at = sectionAtLine(target.text, target.cursorLine);
+    if (at === null) {
+      this.env.prompter.notice(`Shared Tasks: ${INVITE_CURSOR_NOTICE}`);
+      return;
+    }
+    await invite(at.key);
   }
 
   /**

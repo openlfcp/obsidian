@@ -52,12 +52,17 @@ To run your own server instead, see
 
 ## Part 2 · Share your first task
 
+> Since 0.5.1 the commands of this part are named "Legacy: …" and appear in
+> the palette only in a vault that already holds a task collaboration; a new
+> vault lists none of them, except "Legacy: Join task collaboration". To share
+> a section, use Part 1.
+
 ### 4. Alice creates a collaboration
 
 A **collaboration** is a group of shared tasks and the people who can see
 them. Make one per project or per person you work with.
 
-1. Run **"Create collaboration"**.
+1. Run **"Legacy: Create task collaboration"**.
 2. Type a name, for example `Launch`. Only you see this name.
 3. Keep the suggested server and confirm.
 
@@ -74,7 +79,7 @@ The server cannot be changed later, so choose it now.
    ```
 
 2. Put the cursor on that line.
-3. Run **"Share task under cursor"** and pick `Launch`.
+3. Run **"Legacy: Share task under cursor"** and pick `Launch`.
 
 You see *task shared*. The task line itself does not change. A small
 marker appears under it:
@@ -90,7 +95,7 @@ private and never leaves your computer.
 
 ### 6. Alice invites Bob
 
-1. Run **"Invite collaborator"** and pick `Launch`.
+1. Run **"Legacy: Invite to task collaboration"** and pick `Launch`.
 2. Choose the access:
    - **Read + write**: Bob can see and change the tasks.
    - **Read**: Bob can only see them.
@@ -105,7 +110,7 @@ private and never leaves your computer.
 
 On Bob's computer, after Part 1:
 
-1. Run **"Join collaboration"**.
+1. Run **"Legacy: Join task collaboration"**.
 2. Paste the link. The field hides it, like a password field.
 3. Give the collaboration a local name, for example `Alice's launch`.
 
@@ -118,7 +123,7 @@ Joining does not change Bob's notes. He chooses where shared tasks
 appear:
 
 1. Open any note and put the cursor on an empty line.
-2. Run **"Insert shared object"**, pick the collaboration, then the task.
+2. Run **"Legacy: Insert shared object"**, pick the collaboration, then the task.
 
 The task appears with its own marker. Bob's note can look completely
 different from Alice's. Only this line is shared.
@@ -143,7 +148,7 @@ online.
    - **put the cursor under a heading** (`## Sprint`). This takes every
      task under that heading, down to the next heading of the same or a
      higher level.
-2. Run **"Share selected tasks"** and pick the collaboration once.
+2. Run **"Legacy: Share selected tasks"** and pick the collaboration once.
 
 One notice says how many tasks were shared. Each task is shared on its
 own. Tasks that are already shared are skipped.
@@ -154,7 +159,7 @@ To share a section as a whole, with its order, nesting and text, see
 ### Insert everything on the other side
 
 1. Bob opens a note and puts the cursor where the tasks should go.
-2. He runs **"Insert all tasks from collaboration"** and picks it.
+2. He runs **"Legacy: Insert all tasks from task collaboration"** and picks it.
 
 Every task that the note does not show yet is inserted, in the order the
 tasks were created.
@@ -192,7 +197,7 @@ show it.
 
 ### The same task in several notes
 
-Run "Insert shared object" in another note to show the same task there as
+Run "Legacy: Insert shared object" in another note to show the same task there as
 well. Every copy stays in sync.
 
 ### Stop sharing a task in one note
@@ -216,9 +221,9 @@ shared task ref"** to put the marker back under its task.
 | You see | What to do |
 | --- | --- |
 | *not ready yet (starting, or writing is paused on this device)* | Wait a few seconds after starting Obsidian. If it persists, check Settings → Shared Tasks → "Identity on this device" and restart Obsidian. |
-| *nothing is shared on this device yet* | Share a section ("Share section…") or tasks ("Create collaboration"), or join with a link ("Join collaboration"), first. |
+| *nothing is shared on this device yet* | Share a section ("Share section…") or tasks ("Legacy: Create task collaboration"), or join with a link ("Legacy: Join task collaboration"), first. |
 | *put the cursor on a task line (- [ ] …) to share it* | The cursor is not on a task. Put it on a line that starts with `- [ ]`. |
-| *this task's lfcp-ref is malformed or duplicated* | The marker was edited or copied. Undo the edit (`Ctrl/Cmd + Z`). If you copied a task line, delete the copied marker and use "Insert shared object" instead. |
+| *this task's lfcp-ref is malformed or duplicated* | The marker was edited or copied. Undo the edit (`Ctrl/Cmd + Z`). If you copied a task line, delete the copied marker and use "Legacy: Insert shared object" instead. |
 | *could not join* | The reason follows in the notice. Most often the link was already used, since each link works once. Ask for a new one. |
 | *"…" was hosted again on wss://…* | Nothing to do. The server had lost the collaboration (for example after a restore from a backup); Shared Tasks put it back and is sending the missing changes. |
 | *"…" stopped syncing* | The server no longer has the collaboration and refused to take it back, or no longer lets you in. Your tasks stay on your computer. "Resource status" says why; ask the collaboration's owner. |

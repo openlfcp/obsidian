@@ -56,7 +56,7 @@ shown, and there is no account.
 
 ## 1. Alice creates a collaboration
 
-In Vault A, run "Shared Tasks: Create collaboration" from the command palette.
+In Vault A, run "Shared Tasks: Legacy: Create task collaboration" from the command palette.
 Name it `Project Alpha` and accept the default server.
 
 **Expect:** the notice *"Project Alpha" created and hosted. You own it.*
@@ -64,7 +64,7 @@ Name it `Project Alpha` and accept the default server.
 ## 2. Alice shares a task
 
 In `Private A.md`, put the cursor on `- [ ] Prepare API contract 📅 2026-10-20`
-and run "Share task under cursor". Pick `Project Alpha`.
+and run "Legacy: Share task under cursor". Pick `Project Alpha`.
 
 **Expect:** the notice *task shared*. The task line is unchanged, and a child
 line `  <!-- lfcp-ref: lfcp1:…#task:… -->` appears under it. Nothing else in
@@ -72,7 +72,7 @@ the note changes.
 
 ## 3. Alice invites Bob
 
-Run "Invite collaborator", pick `Project Alpha`, then `Read + write`.
+Run "Legacy: Invite to task collaboration", pick `Project Alpha`, then `Read + write`.
 
 **Expect:** a dialog shows a one-time `lfcp://join/…#secret=…` link with a
 copy button. **The link is a secret**: anyone holding it can join until it
@@ -80,7 +80,7 @@ is used. Copy it to Bob privately.
 
 ## 4. Bob joins
 
-In Vault B, run "Join collaboration", paste the link, and name the
+In Vault B, run "Legacy: Join task collaboration", paste the link, and name the
 collaboration `Alpha` (a local name only Bob sees).
 
 **Expect:** progress (connecting, validating invitation, claiming capability,
@@ -90,7 +90,7 @@ the same link again from another device is refused.
 ## 5. Bob puts the same task in his own note
 
 In `Private B.md`, put the cursor on the blank line under "Some unrelated
-notes." and run "Insert shared object". Pick `Alpha`, then
+notes." and run "Legacy: Insert shared object". Pick `Alpha`, then
 `Prepare API contract`.
 
 **Expect:** `- [ ] Prepare API contract 📅 2026-10-20 <!-- lfcp-ref: … -->` is

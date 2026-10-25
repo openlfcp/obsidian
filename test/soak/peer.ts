@@ -272,23 +272,18 @@ export class SoakPeer {
 
   /** "Invite collaborator…" for a Resource (base64url); the one-time link. */
   async invite(resource: string): Promise<string> {
-    const R = fromBase64url(resource);
     const before = this.vault.prompter.invitations.length;
-    await this.vault.command(
-      "invite-collaborator",
-      [
-        {
-          choose: (cs) => cs.find((c) => toHex(c.value as Uint8Array) === toHex(R))?.value ?? null,
-        },
-        "Read + write",
-      ],
+    await this.vault.action(
+      "invite",
+      { section: { key: resource, title: "" } },
+      ["Read + write"],
       () => this.vault.prompter.invitations.length > before,
     );
     return this.vault.prompter.invitations.at(-1)?.reveal() as string;
   }
 
   async join(link: string, name: string): Promise<string> {
-    return this.vault.command("join-collaboration", [link, name]);
+    return this.vault.action("join-with-link", {}, [link, name]);
   }
 
   /** "Insert shared section…" into this peer's own note. */

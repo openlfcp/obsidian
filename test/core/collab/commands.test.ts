@@ -479,13 +479,12 @@ describe("LFCP-065 commands", () => {
 
   it("a shared section (preview): no invitation before hosting, asked before any question; status offers hosting", async () => {
     const s = await setup("child-line", true);
-    await s.runtime.createSectionResource({
+    const R = await s.runtime.createSectionResource({
       name: "Launch",
       endpoints: [SERVER],
       coordinatorUrl: SERVER,
     });
-    s.prompter.picks.push("Launch");
-    await s.commands.inviteCollaborator();
+    await s.commands.inviteTo(R);
     expect(s.prompter.notices.at(-1)).toContain("not on its server yet");
     expect(s.prompter.invitations).toEqual([]);
     expect(s.prompter.picks).toEqual([]);
@@ -500,9 +499,32 @@ describe("LFCP-065 commands", () => {
       endpoints: [SERVER],
       coordinatorUrl: SERVER,
     });
+    old.notes.files.set("n.md", "- [ ] Prepare contract\n");
+    old.notes.open("n.md", 0);
     old.prompter.picks.push("Launch");
-    await old.commands.inviteCollaborator();
+    await old.commands.shareTaskUnderCursor();
     expect(old.prompter.notices.at(-1)).toContain("newer version");
+  });
+
+  it("UX-02: the legacy invite picker lists only 0.1 collaborations, never a section or another profile", async () => {
+    const s = await setup("child-line", true);
+    await s.runtime.createSectionResource({
+      name: "Launch",
+      endpoints: [SERVER],
+      coordinatorUrl: SERVER,
+    });
+    await storeForeign(s.runtime, undefined, "Sections");
+    // Only sections and a foreign Resource: no picker, a notice that says where to invite.
+    await s.commands.inviteCollaborator();
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.prompter.offered).toEqual([]);
+    expect(s.prompter.notices.at(-1)).toContain('"Invite to this section…"');
+    // With a 0.1 collaboration: it is the only row, and says what it is.
+    await created(s);
+    s.prompter.picks.push("Team");
+    await s.commands.inviteCollaborator();
+    expect(s.prompter.offered[0]).toHaveLength(1);
+    expect(s.prompter.offered[0]?.[0]).toContain("Task collaboration · ");
   });
 
   it("Conflict hook: picks a field and a value and resolves; nothing else resolves", async () => {
@@ -571,12 +593,11 @@ describe("insertAtLine", () => {
       () => s.commands.shareTaskUnderCursor(),
       () => s.commands.insertSharedObject(),
       () => s.commands.insertAllTasks(),
-      () => s.commands.inviteCollaborator(),
     ]) {
       s.prompter.picks.push("Sections");
       await run();
     }
-    expect(s.prompter.notices).toEqual(Array(4).fill(`Shared Tasks: ${NEEDS_NEWER_VERSION}.`));
+    expect(s.prompter.notices).toEqual(Array(3).fill(`Shared Tasks: ${NEEDS_NEWER_VERSION}.`));
     expect(s.notes.files.get("n.md")).toBe("- [ ] Prepare contract\n");
     s.prompter.picks.push("Sections");
     await s.commands.resourceStatus();
@@ -585,7 +606,7 @@ describe("insertAtLine", () => {
     expect(s.prompter.statuses[0]?.actions).toEqual([]);
   });
 
-  it("LFCP-03-049: with sections on, the 0.1 Task pickers leave shared sections out; status and invite still offer them", async () => {
+  it("LFCP-03-049: with sections on, the 0.1 Task pickers leave shared sections out; status still offers them", async () => {
     const s = await setup("child-line", true);
     await s.runtime.createSectionResource({
       name: "Launch",

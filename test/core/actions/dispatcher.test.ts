@@ -103,7 +103,7 @@ describe("the action seam (LFCP-03-023, U03-07)", () => {
         }
       }
     // I5: the pane joins in its own field; the palette, the card and the menu in the masked dialog.
-    const join = `join-with-link pane ["collab.openJoin([])"] vs ["collab.joinCollaboration([])"]`;
+    const join = `join-with-link pane ["collab.openJoin([])"] vs ["collab.joinCollaboration([\\"sections\\"])"]`;
     expect(differs).toEqual(REQUESTS.map(() => join));
   });
 
@@ -140,6 +140,23 @@ describe("the action seam (LFCP-03-023, U03-07)", () => {
       "copy-readable": ["host.copyReadable"],
       "copy-shared-section": ["host.copySharedSection"],
     });
+  });
+
+  it("UX-02: invite with a note's cursor goes to the section at it; with nothing, to the legacy picker", async () => {
+    expect(await reach("invite", { target }, "palette")).toEqual([
+      'sections.inviteAt([{"path":"Plan.md","text":"# Plan\\n","mode":"source","cursorLine":0,"selections":[],"composing":false},"fn"])',
+    ]);
+    expect(await reach("invite", {}, "palette")).toEqual(["collab.inviteCollaborator([])"]);
+  });
+
+  it("UX-UXD-3: a join from the palette, card or menu claims a section link only", async () => {
+    for (const surface of ["palette", "card", "menu"] as const)
+      expect(await reach("join-with-link", {}, surface)).toEqual([
+        'collab.joinCollaboration(["sections"])',
+      ]);
+    expect(await reach("join-with-link", { joinAccept: "legacy" }, "palette")).toEqual([
+      'collab.joinCollaboration(["legacy"])',
+    ]);
   });
 
   it("obsidian#30: a key from a surface names one Resource, full or by its Resource alone", async () => {

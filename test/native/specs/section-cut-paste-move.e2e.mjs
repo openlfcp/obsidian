@@ -5,6 +5,7 @@
 // Obsidian with real keys in Source mode; B is the headless peer; the
 // reference server at LFCP_SERVER_BIN goes down for the moves.
 import { peer, restartableServer } from "../peer.bundle.mjs";
+import { inviteToSectionInA } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
@@ -108,7 +109,7 @@ describe("a Task cut and pasted one place up while the other vault moves it (ste
         }),
       { timeout: 60_000, timeoutMsg: "the section shared and hosted" },
     );
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+    await inviteToSectionInA("Plan");
     const pick = (label) =>
       inA(async ({}, label) => {
         let items = [];
@@ -118,7 +119,6 @@ describe("a Task cut and pasted one place up while the other vault moves it (ste
         }
         items.find((x) => x.textContent.includes(label)).click();
       }, label);
-    await pick("Plan");
     await pick("Read + write");
     const link = await inA(async () => {
       let modal;

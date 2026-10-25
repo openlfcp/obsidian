@@ -10,7 +10,11 @@
 
 import type { InvitationLink } from "@openlfcp/client";
 import { resourceId as asResourceId, type ResourceId, toHex } from "@openlfcp/core";
-import type { ScalarField, Task } from "@openlfcp/shared-objects";
+import {
+  type ScalarField,
+  PROFILE_ID as TASKS_PROFILE_ID,
+  type Task,
+} from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { INVITE_WAITS } from "../actions/descriptors";
 import { NEEDS_NEWER_VERSION, type RegistryEntry } from "../lfcp/runtime";
@@ -312,13 +316,21 @@ export class CollabCommands {
        * With sections off it stays, refused as another Data Profile (0.3.2).
        */
       readonly tasksOnly?: boolean;
+      /**
+       * The legacy invite picker (UX-02): only 0.1 task collaborations are
+       * listed, never a shared section (invited to from its own note) or a
+       * Resource of another profile.
+       */
+      readonly legacyOnly?: boolean;
     } = {},
   ): Promise<ResourceId | null> {
     const all = await collab.list();
     const hidden = (e: RegistryEntry) =>
-      options.tasksOnly === true &&
-      this.#env.sections?.() === true &&
-      e.profile === SECTIONS_PROFILE_ID;
+      options.legacyOnly === true
+        ? e.profile !== TASKS_PROFILE_ID
+        : options.tasksOnly === true &&
+          this.#env.sections?.() === true &&
+          e.profile === SECTIONS_PROFILE_ID;
     const entries = all.filter((e) => !hidden(e));
     const choices: Choice<ResourceId | "new">[] = entries.map((e) => ({
       label:
@@ -326,11 +338,18 @@ export class CollabCommands {
         (e.profile === SECTIONS_PROFILE_ID
           ? "(unnamed shared section)"
           : "(unnamed collaboration)"),
-      description: `${STATE_TEXT[e.state]} · ${e.routes[0] ?? "no server"}`,
+      // A picker that lists both kinds says which is which (UX-02).
+      description: `${e.profile === SECTIONS_PROFILE_ID ? "Section" : "Task collaboration"} · ${STATE_TEXT[e.state]} · ${e.routes[0] ?? "no server"}`,
       value: e.resourceId,
     }));
     if (options.allowCreate === true)
       choices.push({ label: "Create a new collaboration…", value: "new" });
+    if (choices.length === 0 && options.legacyOnly === true) {
+      this.#env.prompter.notice(
+        'Shared Tasks: there is no task collaboration on this device. To invite someone to a shared section, put the cursor in it and run "Invite to this section…".',
+      );
+      return null;
+    }
     if (choices.length === 0 && all.length > 0) {
       this.#env.prompter.notice(
         'Shared Tasks: this device has shared sections, but no shared tasks to insert. Use "Insert shared section…" to place a section in a note.',
@@ -738,8 +757,8 @@ export class CollabCommands {
     return this.#oneInvitation(async () => {
       const collab = this.#collab();
       if (collab === null) return;
-      const R = await this.#pickResource(collab, "Invite to…", {
-        sectionsOk: this.#env.sections?.() === true,
+      const R = await this.#pickResource(collab, "Invite to a task collaboration…", {
+        legacyOnly: true,
       });
       if (R === null) return;
       await this.#inviteTo(collab, R);

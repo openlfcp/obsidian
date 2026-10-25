@@ -65,7 +65,7 @@ Then one line per check: `A1 PASS`, `C2 FAIL <non-secret diagnostic>`, or
 
 ## B. Storage
 
-1. Run "Create collaboration" with the name `Smoke` and the server. Then run
+1. Run "Legacy: Create task collaboration" with the name `Smoke` and the server. Then run
    "Resource status". Expected: the name, a Resource ID, "Hosted on the
    server", you as owner, and Control Head #0.
 2. Share a task: `- [ ] Smoke task 📅 2026-12-01` with the cursor on it.
@@ -98,7 +98,7 @@ Then one line per check: `A1 PASS`, `C2 FAIL <non-secret diagnostic>`, or
 2. Stop the server. Expected:
    - the status turns offline, and edits are kept ("Waiting to send"
      grows);
-   - "Join collaboration" and "Invite collaborator" report that they need a
+   - "Legacy: Join task collaboration" and "Legacy: Invite to task collaboration" report that they need a
      connection.
 3. Start the server again. Expected: the client reconnects by itself and
    "Waiting to send" drains.
@@ -109,12 +109,12 @@ Then one line per check: `A1 PASS`, `C2 FAIL <non-secret diagnostic>`, or
 Use two vaults, either on this machine or one on another OS (see the
 cross-platform pair below).
 
-1. In vault 1, run "Invite collaborator" with "Read + write" and "Copy
+1. In vault 1, run "Legacy: Invite to task collaboration" with "Read + write" and "Copy
    link". Send it to vault 2's user over a trusted channel, never in a
    screenshot.
-2. In vault 2, run "Join collaboration" and paste the link in the masked
+2. In vault 2, run "Legacy: Join task collaboration" and paste the link in the masked
    field. Expected: the stages run, then "joined … (read and write)".
-3. In vault 2, run "Insert shared object" on `Smoke task`. Expected: the
+3. In vault 2, run "Legacy: Insert shared object" on `Smoke task`. Expected: the
    task appears with its due date and a ref.
 4. In vault 2, tick the task (`[x]`). Expected: within seconds, vault 1
    shows `- [x] Smoke task 📅 2026-12-01 ✅ <date>`, with nothing else in

@@ -217,13 +217,14 @@ const copies = (p: SoakPeer, path: string, r = resource) =>
   parseSections(p.vault.read(path)).sections.filter((s) => toBase64url(s.ref.resourceId) === r)
     .length;
 
-/** "Invite collaborator…" with role `role`; the one-time link. */
+/** The section's "Invite collaborator…" (the dispatcher, as the pane runs it) with role `role`; the one-time link. */
 async function inviteAs(p: SoakPeer, r: string, role: "Read" | "Read + write"): Promise<string> {
   const id = toHex(fromBase64url(r));
   const before = p.vault.prompter.invitations.length;
-  await p.vault.command(
-    "invite-collaborator",
-    [{ choose: (cs) => cs.find((c) => toHex(c.value as Uint8Array) === id)?.value ?? null }, role],
+  await p.vault.action(
+    "invite",
+    { section: { key: r, title: "" } },
+    [role],
     () => p.vault.prompter.invitations.length > before,
   );
   return p.vault.prompter.invitations.at(-1)?.reveal() as string;

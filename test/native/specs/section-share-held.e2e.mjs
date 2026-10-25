@@ -231,7 +231,7 @@ describe("one share flow per note; held edits are never shown as synced (F-03, F
     b.files.set("B.md", ["## From B", "", "- [ ] Task of B", ""].join("\n"));
     const shared = await b.share("B.md", "## From B");
     const link = (await b.collab.invite(shared.resource, "read")).link.reveal();
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:join-collaboration"));
+    await inA(({ app }) => void app.plugins.plugins["shared-tasks"].actions.run("join-with-link"));
     const answer = (text) =>
       inA(async ({}, text) => {
         let input = null;

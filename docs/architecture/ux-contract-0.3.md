@@ -63,15 +63,21 @@ LFCP-03-010). A disabled action states its reason in words; the
 executor checks the same condition again before any side effect, so a
 disabled button is never the only guard.
 
-Existing palette command IDs and names stay unchanged. Where a pane or card
-label differs from the palette name, the table gives both.
+Existing palette command IDs stay unchanged. Since 0.5.1 two names changed
+(UX-01, UX-02): the palette invite is `invite-to-section` and invites to the
+shared section at the cursor, as the pane does; the old `invite-collaborator`
+remains as "Legacy: Invite to task collaboration", a picker of 0.1 task
+collaborations only. The 0.1 commands carry the "Legacy: " prefix and are
+registered only on a vault that holds a 0.1 collaboration (the join command
+always). Where a pane or card label differs from the palette name, the table
+gives both.
 
 | Action ID | Label (pane, card, menu) | Palette command (unchanged) | Package label | Destructive |
 | --- | --- | --- | --- | --- |
 | `share-section` | Share section… | `share-section` "Share section…" | Поделиться разделом… | no |
 | `share-whole-section` | Share the whole section… | — (pane and menu only) | Выбрать весь раздел | no |
-| `invite` | Invite collaborator… | `invite-collaborator` "Invite collaborator" | Пригласить… | no |
-| `join-with-link` | Join with a link… | `join-collaboration` "Join collaboration" | Присоединиться по ссылке | no |
+| `invite` | Invite collaborator… | `invite-to-section` "Invite to this section…" | Пригласить… | no |
+| `join-with-link` | Join with a link… | `join-collaboration` "Legacy: Join task collaboration" | Присоединиться по ссылке | no |
 | `insert-into-note` | Insert into a note… | `insert-section` "Insert shared section…" | Выбрать место… / Вставить… | no |
 | `open-details` | Open details | `open-section-details` "Open shared section details" | Открыть сведения | no |
 | `sync-details` | Sync details | — (opens the card at its sync facts) | Сведения о синхронизации | no |

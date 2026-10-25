@@ -8,6 +8,7 @@
 // badge CURRENT, nothing kept. The headless peer B is the other vault; the
 // reference server at LFCP_SERVER_BIN hosts the section.
 import { peer, restartableServer } from "../peer.bundle.mjs";
+import { inviteToSectionInA } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
@@ -110,7 +111,7 @@ describe("IME: a composed word, then Enter on a Task line and a composed Task (B
         }),
       { timeout: 60_000, timeoutMsg: "the section shared and hosted" },
     );
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+    await inviteToSectionInA("IME test");
     const pick = (label) =>
       inA(async ({}, label) => {
         let items = [];
@@ -120,7 +121,6 @@ describe("IME: a composed word, then Enter on a Task line and a composed Task (B
         }
         items.find((x) => x.textContent.includes(label)).click();
       }, label);
-    await pick("IME test");
     await pick("Read + write");
     const link = await inA(async () => {
       let modal;

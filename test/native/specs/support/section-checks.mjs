@@ -385,9 +385,30 @@ export async function shareAndJoin(b, file, heading, text, source = false) {
   return { R, bFile };
 }
 
+/**
+ * A's palette "Invite to this section…" (UX-02) with the cursor on the heading of the
+ * section titled `title` in the note that is open: the palette invites to the section
+ * at the cursor, with no picker.
+ */
+export async function inviteToSectionInA(title) {
+  await inA(({ app, obsidian }, title) => {
+    const editor = app.workspace.getActiveViewOfType(obsidian.MarkdownView).editor;
+    const line = editor
+      .getValue()
+      .split("\n")
+      .findIndex((l) => /^#{1,6} /.test(l) && l.replace(/^#{1,6} +/, "").trim() === title);
+    if (line < 0) throw new Error(`no heading "${title}" in the open note`);
+    editor.setCursor({ line, ch: 0 });
+    app.commands.executeCommandById("shared-tasks:invite-to-section");
+  }, title);
+}
+
 /** A invites to the section titled `title` (Read + write or Read only) with its own UI; the link. */
 export async function inviteFromA(title, access = "Read + write") {
-  await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+  // The upgrade specs run this on older builds, whose palette invite is a picker of every Resource.
+  const picker = await inA(({ app }) => app.commands.commands["shared-tasks:invite-to-section"] === undefined);
+  if (picker) await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+  else await inviteToSectionInA(title);
   const pick = (label) =>
     inA(async ({}, label) => {
       let items = [];
@@ -397,7 +418,7 @@ export async function inviteFromA(title, access = "Read + write") {
       }
       items.find((x) => x.textContent.includes(label)).click();
     }, label);
-  await pick(title);
+  if (picker) await pick(title);
   await pick(access);
   return inA(async () => {
     let modal;

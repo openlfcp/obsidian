@@ -8,6 +8,7 @@
 // collaborator gets the move. Also Backspace on such a selection. Vault A
 // is real Obsidian with a real mouse and keys; B is the headless peer.
 import { peer, restartableServer } from "../peer.bundle.mjs";
+import { inviteToSectionInA } from "./support/section-checks.mjs";
 
 const evidence = (id, value) => console.log(`EVIDENCE ${JSON.stringify({ id, ...value })}`);
 const inA = (fn, ...args) => browser.executeObsidian(fn, ...args);
@@ -140,7 +141,7 @@ describe("a Task's whole line selected with the mouse, then cut or deleted (beta
         }, file),
       { timeout: 60_000, timeoutMsg: "the section shared and hosted" },
     );
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:invite-collaborator"));
+    await inviteToSectionInA("Tasks19");
     const pick = (label) =>
       inA(async ({}, label) => {
         let items = [];
@@ -150,7 +151,6 @@ describe("a Task's whole line selected with the mouse, then cut or deleted (beta
         }
         items.find((x) => x.textContent.includes(label)).click();
       }, label);
-    await pick("Tasks19");
     await pick("Read + write");
     const link = await inA(async () => {
       let modal;

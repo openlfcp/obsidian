@@ -75,7 +75,7 @@ describe("offline edits in vault A across an unrelated removal (§19.1)", () => 
     const { resource } = await b.share(bFile, heading);
     const R = Buffer.from(resource).toString("hex");
     const link = (await b.collab.invite(resource, "read-write")).link.reveal();
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:join-collaboration"));
+    await inA(({ app }) => void app.plugins.plugins["shared-tasks"].actions.run("join-with-link"));
     const answer = (text) =>
       inA(async ({}, text) => {
         let input = null;
