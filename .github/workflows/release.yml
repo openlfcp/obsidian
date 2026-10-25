@@ -44,7 +44,7 @@ jobs:
       run:
         working-directory: obsidian
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: obsidian
       # A release is built from the @openlfcp/* npm packages only, as the
@@ -55,16 +55,16 @@ jobs:
       # Spec at the tag in spec.lock, as in CI.
       - id: spec-lock
         run: echo "tag=$(jq -er .tag spec.lock)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: openlfcp/spec
           ref: refs/tags/${{ steps.spec-lock.outputs.tag }}
           path: spec
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: obsidian/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
