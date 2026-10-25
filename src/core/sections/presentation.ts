@@ -20,16 +20,28 @@ export interface SectionPresentation {
    * inside it.
    */
   readonly damaged: readonly number[];
+  /**
+   * 0-based lines that look like a section marker and cannot be read: hidden
+   * with the other markers, but drawn as a warning so they can be found.
+   */
+  readonly malformed: readonly number[];
 }
 
-const EMPTY: SectionPresentation = { bindingLines: [], sections: [], damaged: [] };
+const EMPTY: SectionPresentation = { bindingLines: [], sections: [], damaged: [], malformed: [] };
 
 export function sectionPresentation(markdown: string): SectionPresentation {
   if (!markdown.includes("lfcp-section")) return EMPTY;
   const scan = parseSections(markdown);
   const { sections } = scan;
   const damaged = scan.damaged.map((d) => d.heading?.line ?? d.startLine).sort((a, b) => a - b);
-  if (sections.length === 0) return damaged.length === 0 ? EMPTY : { ...EMPTY, damaged };
+  const malformed = scan.diagnostics
+    .filter((d) => d.code === "SECTION_MARKER_MALFORMED")
+    .map((d) => d.line)
+    .sort((a, b) => a - b);
+  if (sections.length === 0)
+    return damaged.length === 0 && malformed.length === 0
+      ? EMPTY
+      : { ...EMPTY, damaged, malformed };
   const lines = markdown.split(/\r\n|\n|\r/);
   const childRefLines = new Set(
     scanRefs(markdown)
@@ -48,6 +60,7 @@ export function sectionPresentation(markdown: string): SectionPresentation {
     bindingLines: hidden.sort((a, b) => a - b),
     sections: sections.map((s) => ({ from: s.heading.line, to: s.endLine })),
     damaged,
+    malformed,
   };
 }
 
