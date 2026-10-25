@@ -8,6 +8,21 @@ and known limits, are the linked files in [docs/releases](docs/releases/).
 The Markdown format of your notes and the sync protocol have not changed
 since 0.4.0.
 
+## [Unreleased]
+
+### Changed
+
+- The palette command "Invite to this section…" (new ID `invite-to-section`)
+  invites to the shared section at the cursor, as the pane does. With the
+  cursor outside every shared section it says so and opens no picker.
+- The commands of the older one-task-at-a-time collaborations are named
+  "Legacy: …". Except "Legacy: Join task collaboration", they appear in the
+  palette only in a vault that already holds such a collaboration (checked
+  when the plugin starts and after a join; a vault that joins its first one
+  gets them at once). "Legacy: Invite to task collaboration" (the old
+  `invite-collaborator` ID, so hotkeys keep working) lists only those
+  collaborations, never shared sections.
+
 ## [0.5.0] — 2026-10-19
 
 Collaboration you can do without learning the commands.

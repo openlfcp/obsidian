@@ -115,7 +115,7 @@ in the table below.
 | `minAppVersion` is the lowest supported version | pass: 1.13.1, the typed and tested API (secretStorage needs 1.11.4) | `manifest.json`, `versions.json` |
 | `isDesktopOnly` true if Node or Electron APIs are used | pass: false; no Node in `src/` (boundary check); mobile untested, said in the README | `scripts/check-boundaries.mjs` |
 | No `fundingUrl` unless donations are accepted | pass: none | `manifest.json` |
-| Command IDs without the plugin ID; names without the plugin name | pass: e.g. `create-collaboration`, "Create collaboration" | `src/core/commands.ts:20` |
+| Command IDs without the plugin ID; names without the plugin name | pass: e.g. `create-collaboration`, "Legacy: Create task collaboration" | `src/core/commands.ts:20` |
 | No default hotkeys | pass | `src/obsidian/plugin.ts:101` |
 | Sentence case in UI text | fixed: "Read + Write" → "Read + write" (a6b7988). The plugin name "Shared Tasks" and the project name "OpenLFCP" are proper nouns: the lint rule flags them, and they stay | `src/core/collab/presets.ts:32`; warnings at `src/obsidian/plugin.ts:169`, `:389`, `src/obsidian/ui/prompter.ts:161-162`, `src/obsidian/settings-tab.ts:48`, `:82`; `:52` is the `wss://` placeholder |
 | No "settings" in settings headings; `setHeading` instead of `<h1>`/`<h2>` | pass: the settings tab has no headings | `src/obsidian/settings-tab.ts` |

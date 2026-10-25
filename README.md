@@ -46,9 +46,10 @@ shared with commands. The pane and its dialogs work from the keyboard. (Stable 0
    needs you, the pane's problem list opens the matching fix.
 
 The same steps work from the command palette ("Shared Tasks: Share
-section…", "Invite collaborator", "Join collaboration", "Insert shared
-section…"); the commands keep their names and have no default hotkeys (assign
-them in Obsidian's Hotkeys settings). Step by step, with everyday use and
+section…", "Invite to this section…", "Legacy: Join task collaboration",
+"Insert shared section…"); the commands have no default hotkeys (assign
+them in Obsidian's Hotkeys settings). "Invite to this section…" invites to
+the shared section at the cursor, as the pane does. Step by step, with everyday use and
 troubleshooting:
 **[the user guide](https://github.com/openlfcp/obsidian/blob/0.4.1/docs/guides/user-guide.md)**
 (describes the command flow of 0.4; the pane is described above).
@@ -125,12 +126,12 @@ do all of it from the pane; the matching commands are in brackets.
    suggested server (`wss://sync.openlfcp.org/v1/ws`, see "Which server")
    and confirm. A `lfcp-` comment appears after the heading and beside each
    line; nothing outside the section changes.
-2. **Invite.** Click "Invite collaborator…" ("Shared Tasks: Invite
-   collaborator"), choose Read or Read + write, and copy the link. **The
+2. **Invite.** Click "Invite collaborator…" ("Shared Tasks: Invite to this
+   section…", with the cursor in the section), choose Read or Read + write, and copy the link. **The
    link is a secret**: it is one-time and does not expire, and whoever opens
    it first joins. Send it privately.
 3. **Join and insert.** In their vault the other person clicks "Join with a
-   link…" ("Shared Tasks: Join collaboration"), pastes the link, then picks
+   link…" ("Shared Tasks: Legacy: Join task collaboration"), pastes the link, then picks
    the note and the place to insert the section ("Shared Tasks: Insert
    shared section…") and checks the preview.
 4. **Work together.** When either of you ticks a task or edits a line, the
@@ -148,13 +149,16 @@ The section card, shown beside a shared heading, offers the same next step:
 
 ### One task at a time
 
-You can still share single tasks. Run "Shared Tasks: Create collaboration",
+You can still share single tasks. These commands are named "Legacy: …" and
+show in the palette only in a vault that already holds a task collaboration
+(the join command is always there); a new vault does not list them. Run
+"Shared Tasks: Legacy: Create task collaboration",
 give it a name only you see and keep the suggested server. Put the cursor on
 a task, for example `- [ ] Prepare API contract 📅 2026-10-20`, run "Shared
-Tasks: Share task under cursor" and pick the collaboration; a `lfcp-ref`
-comment appears under the task. Invite with "Shared Tasks: Invite
-collaborator". The other person runs "Join collaboration", puts the cursor
-on an empty line and runs "Shared Tasks: Insert shared object". When either
+Tasks: Legacy: Share task under cursor" and pick the collaboration; a `lfcp-ref`
+comment appears under the task. Invite with "Shared Tasks: Legacy: Invite to
+task collaboration". The other person runs "Legacy: Join task collaboration", puts the cursor
+on an empty line and runs "Shared Tasks: Legacy: Insert shared object". When either
 of you ticks the task (`- [x]`), the other note shows it done, with its `✅`
 date.
 
@@ -163,14 +167,14 @@ The full command walkthrough, with what to expect at each step:
 
 ### Many tasks at once
 
-- **"Shared Tasks: Share selected tasks"** shares every task line you
+- **"Shared Tasks: Legacy: Share selected tasks"** shares every task line you
   selected. With nothing selected, it shares the tasks under the heading
   at the cursor, down to the next heading of the same or a higher level.
   You pick the collaboration once; each task becomes a shared task of its
   own, nested ones included. Tasks already shared are skipped, and tasks
   with a broken `lfcp-ref` are left alone. One notice says how many were
   shared.
-- **"Shared Tasks: Insert all tasks from collaboration"** places, at the
+- **"Shared Tasks: Legacy: Insert all tasks from task collaboration"** places, at the
   cursor, every task of a collaboration that this note does not show yet,
   in the order they were created.
 
@@ -215,7 +219,7 @@ the text without them.
 
 ## Which server
 
-"Create collaboration" suggests the free public beta server of the
+"Legacy: Create task collaboration" suggests the free public beta server of the
 OpenLFCP project, `wss://sync.openlfcp.org/v1/ws`. Read its
 [privacy note](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-privacy.md)
 and [terms](https://github.com/openlfcp/.github/blob/main/docs/operations/sync-server-terms.md)

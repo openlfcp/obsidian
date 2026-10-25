@@ -28,7 +28,7 @@ The section commands are in the palette: "Share section…", "Insert shared
 section…" and the others below. The Shared Tasks pane and the right-click
 menu offer the same actions, some under shorter names: "Insert into a
 note…" is the palette's "Insert shared section…", and "Join with a link…"
-is its "Join collaboration". (Version 0.3's `"sectionsPreview"` setting
+is its "Legacy: Join task collaboration". (Version 0.3's `"sectionsPreview"` setting
 is no longer used. To turn shared sections off, add
 `"sectionsDisabled": true` to `.obsidian/plugins/shared-tasks/data.json`
 while Obsidian is closed.)
@@ -106,8 +106,10 @@ exists; to stop sharing it, remove people's access.
 
 ## 3. Alice invites Bob
 
-1. Run **"Invite collaborator"**. Pick the section's collaboration (it is
-   named after the heading), then **Read + write** or **Read**.
+1. Put the cursor in the shared section and run **"Invite to this section…"**,
+   then choose **Read + write** or **Read**. With the cursor outside every
+   shared section it says "Put the cursor in a shared section to invite
+   someone to it." and opens nothing.
 
    You can also open the section's details and click **"Invite
    collaborator…"**, or use the Shared Tasks pane: after a share it says
@@ -130,7 +132,7 @@ first from "Resource status"."
 
 ## 4. Bob joins and places the section
 
-1. Run **"Join collaboration"** and paste the link. A name is optional and
+1. Run **"Legacy: Join task collaboration"** and paste the link. A name is optional and
    for your eyes only; left empty, the section shows its own title.
 
    The progress runs through "Checking the invitation…", "Receiving the
@@ -384,7 +386,7 @@ next to "Detach this section", and the section card under "What is shared".
 | --- | --- |
 | *put the cursor on or under a heading to share its section.* | "Share section…" needs a heading: put the cursor on it or below it. |
 | *set a default sync server in the settings to share a section.* | Set Settings → Shared Tasks → Default server. |
-| *no shared section on this device yet.* | Join with a link first ("Join with a link…" in the pane, or "Join collaboration"), then "Insert into a note…" (the palette's "Insert shared section…"). |
+| *no shared section on this device yet.* | Join with a link first ("Join with a link…" in the pane, or "Legacy: Join task collaboration"), then "Insert into a note…" (the palette's "Insert shared section…"). |
 | The section "has not fully arrived yet" | Wait for it to load, then insert it again. |
 | A marker line was deleted or the section looks broken | Run **"Repair shared sections in this note"**. It offers places to put a lost boundary back (**Apply**), points to lines it cannot match (**Go to line**), and for a note that differs from the shared section, lets you **Keep my version** (its differences are sent as your edits; the pane and the card show whether they were) or **Use the shared version**. Your own text is kept as a recovery copy on this device. "Nothing in this note needs repair." means all is well. |
 | *The server refused N updates (…). The text stays in your note.* | Your text is kept. Open the details for the reason. |

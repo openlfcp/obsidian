@@ -15,7 +15,7 @@ collaboration" offers it; you can replace it in that field each time, or
 change or clear the setting:
 
 - **Your own server as the default:** put its URL in "Default server".
-- **No default:** clear the field. "Create collaboration" then offers an
+- **No default:** clear the field. "Legacy: Create task collaboration" then offers an
   empty field, and the plugin keeps it empty.
 
 Upgrading from an earlier plugin version: if you had saved a server, the
@@ -24,7 +24,7 @@ the project server; clear it again to keep no default.
 
 ## Where the server is used
 
-- **Creating a collaboration.** "Create collaboration" asks for the sync
+- **Creating a collaboration.** "Legacy: Create task collaboration" asks for the sync
   server, pre-filled with the default server. That URL becomes the
   collaboration's server and its coordinator (the server that orders
   membership changes). It is written into the collaboration's first signed

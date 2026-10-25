@@ -10,13 +10,13 @@ flow, so none of these layers holds protocol logic. A test enforces it
 
 | Command | What happens | SDK flow |
 | --- | --- | --- |
-| Create collaboration | Asks a local name and a server, then creates the Resource locally and hosts it | `runtime.createResource`, `SyncClient.host` (RESOURCE_HOST) |
-| Join collaboration | Asks the invitation link in a masked field and a local name, then claims | `acceptInvitation` (LFCP-053) |
-| Share task under cursor | `task.create` from what the line represents, then adds the ref | `runtime.writeIntent` |
-| Insert shared object | Picks a Resource and a Task, then writes its projection at the cursor | `renderNewTaskLine` (LFCP-062) |
-| Share selected tasks | Every Task line of the selection, or else of the heading section at the cursor (down to the next heading of the same or a higher level; ATX headings outside fences and front matter): one Resource pick, one `task.create` each (`created_at` now + its index in ms, keeping note order), all refs in one `vault.process`. Bound lines are skipped, blocked or title-less ones refused; one summary notice | `runtime.writeIntent` (`Collaboration.shareAll`) |
-| Insert all tasks from collaboration | Every live Task the note does not project yet, at the cursor, ordered by `created_at` then Object ID | `renderNewTaskLine` |
-| Invite collaborator | Picks a preset, then shows a one-time link | `createInvitation` |
+| Legacy: Create task collaboration | Asks a local name and a server, then creates the Resource locally and hosts it | `runtime.createResource`, `SyncClient.host` (RESOURCE_HOST) |
+| Legacy: Join task collaboration | Asks the invitation link in a masked field and a local name, then claims | `acceptInvitation` (LFCP-053) |
+| Legacy: Share task under cursor | `task.create` from what the line represents, then adds the ref | `runtime.writeIntent` |
+| Legacy: Insert shared object | Picks a Resource and a Task, then writes its projection at the cursor | `renderNewTaskLine` (LFCP-062) |
+| Legacy: Share selected tasks | Every Task line of the selection, or else of the heading section at the cursor (down to the next heading of the same or a higher level; ATX headings outside fences and front matter): one Resource pick, one `task.create` each (`created_at` now + its index in ms, keeping note order), all refs in one `vault.process`. Bound lines are skipped, blocked or title-less ones refused; one summary notice | `runtime.writeIntent` (`Collaboration.shareAll`) |
+| Legacy: Insert all tasks from task collaboration | Every live Task the note does not project yet, at the cursor, ordered by `created_at` then Object ID | `renderNewTaskLine` |
+| Legacy: Invite to task collaboration (and, for a shared section, Invite to this section…) | Picks a preset, then shows a one-time link | `createInvitation` |
 | Resource status | The non-secret state of a collaboration | stored Control state, Shared Objects state |
 | Detach shared task | Removes the ref; the shared object is untouched | none |
 | Resolve shared task conflict | Lists a field's competing values and keeps the chosen one | `task.resolve_field_conflict` |
