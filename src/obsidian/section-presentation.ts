@@ -14,7 +14,7 @@
 // Block decorations that remove whole lines must come from a state field
 // (CodeMirror), hence StateField, not ViewPlugin, for the decorations.
 
-import { type EditorState, type Extension, StateEffect, StateField } from "@codemirror/state";
+import { EditorState, type Extension, StateEffect, StateField } from "@codemirror/state";
 import {
   Decoration,
   type DecorationSet,
@@ -30,6 +30,7 @@ import {
   type SectionPresentation,
   sectionPresentation,
 } from "../core/sections/presentation";
+import { pluginEdit, sectionWrite } from "./section-editor";
 
 /** Show (true) or hide (false) sharing metadata in this editor. */
 export const setShowMetadata = StateEffect.define<boolean>();
@@ -96,6 +97,38 @@ class CueWidget extends WidgetType {
   override ignoreEvent(): boolean {
     return false;
   }
+}
+
+/**
+ * Whether a change edits the text of a binding line (not the lines around
+ * it, and not the whole line at once): typing into a marker, deleting a
+ * part of it, or gluing text onto it. A change that covers the whole line is
+ * a deletion of the line (a cut, a deleted Task), which the editor's other
+ * guards govern, as they do a deleted line break beside it.
+ */
+export function editsBindingText(
+  doc: EditorState["doc"],
+  binding: ReadonlySet<number>,
+  from: number,
+  to: number,
+  insert: string,
+): boolean {
+  for (let n = doc.lineAt(from).number; n <= doc.lineAt(to).number; n++) {
+    if (!binding.has(n - 1)) continue;
+    const line = doc.line(n);
+    // The whole line, with its text, goes: not an edit of it.
+    if (from <= line.from && to >= line.to && to > from) continue;
+    if (from === to) {
+      // A pure insertion: a line break at the line's start or end leaves it as it is.
+      if (from === line.from && insert.endsWith("\n")) continue;
+      if (from === line.to && insert.startsWith("\n")) continue;
+      return true;
+    }
+    // A deletion into the line's text. A line break beside it is the editor's other
+    // guards' (a result that glues text onto a marker is refused there).
+    if (from < line.to && to > line.from) return true;
+  }
+  return false;
 }
 
 /** The line of an idle cursor: one empty selection, and the last change was not an edit. */
@@ -184,6 +217,32 @@ export function sectionPresentationExtension(show: () => boolean): {
     },
     provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
   });
+  // With sharing metadata hidden in Live Preview, the user's typing, pasting
+  // and deleting cannot change a marker's text (UX-05): one typed letter made
+  // a section unreadable and stopped its sync. Undo and redo, the plugin's own
+  // writes and other plugins' (no user event) always go through; Source mode
+  // and "Show sharing metadata" edit markers as before.
+  const protectMarkers = EditorState.transactionFilter.of((tr) => {
+    if (
+      !tr.docChanged ||
+      tr.annotation(sectionWrite) !== undefined ||
+      tr.annotation(pluginEdit) !== undefined ||
+      !(tr.isUserEvent("input") || tr.isUserEvent("delete")) ||
+      tr.isUserEvent("undo") ||
+      tr.isUserEvent("redo")
+    )
+      return tr;
+    const value = tr.startState.field(field, false);
+    if (value === undefined || value.show || value.model.bindingLines.length === 0) return tr;
+    if (tr.startState.field(editorLivePreviewField, false) !== true) return tr;
+    const binding = new Set(value.model.bindingLines);
+    let blocked = false;
+    tr.changes.iterChanges((from, to, _fromB, _toB, inserted) => {
+      if (!blocked && editsBindingText(tr.startState.doc, binding, from, to, inserted.toString()))
+        blocked = true;
+    });
+    return blocked ? [] : tr;
+  });
   const registry = ViewPlugin.fromClass(
     class {
       constructor(readonly view: EditorView) {
@@ -194,5 +253,5 @@ export function sectionPresentationExtension(show: () => boolean): {
       }
     },
   );
-  return { extension: [field, registry], views };
+  return { extension: [field, protectMarkers, registry], views };
 }
