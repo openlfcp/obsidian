@@ -31,10 +31,17 @@ import {
 } from "./batch";
 import { JoinFlow } from "./join-flow";
 import { attachToTask, detachExact, taskAt, unitPlacement } from "./markdown";
-import { ALREADY_HELD, plainError, REMOVED_REJOIN } from "./messages";
+import {
+  ALREADY_HELD,
+  ALREADY_HELD_LEGACY,
+  LEGACY_LINK_FOR_SECTION,
+  plainError,
+  REMOVED_REJOIN,
+  SECTION_LINK_FOR_LEGACY,
+} from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
 import { type Hint, serverHint } from "./server-notice";
-import type { Collaboration, JoinStage, ResourceStatus } from "./service";
+import type { Collaboration, JoinAccept, JoinStage, ResourceStatus } from "./service";
 import { resourceNoun } from "./view";
 
 export interface Choice<T> {
@@ -391,13 +398,18 @@ export class CollabCommands {
     });
   }
 
-  joinCollaboration(): Promise<void> {
+  /**
+   * The palette's join. `accept` limits the links it claims: "sections" a
+   * shared section's only, "legacy" a 0.1 task collaboration's only; the
+   * default takes both, until the section and legacy commands are split.
+   */
+  joinCollaboration(accept: JoinAccept = "any"): Promise<void> {
     const release = this.joins.hold();
     if (release === null) {
       this.#env.prompter.notice("Shared Tasks: a join is in progress. Finish it first.");
       return Promise.resolve();
     }
-    return this.#join().finally(release);
+    return this.#join(accept).finally(release);
   }
 
   /** The pane's "Join with a link…": its field for a pasted link, no dialog (I5). */
@@ -415,7 +427,7 @@ export class CollabCommands {
     this.joins.placed(resource);
   }
 
-  #join(): Promise<void> {
+  #join(accept: JoinAccept): Promise<void> {
     return this.#run("Joining", async () => {
       const collab = this.#collab();
       if (collab === null) return;
@@ -441,6 +453,7 @@ export class CollabCommands {
         const outcome = await this.joins.run(link, {
           name,
           from: "palette",
+          accept,
           onStage: (s) => progress.update(STAGE_TEXT[s]),
         });
         // Already held: a section in the section words, a 0.1 Resource as 0.1 said it,
@@ -461,12 +474,14 @@ export class CollabCommands {
                 ? "Shared Tasks: this vault had already joined this section. No new claim was made."
                 : heldProfile === undefined
                   ? `Shared Tasks: ${ALREADY_HELD}`
-                  : "Shared Tasks: this device is already in that collaboration."
-              : outcome.kind === "removed"
-                ? `Shared Tasks: ${REMOVED_REJOIN}`
-                : outcome.kind === "needs-newer-version"
-                  ? `Shared Tasks: could not join. ${NEEDS_NEWER_VERSION}, then join again with the same link: it has not been used.`
-                  : `Shared Tasks: could not join. ${outcome.message}`,
+                  : `Shared Tasks: ${ALREADY_HELD_LEGACY}`
+              : outcome.kind === "other-profile"
+                ? `Shared Tasks: could not join. ${outcome.profile === SECTIONS_PROFILE_ID ? SECTION_LINK_FOR_LEGACY : LEGACY_LINK_FOR_SECTION}`
+                : outcome.kind === "removed"
+                  ? `Shared Tasks: ${REMOVED_REJOIN}`
+                  : outcome.kind === "needs-newer-version"
+                    ? `Shared Tasks: could not join. ${NEEDS_NEWER_VERSION}, then join again with the same link: it has not been used.`
+                    : `Shared Tasks: could not join. ${outcome.message}`,
         );
       } finally {
         progress.close();

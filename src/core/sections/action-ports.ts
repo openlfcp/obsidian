@@ -18,7 +18,13 @@ import type { SectionCard } from "../status/card";
 import type { HeldEdits } from "../status/held";
 import type { StoredBase } from "./base";
 import type { CreationEntry, CreationResult } from "./create";
-import type { InsertionEntry, InsertPreview, InsertRefusal, InsertResult } from "./insert";
+import type {
+  InsertionEntry,
+  InsertPreview,
+  InsertRefusal,
+  InsertResult,
+  NoSectionFacts,
+} from "./insert";
 import type { PendingCandidate } from "./journal";
 import type { ImportChoices, LegacyPreview, LegacySource } from "./legacy";
 import type { SectionSnapshot } from "./port";
@@ -362,6 +368,8 @@ export interface SectionServices {
   refPlacement(): RefPlacement;
   /** The sections of this vault with a loaded model, or null while starting. */
   sectionChoices(): Promise<SectionChoice[] | null>;
+  /** Why there is no section to insert (arriving, or only an older collaboration); absent: not known. */
+  noSectionFacts?(): Promise<NoSectionFacts>;
   /**
    * The notes that hold a copy of a section Resource (the placement index),
    * or null while the notes are still being read. Absent: not known.

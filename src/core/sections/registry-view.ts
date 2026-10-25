@@ -16,6 +16,7 @@
 // and never merged by name. Pure: no Obsidian.
 
 import { type ResourceId, toBase64url } from "@openlfcp/core";
+import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { RegistryEntry, RegistryState } from "../lfcp/runtime";
 import type { StatusState, StatusView } from "../status/reducer";
@@ -87,6 +88,8 @@ export interface RegistrySnapshot {
   readonly sections: number | null;
   /** Sections not inserted in any note; null unless `ready` and the index complete. */
   readonly unplaced: number | null;
+  /** The 0.1 task collaborations on this device (not sections); null unless `ready`. */
+  readonly legacy?: number | null;
 }
 
 /** A row's label (UX contract §7, N1–N3). */
@@ -118,6 +121,8 @@ export class SectionRegistryView {
   readonly #sources: RegistryViewSources;
   /** The section Resources of the last good registry read; null before one. */
   #entries: readonly RegistryEntry[] | null = null;
+  /** How many of the last read's Resources are 0.1 task collaborations. */
+  #legacy = 0;
   #error: string | null = null;
   #snapshot: RegistrySnapshot;
   #shape: string;
@@ -172,9 +177,9 @@ export class SectionRegistryView {
         do {
           this.#again = false;
           try {
-            this.#entries = (await this.#sources.registry()).filter(
-              (e) => e.profile === SECTIONS_PROFILE_ID,
-            );
+            const all = await this.#sources.registry();
+            this.#entries = all.filter((e) => e.profile === SECTIONS_PROFILE_ID);
+            this.#legacy = all.filter((e) => e.profile === PROFILE_ID).length;
             this.#error = null;
           } catch (e) {
             this.#error = e instanceof Error ? e.message : String(e);
@@ -256,6 +261,7 @@ export class SectionRegistryView {
       sections: status === "ready" ? rows.length : null,
       unplaced:
         status === "ready" && complete ? rows.filter((r) => r.placed === "unplaced").length : null,
+      legacy: status === "ready" ? this.#legacy : null,
     });
   }
 }

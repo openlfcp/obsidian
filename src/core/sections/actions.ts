@@ -78,6 +78,7 @@ import {
   insertionFits,
   insertionWritten,
   insertRefusalMessage,
+  noSectionMessage,
   renderSection,
 } from "./insert";
 import { type LegacySource, legacyPreflight } from "./legacy";
@@ -551,7 +552,7 @@ export class SectionActions {
     if (this.#refused({}, insertion === null || choices === null)) return;
     if (insertion === null || choices === null) return;
     if (choices.length === 0) {
-      prompter.notice("Shared Tasks: no shared section on this device yet.");
+      prompter.notice(noSectionMessage((await services.noSectionFacts?.()) ?? null));
       return;
     }
     let choice = section === undefined ? null : namedChoice(choices, section);

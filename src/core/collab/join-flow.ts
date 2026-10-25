@@ -34,8 +34,17 @@ import { toHex } from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { parseInviteUri } from "@openlfcp/wire";
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
-import { ALREADY_HELD, codeOf, plainCode, plainError, REMOVED_REJOIN } from "./messages";
-import type { Collaboration, JoinOutcome, JoinStage } from "./service";
+import {
+  ALREADY_HELD,
+  ALREADY_HELD_LEGACY,
+  codeOf,
+  LEGACY_LINK_FOR_SECTION,
+  plainCode,
+  plainError,
+  REMOVED_REJOIN,
+  SECTION_LINK_FOR_LEGACY,
+} from "./messages";
+import type { Collaboration, JoinAccept, JoinOutcome, JoinStage } from "./service";
 
 /** What the join flow needs of the collaboration flows (service.ts). */
 export type JoinCollab = Pick<Collaboration, "join" | "list" | "resumeJoin" | "abandonJoin">;
@@ -49,6 +58,7 @@ export type JoinProblem =
   | "used"
   | "removed"
   | "needs-newer-version"
+  | "other-profile"
   | "refused"
   | "offline"
   | "not-claimed"
@@ -224,6 +234,8 @@ export class JoinFlow {
       readonly name: string;
       readonly from: "pane" | "palette";
       readonly onStage?: (stage: JoinStage) => void;
+      /** Which links to claim; default: the pane's join takes only a shared section's. */
+      readonly accept?: JoinAccept;
     },
   ): Promise<JoinOutcome> {
     const collab = this.#env.collab();
@@ -249,6 +261,7 @@ export class JoinFlow {
     try {
       outcome = await collab.join(link, {
         name: options.name,
+        accept: options.accept ?? (options.from === "pane" ? "sections" : "any"),
         onStage: (stage) => {
           options.onStage?.(stage);
           this.#stage(generation, stage);
@@ -402,7 +415,7 @@ export class JoinFlow {
             this.#env.notice(
               entry === undefined
                 ? `Shared Tasks: ${ALREADY_HELD}`
-                : "Shared Tasks: this device is already in that collaboration.",
+                : `Shared Tasks: ${ALREADY_HELD_LEGACY}`,
             );
           this.#end(generation);
           return;
@@ -419,6 +432,16 @@ export class JoinFlow {
           from,
           "needs-newer-version",
           `${NEEDS_NEWER_VERSION}, then join again with the same link: it has not been used.`,
+        );
+        return;
+      case "other-profile":
+        this.#stopped(
+          generation,
+          from,
+          "other-profile",
+          outcome.profile === SECTIONS_PROFILE_ID
+            ? SECTION_LINK_FOR_LEGACY
+            : LEGACY_LINK_FOR_SECTION,
         );
         return;
       case "refused": {

@@ -20,6 +20,7 @@ import {
   toBase64url,
   toHex,
 } from "@openlfcp/core";
+import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { type App, type Editor, MarkdownView, Notice, TFile } from "obsidian";
@@ -38,6 +39,7 @@ import { newProjectionId } from "../core/sections/base";
 import { SectionCreation } from "../core/sections/create";
 import { applyChanges, type NotePass, SectionEngine } from "../core/sections/engine";
 import { type SectionRef, sameSection } from "../core/sections/grammar";
+import type { NoSectionFacts } from "../core/sections/insert";
 import { SectionInsertion } from "../core/sections/insert";
 import { inviteCheck } from "../core/sections/invite-check";
 import { abandonOnce } from "../core/sections/journal";
@@ -1525,6 +1527,7 @@ export class SectionsHost {
       server: () => this.server(),
       refPlacement: () => this.refPlacement(),
       sectionChoices: () => this.#sectionChoices(),
+      noSectionFacts: () => this.#noSectionFacts(),
       placements: (R) =>
         this.#placements.state === "complete"
           ? this.#placements.placements(toKey(R)).map((p) => p.path)
@@ -1572,6 +1575,22 @@ export class SectionsHost {
             };
       },
     };
+  }
+
+  /** What the registry holds when no section is loaded: those still arriving, older collaborations. */
+  async #noSectionFacts(): Promise<NoSectionFacts> {
+    const runtime = this.#runtime;
+    const arriving: string[] = [];
+    let legacy = 0;
+    for (const entry of runtime === null ? [] : await runtime.registry()) {
+      if (entry.profile === PROFILE_ID) legacy++;
+      else if (
+        entry.profile === SECTIONS_PROFILE_ID &&
+        runtime?.sectionProfile(entry.resourceId)?.replica === undefined
+      )
+        arriving.push(entry.localName ?? "");
+    }
+    return { arriving, legacy };
   }
 
   /** The sections of this vault "Insert shared section…" offers: those with a loaded model. */

@@ -179,6 +179,7 @@ function registryOf(s: RegistrySnapshot | null): PaneRegistry {
     placementIndex: s.placementIndex,
     sections: s.sections,
     unplaced: s.unplaced,
+    legacy: s.legacy ?? null,
     rows: s.rows.map((r) => ({
       key: r.key ?? r.resource,
       sharedTitle: r.sharedTitle,

@@ -7,8 +7,10 @@
 import * as client from "@openlfcp/client";
 import type { ResourceId } from "@openlfcp/core";
 import { PROFILE_ID } from "@openlfcp/shared-objects";
+import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type Choice, CollabCommands, type Prompter } from "../../../src/core/collab/commands";
+import { LEGACY_LINK_FOR_SECTION } from "../../../src/core/collab/messages";
 import { Collaboration } from "../../../src/core/collab/service";
 import { LfcpRuntime, NEEDS_NEWER_VERSION } from "../../../src/core/lfcp/runtime";
 import { MutationGuard } from "../../../src/core/projection/guard";
@@ -109,5 +111,93 @@ describe("Join a collaboration of another Data Profile (0.3.2)", () => {
     expect(notices).toEqual([
       `Shared Tasks: could not join. ${NEEDS_NEWER_VERSION}, then join again with the same link: it has not been used.`,
     ]);
+  });
+});
+
+describe("Join limited to one kind of link (UX-03)", () => {
+  const legacyLink = (R: ResourceId) =>
+    ({
+      kind: "profile-unsupported",
+      resourceId: R,
+      code: "PROFILE_UNSUPPORTED",
+      dataProfile: PROFILE_ID,
+    }) as const;
+
+  async function withSections() {
+    const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
+    running.push(runtime);
+    return {
+      runtime,
+      collab: new Collaboration(runtime, { sleep, joinTimeoutMs: 200, sections: true }),
+    };
+  }
+
+  it("a section join asks the SDK for the sections profile only; a 0.1 link is refused, not claimed", async () => {
+    const { runtime, collab } = await withSections();
+    const { link, R } = await invitation();
+    accept.mockResolvedValue(legacyLink(R));
+    expect(await collab.join(link, { name: "Launch", accept: "sections" })).toEqual({
+      kind: "other-profile",
+      resourceId: R,
+      profile: PROFILE_ID,
+    });
+    expect(accept).toHaveBeenCalledOnce();
+    expect(accept.mock.calls[0]?.[0].dataProfiles).toEqual([SECTIONS_PROFILE_ID]);
+    expect(await runtime.hasResource(R)).toBe(false);
+  });
+
+  it("the legacy join asks for the 0.1 profile only; a section link is refused the same way", async () => {
+    const { collab } = await withSections();
+    const { link, R } = await invitation();
+    accept.mockResolvedValue({ ...legacyLink(R), dataProfile: SECTIONS_PROFILE_ID });
+    expect(await collab.join(link, { name: "", accept: "legacy" })).toEqual({
+      kind: "other-profile",
+      resourceId: R,
+      profile: SECTIONS_PROFILE_ID,
+    });
+    expect(accept.mock.calls[0]?.[0].dataProfiles).toEqual([PROFILE_ID]);
+  });
+
+  it("unlimited (the default) asks for both, as before", async () => {
+    const { collab } = await withSections();
+    const { link, R } = await invitation();
+    accept.mockResolvedValue(legacyLink(R));
+    await collab.join(link, { name: "" });
+    expect(accept.mock.calls[0]?.[0].dataProfiles).toEqual([PROFILE_ID, SECTIONS_PROFILE_ID]);
+  });
+
+  it("a profile this plugin does not know is still 'update the plugin'", async () => {
+    const { collab } = await withSections();
+    const { link, R } = await invitation();
+    accept.mockResolvedValue({ ...legacyLink(R), dataProfile: "future-profile.v9" });
+    expect(await collab.join(link, { name: "", accept: "sections" })).toEqual({
+      kind: "needs-newer-version",
+      resourceId: R,
+    });
+  });
+
+  it("the palette command says it with the same words and nothing is used", async () => {
+    const { collab } = await withSections();
+    const { link, R } = await invitation();
+    accept.mockResolvedValue(legacyLink(R));
+    const notices: string[] = [];
+    const texts = [link, ""];
+    const prompter: Prompter = {
+      notice: (m) => void notices.push(m),
+      text: async () => texts.shift() ?? null,
+      choose: async <T>(_o: { readonly choices: readonly Choice<T>[] }) => null,
+      invitation: async () => undefined,
+      status: async () => undefined,
+      progress: () => ({ update: () => undefined, close: () => undefined }),
+    };
+    const commands = new CollabCommands({
+      collab: () => collab,
+      prompter,
+      guard: new MutationGuard(),
+      placement: () => "child-line",
+      defaultServer: () => SERVER,
+    } as never);
+    await commands.joinCollaboration("sections");
+    expect(notices.at(-1)).toBe(`Shared Tasks: could not join. ${LEGACY_LINK_FOR_SECTION}`);
   });
 });
