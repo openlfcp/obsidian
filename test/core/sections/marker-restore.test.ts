@@ -212,3 +212,41 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
     expect(m.primary?.id).toBe("open-for-editing");
   });
 });
+
+describe("restore is only for the cause (review of PR 91)", () => {
+  it("a damaged start of a section with an intact start does not hide that section's missing end", () => {
+    const damagedStart = START.replace("lfcp1:", "hlfcp1:");
+    const md = ["## A", START, "- [ ] one", "", "## B", damagedStart, "- [ ] two", ""].join("\n");
+    const items = repairItems(md, [KEY]);
+    expect(items.map((i) => i.kind)).toContain("missing-end");
+    // The section already has an intact start: a second one is not restored.
+    expect(items.map((i) => i.kind)).not.toContain("restore");
+  });
+
+  it("a damaged end does not hide the missing start of an end marker", () => {
+    // Orphan end (missing start); a damaged END earlier is not its mate.
+    const md = ["## A", END.replace("lfcp1:", "hlfcp1:"), "- [ ] x", END, ""].join("\n");
+    expect(repairItems(md, [KEY]).map((i) => i.kind)).toContain("missing-start");
+  });
+
+  it("a damaged start whose section already has an intact start is not restored", () => {
+    const md = [
+      "## A",
+      START,
+      "- [ ] one",
+      END,
+      "## Copy",
+      START.replace("lfcp1:", "hlfcp1:"),
+      "- [ ] one",
+      "",
+    ].join("\n");
+    expect(repairItems(md, [KEY]).map((i) => i.kind)).not.toContain("restore");
+  });
+
+  it("a typo that could be either boundary restores the one that pairs with a lone mate", () => {
+    // Orphan end of the section: the damaged line before it is its start.
+    const md = doc(START.replace("lfcp1:", "hlfcp1:"));
+    const [item] = repairItems(md, [KEY]);
+    expect(item).toMatchObject({ kind: "restore", boundary: "start" });
+  });
+});
