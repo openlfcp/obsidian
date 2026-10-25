@@ -239,7 +239,7 @@ describe("vault A loses its access while its own edit is pending", () => {
     const shared = await ctx.b.share(ctx.bFile, "## From B");
     ctx.R = Buffer.from(shared.resource).toString("hex");
     const link = (await ctx.b.collab.invite(shared.resource, "read-write")).link.reveal();
-    await inA(({ app }) => app.commands.executeCommandById("shared-tasks:join-collaboration"));
+    await inA(({ app }) => void app.plugins.plugins["shared-tasks"].actions.run("join-with-link"));
     const answer = (text) =>
       inA(async ({}, text) => {
         let input = null;
