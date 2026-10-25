@@ -88,3 +88,108 @@ describe("boundary cues in the editor", () => {
     expect(s.doc.toString()).toBe(broken);
   });
 });
+
+describe("markers cannot be typed into while metadata is hidden (UX-05)", () => {
+  const typeAt = (s: EditorState, pos: number, text: string, event = "input.type") =>
+    s.update({ changes: { from: pos, insert: text }, userEvent: event }).state.doc.toString();
+  const start = NOTE.indexOf("<!-- lfcp-section");
+
+  it("a letter typed into, before or after a start marker changes nothing", () => {
+    const s = editor(NOTE);
+    expect(typeAt(s, start, "h")).toBe(NOTE);
+    expect(typeAt(s, start + 6, "h")).toBe(NOTE);
+    const lineEnd = s.doc.line(2).to;
+    expect(typeAt(s, lineEnd, "h")).toBe(NOTE);
+  });
+
+  it("deleting a letter of a marker, and pasting into it, change nothing", () => {
+    const s = editor(NOTE);
+    const del = s.update({
+      changes: { from: start + 6, to: start + 7 },
+      userEvent: "delete.backward",
+    });
+    expect(del.state.doc.toString()).toBe(NOTE);
+    expect(typeAt(s, start + 6, "xy", "input.paste")).toBe(NOTE);
+  });
+
+  it("a line break next to a marker, typing in a Task, and undo still go through", () => {
+    const s = editor(NOTE);
+    const task = s.doc.line(3).to;
+    expect(typeAt(s, task, "!")).toBe(NOTE.replace("- [ ] Task", "- [ ] Task!"));
+    expect(typeAt(s, s.doc.line(2).to, "\n")).toContain("-->\n\n");
+    expect(typeAt(s, start + 6, "h", "undo")).not.toBe(NOTE);
+  });
+
+  it("Tab and Shift+Tab move a Task's ref line with it; a boundary stays at column 0", () => {
+    const s = editor(NOTE);
+    const ref = s.doc.line(4);
+    const indented = s.update({
+      changes: { from: ref.from, insert: "  " },
+      userEvent: "input.indent",
+    });
+    expect(indented.state.doc.line(4).text).toBe(`  ${ref.text}`);
+    const dedented = indented.state.update({
+      changes: { from: ref.from, to: ref.from + 2 },
+      userEvent: "delete.dedent",
+    });
+    expect(dedented.state.doc.line(4).text).toBe(ref.text);
+    const boundary = s.doc.line(2);
+    const bad = s.update({
+      changes: { from: boundary.from, insert: "  " },
+      userEvent: "input.indent",
+    });
+    expect(bad.state.doc.toString()).toBe(NOTE);
+  });
+
+  it("a whole line deleted (a cut Task with its ref) is not an edit of the marker", () => {
+    const s = editor(NOTE);
+    const from = s.doc.line(3).from;
+    const to = s.doc.line(4).to + 1;
+    const cut = s.update({ changes: { from, to }, userEvent: "delete.cut" }).state.doc.toString();
+    expect(cut).not.toContain("Task");
+  });
+
+  it("Source mode and the show-metadata setting edit markers as before", () => {
+    const shown = EditorState.create({
+      doc: NOTE,
+      extensions: [
+        editorLivePreviewField.init(() => false),
+        sectionPresentationExtension(() => false).extension,
+      ],
+    });
+    expect(typeAt(shown, start + 6, "h")).not.toBe(NOTE);
+    const metadata = EditorState.create({
+      doc: NOTE,
+      extensions: [
+        editorLivePreviewField.init(() => true),
+        sectionPresentationExtension(() => true).extension,
+      ],
+    });
+    expect(typeAt(metadata, start + 6, "h")).not.toBe(NOTE);
+  });
+
+  it("typing over a whole marker line is refused, and the refusal is reported", () => {
+    let refused = 0;
+    const s = EditorState.create({
+      doc: NOTE,
+      extensions: [
+        editorLivePreviewField.init(() => true),
+        sectionPresentationExtension(
+          () => false,
+          () => refused++,
+        ).extension,
+      ],
+    });
+    const line = s.doc.line(2);
+    const over = s.update({
+      changes: { from: line.from, to: line.to, insert: "x" },
+      userEvent: "input.type",
+    });
+    expect(over.state.doc.toString()).toBe(NOTE);
+    expect(refused).toBe(1);
+    // Deleting that whole line outright is not refused.
+    const del = s.update({ changes: { from: line.from, to: line.to }, userEvent: "delete.cut" });
+    expect(del.state.doc.line(2).text).toBe("");
+    expect(refused).toBe(1);
+  });
+});
