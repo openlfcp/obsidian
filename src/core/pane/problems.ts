@@ -22,7 +22,7 @@ import type { ActionId } from "../actions/catalog";
 import { ACCESS_HELD, REPAIR_HELD } from "../actions/descriptors";
 import type { ProblemTarget } from "../actions/dispatcher";
 import type { RecoveryItem } from "../sections/recovery";
-import type { KeyedRepair } from "../sections/repair";
+import { type KeyedRepair, restoreText } from "../sections/repair";
 import { type HeldCause, type HeldEdits, heldCauseText } from "../status/held";
 import type { StatusView } from "../status/reducer";
 
@@ -118,6 +118,9 @@ function conflictSource(item: RecoveryItem): string {
 /** A repair item in a few words. */
 function repairText(k: KeyedRepair): { text: string; category: ProblemCategory } {
   const item = k.item;
+  if (item.kind === "restore") {
+    return { text: restoreText(item), category: "boundary" };
+  }
   if (item.kind === "missing-end")
     return { text: "A shared section has a start marker and no end.", category: "boundary" };
   if (item.kind === "missing-start")
@@ -222,7 +225,12 @@ export function paneProblems(f: ProblemFacts): PaneProblem[] {
       text,
       source: where(repairs?.path ?? "", k.item.line),
       // A boundary has its resolver in the repair dialog; anything else is edited at its line.
-      action: k.item.kind === "locate" ? "go-to-problem" : "repair-sections",
+      action:
+        k.item.kind === "locate"
+          ? "go-to-problem"
+          : k.item.kind === "restore"
+            ? "restore-marker"
+            : "repair-sections",
       ref: {
         kind: "repair",
         path: repairs?.path ?? "",

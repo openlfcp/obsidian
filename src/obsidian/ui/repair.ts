@@ -6,7 +6,7 @@
 
 import { type App, Modal } from "obsidian";
 import type { LostBase, RepairActions } from "../../core/sections/action-ports";
-import type { RepairItem } from "../../core/sections/repair";
+import { type RepairItem, restoreText } from "../../core/sections/repair";
 
 export type { LostBase, RepairActions };
 
@@ -63,6 +63,17 @@ export class RepairModal extends Modal {
           this.close();
           this.actions.locate(item.line);
         });
+        continue;
+      }
+      if (item.kind === "restore") {
+        box.createEl("p", { text: `Line ${item.line + 1}: ${restoreText(item)}` });
+        box
+          .createDiv({ cls: "modal-button-container" })
+          .createEl("button", { text: "Restore", cls: "mod-cta" })
+          .addEventListener("click", () => {
+            this.close();
+            void this.actions.restore(item);
+          });
         continue;
       }
       const lines =

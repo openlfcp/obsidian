@@ -92,7 +92,9 @@ import {
   compare,
   findRepair,
   keyedRepairs,
+  type RepairItem,
   repairItems,
+  restoreChange,
   sharedVersionChange,
   withoutNodes,
 } from "./repair";
@@ -1560,7 +1562,7 @@ export class SectionActions {
     const { prompter, notes, services } = this.env;
     const md = at.text;
     // The problem a surface named (its line in this text) first; the others after it, as they are.
-    const items = repairItems(md).sort(
+    const items = repairItems(md, await this.#heldKeys(at.path)).sort(
       (a, b) => Number(b.line === focus) - Number(a.line === focus),
     );
     const known = new Set<string>();
@@ -1817,6 +1819,7 @@ export class SectionActions {
         // The pane reads the note and its facts again: what the repair left is shown, not assumed.
         this.#changed();
       }),
+      restore: onNote((path, item) => this.#restoreMarker(path, md, item)),
       // The repaired note, where it is now: never whichever note the tab shows.
       locate: (line) => {
         void onNote(async (path) => {
@@ -2364,7 +2367,7 @@ export class SectionActions {
       this.#changed();
       return;
     }
-    const keyed = keyedRepairs(now.text);
+    const keyed = keyedRepairs(now.text, await this.#heldKeys(p.path));
     // At the same revision the line is exact; else the key finds where the item is now.
     const found =
       contentHash(now.text) === p.revision
@@ -2377,11 +2380,66 @@ export class SectionActions {
       this.#changed();
       return;
     }
+    if (found.item.kind === "restore") {
+      if (now.composing) {
+        prompter.notice(invalidationText("composing", "restored"));
+        return;
+      }
+      await this.#restoreMarker(p.path, now.text, found.item);
+      return;
+    }
     const at = await notes.goToLine(p.path, found.item.line);
     if (found.item.kind === "locate") return;
     if (at !== null) await this.repairNote(at, found.item.line);
     // Reading view: not open for editing (T4). A note gone was said by goToLine.
     else if ((await notes.read(p.path)) !== null) prompter.notice(REPAIR_OPEN_FOR_EDITING);
+  }
+
+  /**
+   * The keys of the sections this device holds: those with a loaded model
+   * and those with a base in note `path` (a damaged copy keeps its base).
+   */
+  async #heldKeys(path: string): Promise<string[]> {
+    const { services } = this.env;
+    const keys = new Set<string>();
+    for (const c of (await services.sectionChoices()) ?? [])
+      keys.add(`${toBase64url(c.resource)}#${c.sectionId}`);
+    const bases = services.bases();
+    if (bases !== null)
+      for (const id of await bases.projectionsOf(path)) {
+        const b = await bases.load(id);
+        if (b !== undefined) keys.add(sectionKey(b.locator.section));
+      }
+    return [...keys];
+  }
+
+  /**
+   * Rewrites a damaged marker line of note `path` as it was: that line only,
+   * through the note-write path, and only on the text it was computed for
+   * (`md`): a note that changed meanwhile is left as it is.
+   */
+  async #restoreMarker(
+    path: string,
+    md: string,
+    item: Extract<RepairItem, { kind: "restore" }>,
+  ): Promise<void> {
+    const { prompter, notes, services } = this.env;
+    let written = false;
+    await notes.edit(path, (current) => {
+      if (current !== md) return null;
+      written = true;
+      return [restoreChange(current, item)];
+    });
+    if (!written) {
+      prompter.notice("Shared Tasks: the note changed meanwhile. Nothing was restored; try again.");
+      this.#changed();
+      return;
+    }
+    services.pass(path);
+    prompter.notice(
+      `Shared Tasks: the ${item.boundary} line of ${item.title === null ? "the section" : `"${item.title}"`} was restored.`,
+    );
+    this.#changed();
   }
 
   /**

@@ -349,6 +349,8 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
     if (d.running !== null) return disabled(BUSY);
     return disabled("Open the note for editing to repair it.");
   }),
+  // A problem row's own button and the pane's primary when a marker is restorable: never a menu entry.
+  "restore-marker": () => HIDDEN,
   "go-to-problem": ofSection((_d, s) =>
     s.view.held.some((h) => h.cause === "unsupported" || REPAIR_HELD.has(h.cause)) ||
     s.view.conditions.some((c) => c.kind === "source" && c.source === "unsupported")
@@ -408,6 +410,7 @@ export const DESCRIPTOR_ORDER: readonly ActionId[] = [
   "review-local-changes",
   "review-conflicts",
   "repair-sections",
+  "restore-marker",
   "go-to-problem",
   "remove-access",
   "discard-local-copy",

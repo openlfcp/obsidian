@@ -134,6 +134,8 @@ export interface RepairActions {
     item: Extract<RepairItem, { kind: "missing-end" | "missing-start" }>,
     line: number,
   ): Promise<void>;
+  /** Rewrites a damaged marker line as it was (a restore); only that line. */
+  restore(item: Extract<RepairItem, { kind: "restore" }>): Promise<void>;
   /** Moves the cursor to a line. */
   locate(line: number): void;
   /** Keeps the note's version: its differences are sent as this vault's edits. */

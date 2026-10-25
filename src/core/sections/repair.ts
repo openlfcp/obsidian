@@ -11,7 +11,13 @@ import { splitLines } from "../refs/lines";
 import type { StoredBase } from "./base";
 import { sectionKey } from "./context";
 import { sharedState } from "./engine";
-import { formatBoundary, parseBoundary, type SectionRef } from "./grammar";
+import {
+  formatBoundary,
+  parseBoundary,
+  parseSectionRef,
+  type SectionRef,
+  sameSection,
+} from "./grammar";
 import { type ParsedSection, parseSections, type SectionDiagnostic } from "./parser";
 import type { SectionSnapshot } from "./port";
 import { type DocChange, lineStarts } from "./source-map";
@@ -31,6 +37,21 @@ export type RepairItem =
       readonly line: number;
       readonly ref: SectionRef;
       readonly candidates: readonly { readonly headingLine: number; readonly preview: string }[];
+    }
+  /**
+   * A start or end marker with a few characters changed, of a section this
+   * device holds, and one candidate only: rewriting that line restores it.
+   */
+  | {
+      readonly kind: "restore";
+      readonly line: number;
+      readonly boundary: "start" | "end";
+      readonly ref: SectionRef;
+      /** The line as the note has it now, and as it is restored. */
+      readonly original: string;
+      readonly text: string;
+      /** The title of the heading above the line, or null. */
+      readonly title: string | null;
     }
   /** Something to locate and edit by hand: what, where. */
   | { readonly kind: "locate"; readonly line: number; readonly message: string };
@@ -59,13 +80,106 @@ const MESSAGES: Partial<Record<SectionDiagnostic["code"], string>> = {
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]|$)/;
 const clip = (s: string) => (s.length > 60 ? `${s.slice(0, 59)}…` : s);
 
-/** The repair items of a note. */
-export function repairItems(markdown: string): RepairItem[] {
+/** How many characters a marker may differ by and still be restored: more is not a typo. */
+export const RESTORE_DISTANCE = 2;
+
+/** The edit distance of `a` and `b`, or `max + 1` once it is certainly more than `max`. */
+export function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    let least = i;
+    for (let j = 1; j <= b.length; j++) {
+      const v = Math.min(
+        (prev[j] as number) + 1,
+        (row[j - 1] as number) + 1,
+        (prev[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+      row.push(v);
+      if (v < least) least = v;
+    }
+    if (least > max) return max + 1;
+    prev = row;
+  }
+  return Math.min(prev[b.length] as number, max + 1);
+}
+
+/** The section ref of a held section key (`<resource base64url>#<section id>`), or undefined. */
+function heldRef(key: string): SectionRef | undefined {
+  const at = key.indexOf("#");
+  if (at < 0) return undefined;
+  return parseSectionRef(`lfcp1:${key.slice(0, at)}#section:${key.slice(at + 1)}`);
+}
+
+const SLASH = /^[ \t]*<!--\s*\//;
+const headingTitle = (s: string) =>
+  s
+    .replace(/^ {0,3}#{1,6}[ \t]*/, "")
+    .replace(/[ \t]#+[ \t]*$/, "")
+    .trim();
+
+/** The title of the nearest heading at or above `line`, or null. */
+function titleAbove(lines: readonly { readonly text: string }[], line: number): string | null {
+  for (let l = line; l >= 0; l--) {
+    const text = lines[l]?.text ?? "";
+    if (ATX.test(text)) return headingTitle(text);
+  }
+  return null;
+}
+
+/**
+ * A malformed boundary line's restore: the one held section whose start or
+ * end marker is within RESTORE_DISTANCE of the line. Two candidates, or
+ * none, is no restore: the existing repair stays the way.
+ */
+function restoreOf(
+  lines: readonly { readonly text: string }[],
+  line: number,
+  held: readonly SectionRef[],
+): Extract<RepairItem, { kind: "restore" }> | null {
+  const original = lines[line]?.text ?? "";
+  const boundary = SLASH.test(original) ? "end" : "start";
+  const near = held
+    .map((ref) => ({ ref, text: formatBoundary(boundary, ref) }))
+    .filter((c) => editDistance(original.trim(), c.text, RESTORE_DISTANCE) <= RESTORE_DISTANCE);
+  const only = near[0];
+  if (near.length !== 1 || only === undefined) return null;
+  return {
+    kind: "restore",
+    line,
+    boundary,
+    ref: only.ref,
+    original,
+    text: only.text,
+    title: titleAbove(lines, boundary === "start" ? line - 1 : line),
+  };
+}
+
+/**
+ * The repair items of a note. `held` are the keys of the sections this
+ * device holds (`<resource base64url>#<section id>`): a damaged marker of
+ * one of them is a restore. One cause is one item: a start or end marker
+ * left without its mate by a damaged one is not listed beside it.
+ */
+export function repairItems(markdown: string, held: readonly string[] = []): RepairItem[] {
   const lines = splitLines(markdown);
   const scan = parseSections(markdown);
+  const refs = held.flatMap((k) => heldRef(k) ?? []);
   const out: RepairItem[] = [];
+  /** A damaged marker line and, when known, the section it belongs to. */
+  const damagedMarkers: { line: number; ref: SectionRef | null }[] = [];
   for (const d of scan.diagnostics) {
     if (d.severity === "info" || d.code === "SECTION_PRIVATE_TAIL") continue;
+    if (d.code === "SECTION_MARKER_MALFORMED") {
+      const restore = restoreOf(lines, d.line, refs);
+      if (restore !== null) {
+        out.push(restore);
+        damagedMarkers.push({ line: d.line, ref: restore.ref });
+        continue;
+      }
+      damagedMarkers.push({ line: d.line, ref: null });
+    }
     if (d.code === "SECTION_BOUNDARY_MISSING") {
       const marker = parseBoundary(lines[d.line]?.text ?? "");
       if (marker === null || marker.kind === "malformed") continue;
@@ -99,7 +213,38 @@ export function repairItems(markdown: string): RepairItem[] {
     const message = MESSAGES[d.code];
     if (message !== undefined) out.push({ kind: "locate", line: d.line, message });
   }
-  return out;
+  return out.filter((item) => {
+    if (item.kind !== "missing-start" && item.kind !== "missing-end") return true;
+    // A damaged marker of this section sits where its mate is missing: it is the cause.
+    return !damagedMarkers.some((m) => {
+      const inGap = item.kind === "missing-start" ? m.line < item.line : m.line > item.line;
+      if (!inGap) return false;
+      if (m.ref !== null) return sameSection(m.ref, item.ref);
+      // Not a held section: the orphan marker's own spelling says it is the same one.
+      const orphan = formatBoundary(item.kind === "missing-start" ? "start" : "end", item.ref);
+      const text = (lines[m.line]?.text ?? "").trim();
+      const same = SLASH.test(text) === (item.kind === "missing-end");
+      return same && editDistance(text, orphan, RESTORE_DISTANCE) <= RESTORE_DISTANCE;
+    });
+  });
+}
+
+/** What a restorable marker says to the user: what changed, and that edits wait. */
+export function restoreText(item: Extract<RepairItem, { kind: "restore" }>): string {
+  const name = item.title === null ? "a shared section" : `"${item.title}"`;
+  return `The ${item.boundary} line of ${name} was changed. Edits to ${name} are not being sent until this is fixed.`;
+}
+
+/** The note change that restores a marker line: that line only. */
+export function restoreChange(
+  markdown: string,
+  item: Extract<RepairItem, { kind: "restore" }>,
+): DocChange {
+  const lines = splitLines(markdown);
+  const l = lines[item.line];
+  if (l === undefined || l.text !== item.original) throw new Error("the line changed");
+  const from = lineStarts(lines)[item.line] ?? markdown.length;
+  return { from, to: from + l.text.length, insert: item.text };
 }
 
 /** A repair item of a note with its line key (LFCP-03-018). */
@@ -116,13 +261,15 @@ export interface KeyedRepair {
  * and before acting the note is parsed again and the item found by its key
  * (findRepair), never by the old line number alone.
  */
-export function keyedRepairs(markdown: string): KeyedRepair[] {
+export function keyedRepairs(markdown: string, held: readonly string[] = []): KeyedRepair[] {
   const lines = splitLines(markdown);
-  return repairItems(markdown).map((item) => ({
+  return repairItems(markdown, held).map((item) => ({
     key:
       item.kind === "locate"
         ? `locate:${item.message}:${(lines[item.line]?.text ?? "").trim()}`
-        : `${item.kind}:${sectionKey(item.ref)}`,
+        : item.kind === "restore"
+          ? `restore:${item.boundary}:${sectionKey(item.ref)}`
+          : `${item.kind}:${sectionKey(item.ref)}`,
     item,
   }));
 }

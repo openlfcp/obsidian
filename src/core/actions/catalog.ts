@@ -15,6 +15,7 @@ export const ACTION_IDS = [
   "review-local-changes",
   "review-conflicts",
   "repair-sections",
+  "restore-marker",
   "go-to-problem",
   "check-result",
   "continue-flow",
@@ -54,6 +55,7 @@ export const ACTIONS: Readonly<Record<ActionId, ActionSpec>> = {
   "review-local-changes": spec("review-local-changes", "Review local changes"),
   "review-conflicts": spec("review-conflicts", "Review conflicts…"),
   "repair-sections": spec("repair-sections", "Repair shared sections…"),
+  "restore-marker": spec("restore-marker", "Restore"),
   "go-to-problem": spec("go-to-problem", "Go to the problem"),
   "check-result": spec("check-result", "Check the result"),
   "continue-flow": spec("continue-flow", "Continue"),
@@ -72,5 +74,6 @@ export const SOURCE_CHANGING: ReadonlySet<ActionId> = new Set<ActionId>([
   "share-section",
   "share-whole-section",
   "repair-sections",
+  "restore-marker",
   "detach-section",
 ]);
