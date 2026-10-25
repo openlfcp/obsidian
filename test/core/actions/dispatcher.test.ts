@@ -142,6 +142,13 @@ describe("the action seam (LFCP-03-023, U03-07)", () => {
     });
   });
 
+  it("UX-02: invite with a note's cursor goes to the section at it; with nothing, to the legacy picker", async () => {
+    expect(await reach("invite", { target }, "palette")).toEqual([
+      'sections.inviteAt([{"path":"Plan.md","text":"# Plan\\n","mode":"source","cursorLine":0,"selections":[],"composing":false},"fn"])',
+    ]);
+    expect(await reach("invite", {}, "palette")).toEqual(["collab.inviteCollaborator([])"]);
+  });
+
   it("obsidian#30: a key from a surface names one Resource, full or by its Resource alone", async () => {
     for (const key of [KEY, R0]) {
       const calls = await reach("invite", { section: { key, title: "Launch" } }, "pane");

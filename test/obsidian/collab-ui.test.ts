@@ -28,6 +28,10 @@ class TestPlugin extends OpenLfcpPlugin {
       acquireLock: (name) => this.device.acquireLock(name),
     };
   }
+  // These tests drive the 0.1 commands on a vault that has no 0.1 data yet.
+  protected override async hasLegacyData(): Promise<boolean> {
+    return true;
+  }
   protected override createPrompter() {
     return new ObsidianPrompter(this.app, async (text) => {
       copied.push(text);
@@ -154,8 +158,11 @@ describe("LFCP-065 in the plugin", () => {
   it("registers a handler for every product command", async () => {
     const { host } = await load();
     expect(
-      host.commands.filter((c) => COMMANDS.some((x) => x.id === c.id)).map((c) => c.name),
-    ).toEqual(COMMANDS.map((c) => c.name));
+      host.commands
+        .filter((c) => COMMANDS.some((x) => x.id === c.id))
+        .map((c) => c.name)
+        .sort(),
+    ).toEqual(COMMANDS.map((c) => c.name).sort());
   });
 
   it("shares the task under the cursor into the note, child-line by default", async () => {

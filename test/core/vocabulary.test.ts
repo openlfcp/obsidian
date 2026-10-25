@@ -119,6 +119,13 @@ const ALLOWED: readonly { readonly file: string; readonly text: RegExp }[] = [
   { file: "src/core/collab/commands.ts", text: /^"\(unnamed collaboration\)"$/ },
   { file: "src/core/collab/commands.ts", text: /^"Create a new collaboration…"$/ },
   { file: "src/core/collab/commands.ts", text: /^"Create collaboration"$/ },
+  // UX-02: the legacy invite picker names the 0.1 kind of what it lists, and says where a section is invited to.
+  {
+    file: "src/core/collab/commands.ts",
+    text: /^`\$\{e\.profile === SECTIONS_PROFILE_ID \? "Section" : "Task collaboration"\}/,
+  },
+  { file: "src/core/collab/commands.ts", text: /there is no task collaboration on this device/ },
+  { file: "src/core/collab/commands.ts", text: /^"Invite to a task collaboration…"$/ },
   {
     file: "src/core/collab/commands.ts",
     text: /^"A name for this collaboration on this device\. Only you see it\."$/,
@@ -171,7 +178,7 @@ const ALLOWED: readonly { readonly file: string; readonly text: RegExp }[] = [
   { file: "src/core/commands.ts", text: /^"(?:create|join)-collaboration"$/ },
   {
     file: "src/core/commands.ts",
-    text: /^"(?:Create collaboration|Join collaboration|Insert all tasks from collaboration)"$/,
+    text: /^"Legacy: (?:Create task collaboration|Join task collaboration|Insert all tasks from task collaboration|Invite to task collaboration)"$/,
   },
   // The diagnostics report: a support text that names the protocol's terms (§2).
   { file: "src/core/diagnostics.ts", text: /^`Collaborations: \$\{/ },

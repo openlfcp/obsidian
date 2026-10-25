@@ -304,6 +304,10 @@ export class E2EVault {
       protected override createPrompter(): Prompter {
         return self.prompter;
       }
+      // The journeys drive the 0.1 commands on vaults that start without 0.1 data (UX-01).
+      protected override async hasLegacyData(): Promise<boolean> {
+        return true;
+      }
     }
     this.#plugin = new Plugin(this.app as never, manifest as never);
     await this.#plugin.onload();

@@ -661,7 +661,7 @@ describe("share → invite in the pane (LFCP-03-014)", () => {
   });
 });
 
-describe("the palette's Invite collaborator… re-checks access (I4, LFCP-03-041)", () => {
+describe("the palette's Invite to this section… re-checks access (I4, LFCP-03-041)", () => {
   /** A shared, hosted section with its access current: the pane offers Invite. */
   async function shared() {
     const t = journey();
@@ -672,15 +672,15 @@ describe("the palette's Invite collaborator… re-checks access (I4, LFCP-03-041
     expect(t.pane().model.primary?.id).toBe("invite");
     return t;
   }
-  /** "Invite collaborator…" from the palette: the section picked; the dialogs it opened after. */
+  /**
+   * "Invite to this section…" from the palette (UX-02): the section at the cursor, no
+   * picker; the dialogs it opened after.
+   */
   async function palette(t: Awaited<ReturnType<typeof shared>>) {
     const before = t.prompter.choices.length;
-    const run = t.commands.inviteCollaborator();
+    const run = t.commands.inviteTo(fromBase64url(R0) as ResourceId);
     await flush();
-    expect(t.prompter.choices[before]?.map((c) => c.label)).toEqual(["Plan"]);
-    t.prompter.role?.answer(fromBase64url(R0));
-    await flush();
-    return { run, roles: t.prompter.choices.slice(before + 1) };
+    return { run, roles: t.prompter.choices.slice(before) };
   }
   const reason = (t: Awaited<ReturnType<typeof shared>>) => {
     const invite = enabled(t.pane().model, "invite");

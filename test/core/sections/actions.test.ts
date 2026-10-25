@@ -1762,6 +1762,22 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     expect(applied).toEqual([KEY]);
   });
 
+  it("UX-02: invite at the cursor runs the invite flow of that section; outside, one notice and no flow", async () => {
+    const t = cardSetup();
+    t.notes.files.set("Plan.md", BOUND);
+    const invited: string[] = [];
+    t.editor.line = 0;
+    await t.actions.inviteAt(t.editor.at(), async (key) => void invited.push(key));
+    expect(invited).toEqual([]);
+    expect(t.prompter.notices).toEqual([
+      "Shared Tasks: Put the cursor in a shared section to invite someone to it.",
+    ]);
+    t.editor.line = 3;
+    await t.actions.inviteAt(t.editor.at(), async (key) => void invited.push(key));
+    expect(invited).toEqual([KEY]);
+    expect(t.prompter.notices).toHaveLength(1);
+  });
+
   it("details at the cursor open that section's card", async () => {
     const t = cardSetup();
     t.notes.files.set("Plan.md", BOUND);

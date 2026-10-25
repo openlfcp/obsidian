@@ -84,7 +84,7 @@ export interface CollabEntry {
    * the join flow of that Resource ends.
    */
   joinPlaced?(resource: ResourceId): void;
-  /** "Invite collaborator" with a choice of Resource (the palette). */
+  /** The legacy palette picker: invites to one of the 0.1 task collaborations. */
   inviteCollaborator(): Promise<void>;
   /** "Invite collaborator" for one Resource (the card, the pane). */
   inviteTo(resource: ResourceId): Promise<void>;
@@ -95,7 +95,7 @@ export interface CollabEntry {
 /** The palette command each action runs as (its ID unchanged since 0.4.0, UX contract §3). */
 export const PALETTE_COMMAND: Readonly<Partial<Record<ActionId, string>>> = {
   "share-section": "share-section",
-  invite: "invite-collaborator",
+  invite: "invite-to-section",
   "join-with-link": "join-collaboration",
   "insert-into-note": "insert-section",
   "open-details": "open-section-details",
@@ -269,9 +269,15 @@ export function coreHandlers(env: {
       if (surface === "pane" && open !== undefined) open.call(env.collab);
       else await env.collab.joinCollaboration();
     },
-    invite: (r) =>
-      r.section === undefined
-        ? env.collab.inviteCollaborator()
-        : env.collab.inviteTo(resourceOf(r.section.key)),
+    // A section (the card, the pane) or the cursor of a note (the palette's
+    // "Invite to this section…") names what is invited to; neither: the
+    // legacy picker of 0.1 collaborations.
+    invite: async (r) => {
+      if (r.section !== undefined) return env.collab.inviteTo(resourceOf(r.section.key));
+      const a = env.sections();
+      if (r.target !== undefined && a !== null)
+        return a.inviteAt(r.target, (key) => env.collab.inviteTo(resourceOf(key)));
+      return env.collab.inviteCollaborator();
+    },
   };
 }

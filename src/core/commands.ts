@@ -14,20 +14,68 @@ export interface CommandSpec {
   readonly name: string;
   /** The backlog task that implements it. */
   readonly implementedBy: string;
+  /**
+   * A command of the 0.1 task collaborations (UX-01, UXD-2). "always": it is
+   * the way into an older collaboration, so it is registered on every
+   * device. "when-data": registered only once the vault holds a Resource of
+   * the Shared Objects profile. Absent: not a 0.1 command.
+   */
+  readonly legacy?: "always" | "when-data";
 }
 
+/** The palette command that invites to the shared section at the cursor (UX-02, UXD-4). */
+export const INVITE_TO_SECTION: CommandSpec = {
+  id: "invite-to-section",
+  name: "Invite to this section…",
+  implementedBy: "UX-02",
+};
+
+/** The notice of "Invite to this section…" with the cursor outside every shared section. */
+export const INVITE_CURSOR_NOTICE = "Put the cursor in a shared section to invite someone to it.";
+
 export const COMMANDS: readonly CommandSpec[] = [
-  { id: "share-task-under-cursor", name: "Share task under cursor", implementedBy: "LFCP-065" },
-  { id: "insert-shared-object", name: "Insert shared object", implementedBy: "LFCP-065" },
-  { id: "share-selected-tasks", name: "Share selected tasks", implementedBy: "POST-018" },
+  {
+    id: "share-task-under-cursor",
+    name: "Legacy: Share task under cursor",
+    implementedBy: "LFCP-065",
+    legacy: "when-data",
+  },
+  {
+    id: "insert-shared-object",
+    name: "Legacy: Insert shared object",
+    implementedBy: "LFCP-065",
+    legacy: "when-data",
+  },
+  {
+    id: "share-selected-tasks",
+    name: "Legacy: Share selected tasks",
+    implementedBy: "POST-018",
+    legacy: "when-data",
+  },
   {
     id: "insert-all-tasks",
-    name: "Insert all tasks from collaboration",
+    name: "Legacy: Insert all tasks from task collaboration",
     implementedBy: "POST-018",
+    legacy: "when-data",
   },
-  { id: "create-collaboration", name: "Create collaboration", implementedBy: "LFCP-065" },
-  { id: "join-collaboration", name: "Join collaboration", implementedBy: "LFCP-065" },
-  { id: "invite-collaborator", name: "Invite collaborator", implementedBy: "LFCP-065" },
+  {
+    id: "create-collaboration",
+    name: "Legacy: Create task collaboration",
+    implementedBy: "LFCP-065",
+    legacy: "when-data",
+  },
+  {
+    id: "join-collaboration",
+    name: "Legacy: Join task collaboration",
+    implementedBy: "LFCP-065",
+    legacy: "always",
+  },
+  {
+    id: "invite-collaborator",
+    name: "Legacy: Invite to task collaboration",
+    implementedBy: "LFCP-065",
+    legacy: "when-data",
+  },
   { id: "resource-status", name: "Resource status", implementedBy: "LFCP-065" },
   { id: "detach-shared-task", name: "Detach shared task", implementedBy: "LFCP-065" },
   {
