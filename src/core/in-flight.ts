@@ -19,6 +19,8 @@
 // flow a restart found unfinished (a step not started, no effect waiting
 // for its answer) holds its key the same way until "Continue" resumes it.
 
+import { clock } from "./clock";
+
 /** What a reconcile of an unknown outcome found: settled (the key is free again), or still unknown. */
 export type Reconciled = "settled" | "unknown";
 
@@ -142,12 +144,13 @@ export class Flow {
     this.#checking = true;
     // A resume waits for the user (its preview): no time limit.
     if (this.#held === "unfinished") return running;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const c = clock();
+    let timer: unknown;
     const late = new Promise<"late">((r) => {
-      timer = setTimeout(() => r("late"), this.checkTimeoutMs);
+      timer = c.setTimeout(() => r("late"), this.checkTimeoutMs);
     });
     return Promise.race([running.then(() => "done" as const), late]).then((r) => {
-      clearTimeout(timer);
+      c.clearTimeout(timer);
       if (r === "late" && this.#running === running && !this.#closed) {
         this.#checking = false;
         timedOut?.();

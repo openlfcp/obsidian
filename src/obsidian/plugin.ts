@@ -32,6 +32,7 @@ import {
 import type { ActionId } from "../core/actions/catalog";
 import { type HostFacts, INVITE_WAITS } from "../core/actions/descriptors";
 import { ActionDispatcher, coreHandlers, type HostEntry } from "../core/actions/dispatcher";
+import { installClock } from "../core/clock";
 import { type ActiveNote, CollabCommands, type Prompter } from "../core/collab/commands";
 import type { JoinFlow } from "../core/collab/join-flow";
 import { Collaboration } from "../core/collab/service";
@@ -187,6 +188,11 @@ export default class OpenLfcpPlugin extends Plugin {
   }
 
   override async onload(): Promise<void> {
+    installClock({
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimeout: (handle) => window.clearTimeout(handle as number),
+      randomBytes: (n) => window.crypto.getRandomValues(new Uint8Array(n)),
+    });
     this.settings = normalizeSettings(await this.loadData());
     // Back online, shown or focused again after a while: connect now, not at
     // the end of the reconnect backoff (up to 15 s).

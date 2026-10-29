@@ -17,6 +17,7 @@ import {
 } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { INVITE_WAITS } from "../actions/descriptors";
+import { clock } from "../clock";
 import { NEEDS_NEWER_VERSION, type RegistryEntry } from "../lfcp/runtime";
 import type { MutationGuard } from "../projection/guard";
 import { renderNewTaskLine } from "../projection/render";
@@ -207,7 +208,7 @@ export class CollabCommands {
   /** The Resources (hex) whose last invitation's link was copied in this session (I3). */
   readonly #copied = new Set<string>();
   /** The timers that take "Link copied" off the pane again, by Resource (hex). */
-  readonly #copiedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  readonly #copiedTimers = new Map<string, unknown>();
   readonly #invitationListeners = new Set<() => void>();
   /**
    * The one join (F-C04, LFCP-03-015): the palette's dialogs and the pane's
@@ -797,9 +798,9 @@ export class CollabCommands {
    */
   #expireCopied(key: string): void {
     const old = this.#copiedTimers.get(key);
-    if (old !== undefined) clearTimeout(old);
+    if (old !== undefined) clock().clearTimeout(old);
     if (!this.#copied.has(key)) return;
-    const timer = setTimeout(() => {
+    const timer = clock().setTimeout(() => {
       this.#copiedTimers.delete(key);
       if (this.#copied.delete(key)) for (const l of [...this.#invitationListeners]) l();
     }, LINK_COPIED_MS);

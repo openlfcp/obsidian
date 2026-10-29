@@ -42,6 +42,7 @@ import {
   sectionFacts,
 } from "../actions/descriptors";
 import type { ActionRequest, Surface } from "../actions/dispatcher";
+import { clock } from "../clock";
 import { INVITE_CURSOR_NOTICE } from "../commands";
 import { type Flow, InFlight, type Reconciled } from "../in-flight";
 import { type NoteTarget, NoteTargets } from "../note-targets";
@@ -980,12 +981,13 @@ export class SectionActions {
     flow?: Flow,
   ): Promise<"settled" | "unknown"> {
     const running = this.#outcome(entry, target);
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const c = clock();
+    let timer: unknown;
     const late = new Promise<"late">((r) => {
-      timer = setTimeout(() => r("late"), this.#creationDeadlineMs);
+      timer = c.setTimeout(() => r("late"), this.#creationDeadlineMs);
     });
     const first = await Promise.race([running, late]);
-    clearTimeout(timer);
+    c.clearTimeout(timer);
     if (first === "late") {
       await this.#notAnswering(entry, running, target, flow);
       return "unknown";
@@ -1078,14 +1080,18 @@ export class SectionActions {
    * keeps its place in `#runs`.
    */
   async #joined(entry: CreationEntry, target?: NoteTarget): Promise<CreationOutcome> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    const c = clock();
+    let timer: unknown;
     const late = new Promise<CreationOutcome>((r) => {
-      timer = setTimeout(() => r({ kind: "unknown", error: undefined }), this.#creationDeadlineMs);
+      timer = c.setTimeout(
+        () => r({ kind: "unknown", error: undefined }),
+        this.#creationDeadlineMs,
+      );
     });
     try {
       return await Promise.race([this.#outcome(entry, target), late]);
     } finally {
-      clearTimeout(timer);
+      c.clearTimeout(timer);
     }
   }
 
