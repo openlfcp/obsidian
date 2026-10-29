@@ -69,7 +69,6 @@ import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
 import { DiagnosticsModal } from "./ui/diagnostics";
 import { returnsFocus } from "./ui/focus-return";
-import { registerPanePrototype } from "./ui/pane-prototype-view";
 import {
   keepOne,
   OPEN_PANE,
@@ -273,8 +272,6 @@ export default class OpenLfcpPlugin extends Plugin {
       callback: () => void this.repairActiveNote(),
     });
     this.addSettingTab(new OpenLfcpSettingTab(this.app, this));
-    // LFCP-03-007: the developer pane prototype, only with its data.json flag.
-    if (this.settings.developerPanePrototype) registerPanePrototype(this);
     this.#listenToVault();
     this.changes.subscribe((batch) => this.#enqueue(() => this.#onVaultChanges(batch)));
     const bar = this.addStatusBarItem();

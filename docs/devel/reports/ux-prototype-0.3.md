@@ -1,5 +1,11 @@
 # Pane prototype for MVP 0.3: findings
 
+> **Removed in 0.5.2.** The developer prototype (`src/core/pane/prototype.ts`,
+> `src/obsidian/ui/pane-prototype-view.ts`, the `developerPanePrototype`
+> setting and `specs/pane-prototype.e2e.mjs`) is gone: the production pane
+> replaced it. This report is kept as the record of the findings; the paths
+> below no longer exist.
+
 **Task:** LFCP-03-007 (milestone M03-1; findings F-01, F-02; cases U03-01,
 U03-03, U03-06; gates G03-B, G03-C, G03-E).
 **Base:** obsidian `main` at `b00098a`.

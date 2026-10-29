@@ -17,11 +17,6 @@
 // Size (0.3.1): the bundle is minified, and the wasm is stored deflated
 // (scripts/build-plugins.mjs), so main.js stays well under the 5 MB that
 // Obsidian Sync Standard syncs. License comments are kept at the end.
-//
-// The developer pane prototype (LFCP-03-007, owner decision D11) is only in
-// a build with LFCP_DEV_PANE=1. Otherwise its module is replaced by a stub
-// that registers nothing, so the prototype and the UX fixtures are not in
-// main.js and the `developerPanePrototype` flag has no effect.
 
 import { appendFileSync, writeFileSync } from "node:fs";
 import { builtinModules } from "node:module";
@@ -36,21 +31,6 @@ const at = process.argv.indexOf("--outfile");
 const outfile = at >= 0 ? process.argv[at + 1] : "main.js";
 // `--metafile <path>` also writes esbuild's metafile (the bundle test reads its inputs).
 const meta = process.argv.indexOf("--metafile");
-
-const devPane = process.env.LFCP_DEV_PANE === "1";
-const panePrototypeStub = {
-  name: "pane-prototype-stub",
-  setup(b) {
-    b.onResolve({ filter: /\/pane-prototype-view$/ }, () => ({
-      path: "pane-prototype-view",
-      namespace: "pane-prototype-stub",
-    }));
-    b.onLoad({ filter: /.*/, namespace: "pane-prototype-stub" }, () => ({
-      contents: "export function registerPanePrototype() {}",
-      loader: "js",
-    }));
-  },
-};
 
 const result = await build({
   absWorkingDir: root,
@@ -74,7 +54,7 @@ const result = await build({
   minify: true,
   legalComments: "eof",
   metafile: true,
-  plugins: [automergeSlim, automergeWasmDeflated, ...(devPane ? [] : [panePrototypeStub])],
+  plugins: [automergeSlim, automergeWasmDeflated],
 });
 appendFileSync(resolve(root, outfile), thirdPartyLicenses(root, result.metafile));
 if (meta >= 0)

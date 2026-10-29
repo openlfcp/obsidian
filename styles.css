@@ -464,24 +464,6 @@
   min-width: 0;
 }
 
-/* The developer prototype's own frame (LFCP-03-007): never shown to users. */
-.openlfcp-pane-prototype-banner {
-  padding: var(--size-4-2);
-  border: 1px solid var(--text-warning);
-  border-radius: var(--radius-s);
-  color: var(--text-warning);
-  font-size: var(--font-ui-smaller);
-}
-
-.openlfcp-pane-prototype-bar,
-.openlfcp-pane-prototype-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-2);
-  align-items: center;
-  margin: var(--size-4-2) 0;
-}
-
 /* Dialog rows (LFCP-03-070): a choice per line, its button on a row of its own. */
 .openlfcp-repair-choice,
 .openlfcp-recovery-choice {

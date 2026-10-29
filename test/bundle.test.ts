@@ -49,11 +49,8 @@ describe("plugin bundle", () => {
     expect(bundle).toContain("WebAssembly.instantiate");
   });
 
-  it("leaves the developer pane prototype and the UX fixtures out (D11)", () => {
-    const dev = /pane-prototype-view\.ts$|core\/pane\/prototype\.ts$|states\.json$/;
-    expect(inputs.filter((i) => dev.test(i))).toEqual([]);
-    expect(inputs).toContain("pane-prototype-stub:pane-prototype-view");
-    expect(bundle).not.toContain("shared-tasks-pane-prototype");
+  it("leaves the UX fixtures out", () => {
+    expect(inputs.filter((i) => /states\.json$/.test(i))).toEqual([]);
   });
 
   it("stays under the 5 MB Obsidian Sync limit: minified, the wasm deflated (0.3.1)", () => {
