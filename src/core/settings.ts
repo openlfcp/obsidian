@@ -55,14 +55,6 @@ export interface Settings {
    */
   sectionsDisabled: boolean;
   /**
-   * Developer only (data.json, not in the settings tab): registers the pane
-   * prototype's view and its "Open pane prototype (developer)" command
-   * (LFCP-03-007). Off: neither exists, so the palette does not list it.
-   * Only a build with LFCP_DEV_PANE=1 contains the prototype (D11): in a
-   * release build this flag does nothing.
-   */
-  developerPanePrototype: boolean;
-  /**
    * The pane's tips this vault has hidden (LFCP-03-021): their IDs
    * (core/pane/hints.ts), nothing else. Absent before 0.5: none hidden. IDs
    * this version does not know (a newer version's) are kept. 0.4.x ignores
@@ -81,7 +73,6 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   showSharingMetadata: false,
   sectionComments: "local",
   sectionsDisabled: false,
-  developerPanePrototype: false,
   dismissedHints: [],
   settingsVersion: SETTINGS_VERSION,
 };
@@ -138,7 +129,6 @@ export function normalizeSettings(stored: unknown): Settings {
       : DEFAULT_SETTINGS.sectionComments,
     // 0.4.0: the 0.3.x `sectionsPreview` key is dropped; sections are on unless disabled.
     sectionsDisabled: data.sectionsDisabled === true,
-    developerPanePrototype: data.developerPanePrototype === true,
     dismissedHints: hintIds(data.dismissedHints),
     settingsVersion: SETTINGS_VERSION,
   };

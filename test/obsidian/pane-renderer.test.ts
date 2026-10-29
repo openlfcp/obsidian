@@ -1,20 +1,28 @@
 // @vitest-environment happy-dom
 // The pane's DOM (LFCP-03-007): every UX fixture drawn from its view model,
-// keyboard focus across redraws, and the three prototype flows walked with
-// the pane's own buttons only (no command palette). The prototype runs no
-// operation: these are mock facts, not sync evidence.
+// and keyboard focus across redraws. These are mock facts, not sync evidence.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { paneFactsOf } from "../../src/core/pane/mock-facts";
-import { paneModel } from "../../src/core/pane/model";
-import { PanePrototype, type PrototypeFixture } from "../../src/core/pane/prototype";
+import { type FixtureFacts, paneFactsOf } from "../../src/core/pane/mock-facts";
+import { type PaneFlow, paneModel } from "../../src/core/pane/model";
 import { renderPane } from "../../src/obsidian/ui/pane-renderer";
 
 const doc = JSON.parse(
   readFileSync(join(import.meta.dirname, "../fixtures/ux-0.3/states.json"), "utf8"),
-) as { states: (PrototypeFixture & { expected: { primaryCta: string | null } })[] };
+) as {
+  states: { id: string; facts: FixtureFacts; expected: { primaryCta: string | null } }[];
+};
+
+/** A fixture's model, optionally with a flow running (the join field is part of the join flow). */
+const modelOf = (id: string, flow: PaneFlow | null = null) => {
+  const s = doc.states.find((x) => x.id === id);
+  if (s === undefined) throw new Error(`fixture ${id} missing`);
+  const facts = paneFactsOf(s.facts);
+  return paneModel(flow === null ? facts : { ...facts, context: { ...facts.context, flow } });
+};
+const JOIN_FLOW: PaneFlow = { kind: "join", stage: "link", outcome: "running" };
 
 let root: HTMLElement;
 
@@ -86,11 +94,11 @@ describe("pane renderer on the UX fixtures", () => {
 
 describe("pane focus", () => {
   it("keeps focus on the same control across a redraw, and falls back to the heading", () => {
-    const proto = new PanePrototype(doc.states, "first-use");
+    let flow: PaneFlow | null = null;
     const draw = () =>
-      renderPane(root, proto.model(), {
+      renderPane(root, modelOf("healthy-can-invite", flow), {
         action: (id) => {
-          proto.act(id);
+          if (id === "invite") flow = { kind: "invite", stage: "role", outcome: "running" };
           draw();
         },
       });
@@ -98,15 +106,14 @@ describe("pane focus", () => {
     byText("Join with a link…").focus();
     draw();
     expect(document.activeElement?.textContent).toBe("Join with a link…");
-    // The primary changes from Share to the flow's own step: focus goes to the heading.
+    // The primary changes to the flow's own step: focus stays inside the pane.
     primary()?.focus();
     primary()?.click();
     expect(root.contains(document.activeElement)).toBe(true);
   });
 
   it("keeps the menu open and the focus in it across a redraw", () => {
-    const proto = new PanePrototype(doc.states, "healthy");
-    const draw = () => renderPane(root, proto.model(), { action: () => undefined });
+    const draw = () => renderPane(root, modelOf("healthy-can-invite"), { action: () => undefined });
     draw();
     const menu = root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu");
     if (menu === null) throw new Error("no menu");
@@ -132,12 +139,12 @@ describe("pane focus", () => {
   });
 
   it("LFCP-03-022: a redraw keeps the join field itself: its text, caret and focus", () => {
-    const proto = new PanePrototype(doc.states, "no-note");
+    let flow: PaneFlow | null = null;
     const joined: string[] = [];
     const draw = () =>
-      renderPane(root, proto.model(), {
+      renderPane(root, modelOf("no-editor", flow), {
         action: (id) => {
-          proto.act(id);
+          if (id === "join-with-link") flow = JOIN_FLOW;
           draw();
         },
         join: (link, name) => joined.push(`${link}|${name}`),
@@ -172,12 +179,12 @@ describe("pane focus", () => {
   });
 
   it("LFCP-03-022: Enter that ends an IME composition joins nothing", () => {
-    const proto = new PanePrototype(doc.states, "no-note");
+    let flow: PaneFlow | null = null;
     const joined: string[] = [];
     const draw = () =>
-      renderPane(root, proto.model(), {
+      renderPane(root, modelOf("no-editor", flow), {
         action: (id) => {
-          proto.act(id);
+          if (id === "join-with-link") flow = JOIN_FLOW;
           draw();
         },
         join: (link) => joined.push(link),
@@ -200,16 +207,16 @@ describe("pane focus", () => {
   });
 
   it("LFCP-03-022: Escape in the join field is its Cancel; focus goes back to Join with a link…", () => {
-    const proto = new PanePrototype(doc.states, "no-note");
+    let flow: PaneFlow | null = null;
     const draw = () =>
-      renderPane(root, proto.model(), {
+      renderPane(root, modelOf("no-editor", flow), {
         action: (id) => {
-          proto.act(id);
+          if (id === "join-with-link") flow = JOIN_FLOW;
           draw();
         },
         join: () => undefined,
         dismiss: () => {
-          proto.control("cancel");
+          flow = null;
           draw();
         },
       });
@@ -237,124 +244,9 @@ describe("pane focus", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);
     outside.focus();
-    const proto = new PanePrototype(doc.states, "healthy");
-    renderPane(root, proto.model(), { action: () => undefined });
-    renderPane(root, proto.model(), { action: () => undefined });
+    renderPane(root, modelOf("healthy-can-invite"), { action: () => undefined });
+    renderPane(root, modelOf("healthy-can-invite"), { action: () => undefined });
     expect(document.activeElement).toBe(outside);
-  });
-});
-
-describe("prototype flows, walked with the pane's buttons only", () => {
-  let proto: PanePrototype;
-  const draw = () =>
-    renderPane(root, proto.model(), {
-      action: (id) => {
-        proto.act(id);
-        draw();
-      },
-      join: (link) => {
-        proto.join(link);
-        draw();
-      },
-    });
-  const control = (label: RegExp) => {
-    const c = proto.controls().find((x) => label.test(x.label));
-    if (c === undefined)
-      throw new Error(`no control ${label}: ${proto.controls().map((x) => x.label)}`);
-    proto.control(c.id);
-    draw();
-  };
-
-  it("share → invite, the flow keeping its note when the active note changes", () => {
-    proto = new PanePrototype(doc.states, "first-use");
-    draw();
-    expect(primary()?.textContent).toBe("Share section…");
-    primary()?.click();
-    expect(text()).toContain("Target: Plan.md");
-    expect(text()).toContain(
-      "Everything inside this section, including future additions, will be shared.",
-    );
-    control(/switch the active note/);
-    expect(text()).toContain("The active note is Other.md; this stays on Plan.md.");
-    expect(primary()?.textContent).toBe("Share section…");
-    primary()?.click();
-    // An effect under way: no next step, only progress.
-    expect(primary()).toBeNull();
-    control(/finish/);
-    control(/finish/);
-    expect(text()).toContain("Current as last checked with the server.");
-    expect(primary()?.textContent).toBe("Invite collaborator…");
-    primary()?.click();
-    expect(text()).toContain("One-time link, does not expire; whoever opens it first joins.");
-    primary()?.click();
-    control(/finish/);
-    control(/Copy link/);
-    expect(text()).toContain("Link copied");
-    expect(text().toLowerCase()).not.toContain("invitation sent");
-    expect(text().toLowerCase()).not.toContain("invited");
-  });
-
-  it("join → insert, a malformed link told apart, the join field explicit", () => {
-    proto = new PanePrototype(doc.states, "no-note");
-    draw();
-    expect(primary()).toBeNull();
-    byText("Join with a link…").click();
-    const input = root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input");
-    const form = root.querySelector("form");
-    if (input === null || form === null) throw new Error("no join field");
-    input.value = "https://example.org/not-a-link";
-    form.requestSubmit();
-    expect(text()).toContain("This is not an invitation link.");
-    const again = root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input");
-    if (again === null) throw new Error("no join field");
-    again.value = "lfcp://join/synthetic-link";
-    root.querySelector("form")?.requestSubmit();
-    // The claim is under way: no next step, only progress.
-    expect(primary()).toBeNull();
-    expect(text()).toContain("Claim the invitation with the server…");
-    control(/finish/);
-    expect(text()).toContain("Open the section with the access granted…");
-    control(/finish/);
-    control(/finish/);
-    expect(text()).toContain("Sprint");
-    expect(text()).toContain("Not inserted yet");
-    expect(primary()?.textContent).toBe("Insert into a note…");
-    primary()?.click();
-    expect(text()).toContain("Target: Sprint notes.md");
-    primary()?.click();
-    primary()?.click();
-    control(/finish/);
-    control(/finish/);
-    expect(text()).toContain("Inserted into Sprint notes.md.");
-    expect(text()).toContain("In 1 note");
-  });
-
-  it("join, then later: the section stays listed as not inserted, no flow left open", () => {
-    proto = new PanePrototype(doc.states, "no-note");
-    draw();
-    proto.act("join-with-link");
-    proto.join("lfcp://join/synthetic-link");
-    proto.control("finish-step");
-    proto.control("finish-step");
-    proto.control("finish-step");
-    control(/Continue later/);
-    expect(root.querySelector(".openlfcp-pane-flow")).toBeNull();
-    expect(text()).toContain("Not inserted yet");
-  });
-
-  it("problem: held edits → repair → the real result, no promise beyond it", () => {
-    proto = new PanePrototype(doc.states, "held-edits");
-    draw();
-    expect(text()).toContain("3 edits not sent");
-    expect(primary()?.textContent).toBe("Repair shared sections…");
-    primary()?.click();
-    primary()?.click();
-    control(/finish/);
-    expect(text()).toContain("3 local updates waiting");
-    expect(text()).not.toContain("Current as last checked");
-    expect(text().toLowerCase()).not.toContain("will be sent after the repair");
-    control(/server accepts/);
-    expect(text()).toContain("Current as last checked with the server.");
   });
 });
 

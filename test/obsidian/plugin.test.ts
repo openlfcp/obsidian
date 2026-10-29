@@ -29,20 +29,15 @@ describe("plugin", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: true,
-      developerPanePrototype: false,
       dismissedHints: [],
       settingsVersion: 2,
     });
   });
 
-  it("registers the pane prototype and its command only with the developer flag (LFCP-03-007)", async () => {
-    const off = await loaded();
-    // The production pane (LFCP-03-012) only.
-    expect([...off.host.views.keys()]).toEqual(["shared-tasks-pane"]);
-    expect(off.host.commands.map((c) => c.id)).not.toContain("open-pane-prototype");
-    const on = await loaded({ developerPanePrototype: true });
-    expect([...on.host.views.keys()]).toEqual(["shared-tasks-pane-prototype", "shared-tasks-pane"]);
-    expect(on.host.commands.map((c) => c.id)).toContain("open-pane-prototype");
+  it("registers the production pane view and no developer prototype", async () => {
+    const { host } = await loaded();
+    expect([...host.views.keys()]).toEqual(["shared-tasks-pane"]);
+    expect(host.commands.map((c) => c.id)).not.toContain("open-pane-prototype");
   });
 
   it("connects at once when the network comes back, or the app is shown or focused again", async () => {
@@ -134,7 +129,6 @@ describe("plugin", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: true,
-      developerPanePrototype: false,
       dismissedHints: [],
       settingsVersion: 2,
     });
@@ -151,7 +145,6 @@ describe("plugin", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: true,
-      developerPanePrototype: false,
       dismissedHints: [],
       settingsVersion: 2,
     });

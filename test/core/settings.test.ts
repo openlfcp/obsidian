@@ -24,7 +24,6 @@ describe("settings", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: false,
-      developerPanePrototype: false,
       dismissedHints: [],
       settingsVersion: SETTINGS_VERSION,
     });
@@ -43,11 +42,11 @@ describe("settings", () => {
     expect(normalizeSettings({ sectionsDisabled: "yes" }).sectionsDisabled).toBe(false);
   });
 
-  it("keep the developer pane prototype off unless data.json turns it on (LFCP-03-007)", () => {
-    expect(DEFAULT_SETTINGS.developerPanePrototype).toBe(false);
-    expect(normalizeSettings({}).developerPanePrototype).toBe(false);
-    expect(normalizeSettings({ developerPanePrototype: "yes" }).developerPanePrototype).toBe(false);
-    expect(normalizeSettings({ developerPanePrototype: true }).developerPanePrototype).toBe(true);
+  it("ignores the removed developerPanePrototype key from an old data.json", () => {
+    expect(normalizeSettings({ developerPanePrototype: true })).toEqual(normalizeSettings({}));
+    expect("developerPanePrototype" in normalizeSettings({ developerPanePrototype: true })).toBe(
+      false,
+    );
   });
 
   it("offer the project server on a fresh install", () => {
@@ -65,7 +64,6 @@ describe("settings", () => {
       showSharingMetadata: false,
       sectionComments: "local",
       sectionsDisabled: false,
-      developerPanePrototype: false,
       dismissedHints: [],
       settingsVersion: 2,
     });
@@ -98,7 +96,6 @@ describe("settings", () => {
       showSharingMetadata: true,
       sectionComments: "shared",
       sectionsDisabled: false,
-      developerPanePrototype: false,
       settingsVersion: 2,
     };
     const s = normalizeSettings(stored);

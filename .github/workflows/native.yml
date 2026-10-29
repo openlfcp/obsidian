@@ -24,7 +24,7 @@ on:
         required: false
         default: "1.14.4"
       release_build:
-        description: "Test the release build (no LFCP_DEV_PANE): the exact main.js a release ships; specs/pane-prototype is left out; main.js sha256 is printed (LFCP-03-027)"
+        description: "Print the sha256 of the exact main.js a release ships (LFCP-03-027)"
         type: boolean
         required: false
         default: false
@@ -139,7 +139,7 @@ jobs:
     timeout-minutes: 120
     env:
       NATIVE_OBSIDIAN: ${{ matrix.obsidian }}
-      # specs/pane-prototype's screenshots, kept with the log.
+      # Screenshots of the specs that take them, kept with the log.
       LFCP_SCREENSHOT_DIR: ${{ github.workspace }}/obsidian/screenshots
       # The live specs' server: the one built above, never a default location.
       LFCP_REQUIRE_LIVE: "1"
@@ -206,11 +206,7 @@ jobs:
             fi
             ls -l "$dir"
           done
-      # A developer build: specs/pane-prototype needs the pane prototype,
-      # which a release build leaves out (test/bundle.test.ts checks that one).
       - name: Build the plugin and the harness
-        env:
-          LFCP_DEV_PANE: ${{ inputs.release_build && '0' || '1' }}
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
@@ -250,16 +246,6 @@ jobs:
           args=()
           for f in "${selected[@]}"; do args+=("--spec" "${f#test/native/}"); done
           if [ ${#selected[@]} -eq 0 ]; then selected=(test/native/specs/*.e2e.mjs); fi
-          # A release build has no pane prototype (D11): its spec cannot run.
-          if [ "$NATIVE_RELEASE_BUILD" = "1" ]; then
-            kept=()
-            for f in "${selected[@]}"; do [ "$f" = "test/native/specs/pane-prototype.e2e.mjs" ] || kept+=("$f"); done
-            selected=("${kept[@]}")
-            if [ -z "$SPECS" ]; then
-              args=()
-              for f in "${selected[@]}"; do args+=("--spec" "${f#test/native/}"); done
-            fi
-          fi
           # Known failing specs (test/native/known-failing.txt): out of the gating run.
           : > "$RUNNER_TEMP/known-failing"
           known=0
