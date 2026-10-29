@@ -243,7 +243,7 @@ export class JoinFlow {
     const generation = options.from === "pane" ? this.#generation : ++this.#generation;
     let resource: ResourceId | null = null;
     try {
-      resource = parseInviteUri(link.trim()).resourceId as ResourceId;
+      resource = parseInviteUri(link.trim()).resourceId;
     } catch {
       // The service reports it as it always did.
     }

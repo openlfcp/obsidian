@@ -302,11 +302,11 @@ function previewOf(
 export interface PaneDrawing {
   readonly facts: PaneFacts;
   /** What a click of action `id` hands the dispatcher. */
-  request(id: ActionId): ActionRequest;
+  readonly request: (id: ActionId) => ActionRequest;
   /** What action `id` acts on (note, section, flow): a click compares it with the facts then (L2). */
-  identity(id: ActionId): string;
+  readonly identity: (id: ActionId) => string;
   /** What a problem row's action hands the dispatcher (LFCP-03-018); null: no such row now. */
-  problemRequest(problemId: string): ActionRequest | null;
+  readonly problemRequest: (problemId: string) => ActionRequest | null;
   /** The flow the pane holds now (its generation), to keep on the next drawing. */
   readonly pinned: number | null;
 }

@@ -172,7 +172,7 @@ export class SectionRegistryView {
     }
     const run = async (): Promise<void> => {
       // The body runs only after #reading is set, even if a read throws at once.
-      await undefined;
+      await Promise.resolve();
       try {
         do {
           this.#again = false;

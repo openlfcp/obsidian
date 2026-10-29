@@ -80,11 +80,11 @@ export interface PaneUi {
 export interface PaneSnapshot {
   readonly model: PaneModel;
   /** What a click of `id` hands the dispatcher. */
-  request(id: ActionId): ActionRequest;
+  readonly request: (id: ActionId) => ActionRequest;
   /** What `id` acts on: a click compares the drawn one with the one now (L2). */
-  identity(id: ActionId): string;
+  readonly identity: (id: ActionId) => string;
   /** What a problem row's action hands the dispatcher (LFCP-03-018); null: no such row. */
-  problemRequest?(problemId: string): ActionRequest | null;
+  readonly problemRequest?: (problemId: string) => ActionRequest | null;
   /** The flow this drawing holds. */
   readonly pinned: number | null;
   /** The join flow this drawing shows (its generation), or null (LFCP-03-015). */
