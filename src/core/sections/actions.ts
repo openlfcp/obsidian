@@ -1987,7 +1987,7 @@ export class SectionActions {
    * it is still here (stable ref, revalidated).
    */
   async openCard(key: string, title: string): Promise<void> {
-    const { prompter, notes, services } = this.env;
+    const { prompter, services } = this.env;
     if (this.#refused({}, false)) return;
     const content = await services.cardContent(key, title);
     if (content === null) {

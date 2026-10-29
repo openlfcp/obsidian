@@ -267,8 +267,7 @@ export function coreHandlers(env: {
     },
     // The pane joins in its own field (I5); the palette and the menu through the masked dialog.
     "join-with-link": async (r, surface) => {
-      const open = env.collab.openJoin;
-      if (surface === "pane" && open !== undefined) open.call(env.collab);
+      if (surface === "pane" && env.collab.openJoin !== undefined) env.collab.openJoin();
       else await env.collab.joinCollaboration(r.joinAccept ?? "sections");
     },
     // A section (the card, the pane) or the cursor of a note (the palette's

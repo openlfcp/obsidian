@@ -250,7 +250,7 @@ export class ChooseDestinationModal extends SuggestModal<DestinationItem> {
 
   override onChooseSuggestion(item: DestinationItem): void {
     const { label: _label, ...d } = item;
-    this.#chosen = d as InsertDestination;
+    this.#chosen = d;
   }
 
   override onClose(): void {
