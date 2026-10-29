@@ -53,11 +53,10 @@ function el<K extends keyof HTMLElementTagNameMap>(
   cls?: string,
   text?: string,
 ): HTMLElementTagNameMap[K] {
-  const e = parent.ownerDocument.createElement(tag);
-  if (cls !== undefined) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  parent.appendChild(e);
-  return e;
+  return parent.createEl(tag, {
+    ...(cls === undefined ? {} : { cls }),
+    ...(text === undefined ? {} : { text }),
+  });
 }
 
 let ids = 0;

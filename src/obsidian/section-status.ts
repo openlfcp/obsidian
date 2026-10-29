@@ -43,6 +43,7 @@ import {
 } from "../core/status/badge";
 import { blockingDiagnostics } from "../core/status/held";
 import type { StatusView } from "../core/status/reducer";
+import { spanIn } from "./dom";
 
 export { sectionAtLine, sectionKey };
 
@@ -108,8 +109,7 @@ export function renderBadge(el: HTMLElement, badge: HeadingBadge): void {
   const mark = svg(doc, "0 0 64 64", MARK, "7");
   mark.classList.add("openlfcp-status-mark");
   el.appendChild(mark);
-  const slot = doc.createElement("span");
-  slot.className = "openlfcp-status-icon";
+  const slot = spanIn(doc, "openlfcp-status-icon");
   if (badge.icon !== null) {
     slot.dataset.icon = badge.icon;
     slot.appendChild(svg(doc, "0 0 16 16", ICONS[badge.icon], "1.6"));
@@ -190,7 +190,7 @@ class BadgeWidget extends WidgetType {
     );
   }
   toDOM(view: EditorView): HTMLElement {
-    const el = view.dom.ownerDocument.createElement("span");
+    const el = spanIn(view.dom.ownerDocument);
     renderBadge(el, this.badge);
     el.dataset.section = this.key;
     el.dataset.title = this.title;
@@ -211,7 +211,7 @@ class CueWidget extends WidgetType {
     return other.cue === this.cue;
   }
   toDOM(view: EditorView): HTMLElement {
-    const el = view.dom.ownerDocument.createElement("span");
+    const el = spanIn(view.dom.ownerDocument);
     renderCue(el, this.cue);
     return el;
   }
@@ -441,7 +441,7 @@ export class ReadingBadges {
         .find((x) => x.line === info.lineStart);
     if (section === undefined) return;
     const key = sectionKey(section.ref);
-    const badge = heading.ownerDocument.createElement("span");
+    const badge = spanIn(heading.ownerDocument);
     renderBadge(badge, badgeOf(section.title, this.status(key)));
     badge.dataset.title = section.title;
     badge.dataset.section = key;
