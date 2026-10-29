@@ -30,6 +30,7 @@ import {
   type SectionPresentation,
   sectionPresentation,
 } from "../core/sections/presentation";
+import { spanIn } from "./dom";
 import { pluginEdit, sectionWrite } from "./section-editor";
 
 /** Show (true) or hide (false) sharing metadata in this editor. */
@@ -58,8 +59,7 @@ class DamagedMarkerWidget extends WidgetType {
     return true;
   }
   toDOM(view: EditorView): HTMLElement {
-    const el = view.dom.ownerDocument.createElement("span");
-    el.className = "openlfcp-marker-damaged-chip";
+    const el = spanIn(view.dom.ownerDocument, "openlfcp-marker-damaged-chip");
     el.dataset.lfcpUi = "damaged-marker";
     el.textContent = "Shared section line changed";
     el.setAttribute("role", "note");
@@ -84,8 +84,7 @@ class CueWidget extends WidgetType {
     return other.kind === this.kind;
   }
   toDOM(view: EditorView): HTMLElement {
-    const el = view.dom.ownerDocument.createElement("span");
-    el.className = "openlfcp-boundary-cue";
+    const el = spanIn(view.dom.ownerDocument, "openlfcp-boundary-cue");
     el.dataset.lfcpUi = "boundary-cue";
     el.dataset.cue = this.kind;
     el.dataset.label = BOUNDARY_CUE_TEXT[this.kind];

@@ -7,6 +7,8 @@
 // apart from the main one (LFCP-03-022, U03-20): what is said goes to the
 // region of the window in use, made there the first time.
 
+import { divIn } from "./dom";
+
 export class LiveRegion {
   /** The region of each document, the main one first. */
   readonly #regions = new Map<Document, HTMLElement>();
@@ -25,8 +27,7 @@ export class LiveRegion {
   #regionIn(doc: Document): HTMLElement {
     let el = this.#regions.get(doc);
     if (el?.isConnected === true) return el;
-    el = doc.createElement("div");
-    el.className = "openlfcp-live-region";
+    el = divIn(doc, "openlfcp-live-region");
     el.setAttribute("role", "status");
     el.setAttribute("aria-live", "polite");
     el.setAttribute("aria-atomic", "true");

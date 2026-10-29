@@ -216,8 +216,7 @@ export class SharedTasksView extends ItemView {
     for (const subscribe of this.port.sources) this.#off.push(subscribe(changed));
     const root = this.contentEl;
     root.replaceChildren();
-    this.#root = root.ownerDocument.createElement("div");
-    root.appendChild(this.#root);
+    this.#root = root.createDiv();
     // Not shown yet (restored in a collapsed sidebar): drawn once it is (L1).
     this.render();
   }
