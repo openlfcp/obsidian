@@ -3,7 +3,10 @@
 // window has a document of its own. Obsidian declares these helpers as
 // globals, and every window has them, so `doc.win` is typed as having them.
 
-type ObsidianWindow = Window & typeof globalThis;
+interface ObsidianWindow extends Window {
+  createDiv(cls?: string): HTMLDivElement;
+  createSpan(cls?: string): HTMLSpanElement;
+}
 
 /** A <div> in `doc`'s window, not appended anywhere yet. */
 export function divIn(doc: Document, cls?: string): HTMLDivElement {
