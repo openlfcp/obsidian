@@ -46,7 +46,7 @@ describe("LFCP-03-012: Shared Tasks pane host", () => {
     await $(".openlfcp-pane").waitForExist({ timeout: 10_000 });
     expect(await leaves()).toBe(1);
     expect(await clickRibbon()).toBe(true);
-    await browser.executeObsidianCommand("shared-tasks:open-shared-tasks-pane");
+    await browser.executeObsidianCommand("shared-tasks:open-pane");
     await browser.pause(300);
     expect(await leaves()).toBe(1);
     const text = await paneText();

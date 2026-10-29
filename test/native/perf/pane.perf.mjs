@@ -200,7 +200,7 @@ const paneOpen = (statusText = false) =>
         o.observe(document.body, { childList: true, subtree: true, characterData: true });
         const timer = setTimeout(() => finish(null), 10_000);
         t0 = performance.now();
-        app.commands.executeCommandById("shared-tasks:open-shared-tasks-pane");
+        app.commands.executeCommandById("shared-tasks:open-pane");
       });
     },
     VIEW,

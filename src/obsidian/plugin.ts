@@ -485,7 +485,7 @@ export default class OpenLfcpPlugin extends Plugin {
     );
     this.addRibbonIcon(PANE_ICON, OPEN_PANE, () => void this.openPane());
     this.addCommand({
-      id: "open-shared-tasks-pane",
+      id: "open-pane",
       name: OPEN_PANE,
       callback: () => void this.openPane(),
     });

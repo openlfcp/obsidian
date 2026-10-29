@@ -8,6 +8,22 @@ and known limits, are the linked files in [docs/releases](docs/releases/).
 The Markdown format of your notes and the sync protocol have not changed
 since 0.4.0.
 
+## [Unreleased]
+
+### Changed
+
+- The command "Open Shared Tasks pane" has a new ID, `open-pane`
+  (it was `open-shared-tasks-pane`), as the Obsidian community review asks.
+  A custom hotkey you set on the old command is lost: set it again under
+  Settings, Hotkeys.
+- The developer pane prototype and its `developerPanePrototype` setting are
+  gone. It never shipped in a release build; an old `data.json` that still
+  has the key is read as before and the key is ignored.
+- Fixes for the warnings of the Obsidian community review: elements are
+  made with Obsidian's own helpers, timers come from the window, and the
+  damaged-marker line is marked with a dashed underline instead of a wavy
+  one.
+
 ## [0.5.1] — 2026-10-25
 
 Sharing a section is harder to get wrong.
