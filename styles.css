@@ -482,10 +482,9 @@
   margin: var(--size-4-2) 0;
 }
 
-/* A section marker line that cannot be read (UX-05): found by its warning underline. */
+/* A section marker line that cannot be read (UX-05): found by its dashed warning underline. */
 .openlfcp-marker-damaged {
-  text-decoration: underline wavy var(--text-warning);
-  text-underline-offset: 3px;
+  border-bottom: 2px dashed var(--text-warning);
 }
 .openlfcp-marker-damaged-chip {
   color: var(--text-warning);
