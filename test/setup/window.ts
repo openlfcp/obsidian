@@ -1,3 +1,5 @@
+import { installClock } from "../../src/core/clock";
+
 // Obsidian runs the plugin in a browser window, where `window` (and
 // Obsidian's `activeWindow`) always exist; the adapter uses them for timers,
 // the navigator and the clipboard (popout-window friendly, as Obsidian's
@@ -5,6 +7,11 @@
 // globals, pointing at Node's global object.
 const g = globalThis as Record<string, unknown>;
 g.window ??= globalThis;
+installClock({
+  setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+  clearTimeout: (handle) => globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+  randomBytes: (n) => globalThis.crypto.getRandomValues(new Uint8Array(n)),
+});
 g.activeWindow ??= globalThis;
 // Obsidian's `activeDocument`: the DOM test environment's document, where there is one.
 g.activeDocument ??= g.document;

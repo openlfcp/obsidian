@@ -18,6 +18,7 @@
 
 import type { WebSocketFactory, WebSocketLike } from "@openlfcp/client";
 import { createMessage, encodeMessage } from "@openlfcp/wire";
+import { clock } from "../clock";
 
 export interface LivenessOptions {
   /** Silence after which a PING is sent (default 15 s). */
@@ -118,7 +119,7 @@ export class LivenessProbe {
         socket.send(
           encodeMessage(
             createMessage("PING", {
-              payload: globalThis.crypto.getRandomValues(new Uint8Array(8)),
+              payload: clock().randomBytes(8),
             }),
           ),
         );
