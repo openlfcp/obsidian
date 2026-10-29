@@ -43,6 +43,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm run lint
+      # The community Scorecard's lint (eslint-plugin-obsidianmd) over src/: zero warnings.
+      - run: pnpm run lint:obsidian
       - run: pnpm run typecheck
       - run: pnpm test
       - name: Build leaves the tree clean
