@@ -151,7 +151,7 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     expect(t.host.ribbon).toEqual([
       { icon: "list-checks", title: OPEN_PANE, callback: expect.any(Function) },
     ]);
-    const command = t.host.commands.find((c) => c.id === "open-shared-tasks-pane");
+    const command = t.host.commands.find((c) => c.id === "open-pane");
     expect(command?.name).toBe("Open Shared Tasks pane");
     expect(t.leaves()).toHaveLength(0);
 
@@ -182,7 +182,7 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
       t.view()?.render();
       expect(document.activeElement).toBe(outside);
       // The command (or the ribbon, a menu, the card's link) again: focus on the heading.
-      t.host.commands.find((c) => c.id === "open-shared-tasks-pane")?.callback?.();
+      t.host.commands.find((c) => c.id === "open-pane")?.callback?.();
       await wait(0);
       expect(document.activeElement?.getAttribute("data-pane-key")).toBe("title");
       expect(document.activeElement?.textContent).toBe("Shared Tasks");

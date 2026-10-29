@@ -118,7 +118,7 @@ Rules:
   applies but is blocked is shown disabled with its reason, for example
   "Detach this section" while the section is loading (owner decision D10).
 - **A6. Pane entries (LFCP-03-012).** The ribbon icon (tooltip "Open Shared
-  Tasks pane"), the command `open-shared-tasks-pane` "Open Shared Tasks
+  Tasks pane"), the command `open-pane` "Open Shared Tasks
   pane", the section card's "Open Shared Tasks pane" and the editor context
   menu's "Open Shared Tasks pane" reveal one pane per workspace
   (`src/obsidian/ui/pane-view.ts`). A second leaf of it is closed. The
