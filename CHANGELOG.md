@@ -21,8 +21,8 @@ since 0.4.0.
   has the key is read as before and the key is ignored.
 - Fixes for the warnings of the Obsidian community review: elements are
   made with Obsidian's own helpers, timers come from the window, and the
-  damaged-marker line is marked with a dashed underline instead of a wavy
-  one.
+  damaged-marker line is marked with a solid warning underline instead of
+  a wavy one.
 
 ## [0.5.1] — 2026-10-25
 
