@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json && node scripts/build.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint:obsidian": "eslint src --max-warnings 0",
     "lint": "biome check . && node scripts/check-boundaries.mjs && node scripts/check-boundaries.mjs --self-test",
     "perf": "LFCP_PERF=1 vitest run --config vitest.perf.config.ts",
     "test": "vitest run",
@@ -35,10 +36,13 @@
     "@codemirror/view": "6.38.6",
     "@types/node": "^24.19.1",
     "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "0.4.2",
     "fake-indexeddb": "6.2.5",
     "happy-dom": "20.14.5",
     "obsidian": "1.13.1",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.3"
   },
   "pnpm": {

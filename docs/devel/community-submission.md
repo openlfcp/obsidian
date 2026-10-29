@@ -132,9 +132,27 @@ in the table below.
 | `const`/`let`; async/await | pass: no `var`; `.then` only to chain the serial write queues | `src/core/lfcp/runtime.ts:319` |
 | No lookbehind in regular expressions (older iOS) | pass | `src/` |
 | typecheck-level lint errors (official recommended config) | fixed: 9 → 0 (844cca3, dc7eede) | see the commits |
-| `globalThis` → `window`, `setTimeout` → `window.setTimeout` (popout windows) | warning, kept: process-wide timers, `navigator` and clipboard; the adapter also runs in the Node test environment, where `window` does not exist | `src/obsidian/lfcp-env.ts:55`, `:74-75`, `src/obsidian/plugin.ts:51-52`, `src/obsidian/ui/prompter.ts:120`, `:223`, `src/core/collab/service.ts:234` |
+| `globalThis` → `window`, `setTimeout` → `window.setTimeout` (popout windows) | fixed in 0.5.2: the core gets its timers and random bytes from the host (`src/core/clock.ts`; the adapter installs the window's own, the unit tests Node's), the adapter uses `window` | `src/core/clock.ts`, `src/obsidian/plugin.ts`, `test/setup/window.ts` |
 | Declarative settings (`getSettingDefinitions`, 1.13+; `display()` deprecated) | warning, follow-up: the settings tab works; adopting the declarative API makes the settings searchable | `src/obsidian/settings-tab.ts:14`, `:98` |
 | Build verification by the scanner | fixed in 0.3.1: the SDK comes from npm, a clean clone builds | `package.json` |
 
 The fixes since 0.2.0 change a text users see ("Read + write") and the
 source the review scans, so they ship as **0.2.1** before submitting.
+
+## The Scorecard and the lint gate (0.5.2)
+
+The Scorecard of the plugin (community.obsidian.md, "Review") counts the
+warnings of `eslint-plugin-obsidianmd` over `src/` and `styles.css`; any
+warning shows "Review: Caution". As of 0.5.2 there are none, and CI keeps it
+so: `pnpm run lint:obsidian` runs eslint 9 with `eslint.config.mjs` (the
+plugin's recommended config, type-aware, `src/` only) with
+`--max-warnings 0`. Run it before a release.
+
+Choices that stay in that config or in the code:
+
+- `obsidianmd/ui/sentence-case` is off: "Shared Tasks" and "OpenLFCP" are
+  proper nouns the rule cannot know, and the Scorecard does not list it.
+- `test/` and `scripts/` are not linted: the Scorecard scans `src/`.
+- Nothing in `src/` uses an `eslint-disable` comment.
+- The `eslint-plugin-obsidianmd` version is pinned. Raising it can add rules
+  and so warnings: fix them in the same change.
