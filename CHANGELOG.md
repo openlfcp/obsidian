@@ -10,6 +10,11 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-10-30
+
+The plugin passes the community directory's lint review.
+Notes: [docs/releases/0.5.2.md](docs/releases/0.5.2.md).
+
 ### Changed
 
 - The command "Open Shared Tasks pane" has a new ID, `open-pane`
