@@ -153,6 +153,12 @@ Choices that stay in that config or in the code:
 - `obsidianmd/ui/sentence-case` is off: "Shared Tasks" and "OpenLFCP" are
   proper nouns the rule cannot know, and the Scorecard does not list it.
 - `test/` and `scripts/` are not linted: the Scorecard scans `src/`.
-- Nothing in `src/` uses an `eslint-disable` comment.
+- No `eslint-disable` comments: the config sets `noInlineConfig`, so a
+  comment cannot hide a warning the Scorecard would still count.
+- `styles.css` has no local check. The Scorecard flags CSS features that
+  Obsidian's Chromium supports only in part (0.5.1: a wavy
+  `text-decoration`); prefer plain properties and Obsidian's variables.
+- The release workflow runs the same lint, so a tag with a warning
+  builds no release.
 - The `eslint-plugin-obsidianmd` version is pinned. Raising it can add rules
   and so warnings: fix them in the same change.

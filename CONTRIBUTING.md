@@ -36,6 +36,7 @@ You need Node.js 24 or later and pnpm 10. From a clean clone:
 pnpm install --frozen-lockfile
 pnpm build       # typecheck src and bundle main.js
 pnpm lint        # Biome and the boundary check
+pnpm lint:obsidian  # Obsidian's community review lint over src/, zero warnings
 pnpm typecheck   # src and tests
 pnpm test
 ```
@@ -56,7 +57,15 @@ and the README's "For developers" section. To try your build in Obsidian:
 ## Changes
 
 - Keep a pull request to one purpose, with tests for what it changes.
-- `pnpm lint`, `pnpm typecheck` and `pnpm test` pass before you open it.
+- `pnpm lint`, `pnpm lint:obsidian`, `pnpm typecheck` and `pnpm test` pass
+  before you open it.
+- `pnpm lint:obsidian` reproduces the lint of the plugin's community
+  Scorecard: a warning there lowers the plugin's review status. Fix the
+  code; do not turn a rule off, and do not add `eslint-disable` comments
+  (the config refuses them). In `styles.css`, use Obsidian's CSS variables
+  and well-supported properties: the Scorecard also flags CSS features
+  Obsidian's Chromium supports only in part, and no local check catches
+  those.
 - Code that imports `obsidian` lives in `src/obsidian/` only; the boundary
   check enforces this and the other rules in the README's "Layout".
 - Commit messages follow

@@ -23,7 +23,8 @@ On a pushed tag `X.Y.Z`:
 
 1. It checks out the tagged commit and spec at `spec.lock`, as CI does;
    the SDK is the `@openlfcp/*` npm packages locked in `pnpm-lock.yaml`.
-2. It runs build, lint, typecheck and the tests.
+2. It runs build, lint, the Scorecard lint (`lint:obsidian`), typecheck
+   and the tests.
 3. `node scripts/release-assets.mjs --tag X.Y.Z` checks that the tag,
    `manifest.json`, `package.json` and `versions.json` agree. It then
    writes `release/main.js`, `manifest.json` and `styles.css`, and checks
@@ -40,6 +41,8 @@ On a pushed tag `X.Y.Z`:
 
 1. On `main`, with CI green and pushed: `manifest.json`, `package.json`
    and `versions.json` say `X.Y.Z`, and `docs/releases/X.Y.Z.md` exists.
+   `pnpm lint:obsidian` reports nothing (the Release workflow refuses a
+   warning too).
    Check locally: `node scripts/release-assets.mjs --tag X.Y.Z`. It ends
    with `release: Shared Tasks X.Y.Z (shared-tasks) in release/`.
 2. Tag and push the tag:
@@ -62,7 +65,13 @@ On a pushed tag `X.Y.Z`:
    and create a collaboration on the default server. The line under the
    server field names the project and links its privacy note and terms.
    Join it from a second vault.
-5. A broken release: delete the GitHub release and the tag, fix, and
+5. A day after the release, open the plugin's page in the community
+   directory (community.obsidian.md/plugins/shared-tasks): the Scorecard
+   should show Health and Review without warnings. A new warning, from a
+   new scanner rule or a CSS check, gets a fix in the next patch and, if a
+   rule caught it, a raise of `eslint-plugin-obsidianmd` in
+   `package.json`.
+6. A broken release: delete the GitHub release and the tag, fix, and
    release the next patch version. Never re-tag a published version:
    BRAT users may have it.
 
