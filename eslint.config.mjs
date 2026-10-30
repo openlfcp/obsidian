@@ -9,6 +9,9 @@ export default [
   {
     files: ["src/**/*.ts"],
     languageOptions: { parserOptions: { projectService: true } },
+    // An eslint-disable comment would pass this gate and still count on the
+    // Scorecard, which runs its own config: inline config is refused.
+    linterOptions: { noInlineConfig: true },
     rules: {
       // "Shared Tasks" and "OpenLFCP" are proper nouns the rule cannot know.
       "obsidianmd/ui/sentence-case": "off",
