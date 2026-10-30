@@ -72,6 +72,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm run lint
+      # The community Scorecard's lint: a release with a warning would show
+      # "Review: Caution" on the plugin's page.
+      - run: pnpm run lint:obsidian
       - run: pnpm run typecheck
       - run: pnpm test
       - name: Build and check the release assets
