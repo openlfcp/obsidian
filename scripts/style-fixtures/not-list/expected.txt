@@ -1,0 +1,2 @@
+styles.css:1 not-list: :not(.icon, .label)
+styles.css:6 not-list: :not(.a, .b, .c)

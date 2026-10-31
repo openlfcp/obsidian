@@ -1,0 +1,5 @@
+styles.css:2 colour-value: color: red (red is not an Obsidian variable)
+styles.css:3 colour-value: background: var(--background-primary) url(x.png) (url() is not an Obsidian variable)
+styles.css:4 colour-value: fill: black (black is not an Obsidian variable)
+styles.css:5 colour-value: stroke: var(color) (var() without a --variable)
+styles.css:9 colour-value: color: CanvasText (canvastext is not an Obsidian variable)

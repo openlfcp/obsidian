@@ -155,9 +155,15 @@ Choices that stay in that config or in the code:
 - `test/` and `scripts/` are not linted: the Scorecard scans `src/`.
 - No `eslint-disable` comments: the config sets `noInlineConfig`, so a
   comment cannot hide a warning the Scorecard would still count.
-- `styles.css` has no local check. The Scorecard flags CSS features that
-  Obsidian's Chromium supports only in part (0.5.1: a wavy
-  `text-decoration`); prefer plain properties and Obsidian's variables.
+- `styles.css`: the Scorecard flags CSS features that Obsidian's Chromium
+  supports only in part (0.5.1: a wavy `text-decoration`; later `:has()`
+  and a list in `:not()`); prefer plain properties and Obsidian's
+  variables. `lint:obsidian` also runs `scripts/check-styles.mjs`: no
+  `:has()`, no list in `:not()`, no `!important`, no hex, `rgb()` or
+  `hsl()`, and `color`, `background`, `border-color`, `fill` and `stroke`
+  only from `var(--…)` (or `transparent`, `inherit`, `currentColor`,
+  `none`; `color-mix()` of variables, darkened or lightened with `black`
+  or `white`; system colours inside `@media (forced-colors: active)`).
 - The release workflow runs the same lint, so a tag with a warning
   builds no release.
 - The `eslint-plugin-obsidianmd` version is pinned. Raising it can add rules

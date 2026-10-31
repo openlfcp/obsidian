@@ -1,0 +1,2 @@
+styles.css:2 hex: #ff0000
+styles.css:3 hex: #fff

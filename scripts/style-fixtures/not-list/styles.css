@@ -1,0 +1,8 @@
+.pane button:not(.icon, .label) {
+  color: var(--text-normal);
+}
+
+.pane
+  button:not(.icon):not(:is(.x, .y)):not(.a, .b, .c):hover {
+  color: var(--text-normal);
+}

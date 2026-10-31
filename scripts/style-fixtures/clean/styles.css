@@ -1,0 +1,22 @@
+/* Comments may say :has(), !important, #fff and rgb(0 0 0): they are not CSS. */
+.a:not(.b):not(.c),
+.a:is(.b, .c) {
+  color: var(--text-normal);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.a:hover {
+  background-color: transparent;
+  border-color: currentColor;
+  fill: none;
+  stroke: inherit;
+  color: color-mix(in srgb, var(--color-green) 70%, black);
+  background: color-mix(in srgb, var(--background-modifier-error) 10%, var(--background-primary));
+}
+
+@media (forced-colors: active) {
+  .a {
+    color: CanvasText;
+  }
+}

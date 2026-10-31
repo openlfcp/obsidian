@@ -64,8 +64,9 @@ and the README's "For developers" section. To try your build in Obsidian:
   code; do not turn a rule off, and do not add `eslint-disable` comments
   (the config refuses them). In `styles.css`, use Obsidian's CSS variables
   and well-supported properties: the Scorecard also flags CSS features
-  Obsidian's Chromium supports only in part, and no local check catches
-  those.
+  Obsidian's Chromium supports only in part. `pnpm lint:obsidian` runs
+  `scripts/check-styles.mjs` too: no `:has()`, no list in `:not()`, no
+  `!important`, and colours only from Obsidian's variables.
 - Code that imports `obsidian` lives in `src/obsidian/` only; the boundary
   check enforces this and the other rules in the README's "Layout".
 - Commit messages follow
