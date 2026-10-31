@@ -21,10 +21,11 @@
 import type { ActionId } from "../actions/catalog";
 import { ACCESS_HELD, REPAIR_HELD } from "../actions/descriptors";
 import type { ProblemTarget } from "../actions/dispatcher";
+import { sectionKey } from "../sections/context";
 import type { RecoveryItem } from "../sections/recovery";
 import { type KeyedRepair, restoreText } from "../sections/repair";
 import { type HeldCause, type HeldEdits, heldCauseText } from "../status/held";
-import type { StatusView } from "../status/reducer";
+import type { Condition, StatusView } from "../status/reducer";
 
 /**
  * What a problem row's action is about, beyond the section: a conflict or a
@@ -56,6 +57,8 @@ export interface PaneProblem {
   /** The action that leads to its resolver; null: nothing to do here but read it. */
   readonly action: ActionId | null;
   readonly ref: ProblemRef | null;
+  /** The section a repair item of the note is about (its key), where the marker names one. */
+  readonly section?: string;
 }
 
 /** The repair items of the note in view, at its revision. */
@@ -144,6 +147,14 @@ const HELD_CATEGORY: Readonly<Record<HeldCause, ProblemCategory>> = {
   "base-unknown": "base",
 };
 
+/** The row of one copy's held edits: one per copy and cause. */
+export const heldProblemId = (h: HeldEdits): string => `held:${h.projectionId}:${h.cause}`;
+
+/** The row of this vault's access or the server's refusal. */
+export const accessProblemId = (
+  c: Extract<Condition, { kind: "access" | "server-refused" }>,
+): string => (c.kind === "access" ? `access:${c.access}` : `server-refused:${c.code}`);
+
 /** A server's refusal on the surface; its code is the details card's. */
 export const SERVER_REFUSED_TEXT = "The sync server refused this section.";
 
@@ -157,7 +168,7 @@ function heldProblem(h: HeldEdits): PaneProblem {
         ? "repair-sections"
         : "review-local-changes";
   return {
-    id: `held:${h.projectionId}:${h.cause}`,
+    id: heldProblemId(h),
     category: HELD_CATEGORY[h.cause],
     text: `${count} not sent: ${heldCauseText(h)}.`,
     source: where(h.path, h.line),
@@ -189,10 +200,10 @@ function accessProblems(v: StatusView): PaneProblem[] {
             : v.access.current === true
               ? "This vault's access, as checked with the server"
               : "This vault's access, as this device last verified it";
-      out.push({ id: `access:${c.access}`, category: "access", text, source, action, ref: null });
+      out.push({ id: accessProblemId(c), category: "access", text, source, action, ref: null });
     } else if (c.kind === "server-refused")
       out.push({
-        id: `server-refused:${c.code}`,
+        id: accessProblemId(c),
         category: "access",
         text: SERVER_REFUSED_TEXT,
         source: "The sync server",
@@ -241,6 +252,7 @@ export function paneProblems(f: ProblemFacts): PaneProblem[] {
         line: k.item.line,
         revision: repairs?.revision ?? "",
       },
+      ...(k.item.kind === "locate" ? {} : { section: sectionKey(k.item.ref) }),
     };
   });
   const order: readonly ProblemCategory[] = [

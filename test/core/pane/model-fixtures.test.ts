@@ -349,15 +349,76 @@ describe("the state card (UXD-11, UX-08)", () => {
     );
   });
 
-  it("a problem row that says what the card says, with the card's button, is not listed again", () => {
-    const held = doc.states.find((x) => x.id === "held-boundary-queue-empty");
-    if (held === undefined) throw new Error("fixture missing");
-    const base = paneFactsOf(held.facts);
+  /** A fixture's facts with the problem rows the host builds from its section (problems.ts). */
+  const hosted = (id: string, over: (s: FixtureSection) => FixtureSection = (x) => x) => {
+    const st = doc.states.find((x) => x.id === id);
+    if (st?.facts.section == null) throw new Error(id);
+    const facts = paneFactsOf({ ...st.facts, section: over(st.facts.section) });
+    const problems = paneProblems({
+      view: facts.section?.view ?? null,
+      recovery: [],
+      repairs: null,
+    });
+    return { ...facts, problems };
+  };
+  /** The section with a second copy in Other.md, holding the same edits for the same cause. */
+  const twoCopies = (s: FixtureSection): FixtureSection => {
+    const first = s.sync.projections[0];
+    if (first?.held == null) throw new Error("no held copy");
+    const second = {
+      ...first,
+      id: "p2",
+      held: { ...first.held, path: "Other.md", projectionId: "p2", line: 30 },
+    };
+    const edits = s.sync.held.edits;
+    return {
+      ...s,
+      sync: {
+        ...s.sync,
+        held: {
+          ...s.sync.held,
+          projections: (s.sync.held.projections ?? 1) + 1,
+          edits: edits === null ? null : edits * 2,
+        },
+        projections: [first, second],
+      },
+    };
+  };
+
+  it("the card is one copy's row: another copy with the same cause stays, with its place", () => {
+    const m = paneModel(hosted("held-boundary-queue-empty", twoCopies));
     const fact = "3 edits not sent: the section's start or end marker is damaged.";
-    const row = (id: string, text: string, action: PaneProblem["action"]): PaneProblem => ({
+    expect(m.card.fact).toBe(fact);
+    expect(m.card.about).toBe("held:p1:boundary");
+    expect(m.primary?.id).toBe("repair-sections");
+    // Plan.md's row is the card; Other.md's says the same words, at its own place, with its button.
+    expect(m.problems.map((p) => [p.text, p.source, p.action?.id])).toEqual([
+      [fact, "Other.md, line 31", "repair-sections"],
+    ]);
+    // All six edits are on the surface: three on the card, three on the row.
+    expect(paneTexts(m).filter((t) => t === fact)).toHaveLength(2);
+  });
+
+  it("held edits behind a refusal: the card is one copy, the refusal and the other copy are rows", () => {
+    const m = paneModel(hosted("access-refused-held", twoCopies));
+    const fact = m.card.fact ?? "";
+    expect(fact).toMatch(/^2 edits not sent: /);
+    expect(m.card.about).toBe("held:p1:refused");
+    expect(m.primary?.id).toBe("review-local-changes");
+    expect(m.problems.map((p) => [p.id, p.source])).toEqual([
+      ["access:refused", "The sync server"],
+      ["held:p2:refused", "Other.md, line 31"],
+    ]);
+    expect(m.problems[1]?.text).toBe(fact);
+    expect(m.problems[1]?.action?.id).toBe("review-local-changes");
+  });
+
+  it("a row with the card's ID but another button stays: the card does not draw that button", () => {
+    const base = hosted("held-boundary-queue-empty");
+    const row = (id: string, action: PaneProblem["action"]): PaneProblem => ({
       id,
       category: "held",
-      text,
+      text: "3 edits not sent: the section's start or end marker is damaged.",
       source: "Plan.md, line 15",
       action,
       ref: null,
@@ -365,12 +426,11 @@ describe("the state card (UXD-11, UX-08)", () => {
     const m = paneModel({
       ...base,
       problems: [
-        row("same", fact, "repair-sections"),
-        row("other", "A line of the section cannot be shared.", "go-to-problem"),
-        row("same-text-other-button", fact, "go-to-problem"),
+        row("held:p1:boundary", "repair-sections"),
+        row("held:p1:boundary", "go-to-problem"),
       ],
     });
-    expect(m.problems.map((p) => p.id)).toEqual(["other", "same-text-other-button"]);
+    expect(m.problems.map((p) => p.action?.id)).toEqual(["go-to-problem"]);
   });
 
   it("a server's refusal says no code on the surface; Details has it", () => {
@@ -406,6 +466,40 @@ describe("the state card (UXD-11, UX-08)", () => {
     });
     expect(m.primary?.id).toBe("open-for-editing");
     expect(m.card.fact).toBe("Reading view: open the note for editing to change it.");
+  });
+
+  it("UXD-12: the damaged marker of the section at the cursor is its card; another's is a row", () => {
+    const base = paneFactsOf(
+      doc.states.find((x) => x.id === "healthy-can-invite")?.facts ?? ({} as FixtureFacts),
+    );
+    const restore = (section: string): PaneProblem => ({
+      id: `repair:Plan.md:${section}`,
+      category: "boundary",
+      text: "The end line of a shared section was changed.",
+      source: "Plan.md, line 9",
+      action: "restore-marker",
+      ref: { kind: "repair", path: "Plan.md", key: section, line: 8, revision: "r" },
+      section,
+    });
+    const own = paneModel({ ...base, problems: [restore("S-launch")] });
+    expect(own.card).toMatchObject({
+      title: "Launch",
+      status: { word: "Needs repair" },
+      fact: "The end line of a shared section was changed.",
+      problem: true,
+    });
+    expect(own.primary?.id).toBe("restore-marker");
+    expect(own.problems).toEqual([]);
+    const other = paneModel({ ...base, problems: [restore("S-other")] });
+    expect(other.card).toMatchObject({
+      title: "Launch",
+      status: { word: "Synced" },
+      problem: false,
+    });
+    expect(other.primary?.id).toBe("restore-marker");
+    expect(other.problems.map((p) => [p.source, p.action?.id])).toEqual([
+      ["Plan.md, line 9", "restore-marker"],
+    ]);
   });
 
   it("a flow owns the card while it runs; an unknown result is a problem", () => {

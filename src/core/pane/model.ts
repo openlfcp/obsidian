@@ -247,6 +247,8 @@ export interface PaneCard {
   readonly secondary: PaneAction | null;
   /** A problem owns the card: drawn as one, its primary the fix. */
   readonly problem: boolean;
+  /** The one problem row (its ID) the card says: that row is not listed again. */
+  readonly about: string | null;
 }
 
 export interface PaneRowView {
@@ -713,11 +715,12 @@ function primaryOf(
  * "Review conflicts…" would show the same button twice, and both open the
  * same single item (LFCP-03-062, N4): the row keeps its text and the primary
  * is the way in. With several conflicts each row's button opens on its own item.
+ * A damaged marker the card does not speak of keeps its own button (UXD-12).
  */
 function problemViews(f: PaneFacts, primary: ActionId | null): PaneProblemView[] {
   const rows = f.problems ?? [];
   const sole = (id: ActionId) => primary === id && rows.filter((r) => r.action === id).length === 1;
-  const same = (id: ActionId) => sole(id) && (id === "review-conflicts" || id === "restore-marker");
+  const same = (id: ActionId) => sole(id) && id === "review-conflicts";
   return rows.map((r) => {
     const v = problemView(f, r);
     return r.action !== null && same(r.action) ? { ...v, action: null } : v;
@@ -775,11 +778,15 @@ const action = (id: ActionId, x: Avail): PaneAction => ({
 
 /** The note's reading-view line (T4). */
 const READING_LINE = "Reading view: open the note for editing to change it.";
+/** No section at the cursor, and a damaged marker in the note: its row is below the card (UXD-12). */
+const NOTE_DAMAGED = "A shared section's marker in this note is damaged.";
 
 /**
  * The card (UXD-11): what the cursor is on, its status in a word, one line,
  * the primary, and Details beside it. A running flow owns the area (P2): the
- * card is the flow's, drawn with its steps.
+ * card is the flow's, drawn with its steps. The card is about the section at
+ * the cursor and its own status (UXD-12): a damaged marker of another section
+ * of the note is a row below it, with its place and its fix.
  */
 function cardOf(
   f: PaneFacts,
@@ -800,12 +807,14 @@ function cardOf(
     w: { word: string; icon: string; tone: FaceTone },
     fact: string | null,
     problem = false,
+    about: string | null = null,
   ): PaneCard => ({
     title,
     status: { word: w.word, icon: w.icon, tone: w.tone },
     fact,
     secondary,
     problem,
+    about,
   });
   if (flow !== null) {
     const stage = stageOf(flow.kind, flow.stage);
@@ -835,38 +844,43 @@ function cardOf(
   const fix = fixRow;
   if (s === null) {
     const title = ctx.note === null ? "No note open" : "No section at the cursor";
-    if (fix !== null)
-      return face(
-        "A shared section in this note",
-        { word: "Needs repair", icon: STATUS_ICONS.problem, tone: "problem" },
-        fix.text,
-        true,
-      );
     return face(
       title,
       ctx.note === null
         ? { word: "No note", icon: STATUS_ICONS.idle, tone: "muted" }
-        : { word: "Not shared", icon: STATUS_ICONS.idle, tone: "muted" },
+        : fix !== null
+          ? // Not "Not shared": the cursor may be in the section whose marker is damaged.
+            { word: "Not in a section", icon: STATUS_ICONS.idle, tone: "muted" }
+          : { word: "Not shared", icon: STATUS_ICONS.idle, tone: "muted" },
       // In Reading view the card says why the primary is "Open for editing" (T4).
       reading ??
         selection ??
-        (ctx.cursor === "private-heading" ? "On a heading that is not shared" : null),
+        (ctx.cursor === "private-heading" ? "On a heading that is not shared" : null) ??
+        (fix !== null ? NOTE_DAMAGED : null),
     );
   }
   const title = sectionLabel(s).label;
-  if (fix !== null)
+  // This section's own damaged marker in the note: its fix is the card (UX-06).
+  if (fix !== null && fix.section === s.key)
     return face(
       title,
       { word: "Needs repair", icon: STATUS_ICONS.problem, tone: "problem" },
       fix.text,
       true,
+      fix.id,
     );
   const shared = sharedLine(s, a.get("invite")?.enabled === true);
   const local = s.hosting === "pending" || (s.shared?.kind === "local" && s.hosting !== "hosted");
   const unplaced =
     s.placements === 0 && s.damaged !== true && f.registry.placementIndex === "complete";
   const w = sectionFace(s.view, { shared: shared, local, unplaced });
-  return face(title, w, w.problem ? w.fact : (reading ?? selection ?? w.fact), w.problem);
+  return face(
+    title,
+    w,
+    w.problem ? w.fact : (reading ?? selection ?? w.fact),
+    w.problem,
+    w.about ?? null,
+  );
 }
 
 /** What the pane shows for these facts. */
@@ -875,7 +889,7 @@ export function paneModel(f: PaneFacts): PaneModel {
   const p = primaryOf(f, a);
   const primary =
     p.id === null ? null : action(p.id, a.get(p.id) ?? { enabled: true, reason: null });
-  // The fix of a damaged marker is the card itself (its text, its button): not listed again (UX-06).
+  // The fix of a damaged marker is the primary (UX-06); the card says it when it is this section's.
   const fix = p.fix === true ? noteFixRow(f) : null;
   const card = cardOf(f, a, p.id, fix);
   // The header draws Share, Insert and Join; the card draws the primary and Details.
@@ -931,11 +945,10 @@ export function paneModel(f: PaneFacts): PaneModel {
       f.context.flow === null || f.context.flow.outcome === "unfinished"
         ? null
         : flowView(f.context.flow),
+    // The one row the card says, with the card's own button, is the card: not listed twice.
+    // Any other row stays, another copy with the same cause too.
     problems: problemViews(f, p.id).filter(
-      (x) =>
-        x.id !== fix?.id &&
-        // A row that says what the card says, with the card's own button, is the card (not twice).
-        !(card.problem && x.text === card.fact && (x.action === null || x.action.id === p.id)),
+      (x) => !(x.id === card.about && (x.action === null || x.action.id === p.id)),
     ),
     preview:
       preview === undefined
