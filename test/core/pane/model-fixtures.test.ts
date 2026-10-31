@@ -468,6 +468,19 @@ describe("the state card (UXD-11, UX-08)", () => {
     expect(m.card.fact).toBe("Reading view: open the note for editing to change it.");
   });
 
+  it("T4: a problem in Reading view says its fact and why the primary is Open for editing, once", () => {
+    const base = hosted("held-boundary-queue-empty");
+    const m = paneModel({ ...base, context: { ...base.context, editor: "reading" } });
+    expect(m.primary?.id).toBe("open-for-editing");
+    expect(m.card.problem).toBe(true);
+    expect(m.card.fact).toBe(
+      "3 edits not sent: the section's start or end marker is damaged. Reading view: open the note for editing to repair it.",
+    );
+    // The row is the card's (its repair waits for the editor the primary opens): not listed again.
+    expect(base.problems.map((p) => p.id)).toEqual(["held:p1:boundary"]);
+    expect(m.problems).toEqual([]);
+  });
+
   it("UXD-12: the damaged marker of the section at the cursor is its card; another's is a row", () => {
     const base = paneFactsOf(
       doc.states.find((x) => x.id === "healthy-can-invite")?.facts ?? ({} as FixtureFacts),
