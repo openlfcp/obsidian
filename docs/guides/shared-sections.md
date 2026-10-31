@@ -258,18 +258,26 @@ Click the **Shared Tasks** icon in the left ribbon, run **"Open Shared Tasks
 pane"**, or right-click in a note and choose it. The pane opens in the right
 sidebar. Opening it again shows the same pane.
 
-The pane follows the last note you worked in. It shows the shared section
-under the cursor and its status, the next step for that place, and the
-shared sections on this device.
+The pane follows the last note you worked in. Below the icons it shows one
+card for the place the cursor is on: the shared section's name, its status in
+a word with an icon (for example **Synced**, **Not syncing**, **Offline**,
+**Read-only**), one line of detail, and one button for the next step, with
+**"Open details"** beside it. A problem turns the card red, and its button is
+the fix. Under the card come any other problems, a tip, and the shared
+sections on this device, one line each (for example "here · synced").
+
+The card keeps to one line. The caveats, times, the server and the full list
+of what is waiting are in **"Open details"**, the section's card.
 
 A row of icon buttons runs along the top of the pane: **"Share section…"**,
 **"Insert into a note…"** and **"Join with a link…"**, and at the right end
 **"More actions"** ("…"). Point at an icon to see its name. The row is always
 the same: a dimmed icon means the action is blocked or not available yet, and
 its tooltip says why.
-**"More actions"** opens a menu with **"Remove access…"**, **"Discard the
-local copy…"** and **"Detach this section"**, each with its usual
-confirmation.
+**"More actions"** opens a menu with the other actions for the place the
+cursor is on, for example **"Copy readable text"**, **"Copy shared section"**
+and **"Sync details"**, and, each with its usual confirmation, **"Remove
+access…"**, **"Discard the local copy…"** and **"Detach this section"**.
 
 The right-click menu also offers the next step for the cursor, for example
 "Share section…" on a heading that is not shared yet.
@@ -386,8 +394,9 @@ unchanged.`
 
 Detaching is not deleting. Deleting text inside a shared section deletes it
 for everyone who has the section. Removing the whole copy from a note, or
-deleting the note, removes only that copy. The Shared Tasks pane says this
-next to "Detach this section", and the section card under "What is shared".
+deleting the note, removes only that copy. The section card says this under
+"What is shared", and the detach confirmation says that the text stays in the
+note and nothing shared changes.
 
 ## 11. If something goes wrong
 
