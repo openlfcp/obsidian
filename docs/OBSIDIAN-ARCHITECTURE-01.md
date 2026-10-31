@@ -753,7 +753,7 @@ Example:
 Dashboard.md
 Today.md
 Project Alpha.md
-Pavel.md
+Sam.md
 ```
 
 Each contains:
@@ -1164,7 +1164,7 @@ Project Alpha
   Members
 
   You       Owner
-  Pavel     Writer
+  Sam       Writer
   Masha     Reader
 
   [ Invite ]
@@ -1292,7 +1292,7 @@ Local route information should look conceptually like:
 ```json
 {
   "lfcp1:AAA": [
-    "wss://sync.andrey.example/v1/ws",
+    "wss://sync.example.org/v1/ws",
     "wss://sync.backup.example/v1/ws"
   ],
   "lfcp1:BBB": [
@@ -1418,10 +1418,10 @@ CRDT convergence does not imply application-level semantic agreement.
 Example:
 
 ```text
-Andrey offline:
+Alex offline:
 status = done
 
-Pavel offline:
+Sam offline:
 status = cancelled
 ```
 
@@ -1440,10 +1440,10 @@ Decoration:
 ```text
 Status conflict
 
-Andrey:
+Alex:
 done
 
-Pavel:
+Sam:
 cancelled
 
 [ Done ]
@@ -1760,7 +1760,7 @@ Example:
 LFCP Servers
 
 Personal
-wss://sync.andrey.dev/v1/ws
+wss://sync.example.org/v1/ws
 
 Company
 wss://lfcp.company.example/v1/ws
@@ -1978,10 +1978,10 @@ This is separate from LFCP's immutable Data Units.
 Example:
 
 ```text
-09:11 created by Andrey
-09:17 assigned to Pavel
-11:04 started by Pavel
-14:31 completed by Pavel
+09:11 created by Alex
+09:17 assigned to Sam
+11:04 started by Sam
+14:31 completed by Sam
 ```
 
 This history is useful for tasks but should not be required by LFCP Core.
@@ -2086,7 +2086,7 @@ without conversion.
 
 # 64. Example two-vault scenario
 
-Andrey:
+Alex:
 
 ```text
 Vault A
@@ -2096,7 +2096,7 @@ Projects/
     Launch.md
 ```
 
-Pavel:
+Sam:
 
 ```text
 Vault B
@@ -2105,7 +2105,7 @@ Work/
   Todos.md
 ```
 
-Andrey's note:
+Alex's note:
 
 ```md
 # Launch
@@ -2116,7 +2116,7 @@ Some private notes.
   <!-- lfcp-ref: lfcp1:AAA#task:123 -->
 ```
 
-Pavel's note:
+Sam's note:
 
 ```md
 # This week
@@ -2131,7 +2131,7 @@ There is no shared Markdown document.
 
 There is one shared Task object.
 
-Pavel edits:
+Sam edits:
 
 ```md
 - [x] Prepare API contract
@@ -2141,7 +2141,7 @@ Pavel edits:
 Result:
 
 ```text
-Pavel Markdown edit
+Sam Markdown edit
       ↓
 Shared Task status = done
       ↓
@@ -2149,21 +2149,21 @@ LFCP Data Unit
       ↓
 server
       ↓
-Andrey client
+Alex client
       ↓
 CRDT merge
       ↓
-Andrey projection updated
+Alex projection updated
 ```
 
-Andrey sees:
+Alex sees:
 
 ```md
 - [x] Prepare API contract
   <!-- lfcp-ref: lfcp1:AAA#task:123 -->
 ```
 
-His surrounding private text never moved.
+Alex's surrounding private text never moved.
 
 ---
 
@@ -2395,35 +2395,35 @@ The first MVP is considered successful when the following can be demonstrated wi
 ### Setup
 
 ```text
-Andrey Vault
-Pavel Vault
+Alex Vault
+Sam Vault
 one self-hosted LFCP server
 ```
 
 ### Flow
 
-1. Andrey starts the LFCP server.
-2. Andrey installs the OpenLFCP Obsidian plugin.
-3. Pavel installs the same plugin.
+1. Alex starts the LFCP server.
+2. Alex installs the OpenLFCP Obsidian plugin.
+3. Sam installs the same plugin.
 4. Both obtain local LFCP Principals.
-5. Andrey creates `Project Alpha`.
-6. Andrey writes:
+5. Alex creates `Project Alpha`.
+6. Alex writes:
 
 ```md
 - [ ] Prepare API contract
 ```
 
-7. Andrey runs `LFCP: Share task under cursor`.
+7. Alex runs `LFCP: Share task under cursor`.
 8. The plugin attaches an LFCP ref.
-9. Andrey creates an invitation.
-10. Pavel joins.
-11. Pavel inserts the shared Task into a different note.
-12. Pavel checks the Task as completed.
-13. Andrey's Markdown line becomes completed.
-14. Pavel goes offline.
-15. Andrey changes another field.
-16. Pavel changes the Task offline.
-17. Pavel reconnects.
+9. Alex creates an invitation.
+10. Sam joins.
+11. Sam inserts the shared Task into a different note.
+12. Sam checks the Task as completed.
+13. Alex's Markdown line becomes completed.
+14. Sam goes offline.
+15. Alex changes another field.
+16. Sam changes the Task offline.
+17. Sam reconnects.
 18. CRDT state converges.
 19. If the edits semantically conflict, both clients show a conflict UI.
 20. A user resolves the conflict.
