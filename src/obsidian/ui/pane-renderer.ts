@@ -25,6 +25,13 @@
 //   visually hidden text, so its text is the catalogue's label, as for every
 //   other button. Icons, tooltips and the menu come from Obsidian: the
 //   renderer takes them as `chrome` and imports nothing from `obsidian`.
+// - The body (UXD-11, UX-08) is one card for what the cursor is on: the
+//   section's name, a status word with its icon, ONE line of fact, the
+//   primary button (`mod-cta`, icon and label) and, beside it, Details. A
+//   running flow owns the card (P2): its steps are drawn in it, in the same
+//   place. Caveats, times, the server and what a change does are in Details,
+//   not here; every action the card and the header do not draw is in the
+//   "More actions" menu. Problems the card is not about are listed below it.
 // - The title "Shared Tasks" stays in the DOM, visually hidden: it is the
 //   focus target when the pane opens (U03-18) and the pane's heading for a
 //   screen reader. The tab already shows the name, and at 330 px the room is
@@ -115,9 +122,18 @@ function button(
   h: PaneHandlers,
   cls: string,
   problem?: string,
+  /** Draws the action's icon before its label (the card's buttons). */
+  withIcon = false,
 ): HTMLElement {
   const wrap = el(parent, "div", "openlfcp-pane-action");
-  const b = el(wrap, "button", cls, a.label);
+  const b = el(wrap, "button", cls);
+  if (withIcon) {
+    const glyph = el(b, "span", "openlfcp-pane-icon");
+    glyph.setAttribute("aria-hidden", "true");
+    h.chrome.icon(glyph, ACTION_ICONS[a.id]);
+  }
+  // The label is the button's text (an icon holds none).
+  el(b, "span", "openlfcp-pane-button-label", a.label);
   b.type = "button";
   b.setAttribute(KEY, problem === undefined ? `action:${a.id}` : `problem:${domKey(problem)}`);
   b.dataset.action = a.id;
@@ -141,7 +157,7 @@ function button(
 }
 
 /** The "…" button's reason when the model offers no menu action. */
-export const MENU_EMPTY = "Nothing to remove or detach here.";
+export const MENU_EMPTY = "No more actions here.";
 export const MORE_LABEL = "More actions";
 
 /**
@@ -193,6 +209,61 @@ function section(parent: HTMLElement, cls: string, label: string): HTMLElement {
   return s;
 }
 
+/**
+ * The card (UXD-11): the name of what the cursor is on and its status word
+ * with icon, one line of fact, and the actions row: the primary (a `mod-cta`
+ * with its icon and label, or in its place why there is none), and beside it
+ * Details. A running flow (P2) is drawn in the same card: its target, steps
+ * and lines between the fact and the actions, its own way out beside the
+ * primary. The share preview, when there is one, is read before the primary.
+ */
+function drawCard(root: HTMLElement, model: PaneModel, h: PaneHandlers): void {
+  const card = model.card;
+  const flow = model.flow;
+  const c = el(root, "section", "openlfcp-pane-block openlfcp-pane-card");
+  c.classList.add(`is-${card.status.tone}`);
+  if (card.problem) c.classList.add("is-problem");
+  if (flow !== null) c.classList.add("openlfcp-pane-flow");
+  c.setAttribute("aria-label", card.title);
+  const head = el(c, "div", "openlfcp-pane-card-head");
+  el(head, "h3", "openlfcp-pane-heading openlfcp-pane-card-title", card.title);
+  const status = el(head, "span", "openlfcp-pane-status-word");
+  const glyph = el(status, "span", "openlfcp-pane-icon");
+  glyph.setAttribute("aria-hidden", "true");
+  h.chrome.icon(glyph, card.status.icon);
+  el(status, "span", "openlfcp-pane-status-text", card.status.word);
+  if (card.fact !== null) el(c, "div", "openlfcp-pane-fact", card.fact);
+
+  if (flow !== null) {
+    if (flow.target !== null) el(c, "div", "openlfcp-pane-line", `Target: ${flow.target}`);
+    const ol = el(c, "ol", "openlfcp-pane-steps");
+    for (const s of flow.steps) {
+      const li = el(ol, "li", `openlfcp-pane-step is-${s.state}`, s.label);
+      if (s.state === "current") li.setAttribute("aria-current", "step");
+    }
+    for (const line of flow.lines) el(c, "div", "openlfcp-pane-line", line);
+  }
+
+  if (model.preview.length > 0) {
+    const p = section(c, "openlfcp-pane-preview", "What is shared");
+    for (const line of model.preview) el(p, "div", "openlfcp-pane-line", line);
+  }
+
+  const actions = el(c, "div", "openlfcp-pane-card-actions");
+  const primary = el(actions, "div", "openlfcp-pane-primary");
+  if (model.primary !== null) button(primary, model.primary, h, "mod-cta", undefined, true);
+  else if (model.primaryNone !== null) el(primary, "div", "openlfcp-pane-none", model.primaryNone);
+  if (card.secondary !== null)
+    button(actions, card.secondary, h, "openlfcp-pane-secondary", undefined, true);
+  const dismiss = h.dismiss;
+  if (flow !== null && flow.dismiss !== null && dismiss !== undefined) {
+    const b = el(actions, "button", "openlfcp-pane-secondary", flow.dismiss);
+    b.type = "button";
+    b.setAttribute(KEY, "flow-dismiss");
+    b.addEventListener("click", () => dismiss());
+  }
+}
+
 /** Draws `model` into `root`, replacing what was there. */
 export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers): void {
   const doc = root.ownerDocument;
@@ -228,7 +299,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
       action: a.id,
     });
   el(bar, "span", "openlfcp-pane-toolbar-spacer");
-  // Destructive and rare actions: the host's menu, never buttons in the pane (A1, A8).
+  // Everything the header and the card do not draw, destructive actions among it: the host's menu (A1, A8).
   const items = model.menu;
   iconButton(bar, h.chrome, {
     label: MORE_LABEL,
@@ -299,35 +370,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     });
   }
 
-  const ctx = section(root, "openlfcp-pane-context", "Current context");
-  el(ctx, "h3", "openlfcp-pane-heading", model.context.heading);
-  for (const line of model.context.lines) el(ctx, "div", "openlfcp-pane-line", line);
-
-  const flow = model.flow;
-  if (flow !== null) {
-    const f = section(root, "openlfcp-pane-flow", flow.title);
-    el(f, "h3", "openlfcp-pane-heading", flow.title);
-    if (flow.target !== null) el(f, "div", "openlfcp-pane-line", `Target: ${flow.target}`);
-    const ol = el(f, "ol", "openlfcp-pane-steps");
-    for (const s of flow.steps) {
-      const li = el(ol, "li", `openlfcp-pane-step is-${s.state}`, s.label);
-      if (s.state === "current") li.setAttribute("aria-current", "step");
-    }
-    for (const line of flow.lines) el(f, "div", "openlfcp-pane-line", line);
-    const dismiss = h.dismiss;
-    if (flow.dismiss !== null && dismiss !== undefined) {
-      const b = el(f, "button", "openlfcp-pane-secondary", flow.dismiss);
-      b.type = "button";
-      b.setAttribute(KEY, "flow-dismiss");
-      b.addEventListener("click", () => dismiss());
-    }
-  }
-
-  if (model.status.length > 0) {
-    const ul = el(root, "ul", "openlfcp-pane-status");
-    ul.setAttribute("aria-label", "Status");
-    for (const l of model.status) el(ul, "li", `openlfcp-pane-fact is-${l.tone}`, l.text);
-  }
+  drawCard(root, model, h);
 
   // The problem hub (LFCP-03-018): each problem, where it comes from, and its resolver.
   if (model.problems.length > 0) {
@@ -342,15 +385,6 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
       if (x.action !== null) button(li, x.action, h, "openlfcp-pane-secondary", x.id);
     }
   }
-
-  if (model.preview.length > 0) {
-    const p = section(root, "openlfcp-pane-preview", "What is shared");
-    for (const line of model.preview) el(p, "div", "openlfcp-pane-line", line);
-  }
-
-  const primary = el(root, "div", "openlfcp-pane-primary");
-  if (model.primary !== null) button(primary, model.primary, h, "mod-cta");
-  else if (model.primaryNone !== null) el(primary, "div", "openlfcp-pane-none", model.primaryNone);
 
   if (model.notice !== null) {
     const n = el(root, "div", "openlfcp-pane-notice", model.notice);
@@ -370,17 +404,6 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
       b.setAttribute(KEY, "hint-hide");
       b.addEventListener("click", () => hide(hint.id));
     }
-  }
-
-  if (model.secondary.length > 0) {
-    const s = el(root, "div", "openlfcp-pane-actions");
-    for (const a of model.secondary) button(s, a, h, "openlfcp-pane-secondary");
-  }
-
-  // C6, N-05: what deleting, removing the copy and detaching do, before the user acts.
-  if (model.effects.length > 0) {
-    const e = section(root, "openlfcp-pane-effects", "What changes do here");
-    for (const line of model.effects) el(e, "div", "openlfcp-pane-line", line);
   }
 
   const list = section(root, "openlfcp-pane-sections", "Shared sections");

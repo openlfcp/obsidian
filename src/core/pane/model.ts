@@ -36,15 +36,6 @@ import {
   selectionReasonText as reasonText,
   type SelectionReason as TargetSelectionReason,
 } from "../sections/target";
-import {
-  CONNECTING_TEXT,
-  changeEffects,
-  DETACH_TEXT,
-  heldFact,
-  offlineText,
-  rightsFact,
-  sectionProblems,
-} from "../status/card";
 import { type Condition, STATE_LABEL, type StatusState, type StatusView } from "../status/reducer";
 import {
   FLOW_STAGES,
@@ -153,8 +144,6 @@ export interface PaneSection {
   readonly canRemove?: boolean | null;
   /** Why removing access waits now, in the card's words (AccessView.removeNote); null: it does not. */
   readonly removeNote?: string | null;
-  /** The access list's freshness sentence, as the card says it (AccessView.freshness). */
-  readonly accessFreshness?: string;
   /** On its server ("pending": a local-only share, not an invitation that is ready, I4). */
   readonly hosting?: "hosted" | "pending" | "unknown";
   /**
@@ -201,11 +190,6 @@ export interface PaneFacts extends ActionFacts {
   readonly hints?: { readonly hidden: readonly string[] };
 }
 
-export interface PaneOptions {
-  /** Local time of a verification (ms); the default is the locale's. */
-  readonly time?: (ms: number) => string;
-}
-
 export interface PaneAction {
   readonly id: ActionId;
   readonly label: string;
@@ -213,12 +197,6 @@ export interface PaneAction {
   /** Why it is disabled, in words (A3); null when enabled. */
   readonly reason: string | null;
   readonly destructive: boolean;
-}
-
-export interface PaneLine {
-  readonly text: string;
-  /** "problem" first; "ok" only for the verified current sentence. */
-  readonly tone: "problem" | "info" | "ok";
 }
 
 export interface PaneStep {
@@ -255,8 +233,8 @@ export interface PaneProblemView {
 
 /**
  * The pane's body (UXD-11): one card for what the cursor is on. A title, a
- * status word with its icon, ONE line of fact, one primary with its words and
- * at most one secondary beside it. Caveats, times, the server and what a
+ * status word with its icon, ONE line of fact, the pane's primary with its
+ * words and at most one secondary beside it. Caveats, times, the server and what a
  * change does are in Details (`open-details`), not here.
  */
 export interface PaneCard {
@@ -265,10 +243,7 @@ export interface PaneCard {
   readonly status: { readonly word: string; readonly icon: string; readonly tone: FaceTone };
   /** The one line; null: the word says it. */
   readonly fact: string | null;
-  /** Why there is no primary button, in its place (P4); null when there is one. */
-  readonly none: string | null;
-  readonly primary: PaneAction | null;
-  /** Beside the primary: Details, unless Details is the primary or there is no section. */
+  /** Beside the primary (`PaneModel.primary`): Details, unless Details is the primary or there is no section. */
   readonly secondary: PaneAction | null;
   /** A problem owns the card: drawn as one, its primary the fix. */
   readonly problem: boolean;
@@ -305,29 +280,21 @@ export interface PaneModel {
   readonly joinField: boolean;
   /** The body: one card for the section at the cursor (UXD-11). */
   readonly card: PaneCard;
-  /** The current area: the note, section or selection; the flow's target while a flow owns it. */
-  readonly context: { readonly heading: string; readonly lines: readonly string[] };
   readonly flow: PaneFlowView | null;
-  /** Short status, problems first. */
-  readonly status: readonly PaneLine[];
   /** The problem hub: each problem with its source and its resolver, in a stable order. */
   readonly problems: readonly PaneProblemView[];
   /** The share preview's summary, when one is shown. */
   readonly preview: readonly string[];
-  /** At most one; never destructive (A1). */
+  /** At most one, drawn in the card; never destructive (A1). */
   readonly primary: PaneAction | null;
   /** Why there is no primary action. */
   readonly primaryNone: string | null;
-  /** Other actions, enabled or with their reason. */
-  readonly secondary: readonly PaneAction[];
-  /** Destructive actions: a menu, each with its existing confirmation (A1). */
-  readonly menu: readonly PaneAction[];
   /**
-   * What a change does to the section at the cursor (C6, N-05): deleting
-   * text, removing the whole copy, detaching. Empty when the cursor is not
-   * in a section.
+   * The "More actions" menu (A8, UXD-11): every action the header, the
+   * primary and the card do not draw, the destructive ones with their
+   * existing confirmation (A1). A destructive action is only ever here.
    */
-  readonly effects: readonly string[];
+  readonly menu: readonly PaneAction[];
   readonly sections: { readonly summary: string | null; readonly groups: readonly PaneGroup[] };
   readonly unfinished: readonly { readonly title: string; readonly detail: string }[];
   readonly notice: string | null;
@@ -389,8 +356,6 @@ export function paneFocus(keys: {
 /** A section whose copy in this note has a damaged marker. */
 const DAMAGED_HERE = "Damaged in this note";
 
-const DENIED = new Set(["refused", "revoked", "not-member"]);
-
 /** Row 6 of P1: the first source condition, mapped by that projection's own facts. */
 function sourcePrimary(v: StatusView, c: Extract<Condition, { kind: "source" }>): ActionId {
   const held = v.held.find((h) => h.projectionId === c.projectionId);
@@ -402,95 +367,20 @@ function sourcePrimary(v: StatusView, c: Extract<Condition, { kind: "source" }>)
   return "repair-sections";
 }
 
-/** Why the section is not connected, in the card's words (UX §6): never "failed" without an attempt. */
-function connectionText(v: StatusView): string | null {
-  if (v.connection === "connected") return null;
-  return v.connection === "connecting" ? CONNECTING_TEXT : offlineText(v);
-}
-
-/**
- * Problems first, in the card's words (sectionProblems, heldFact): the pane,
- * the card and the badge say the same thing. Then the separate facts (§6).
- */
-function statusLines(s: PaneSection, o: PaneOptions, invitable: boolean): PaneLine[] {
-  const v = s.view;
-  const kinds = new Set(v.conditions.map((c) => c.kind));
-  const problems: PaneLine[] = sectionProblems(v).map((text) => ({ text, tone: "problem" }));
-  // F-04: edits held in a note, counted, with their cause (§6), as the card's facts say them.
-  for (const h of [...v.held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1)))
-    problems.push({ text: heldFact(h), tone: "problem" });
-  const info: PaneLine[] = [];
-  const shared = sharedLine(s, invitable);
-  if (shared !== null) info.push(shared);
-  const q = v.sync.queue;
-  if (q.batches > 0)
-    info.push({
-      text: q.counted ? `${plural(q.batches, "local update")} waiting` : "Local updates waiting",
-      tone: "info",
-    });
-  else if (v.held.length > 0)
-    info.push({
-      text: "No updates waiting in the sync queue: the edits held in your note are not in it.",
-      tone: "info",
-    });
-  else if (kinds.has("held-unchecked"))
-    info.push({
-      text: "No updates waiting in the sync queue. Notes with this section are still being checked for edits not sent.",
-      tone: "info",
-    });
-  if (kinds.has("held-unknown"))
-    info.push({
-      text: "Not current: whether a note with this section holds edits not sent is unknown.",
-      tone: "info",
-    });
-  if (kinds.has("local-edit")) info.push({ text: "Local changes are being saved", tone: "info" });
-  const denied = DENIED.has(v.access.access) || kinds.has("server-refused");
-  const connection = denied ? null : connectionText(v);
-  if (connection !== null) info.push({ text: connection, tone: "info" });
-  if (s.hosting === "pending" && s.shared === undefined)
-    info.push({
-      text: "Not on its server yet: nobody can join until it is hosted.",
-      tone: "info",
-    });
-  if (v.sync.current)
-    info.push({
-      text: "Current as last checked with the server. This does not mean others have seen it.",
-      tone: "ok",
-    });
-  // LFCP-03-019: this vault's rights in the card's words (one sentence on both surfaces).
-  if (v.access.access !== "unknown") info.push({ text: rightsFact(v), tone: "info" });
-  if (kinds.has("access-checking"))
-    info.push({ text: "Access is being checked with the server.", tone: "info" });
-  // The access list's freshness, as the card says it, once read; before, the status's as-of.
-  if (s.accessFreshness !== undefined && !denied)
-    info.push({ text: s.accessFreshness, tone: "info" });
-  else if (v.access.current === false && v.access.verifiedAt !== null && !denied) {
-    const time = (o.time ?? ((ms: number) => new Date(ms).toLocaleString()))(v.access.verifiedAt);
-    info.push({ text: `Access as last verified ${time}; it may have changed.`, tone: "info" });
-  }
-  return [...problems, ...info];
-}
-
 /**
  * What a share from this device came to (LFCP-03-014, I4): created on this
  * device only, or on its server; ready to invite only when inviting is
  * enabled now. The hosting fact read now wins over the creation's result.
  */
-function sharedLine(s: PaneSection, invitable: boolean): PaneLine | null {
+function sharedLine(s: PaneSection, invitable: boolean): string | null {
   if (s.shared === undefined) return null;
   if (s.hosting === "pending" || (s.shared.kind === "local" && s.hosting !== "hosted"))
-    return {
-      text: `Created on this device only: not on its sync server yet, so nobody can join.${
-        s.shared.reason === null ? "" : ` ${s.shared.reason}`
-      }`,
-      tone: "info",
-    };
-  return {
-    text: invitable
-      ? "Shared and on its sync server: ready to invite."
-      : "Shared and on its sync server.",
-    tone: "info",
-  };
+    return `Created on this device only: not on its sync server yet, so nobody can join.${
+      s.shared.reason === null ? "" : ` ${s.shared.reason}`
+    }`;
+  return invitable
+    ? "Shared and on its sync server: ready to invite."
+    : "Shared and on its sync server.";
 }
 
 /** "Sprint", "Launch (name on this device)" (N1–N3). */
@@ -508,19 +398,6 @@ function sectionLabel(s: Pick<PaneSection, "sharedTitle" | "localAlias">): {
           : l.primary,
     alias: l.onThisDevice === null ? null : `On this device: ${l.onThisDevice}`,
   };
-}
-
-/** Where a section's copies are; nothing when not known and nothing is being looked for. */
-function placementText(
-  placements: number | null,
-  index: PaneRegistry["placementIndex"],
-  damaged = false,
-): string | null {
-  if (damaged && placements === 0) return DAMAGED_HERE;
-  if (placements === null || (placements === 0 && index !== "complete"))
-    return index === "building" ? "Looking for copies in your notes…" : null;
-  if (placements === 0) return "Not inserted yet";
-  return `In ${plural(placements, "note")}`;
 }
 
 /** The join flow's lines (LFCP-03-015): the facts confirmed, the step under way, the next one. */
@@ -885,50 +762,6 @@ const action = (id: ActionId, x: Avail): PaneAction => ({
   destructive: ACTIONS[id].destructive,
 });
 
-function contextArea(f: PaneFacts): { heading: string; lines: string[] } {
-  const ctx = f.context;
-  // A running flow or one whose result is unknown owns the current area (P2); an unfinished one is listed.
-  const flow = ctx.flow?.outcome === "unfinished" ? null : ctx.flow;
-  const lines: string[] = [];
-  if (flow?.target !== undefined) {
-    if (ctx.note !== null && ctx.note !== flow.target)
-      lines.push(`The active note is ${ctx.note}; this stays on ${flow.target}.`);
-    return { heading: `For ${flow.target}`, lines };
-  }
-  const s = f.section;
-  if (s !== null) {
-    const l = sectionLabel(s);
-    lines.push(l.label);
-    if (l.alias !== null) lines.push(l.alias);
-    const places = placementText(s.placements, f.registry.placementIndex, s.damaged === true);
-    if (places !== null) lines.push(places);
-  }
-  const sel = ctx.selection;
-  if (sel !== null)
-    lines.push(
-      sel.eligibility === "exact"
-        ? `Selection: lines ${sel.fromLine}–${sel.toLine}`
-        : selectionReasonText(sel),
-    );
-  else if (ctx.cursor === "private-heading") lines.push("On a heading that is not shared");
-  if (ctx.editor === "reading") lines.push("Reading view: open the note for editing to change it.");
-  if (ctx.note === null) return { heading: "No note open", lines };
-  return {
-    heading: `In this note: ${ctx.note}`,
-    lines,
-  };
-}
-
-/**
- * What a change does to the section at the cursor (C6, N-05), before the
- * user acts: the card's sentences, and detaching where it is offered.
- */
-function effectsOf(f: PaneFacts, a: ReadonlyMap<ActionId, Avail>): string[] {
-  const s = f.section;
-  if (s === null || f.context.editor === "none" || f.context.cursor !== "inside-section") return [];
-  return [...changeEffects(s.view), ...(a.has("detach-section") ? [DETACH_TEXT] : [])];
-}
-
 /** The note's reading-view line (T4). */
 const READING_LINE = "Reading view: open the note for editing to change it.";
 
@@ -941,7 +774,6 @@ function cardOf(
   f: PaneFacts,
   a: ReadonlyMap<ActionId, Avail>,
   p: { readonly id: ActionId | null; readonly none: string | null; readonly fix?: true },
-  primary: PaneAction | null,
 ): PaneCard {
   const ctx = f.context;
   const s = f.section;
@@ -951,7 +783,6 @@ function cardOf(
     s !== null && p.id !== "open-details" && details !== undefined && flow === null
       ? action("open-details", details)
       : null;
-  const none = primary === null ? p.none : null;
   const face = (
     title: string,
     w: { word: string; icon: string; tone: FaceTone },
@@ -961,8 +792,6 @@ function cardOf(
     title,
     status: { word: w.word, icon: w.icon, tone: w.tone },
     fact,
-    none,
-    primary,
     secondary,
     problem,
   });
@@ -976,7 +805,12 @@ function cardOf(
             icon: STATUS_ICONS.busy,
             tone: stage.waits === "effect" ? ("busy" as const) : ("info" as const),
           };
-    return face(FLOW_TITLE[flow.kind], w, null, flow.outcome === "unknown");
+    // The flow keeps the target it captured (T2): say so when the active note is another one.
+    const away =
+      flow.target !== undefined && ctx.note !== null && ctx.note !== flow.target
+        ? `The active note is ${ctx.note}; this stays on ${flow.target}.`
+        : null;
+    return face(FLOW_TITLE[flow.kind], w, away, flow.outcome === "unknown");
   }
   const sel = ctx.selection;
   const selection =
@@ -1018,19 +852,24 @@ function cardOf(
   const local = s.hosting === "pending" || (s.shared?.kind === "local" && s.hosting !== "hosted");
   const unplaced =
     s.placements === 0 && s.damaged !== true && f.registry.placementIndex === "complete";
-  const w = sectionFace(s.view, { shared: shared?.text ?? null, local, unplaced });
+  const w = sectionFace(s.view, { shared: shared, local, unplaced });
   return face(title, w, w.problem ? w.fact : (selection ?? reading ?? w.fact), w.problem);
 }
 
 /** What the pane shows for these facts. */
-export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
+export function paneModel(f: PaneFacts): PaneModel {
   const a = availability(f);
   const p = primaryOf(f, a);
   const primary =
     p.id === null ? null : action(p.id, a.get(p.id) ?? { enabled: true, reason: null });
-  const rest = [...a.entries()]
-    .filter(([id]) => id !== p.id && id !== "join-with-link")
-    .map(([id, x]) => action(id, x));
+  const card = cardOf(f, a, p);
+  // The header draws Share, Insert and Join; the card draws the primary and Details.
+  const drawn = new Set<ActionId>([
+    ...HEADER_IDS,
+    ...(p.id === null ? [] : [p.id]),
+    ...(card.secondary === null ? [] : [card.secondary.id]),
+  ]);
+  const menu = [...a.entries()].filter(([id]) => !drawn.has(id)).map(([id, x]) => action(id, x));
   const unfinished = [
     ...(f.context.flow?.outcome === "unfinished" ? [f.context.flow] : []),
     ...(f.unfinished ?? []),
@@ -1047,8 +886,6 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
     return { title: FLOW_TITLE[x.kind], detail: `${where}${detail}` };
   });
   const preview = f.preview;
-  const status =
-    f.section === null ? [] : statusLines(f.section, o, a.get("invite")?.enabled === true);
   const hidden = f.hints?.hidden ?? [];
   const flow = f.context.flow;
   const hint =
@@ -1057,9 +894,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
       : paneHint(
           {
             problem:
-              status.some((l) => l.tone === "problem") ||
-              (f.problems?.length ?? 0) > 0 ||
-              (preview?.problems.length ?? 0) > 0,
+              card.problem || (f.problems?.length ?? 0) > 0 || (preview?.problems.length ?? 0) > 0,
             flow: flow !== null && flow.outcome !== "unfinished",
             preview: preview !== undefined,
             primary: primary?.enabled === true ? primary.id : null,
@@ -1076,13 +911,11 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
       f.context.flow?.kind === "join" &&
       f.context.flow.outcome === "running" &&
       f.context.flow.stage === "link",
-    card: cardOf(f, a, p, primary),
-    context: contextArea(f),
+    card,
     flow:
       f.context.flow === null || f.context.flow.outcome === "unfinished"
         ? null
         : flowView(f.context.flow),
-    status,
     problems: problemViews(f, p.id),
     preview:
       preview === undefined
@@ -1102,9 +935,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
           ],
     primary,
     primaryNone: p.none,
-    secondary: rest.filter((x) => !x.destructive),
-    menu: rest.filter((x) => x.destructive),
-    effects: effectsOf(f, a),
+    menu,
     sections: sectionGroups(f),
     unfinished,
     notice: f.notice ?? (f.section?.linkCopied === true ? LINK_COPIED : null),
@@ -1113,14 +944,31 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
   };
 }
 
+/**
+ * Every action the pane has, drawn or in the menu, enabled or with its reason:
+ * the header's, the primary, the card's Details and the menu's. A click is
+ * checked against this list (pane-view.ts, L2).
+ */
+export function paneActions(m: PaneModel): PaneAction[] {
+  return [
+    ...m.header,
+    ...(m.primary === null ? [] : [m.primary]),
+    ...(m.card.secondary === null ? [] : [m.card.secondary]),
+    ...m.menu,
+  ];
+}
+
 /** Every text the pane would show, in order (for claim checks and a screen reader's view). */
 export function paneTexts(m: PaneModel): string[] {
   const act = (x: PaneAction) => [x.label, ...(x.reason === null ? [] : [x.reason])];
   return [
     m.title,
     ...m.header.flatMap(act),
-    m.context.heading,
-    ...m.context.lines,
+    m.card.title,
+    m.card.status.word,
+    ...(m.card.fact === null ? [] : [m.card.fact]),
+    ...(m.card.secondary === null ? [] : act(m.card.secondary)),
+    ...(m.primaryNone === null ? [] : [m.primaryNone]),
     ...(m.flow === null
       ? []
       : [
@@ -1130,13 +978,10 @@ export function paneTexts(m: PaneModel): string[] {
           ...m.flow.lines,
           ...(m.flow.dismiss === null ? [] : [m.flow.dismiss]),
         ]),
-    ...m.status.map((l) => l.text),
     ...m.problems.flatMap((p) => [p.text, p.source, ...(p.action === null ? [] : act(p.action))]),
     ...m.preview,
     ...(m.primary === null ? [] : act(m.primary)),
-    ...m.secondary.flatMap(act),
     ...m.menu.flatMap(act),
-    ...m.effects,
     ...(m.sections.summary === null ? [] : [m.sections.summary]),
     ...m.sections.groups.flatMap((g) => [
       g.title,

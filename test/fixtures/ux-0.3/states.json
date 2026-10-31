@@ -119,11 +119,9 @@
           { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
           { "action": "share-section", "reason": "The cursor is inside a shared section." }
         ],
-        "requiredClaims": [
-          "Launch (name on this device)",
-          "Looking for copies in your notes…",
-          "Notes with this section are still being checked for edits not sent."
-        ],
+        "requiredClaims": ["Launch (name on this device)"],
+        "requiredListClaims": ["Looking for copies in your notes…"],
+        "requiredDetailsClaims": ["Notes with this section are still being checked for edits not sent."],
         "forbiddenClaims": [
           "Not inserted yet",
           "Never used",
@@ -175,7 +173,8 @@
         "disabled": [
           { "action": "invite", "reason": "You can't invite others to this section." }
         ],
-        "requiredClaims": ["Sprint", "On this device: Sprint (from B)", "Not inserted yet"],
+        "requiredClaims": ["Sprint", "Not inserted yet"],
+        "requiredListClaims": ["On this device: Sprint (from B)", "Not inserted yet"],
         "forbiddenClaims": ["Never used", "Name this collaboration", "Inserted into"]
       }
     },
@@ -227,12 +226,12 @@
         "disabled": [
           { "action": "share-section", "reason": "The cursor is inside a shared section." }
         ],
-        "requiredClaims": [
+        "requiredClaims": ["Synced"],
+        "requiredListClaims": ["in 2 notes"],
+        "requiredDetailsClaims": [
           "Current as last checked with the server. This does not mean others have seen it.",
-          "In 2 notes",
           "Deleting text inside this section deletes it for everyone who has this section.",
-          "Removing this whole copy from the note, or deleting the note, removes only this copy.",
-          "everyone's access stay as they are"
+          "Removing this whole copy from the note, or deleting the note, removes only this copy."
         ],
         "forbiddenClaims": ["On this device:", "everyone has it", "synced with everyone"]
       }
@@ -341,8 +340,8 @@
           { "action": "invite", "reason": "Secondary: access is current; held edits do not change access." }
         ],
         "disabled": [],
-        "requiredClaims": [
-          "3 edits not sent",
+        "requiredClaims": ["3 edits not sent"],
+        "requiredDetailsClaims": [
           "No updates waiting in the sync queue: the edits held in your note are not in it."
         ],
         "forbiddenClaims": [
@@ -403,7 +402,8 @@
           { "action": "sync-details", "reason": "Secondary: one update is queued." }
         ],
         "disabled": [],
-        "requiredClaims": ["Edits not sent", "1 local update waiting"],
+        "requiredClaims": ["Edits not sent"],
+        "requiredDetailsClaims": ["1 local update saved on this device, waiting to be sent."],
         "forbiddenClaims": ["0 edits", "2 local updates waiting", "Current as last checked", "Changes saved"]
       }
     },
@@ -447,7 +447,8 @@
           { "action": "open-details", "reason": "The card says which note could not be checked." }
         ],
         "disabled": [],
-        "requiredClaims": ["Not current: whether a note with this section holds edits not sent is unknown."],
+        "requiredClaims": ["whether it holds any is unknown"],
+        "requiredDetailsClaims": ["Not current: whether a note with this section holds edits not sent is unknown."],
         "forbiddenClaims": ["Checking notes", "No local changes waiting", "Current as last checked", "0 edits"]
       }
     },
@@ -495,7 +496,8 @@
           { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
           { "action": "remove-access", "reason": "Removing access needs a connection to the section's server." }
         ],
-        "requiredClaims": ["Offline (no network): local updates wait on this device.", "2 local updates waiting"],
+        "requiredClaims": ["2 local updates waiting"],
+        "requiredDetailsClaims": ["Offline (no network): local updates wait on this device."],
         "forbiddenClaims": ["Current as last checked", "failed", "The server accepted your changes", "Sending"]
       }
     },
@@ -545,7 +547,8 @@
         "disabled": [
           { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." }
         ],
-        "requiredClaims": ["Conflicting edits on 1 item", "Offline: local updates wait on this device."],
+        "requiredClaims": ["Conflicting edits on 1 item"],
+        "requiredDetailsClaims": ["Offline: local updates wait on this device."],
         "forbiddenClaims": ["Current as last checked", "No local changes waiting", "resolved"]
       }
     },
@@ -592,7 +595,8 @@
           { "action": "invite", "reason": "Inviting waits until this device has checked access with the server." },
           { "action": "remove-access", "reason": "Removing access waits until this device has checked access with the server." }
         ],
-        "requiredClaims": ["Access as last verified", "it may have changed"],
+        "requiredClaims": ["Access is being checked with the server."],
+        "requiredDetailsClaims": ["Access as last verified", "it may have changed"],
         "forbiddenClaims": ["Access verified with the server", "Current as last checked", "access was removed"]
       }
     },
@@ -963,7 +967,8 @@
         "disabled": [
           { "action": "invite", "reason": "You can't invite others to this section." }
         ],
-        "requiredClaims": ["The sync server no longer accepts changes from this vault for this section.", "2 edits not sent"],
+        "requiredClaims": ["2 edits not sent"],
+        "requiredDetailsClaims": ["The sync server no longer accepts changes from this vault for this section."],
         "forbiddenClaims": ["Offline", "Your access to this section was removed", "not a member", "Current as last checked"]
       }
     }

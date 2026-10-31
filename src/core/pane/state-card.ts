@@ -75,8 +75,23 @@ function heldLine(held: readonly HeldEdits[]): string {
 /** Said after a removal or non-membership that this device has not seen confirmed now (§6). */
 const AS_VERIFIED = " As last verified; it may have changed.";
 
+/** Conditions whose word the held edits' own line says better (F-04): the edits are what the user stands to lose. */
+const HELD_SPEAKS: ReadonlySet<Condition["kind"] | undefined> = new Set([
+  "access",
+  "server-refused",
+  "source",
+  "rejected",
+  undefined,
+]);
+
 function problemFace(v: StatusView, c: Condition | undefined): SectionFace {
-  const face = (w: StatusWord, fact: string): SectionFace => ({ ...w, fact, problem: true });
+  const held = v.held.length > 0 && HELD_SPEAKS.has(c?.kind);
+  // Edits held in a note are never hidden behind a server's answer: counted, with their cause.
+  const face = (w: StatusWord, fact: string): SectionFace => ({
+    ...w,
+    fact: held ? heldLine(v.held) : fact,
+    problem: true,
+  });
   const warn = (w: string) => word(w, "problem", STATUS_ICONS.problem);
   const first = lead(sectionProblems(v)[0] ?? "");
   switch (c?.kind) {
@@ -120,12 +135,9 @@ function problemFace(v: StatusView, c: Condition | undefined): SectionFace {
             `${plural(c.pending, "offline edit")} from before an access change ${c.pending === 1 ? "is" : "are"} being sent again.`,
           );
     case "source":
-      return face(warn("Not syncing"), v.held.length > 0 ? heldLine(v.held) : first);
+      return face(warn("Not syncing"), first);
     case "held-unknown":
-      return face(
-        warn("Not current"),
-        "Whether a note with this section holds edits not sent is unknown.",
-      );
+      return face(warn("Not current"), first);
     case "structural-conflict":
     case "scalar-conflict":
       return face(warn("Conflict"), first);
@@ -218,7 +230,7 @@ export function sectionFace(v: StatusView, o: SectionFaceInput): SectionFace {
   if (o.unplaced)
     return {
       ...word("Not in a note", "muted", STATUS_ICONS.idle),
-      fact: "Not inserted in any note yet.",
+      fact: "Not inserted yet.",
       problem: false,
     };
   if (v.readOnly)

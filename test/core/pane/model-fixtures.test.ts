@@ -14,16 +14,14 @@ import { type FixtureFacts, paneFactsOf, statusFactsOf } from "../../../src/core
 import {
   type PaneAction,
   type PaneFacts,
+  paneActions,
   paneFocus,
   paneModel,
   paneTexts,
 } from "../../../src/core/pane/model";
-import {
-  BODY_DELETE_TEXT,
-  DETACH_TEXT,
-  sectionCard,
-  WHOLE_COPY_TEXT,
-} from "../../../src/core/status/card";
+import { DETACH_CONFIRMATION } from "../../../src/core/sections/actions";
+import { accessView } from "../../../src/core/status/access";
+import { BODY_DELETE_TEXT, sectionCard, WHOLE_COPY_TEXT } from "../../../src/core/status/card";
 import { statusView } from "../../../src/core/status/reducer";
 
 interface Expected {
@@ -31,7 +29,12 @@ interface Expected {
   primaryCtaNone?: string;
   enabled: { action: string; reason: string }[];
   disabled: { action: string; reason: string }[];
+  /** What the pane's surface says (its card, flow, preview, problems). */
   requiredClaims: string[];
+  /** What the section list says (needs the host's registry rows: the real-host test checks these). */
+  requiredListClaims?: string[];
+  /** What Details (the section's card) says: the caveats and facts that left the surface. */
+  requiredDetailsClaims?: string[];
   forbiddenClaims: string[];
 }
 interface State {
@@ -48,7 +51,43 @@ const doc = JSON.parse(
   states: State[];
 };
 
-const time = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
+/**
+ * What Details says for a fixture's section, as the host builds it: the
+ * section card over the access list's view (its freshness from the verified
+ * time and whether the view is current).
+ */
+function detailsTexts(s: State): string[] {
+  const section = s.facts.section;
+  if (section === null) return [];
+  const view = statusView(statusFactsOf(section));
+  const a = section.access;
+  const access = accessView({
+    participants: [],
+    mine:
+      a.verifiedAt === null
+        ? null
+        : {
+            allowed: true,
+            current: a.current,
+            verifiedAt: a.verifiedAt,
+            abilities: [],
+            owner: false,
+            pendingControl: [],
+          },
+    aliases: {},
+    connected: view.connection === "connected",
+    time: (ms) => new Date(ms).toISOString().slice(11, 16),
+  });
+  const card = sectionCard({
+    title: "Launch",
+    view,
+    resource: "R",
+    sectionId: "S",
+    access,
+    ...(section.hosting === undefined ? {} : { hosting: section.hosting }),
+  });
+  return [card.status, ...card.problems, ...card.facts, ...card.shared, access.freshness];
+}
 
 describe("pane action catalogue", () => {
   it("is the fixtures' catalogue: same IDs, labels and destructive flags, in order", () => {
@@ -64,14 +103,15 @@ describe("pane view model on the UX 0.3 fixtures", () => {
   for (const s of doc.states) {
     describe(s.id, () => {
       const facts = paneFactsOf(s.facts);
-      const model = paneModel(facts, { time });
+      const model = paneModel(facts);
+      // What the pane offers: the join, the primary, Details beside it and the menu (the header repeats three).
       const actions: PaneAction[] = [
         model.join,
         ...(model.primary === null ? [] : [model.primary]),
-        ...model.secondary,
+        ...(model.card.secondary === null ? [] : [model.card.secondary]),
         ...model.menu,
       ];
-      const byId = new Map(actions.map((a) => [a.id as string, a]));
+      const byId = new Map([...model.header, ...actions].map((a) => [a.id as string, a]));
       const texts = paneTexts(model);
 
       it("binds to the real reducer: its view is the fixture's", () => {
@@ -129,25 +169,42 @@ describe("pane view model on the UX 0.3 fixtures", () => {
         }
       });
 
-      it("keeps destructive actions out of the primary place and every action unique", () => {
-        expect(model.secondary.every((a) => !a.destructive)).toBe(true);
-        expect(model.menu.every((a) => a.destructive)).toBe(true);
+      it("keeps destructive actions in the menu alone and every action unique", () => {
+        // Never the primary, Details or a header icon; only ever a menu item (A1).
+        expect(model.primary?.destructive ?? false).toBe(false);
+        expect(model.card.secondary?.destructive ?? false).toBe(false);
+        expect(model.header.every((a) => !a.destructive)).toBe(true);
+        for (const a of actions.filter((x) => x.destructive)) expect(model.menu).toContain(a);
         expect(new Set(actions.map((a) => a.id)).size).toBe(actions.length);
+        // What the card and the header draw is not in the menu as well.
+        const drawn = new Set<string>([
+          ...model.header.map((a) => a.id),
+          ...(model.primary === null ? [] : [model.primary.id]),
+          ...(model.card.secondary === null ? [] : [model.card.secondary.id]),
+        ]);
+        expect(model.menu.filter((a) => drawn.has(a.id))).toEqual([]);
       });
 
-      it("says each problem in the card's words", () => {
+      it("a problem on the card is one the details card lists, in its words", () => {
         const section = facts.section;
-        if (section === null) return;
-        const card = sectionCard({
+        if (section === null || model.flow !== null || !model.card.problem) return;
+        const details = sectionCard({
           title: section.sharedTitle ?? "",
           view: section.view,
           resource: "R",
           sectionId: "S",
         });
-        const problems = model.status.filter((l) => l.tone === "problem").map((l) => l.text);
-        expect(problems.slice(0, card.problems.length)).toEqual(card.problems);
-        // The held facts after them are the card's facts too.
-        for (const p of problems.slice(card.problems.length)) expect(card.facts).toContain(p);
+        // The card's line is a cut of the details card's problem or held fact (the first words of it).
+        const line = (model.card.fact ?? "").replace(
+          / As last verified; it may have changed\.$/,
+          "",
+        );
+        const listed = [...details.problems, ...details.facts];
+        expect(
+          listed.some((t) => t.startsWith(line.replace(/\.$/, ""))) ||
+            /^Some local changes/.test(line),
+          `"${line}" in ${JSON.stringify(listed)}`,
+        ).toBe(true);
       });
 
       it("UXD-11: one card, with a status word, one line of fact and the model's primary", () => {
@@ -155,14 +212,13 @@ describe("pane view model on the UX 0.3 fixtures", () => {
         expect(c.title).not.toBe("");
         expect(c.status.word).not.toBe("");
         expect(c.status.icon).not.toBe("");
-        expect(c.primary).toEqual(model.primary);
-        expect(c.none).toBe(model.primary === null ? model.primaryNone : null);
+        expect(c.secondary === null || model.primary?.id !== c.secondary.id).toBe(true);
         // One line, in words: no hex and no identifier on the surface.
         expect(c.fact ?? "").not.toContain("\n");
         expect(c.fact ?? "").not.toMatch(/[0-9a-f]{16,}/i);
         // Beside the primary at most Details, and never Details twice.
         expect(c.secondary === null || c.secondary.id === "open-details").toBe(true);
-        expect(c.secondary !== null && c.primary?.id === "open-details").toBe(false);
+        expect(c.secondary !== null && model.primary?.id === "open-details").toBe(false);
         expect(c.secondary === null || c.secondary.enabled).toBe(true);
         // A problem card is named a problem; "Synced" only for a section that is current.
         const section = facts.section;
@@ -185,21 +241,40 @@ describe("pane view model on the UX 0.3 fixtures", () => {
         for (const claim of s.expected.requiredClaims) expect(all, claim).toContain(claim);
       });
 
-      it("makes none of the forbidden claims", () => {
+      it("UX-08: each caveat that left the surface is reachable from Details", () => {
+        const details = detailsTexts(s).join("\n");
+        for (const claim of s.expected.requiredDetailsClaims ?? [])
+          expect(details, claim).toContain(claim);
+      });
+
+      it("makes none of the forbidden claims, on the surface or in Details", () => {
         for (const claim of [...s.expected.forbiddenClaims, ...doc.globalForbiddenClaims])
-          for (const t of texts)
+          for (const t of [...texts, ...detailsTexts(s)])
             expect(t.toLowerCase(), `"${t}" says "${claim}"`).not.toContain(claim.toLowerCase());
+      });
+
+      it("UX-08: no status bullet, no caveat and no timestamp on the surface", () => {
+        const surface = texts.join("\n");
+        for (const caveat of [
+          "This does not mean others have seen it",
+          "You can edit this section.",
+          "Access verified",
+          "Access as last verified",
+        ])
+          expect(surface, caveat).not.toContain(caveat);
+        expect(surface).not.toMatch(/\b\d{1,2}:\d{2}(:\d{2})?\b/);
       });
     });
   }
 });
 
 describe("the state card (UXD-11, UX-08)", () => {
-  const cardOf = (id: string) => {
+  const modelOf = (id: string) => {
     const s = doc.states.find((x) => x.id === id);
     if (s === undefined) throw new Error(id);
-    return paneModel(paneFactsOf(s.facts), { time }).card;
+    return paneModel(paneFactsOf(s.facts));
   };
+  const cardOf = (id: string) => modelOf(id).card;
 
   it("names the section and its status in a word, with the primary of P1", () => {
     const c = cardOf("healthy-can-invite");
@@ -209,7 +284,7 @@ describe("the state card (UXD-11, UX-08)", () => {
       "check-check",
       "ok",
     ]);
-    expect(c.primary?.id).toBe("invite");
+    expect(modelOf("healthy-can-invite").primary?.id).toBe("invite");
     expect(c.secondary?.id).toBe("open-details");
     expect(c.problem).toBe(false);
   });
@@ -223,7 +298,7 @@ describe("the state card (UXD-11, UX-08)", () => {
       true,
     ]);
     expect(c.fact).toBe("3 edits not sent: the section's start or end marker is damaged.");
-    expect(c.primary?.id).toBe("repair-sections");
+    expect(modelOf("held-boundary-queue-empty").primary?.id).toBe("repair-sections");
   });
 
   it("a conflict, offline and read-only each say their own word", () => {
@@ -243,23 +318,29 @@ describe("the state card (UXD-11, UX-08)", () => {
   it("a section that is still loading is progress, never current", () => {
     const c = cardOf("loading");
     expect(c.status).toEqual({ word: "Loading", icon: "loader", tone: "busy" });
-    expect(c.primary?.id).toBe("open-details");
+    expect(modelOf("loading").primary?.id).toBe("open-details");
     expect(c.secondary).toBeNull();
   });
 
   it("no section: says so, and why there is no primary in its place", () => {
-    expect(cardOf("no-editor")).toMatchObject({
+    const none = modelOf("no-editor");
+    expect(none.card).toMatchObject({
       title: "No note open",
       status: { word: "No note" },
-      none: "Open a note to share from it, or join with a link.",
-      primary: null,
       secondary: null,
     });
-    expect(cardOf("selection-crossing")).toMatchObject({
+    expect([none.primary, none.primaryNone]).toEqual([
+      null,
+      "Open a note to share from it, or join with a link.",
+    ]);
+    const crossing = modelOf("selection-crossing");
+    expect(crossing.card).toMatchObject({
       title: "No section at the cursor",
       fact: "The selection runs past the end of the heading's section.",
-      none: "Select the lines of one section, from its heading, to share it.",
     });
+    expect(crossing.primaryNone).toBe(
+      "Select the lines of one section, from its heading, to share it.",
+    );
   });
 
   it("a flow owns the card while it runs; an unknown result is a problem", () => {
@@ -282,10 +363,8 @@ describe("pane view model rules beyond the fixtures", () => {
     return paneFactsOf(s.facts);
   };
   const find = (f: PaneFacts, id: string) => {
-    const m = paneModel(f, { time });
-    return [m.join, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu].find(
-      (a) => a.id === id,
-    );
+    const m = paneModel(f);
+    return [m.join, ...paneActions(m)].find((a) => a.id === id);
   };
 
   it("LFCP-03-019: Remove access by the access list's own guards, not by inviting", () => {
@@ -316,8 +395,8 @@ describe("pane view model rules beyond the fixtures", () => {
 
   it("A8: an entry the descriptors hide is still in the header, disabled with its reason", () => {
     // A selection and no shared section on this device: "Insert into a note…" is not offered below.
-    const m = paneModel(state("selection-exact"), { time });
-    expect([m.primary, ...m.secondary, ...m.menu].some((a) => a?.id === "insert-into-note")).toBe(
+    const m = paneModel(state("selection-exact"));
+    expect([m.primary, m.card.secondary, ...m.menu].some((a) => a?.id === "insert-into-note")).toBe(
       false,
     );
     const insert = m.header.find((a) => a.id === "insert-into-note");
@@ -334,25 +413,30 @@ describe("pane view model rules beyond the fixtures", () => {
     expect(detach?.reason).toBe("Detaching waits until this section has loaded on this device.");
   });
 
-  it("LFCP-03-019 (C6, N-05): deleting, removing the copy and detaching are told apart before acting", () => {
-    const m = (id: string) => paneModel(state(id), { time });
-    expect(m("healthy-can-invite").effects).toEqual([
-      BODY_DELETE_TEXT,
-      WHOLE_COPY_TEXT,
-      DETACH_TEXT,
-    ]);
-    // A reader's deletions are held, not sent: no shared delete is promised.
-    expect(m("healthy-read-only").effects).toEqual([WHOLE_COPY_TEXT, DETACH_TEXT]);
-    expect(m("access-refused-held").effects).not.toContain(BODY_DELETE_TEXT);
-    // Not in a section: nothing to say.
-    expect(m("no-editor").effects).toEqual([]);
-    expect(m("selection-exact").effects).toEqual([]);
-    // The card says the same, in the same words.
+  it("UXD-11 (C6, N-05): what a change does is the details card's, not the pane's surface", () => {
+    for (const st of doc.states) {
+      const texts = paneTexts(paneModel(paneFactsOf(st.facts)));
+      for (const t of [BODY_DELETE_TEXT, WHOLE_COPY_TEXT]) expect(texts, st.id).not.toContain(t);
+    }
+    // Details says what deleting text and removing the whole copy do, where this vault's edits go out.
     const s = state("healthy-can-invite").section;
     if (s === null) throw new Error("no section");
     const card = sectionCard({ title: "Launch", view: s.view, resource: "R", sectionId: "S" });
     expect(card.shared).toEqual(expect.arrayContaining([BODY_DELETE_TEXT, WHOLE_COPY_TEXT]));
-    expect(paneTexts(m("healthy-can-invite"))).toContain(DETACH_TEXT);
+    // A reader's deletions are held, not sent: no shared delete is promised.
+    const reader = state("healthy-read-only").section;
+    if (reader === null) throw new Error("no section");
+    const readerCard = sectionCard({
+      title: "L",
+      view: reader.view,
+      resource: "R",
+      sectionId: "S",
+    });
+    expect(readerCard.shared).not.toContain(BODY_DELETE_TEXT);
+    expect(readerCard.shared).toContain(WHOLE_COPY_TEXT);
+    // Detaching says what it does in its own confirmation, before anything is changed.
+    expect(DETACH_CONFIRMATION).toMatch(/stays in this note/);
+    expect(DETACH_CONFIRMATION).toMatch(/collaborators and their access are not changed/);
   });
 
   it("D9: the section under the cursor, else the one chosen, else the one just joined", () => {

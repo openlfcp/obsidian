@@ -29,7 +29,7 @@ import {
   type Prompter,
 } from "../../../src/core/collab/commands";
 import { hostPane, type PaneAccess } from "../../../src/core/pane/host-facts";
-import { type PaneModel, paneModel, paneTexts } from "../../../src/core/pane/model";
+import { type PaneModel, paneActions, paneModel, paneTexts } from "../../../src/core/pane/model";
 import type {
   CreationService,
   SectionNotes,
@@ -447,7 +447,7 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
   /** A click on the pane's button `id`: only one the pane draws, enabled; through the dispatcher. */
   const click = (id: ActionId): Promise<void> => {
     const p = pane();
-    const offered = [p.model.primary, ...p.model.secondary].find((a) => a?.id === id);
+    const offered = paneActions(p.model).find((a) => a.id === id);
     if (offered?.enabled !== true)
       throw new Error(`${id} is not offered enabled: ${JSON.stringify(offered)}`);
     return dispatcher.run(id, p.request(id), "pane");
@@ -460,8 +460,7 @@ function journey(o: { result?: "hosted" | "local" } = {}) {
   return { calls, dialogs, notes, actions, commands, prompter, invites, pane, click, set };
 }
 
-const enabled = (m: PaneModel, id: ActionId) =>
-  [m.primary, ...m.secondary].find((a) => a?.id === id);
+const enabled = (m: PaneModel, id: ActionId) => paneActions(m).find((a) => a.id === id);
 
 describe("share → invite in the pane (LFCP-03-014)", () => {
   afterEach(() => vi.useRealTimers());
@@ -587,7 +586,7 @@ describe("share → invite in the pane (LFCP-03-014)", () => {
     t.notes.selections = [{ anchor: { line: 2, ch: 0 }, head: { line: 4, ch: 10 } }];
     t.notes.cursor = 4;
     const p = t.pane();
-    expect(p.model.context.lines).toContain("Selection: lines 3–5");
+    expect(p.model.card.fact).toBe("Selection: lines 3–5");
     expect(p.model.preview).toContain("2 tasks, 0 paragraphs, 0 list items.");
     expect(p.model.preview).toContain(
       "The text after the section, under the same heading, stays private, but Obsidian folds, drags and embeds it with the heading.",
