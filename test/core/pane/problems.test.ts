@@ -263,6 +263,10 @@ describe("problem hub rows (LFCP-03-018)", () => {
       ],
     ]);
     expect(text({ refusal: "RESOURCE_NOT_HOSTED" })[0]?.[1]).toBe("The sync server");
+    // The server's code is the details card's, never the row's (UX-08, F5).
+    expect(text({ refusal: "RESOURCE_REFUSED" })).toEqual([
+      ["The sync server refused this section.", "The sync server", "open-details"],
+    ]);
   });
 
   it("held edits this vault may not send lead to its local changes, not to a repair", () => {

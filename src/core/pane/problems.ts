@@ -144,6 +144,9 @@ const HELD_CATEGORY: Readonly<Record<HeldCause, ProblemCategory>> = {
   "base-unknown": "base",
 };
 
+/** A server's refusal on the surface; its code is the details card's. */
+export const SERVER_REFUSED_TEXT = "The sync server refused this section.";
+
 /** Held edits: their count, cause and source, and the way to their resolver. */
 function heldProblem(h: HeldEdits): PaneProblem {
   const count = h.count === null ? "Edits" : plural(h.count, "edit");
@@ -191,7 +194,7 @@ function accessProblems(v: StatusView): PaneProblem[] {
       out.push({
         id: `server-refused:${c.code}`,
         category: "access",
-        text: `The sync server refused this section (${c.code}).`,
+        text: SERVER_REFUSED_TEXT,
         source: "The sync server",
         action,
         ref: null,

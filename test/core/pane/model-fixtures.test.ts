@@ -10,7 +10,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ACTION_IDS, ACTIONS } from "../../../src/core/actions/catalog";
-import { type FixtureFacts, paneFactsOf, statusFactsOf } from "../../../src/core/pane/mock-facts";
+import {
+  type FixtureFacts,
+  type FixtureSection,
+  paneFactsOf,
+  statusFactsOf,
+} from "../../../src/core/pane/mock-facts";
 import {
   type PaneAction,
   type PaneFacts,
@@ -19,7 +24,7 @@ import {
   paneModel,
   paneTexts,
 } from "../../../src/core/pane/model";
-import type { PaneProblem } from "../../../src/core/pane/problems";
+import { type PaneProblem, paneProblems } from "../../../src/core/pane/problems";
 import { DETACH_CONFIRMATION } from "../../../src/core/sections/actions";
 import { accessView } from "../../../src/core/status/access";
 import { BODY_DELETE_TEXT, sectionCard, WHOLE_COPY_TEXT } from "../../../src/core/status/card";
@@ -366,6 +371,29 @@ describe("the state card (UXD-11, UX-08)", () => {
       ],
     });
     expect(m.problems.map((p) => p.id)).toEqual(["other", "same-text-other-button"]);
+  });
+
+  it("a server's refusal says no code on the surface; Details has it", () => {
+    const st = doc.states.find((x) => x.id === "healthy-can-invite");
+    if (st?.facts.section == null) throw new Error("fixture missing");
+    const section: FixtureSection = {
+      ...st.facts.section,
+      state: "ATTENTION",
+      refusal: "RESOURCE_REFUSED",
+    };
+    const base = paneFactsOf({ ...st.facts, section });
+    const view = base.section?.view;
+    if (view === undefined) throw new Error("no section");
+    const problems = paneProblems({ view, recovery: [], repairs: null });
+    const m = paneModel({ ...base, problems });
+    expect(m.card.status.word).toBe("Not accepted");
+    expect(m.card.fact).toBe("The sync server refused this section.");
+    expect(problems.map((p) => [p.id, p.text])).toEqual([
+      ["server-refused:RESOURCE_REFUSED", "The sync server refused this section."],
+    ]);
+    expect(paneTexts(m).join("\n")).not.toContain("RESOURCE_REFUSED");
+    const details = sectionCard({ title: "Launch", view, resource: "R", sectionId: "S" });
+    expect(details.problems.join("\n")).toContain("(RESOURCE_REFUSED)");
   });
 
   it("T4: in Reading view the card says why the primary is Open for editing", () => {
