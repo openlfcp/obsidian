@@ -484,6 +484,19 @@ export function hostPane(src: PaneHostSources): PaneDrawing {
     // names it, by its Resource, and the insert takes its one section (obsidian#30).
     if (id === "insert-into-note" && at === null && joined !== null)
       return { ...base, section: { key: joined, title: "" } };
+    // The card's fix of its section's damaged marker (UX-06): the same item as its row, by its
+    // key and the revision drawn (the executor parses the note again), never the note's first.
+    if ((id === "restore-marker" || id === "repair-sections") && at !== null && note !== null) {
+      const own = problems.find(
+        (p) =>
+          p.category === "boundary" &&
+          p.action === id &&
+          p.ref?.kind === "repair" &&
+          p.ref.path === note.path &&
+          p.section === at.key,
+      );
+      if (own !== undefined) return { ...base, ...problemRequest(own, at) };
+    }
     return base;
   };
   return {

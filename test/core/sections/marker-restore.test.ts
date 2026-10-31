@@ -173,7 +173,11 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
     );
   const damaged = doc(START.replace("lfcp1:", "hlfcp1:"));
 
-  it("no section at the cursor: the damage is one row with its place, Restore the primary, never Insert", () => {
+  /** Every button the card and the rows draw for `id`: one cause, one button. */
+  const drawn = (m: ReturnType<typeof paneModel>, id: string) =>
+    [m.primary, ...m.problems.map((p) => p.action)].filter((a) => a?.id === id);
+
+  it("no section at the cursor: the damage is one row with its place and its Restore; no primary, never Insert", () => {
     const m = draw(damaged);
     // UXD-12: the card is about the cursor (no section is read there now), not about the damage.
     expect(m.card).toMatchObject({
@@ -187,10 +191,12 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
     expect(m.problems[0]?.text).toContain('The start line of "Tasks 1" was changed.');
     expect(m.problems[0]?.text).toContain("not being sent");
     expect(m.problems[0]?.source).toBe("Plan.md, line 3");
-    expect(m.problems[0]?.action?.id).toBe("restore-marker");
-    expect(m.primary?.id).toBe("restore-marker");
-    expect(m.primary?.label).toBe("Restore");
-    expect(m.primary?.label).not.toContain("Insert");
+    expect(m.problems[0]?.action).toMatchObject({ id: "restore-marker", label: "Restore" });
+    // Issue #87, UXD-12: the card is about no section, so its primary fixes none; Restore is drawn once.
+    expect(m.primary).toBeNull();
+    expect(m.primaryNone).toBeNull();
+    expect(drawn(m, "restore-marker")).toHaveLength(1);
+    expect(drawn(m, "insert-into-note")).toEqual([]);
   });
 
   it("the cursor in a healthy section: the card is that section's; another's damaged marker is a row", () => {
@@ -249,8 +255,47 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
     expect(m.problems[0]?.text).toContain('The start line of "Tasks 2" was changed.');
     expect(m.problems[0]?.source).toBe("Plan.md, line 7");
     expect(m.problems[0]?.action).toMatchObject({ id: "restore-marker", enabled: true });
-    // P1 is unchanged (UX-06): a damaged marker in the note is fixed first.
+    // UXD-12 (the card is about the cursor's section): its primary never fixes another
+    // section. Tasks 1 has nothing to do, so no primary; Restore is only on Tasks 2's row.
+    expect(m.primary).toBeNull();
+    expect(drawn(m, "restore-marker")).toHaveLength(1);
+  });
+
+  it("the cursor in the section whose end marker is damaged: the card is its Restore, drawn once, on that item", () => {
+    const text = doc(START, END.replace("lfcp1:", "hlfcp1:"));
+    // Its status computed, nothing else wrong with it: the damaged marker is its problem.
+    const loaded = statusView({
+      session: "s",
+      revision: 1,
+      replica: "loaded",
+      access: "writer",
+      accessVerifiedAt: 1,
+      accessCurrent: true,
+      pendingControl: [],
+      connection: "connected",
+      catchUp: "current-at-checkpoint",
+      problems: [],
+      batches: [],
+      acceptanceEvidence: "available",
+      projections: [],
+    });
+    const d = hostPane({
+      note: note(text),
+      registry: registry(),
+      status: (k) => (k === KEY ? loaded : undefined),
+    });
+    const m = paneModel(d.facts);
+    expect(m.card).toMatchObject({ title: "Tasks 1", status: { word: "Needs repair" } });
+    expect(m.card.fact).toContain('The end line of "Tasks 1" was changed.');
     expect(m.primary?.id).toBe("restore-marker");
+    expect(m.problems).toEqual([]);
+    expect(drawn(m, "restore-marker")).toHaveLength(1);
+    // The card's Restore restores that marker, as its row's would: the request names the item.
+    expect(d.request("restore-marker").problem).toMatchObject({
+      kind: "repair",
+      path: "Plan.md",
+      line: 4,
+    });
   });
 
   it("says the section is damaged in this note, not that it is not inserted", () => {

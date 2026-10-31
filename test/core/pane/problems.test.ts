@@ -445,6 +445,38 @@ describe("problem hub in the pane (LFCP-03-018)", () => {
     });
   });
 
+  it("issue #87: the section's own damaged marker holding its edits is said once, with one Repair", () => {
+    // The cursor in the section whose end marker is gone; its copy here holds edits for it.
+    const h = held({ cause: "boundary", path: "Plan.md", line: 2 });
+    const d = hostPane({
+      note: note(NO_END),
+      registry: null,
+      status: (k) => (k === KEY ? heldView(h) : undefined),
+    });
+    const m = paneModel(d.facts);
+    // One line: the card says the repair item; the held count is in Details.
+    expect(m.card).toMatchObject({
+      title: "Launch",
+      status: { word: "Needs repair" },
+      fact: "A shared section has a start marker and no end.",
+      problem: true,
+    });
+    expect(m.problems).toEqual([]);
+    // One button: the primary, and it opens the repair on that item, as its row would.
+    expect(m.primary?.id).toBe("repair-sections");
+    expect(paneTexts(m).filter((t) => t === ACTIONS["repair-sections"].label)).toHaveLength(1);
+    expect(d.request("repair-sections")).toMatchObject({
+      section: { key: KEY, title: "Launch" },
+      problem: {
+        kind: "repair",
+        path: "Plan.md",
+        key: `missing-end:${KEY}`,
+        line: 2,
+        revision: contentHash(NO_END),
+      },
+    });
+  });
+
   it("held edits hand their place; a section not computed yet claims no problem", () => {
     const h = held({ cause: "unsupported" });
     const d = hostPane({

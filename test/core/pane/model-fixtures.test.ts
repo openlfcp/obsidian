@@ -539,7 +539,8 @@ describe("the state card (UXD-11, UX-08)", () => {
       status: { word: "Synced" },
       problem: false,
     });
-    expect(other.primary?.id).toBe("restore-marker");
+    // The card's primary is its own section's (P1): never the fix of another section.
+    expect(other.primary?.id).toBe("invite");
     expect(other.problems.map((p) => [p.source, p.action?.id])).toEqual([
       ["Plan.md, line 9", "restore-marker"],
     ]);

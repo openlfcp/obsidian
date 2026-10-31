@@ -4,13 +4,14 @@
 // LFCP_SERVER_BIN. Setup (share, join) uses the existing commands; every
 // step of the problem flow is a click in the pane or in its resolver.
 //
-// - A's copy loses its end marker and A edits a Task in it: the pane lists
-//   the problem with its reason and its source (the note and line); B does
-//   not get the edit.
-// - "Repair shared sections…" on that row opens the repair on that item; the
-//   user picks the line and applies it: the marker is written in A's note.
-// - The row goes because the facts changed (the note parses clean), the
-//   section is current again, and B's note shows the held edit.
+// - A's copy loses its end marker and A edits a Task in it, the cursor in
+//   that section: the card is that problem, said once (issue #87): its
+//   reason on the card, "Repair shared sections…" its one button, no row
+//   saying it again; B does not get the edit.
+// - That button opens the repair on that item; the user picks the line and
+//   applies it: the marker is written in A's note.
+// - The card's problem goes because the facts changed (the note parses
+//   clean), the section is current again, and B's note shows the held edit.
 // - A heading inside the section: its row says so with its line, and "Go to
 //   the problem" puts the cursor there; nothing is written.
 import { closeModals, evidence, inA, shareAndJoin, startPeers } from "./support/section-checks.mjs";
@@ -61,6 +62,17 @@ const rows = () =>
     })),
   );
 
+/** The pane's card: its fact, its primary's label, and every button the pane draws with a label. */
+const cardA = () =>
+  browser.execute(() => {
+    const pane = document.querySelector(".openlfcp-pane");
+    return {
+      fact: pane?.querySelector(".openlfcp-pane-card .openlfcp-pane-fact")?.textContent ?? null,
+      primary: pane?.querySelector(".openlfcp-pane-primary button")?.textContent ?? null,
+      buttons: [...(pane?.querySelectorAll("button") ?? [])].map((x) => x.textContent),
+    };
+  });
+
 const rowWith = (re, msg) =>
   browser.waitUntil(
     async () => (await rows()).find((r) => re.test(r.text ?? "")) ?? false,
@@ -95,7 +107,7 @@ describe("LFCP-03-018: the pane's problem hub leads to the resolver", () => {
     await server?.stop();
   });
 
-  it("U03-16: a damaged boundary is listed with its source; repaired from its row, the held edit reaches B", async () => {
+  it("U03-16: a damaged boundary at the cursor is the card, said once; repaired from its button, the held edit reaches B", async () => {
     await editA((md) =>
       md
         .split("\n")
@@ -103,17 +115,32 @@ describe("LFCP-03-018: the pane's problem hub leads to the resolver", () => {
         .join("\n")
         .replace("- [ ] Alpha", "- [ ] Alpha edited while damaged"),
     );
-    const row = await rowWith(/start marker and no end/, "the damaged boundary listed in the pane");
+    // The cursor is in the damaged section: its problem is the card, with its fix as the primary.
+    const card = await browser.waitUntil(
+      async () => {
+        const c = await cardA();
+        return /start marker and no end/.test(c.fact ?? "") && c.primary !== null ? c : false;
+      },
+      { timeout: 30_000, timeoutMsg: "the damaged boundary on the pane's card" },
+    );
     const damaged = (await stateA()).md;
     const start = damaged.split("\n").findIndex((l) => l.startsWith("<!-- lfcp-section: "));
-    expect(row.source).toBe(`Where: ${FILE}, line ${start + 1}`);
-    expect(row.button).toBe("Repair shared sections…");
+    expect(card.primary).toBe("Repair shared sections…");
+    // Issue #87: one cause, one line, one button: no row says it again.
+    expect((await rows()).filter((r) => /start marker and no end/.test(r.text ?? ""))).toEqual([]);
+    expect(card.buttons.filter((x) => x === "Repair shared sections…")).toHaveLength(1);
     // Held: B does not get the edit while the boundary is damaged.
     await browser.pause(3000);
     await b.pass(bFile);
     expect(b.files.get(bFile)).not.toContain("Alpha edited while damaged");
 
-    expect(await pressRow(row.id)).toBe(true);
+    expect(
+      await browser.execute(() => {
+        const x = document.querySelector(".openlfcp-pane .openlfcp-pane-primary button");
+        x?.click();
+        return x !== null;
+      }),
+    ).toBe(true);
     const repair = await browser.waitUntil(
       () =>
         browser.execute(() => {
@@ -126,7 +153,7 @@ describe("LFCP-03-018: the pane's problem hub leads to the resolver", () => {
         }),
       { timeout: 10_000, timeoutMsg: "the repair opened from the pane" },
     );
-    evidence("problem-hub-repair-opened", { row, repair });
+    evidence("problem-hub-repair-opened", { card, repair });
     expect(repair.items[0]).toMatch(new RegExp(`section starting on line ${start + 1} has no end`));
     // The user picks the line after the last Task's lines, before "## Later", and applies it.
     const later = damaged.split("\n").indexOf("## Later");
@@ -142,10 +169,10 @@ describe("LFCP-03-018: the pane's problem hub leads to the resolver", () => {
       timeout: 10_000,
       timeoutMsg: "the end marker written in A's note",
     });
-    // The facts change, not the click: the row goes once the note parses clean, and the section is current.
-    await browser.waitUntil(async () => !(await rows()).some((r) => r.id === row.id), {
+    // The facts change, not the click: the problem goes once the note parses clean, and the section is current.
+    await browser.waitUntil(async () => !/start marker and no end/.test((await cardA()).fact ?? ""), {
       timeout: 20_000,
-      timeoutMsg: "the row gone after the repair",
+      timeoutMsg: "the card's problem gone after the repair",
     });
     await browser.waitUntil(async () => (await stateA()).badge === "CURRENT", {
       timeout: 30_000,
