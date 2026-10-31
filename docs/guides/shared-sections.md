@@ -260,7 +260,15 @@ sidebar. Opening it again shows the same pane.
 
 The pane follows the last note you worked in. It shows the shared section
 under the cursor and its status, the next step for that place, and the
-shared sections on this device. **"Join with a link…"** is always at the top.
+shared sections on this device.
+
+A row of icon buttons runs along the top of the pane: **"Share section…"**,
+**"Insert into a note…"** and **"Join with a link…"**, and at the right end
+**"More actions"** ("…"). Point at an icon to see its name. The row is always
+the same; an action that does not apply is dimmed, and its tooltip says why.
+**"More actions"** opens a menu with **"Remove access…"**, **"Discard the
+local copy…"** and **"Detach this section"**, each with its usual
+confirmation.
 
 The right-click menu also offers the next step for the cursor, for example
 "Share section…" on a heading that is not shared yet.

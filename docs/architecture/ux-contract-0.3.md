@@ -104,7 +104,9 @@ Rules:
 - **A1.** A destructive action is never the primary call to action. It sits in
   a menu or a secondary row and keeps its existing confirmation.
 - **A2.** "Join with a link…" stays in the pane header in every state,
-  including no open note.
+  including no open note. In the header it is an icon button (`link`); its
+  label, "Join with a link…", is the text inside the button and its tooltip,
+  so the button's text is the label.
 - **A3.** A label ending in "…" opens a preview, a choice or a confirmation
   before any side effect. A label without it acts at once and changes no
   shared state.
@@ -136,6 +138,20 @@ Rules:
   action that applies but is blocked is shown disabled with its reason
   (A5), for example "Invite collaborator…" while access is not checked
   with the server.
+- **A8. Pane header** (UXD-11). The header is a row of four icon buttons in
+  Obsidian's own nav-header style, in this order: "Share section…"
+  (`share-2`), "Insert into a note…" (`file-input`), "Join with a link…"
+  (`link`), then "More actions" (`more-horizontal`) at the far end. They are
+  there in every state and the header never changes shape: an action that is
+  blocked or does not apply is drawn disabled with its reason (A5), in the
+  tooltip and as the button's description, never removed. Each button keeps
+  the catalogue's label as its text and takes its tooltip from Obsidian. The
+  destructive actions ("Remove access…", "Discard the local copy…", "Detach
+  this section") are in the "More actions" menu, an Obsidian menu with an icon
+  per item and each action's existing confirmation (A1); a blocked item
+  names its reason after its title, and the button is disabled when the menu
+  would be empty. The header repeats Share and Insert as icons; the primary
+  action may still show the same one with its words.
 
 ## 4. Target and selection
 
