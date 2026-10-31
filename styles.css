@@ -560,6 +560,7 @@
 .openlfcp-pane-row .openlfcp-pane-row-label {
   display: flex;
   flex-wrap: wrap;
+  justify-content: space-between;
   align-items: baseline;
   gap: 0 var(--size-4-2);
   width: 100%;
@@ -596,7 +597,6 @@
 
 .openlfcp-pane-row-label .openlfcp-pane-row-meta {
   flex: 0 1 auto;
-  text-align: end;
 }
 
 .openlfcp-pane-row.is-chosen {
