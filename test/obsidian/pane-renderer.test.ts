@@ -41,6 +41,8 @@ beforeEach(() => {
     },
     tooltip: (el, text) => {
       tips.push([el.textContent ?? "", text]);
+      // Obsidian's setTooltip puts the text in aria-label, which names the button.
+      el.setAttribute("aria-label", text);
     },
     menu: (anchor, items) => {
       menus.push({ anchor, items });
@@ -93,8 +95,13 @@ describe("pane renderer on the UX fixtures", () => {
       // No `title` attribute: the tooltip is the host's.
       expect(headerButtons().every((b) => !b.hasAttribute("title"))).toBe(true);
       for (const b of buttons().filter((x) => x.getAttribute("aria-disabled") === "true")) {
-        const reason = document.getElementById(b.getAttribute("aria-describedby") ?? "");
-        expect(reason?.textContent, b.textContent ?? "").toBeTruthy();
+        // A header icon says why in its tooltip ("label — reason"), the others in a description.
+        const reason = b.closest(".openlfcp-pane-header")
+          ? b.getAttribute("aria-label")?.split(" — ")[1]
+          : document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent;
+        expect(reason, b.textContent ?? "").toBeTruthy();
+        if (b.closest(".openlfcp-pane-header"))
+          expect(b.hasAttribute("aria-describedby")).toBe(false);
         // Still reachable by keyboard: not the disabled attribute.
         expect(b.disabled).toBe(false);
       }
@@ -162,6 +169,12 @@ describe("the pane header (UXD-11, A8)", () => {
     const join = headerButtons()[2];
     expect(join?.querySelector(".openlfcp-pane-icon")?.getAttribute("aria-hidden")).toBe("true");
     expect(join?.querySelector(".openlfcp-visually-hidden")?.textContent).toBe("Join with a link…");
+    expect(headerButtons()[3]?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(
+      headerButtons()
+        .slice(0, 3)
+        .some((b) => b.hasAttribute("aria-haspopup")),
+    ).toBe(false);
     expect(join?.tagName).toBe("BUTTON");
     expect(join?.getAttribute("type")).toBe("button");
   });
@@ -188,9 +201,9 @@ describe("the pane header (UXD-11, A8)", () => {
     expect(tips.find(([t]) => t === "Insert into a note…")?.[1]).toBe(
       `Insert into a note… — ${insert.reason}`,
     );
-    expect(document.getElementById(b?.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-      insert.reason,
-    );
+    // The tooltip is the accessible name; no description repeats it.
+    expect(b?.getAttribute("aria-label")).toBe(`Insert into a note… — ${insert.reason}`);
+    expect(b?.hasAttribute("aria-describedby")).toBe(false);
     b?.click();
     expect(clicked).toEqual([]);
     // An enabled entry runs its action.

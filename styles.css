@@ -276,6 +276,16 @@
   display: inline-flex;
 }
 
+/*
+ * The title is the focus target when the pane opens (U03-18) but is visually
+ * hidden: the ring goes round the header row instead, so a keyboard user
+ * sees where focus is. Focus is not moved to Share: Enter would run it.
+ */
+.openlfcp-pane-header:has(.openlfcp-pane-title:focus-visible) {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
 /* A blocked action stays in place and focusable, quiet and without a hover. */
 .openlfcp-pane-icon-button.is-disabled:hover {
   background-color: transparent;
@@ -426,8 +436,7 @@
 }
 
 .openlfcp-pane button:focus-visible,
-.openlfcp-pane input:focus-visible,
-.openlfcp-pane-title:focus-visible {
+.openlfcp-pane input:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 1px;
 }

@@ -19,8 +19,9 @@
 // - The header (UXD-11, A8) is Obsidian's own nav-header pattern: a row of
 //   clickable icon buttons, Share, Insert, Join, then "More actions" at the
 //   far end. It never changes shape; an action that is blocked or does not
-//   apply is drawn disabled (aria-disabled, with its reason in the tooltip
-//   and as the button's description). Each icon button keeps its label as
+//   apply is drawn disabled (aria-disabled, with its reason in the tooltip,
+//   which the host also makes the button's accessible name: "label — reason").
+//   Each icon button keeps its label as
 //   visually hidden text, so its text is the catalogue's label, as for every
 //   other button. Icons, tooltips and the menu come from Obsidian: the
 //   renderer takes them as `chrome` and imports nothing from `obsidian`.
@@ -147,8 +148,9 @@ export const MORE_LABEL = "More actions";
  * A header icon button (A8): a native button holding the icon and the label
  * as hidden text, so its text is the label. Blocked (A5): aria-disabled and
  * `is-disabled`, still focusable, a click does nothing; the reason is in the
- * tooltip and in a hidden description. The tooltip is the host's, not a
- * `title` attribute.
+ * tooltip, which the host also gives the button as its accessible name
+ * ("label — reason"): no separate description, that would say it twice. The
+ * tooltip is the host's, not a `title` attribute.
  */
 function iconButton(
   parent: HTMLElement,
@@ -161,12 +163,15 @@ function iconButton(
     readonly reason: string | null;
     readonly run: (b: HTMLElement) => void;
     readonly action?: ActionId;
+    /** The button opens a menu. */
+    readonly menu?: boolean;
   },
 ): HTMLElement {
   const b = el(parent, "button", "clickable-icon nav-action-button openlfcp-pane-icon-button");
   b.type = "button";
   b.setAttribute(KEY, o.key);
   if (o.action !== undefined) b.dataset.action = o.action;
+  if (o.menu === true) b.setAttribute("aria-haspopup", "menu");
   const glyph = el(b, "span", "openlfcp-pane-icon");
   glyph.setAttribute("aria-hidden", "true");
   c.icon(glyph, o.icon);
@@ -178,13 +183,7 @@ function iconButton(
   }
   b.setAttribute("aria-disabled", "true");
   b.classList.add("is-disabled");
-  if (o.reason === null) c.tooltip(b, o.label);
-  else {
-    c.tooltip(b, `${o.label} — ${o.reason}`);
-    const id = `openlfcp-pane-reason-${++ids}`;
-    el(parent, "span", "openlfcp-visually-hidden", o.reason).id = id;
-    b.setAttribute("aria-describedby", id);
-  }
+  c.tooltip(b, o.reason === null ? o.label : `${o.label} — ${o.reason}`);
   return b;
 }
 
@@ -238,6 +237,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     enabled: items.length > 0,
     reason: items.length > 0 ? null : MENU_EMPTY,
     run: (b) => h.chrome.menu(b, items),
+    menu: true,
   });
 
   const handlers = (join: (link: string, name: string) => void): FormHandlers => ({
