@@ -368,6 +368,18 @@ describe("the state card (UXD-11, UX-08)", () => {
     expect(m.problems.map((p) => p.id)).toEqual(["other", "same-text-other-button"]);
   });
 
+  it("T4: in Reading view the card says why the primary is Open for editing", () => {
+    const s = doc.states.find((x) => x.id === "content-comments-and-table");
+    if (s === undefined) throw new Error("fixture missing");
+    const f = paneFactsOf(s.facts);
+    const m = paneModel({
+      ...f,
+      context: { ...f.context, editor: "reading", selection: null, cursor: "private-heading" },
+    });
+    expect(m.primary?.id).toBe("open-for-editing");
+    expect(m.card.fact).toBe("Reading view: open the note for editing to change it.");
+  });
+
   it("a flow owns the card while it runs; an unknown result is a problem", () => {
     expect(cardOf("running-share")).toMatchObject({
       title: "Sharing a section",
