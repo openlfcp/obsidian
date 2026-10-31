@@ -13,8 +13,17 @@ export default [
     // Scorecard, which runs its own config: inline config is refused.
     linterOptions: { noInlineConfig: true },
     rules: {
-      // "Shared Tasks" and "OpenLFCP" are proper nouns the rule cannot know.
-      "obsidianmd/ui/sentence-case": "off",
+      // The brand list replaces the rule's built-in one (which names
+      // "Cursor", a word this plugin uses in its ordinary sense): only the
+      // proper nouns the UI actually shows. lfcp:// links are not prose.
+      "obsidianmd/ui/sentence-case": [
+        "warn",
+        {
+          enforceCamelCaseLower: true,
+          brands: ["Obsidian", "Shared Tasks", "OpenLFCP"],
+          ignoreRegex: ["^lfcp://"],
+        },
+      ],
     },
   },
 ];

@@ -76,7 +76,7 @@ describe("actions that end in Obsidian (LFCP-03-013)", () => {
     (t.app as unknown as { setting: unknown }).setting = undefined;
     await t.plugin.actions.run("open-settings", {}, "pane");
     expect(mock.notices.at(-1)).toBe(
-      "Shared Tasks: open Settings, then Shared Tasks, to change its settings.",
+      "Shared Tasks: open settings, then Shared Tasks, to change its settings.",
     );
   });
 

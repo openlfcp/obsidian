@@ -175,7 +175,7 @@ class InvitationModal extends Modal {
           new Notice("Shared Tasks: link copied.");
           this.o.copied?.();
         },
-        () => new Notice("Shared Tasks: could not copy; use Show link."),
+        () => new Notice("Shared Tasks: could not copy; show the link and copy it from there."),
       );
     });
     buttons.createEl("button", { text: "Show link" }).addEventListener("click", () => {
