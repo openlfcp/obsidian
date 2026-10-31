@@ -268,8 +268,16 @@ export interface PaneGroup {
 
 export interface PaneModel {
   readonly title: string;
-  /** "Join with a link…", in the header in every state (A2). */
+  /** "Join with a link…", in the header in every state (A2); the same action as `header[2]`. */
   readonly join: PaneAction;
+  /**
+   * The header's icon buttons (A8): Share section…, Insert into a note…, Join
+   * with a link…, in this order, in every state. The header never changes
+   * shape: an action the facts do not offer is still here, disabled with its
+   * reason (A5). Share and Insert may also be the primary or a secondary
+   * action below, with their words.
+   */
+  readonly header: readonly PaneAction[];
   /** The field for a pasted invitation link (I5): shown while a join waits for it. */
   readonly joinField: boolean;
   /** The current area: the note, section or selection; the flow's target while a flow owns it. */
@@ -826,6 +834,20 @@ function problemView(f: PaneFacts, p: PaneProblem): PaneProblemView {
   return { id: p.id, category: p.category, text: p.text, source: p.source, action: a };
 }
 
+/** The header's entries (A8), in order. */
+const HEADER_IDS = ["share-section", "insert-into-note", "join-with-link"] as const;
+
+/** An entry the descriptors do not offer here is drawn disabled, with this reason (A5, A8). */
+const HEADER_ABSENT: Readonly<Record<(typeof HEADER_IDS)[number], Avail>> = {
+  "share-section": { enabled: false, reason: "Sharing is not available here." },
+  "insert-into-note": {
+    enabled: false,
+    reason: "No shared section on this device yet: share one, or join with a link, first.",
+  },
+  // A2: Join is always offered.
+  "join-with-link": { enabled: true, reason: null },
+};
+
 const action = (id: ActionId, x: Avail): PaneAction => ({
   id,
   label: ACTIONS[id].label,
@@ -926,7 +948,8 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
         );
   return {
     title: "Shared Tasks",
-    join: action("join-with-link", a.get("join-with-link") ?? { enabled: true, reason: null }),
+    join: action("join-with-link", a.get("join-with-link") ?? HEADER_ABSENT["join-with-link"]),
+    header: HEADER_IDS.map((id) => action(id, a.get(id) ?? HEADER_ABSENT[id])),
     joinField:
       f.context.flow?.kind === "join" &&
       f.context.flow.outcome === "running" &&
@@ -972,7 +995,7 @@ export function paneTexts(m: PaneModel): string[] {
   const act = (x: PaneAction) => [x.label, ...(x.reason === null ? [] : [x.reason])];
   return [
     m.title,
-    ...act(m.join),
+    ...m.header.flatMap(act),
     m.context.heading,
     ...m.context.lines,
     ...(m.flow === null
