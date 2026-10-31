@@ -666,7 +666,7 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
 
   it("15-16 A: the section card (status, access); the pane's copy and detach actions", async () => {
     await caretOn(hosts.A, A_FILE, "- [ ] Pack the projector", 6);
-    await hosts.A.waitUntil(async () => (await paneText(hosts.A)).includes("You can edit this section."), { timeout: 60_000, timeoutMsg: "the pane with A's rights" });
+    await hosts.A.waitUntil(async () => (await paneText(hosts.A)).includes("Synced"), { timeout: 60_000, timeoutMsg: "the pane's card, synced" });
     // The card: the pane's own action when it has one, else the badge in the note.
     const opened = await on(hosts.A, () => {
       const b = document.querySelector('.openlfcp-pane button[data-action="open-details"]');
