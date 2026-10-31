@@ -423,7 +423,7 @@ export default class OpenLfcpPlugin extends Plugin {
     if (now - this.#markerNoticeAt < 10_000) return;
     this.#markerNoticeAt = now;
     new Notice(
-      "Shared Tasks: this line keeps the section shared. Switch to Source mode to edit it.",
+      "Shared Tasks: this line keeps the section shared. Switch to source mode to edit it.",
     );
   }
 
@@ -666,7 +666,7 @@ export default class OpenLfcpPlugin extends Plugin {
         const open = setting?.open;
         const tab = setting?.openTabById;
         if (typeof open !== "function" || typeof tab !== "function") {
-          new Notice("Shared Tasks: open Settings, then Shared Tasks, to change its settings.");
+          new Notice("Shared Tasks: open settings, then Shared Tasks, to change its settings.");
           return;
         }
         open.call(setting);
@@ -814,7 +814,7 @@ export default class OpenLfcpPlugin extends Plugin {
       // LFCP-02-098 §7: rows sealed under a lost key read as absent; said once.
       runtime.onLocalStateUnreadable(() => {
         new Notice(
-          "Shared Tasks: some local recovery copies could not be read, because this device's local encryption key is missing. Your notes are unchanged; shared tasks and sections check their state with the server again.",
+          "Shared Tasks: some local recovery copies could not be read, because this device's local encryption key is missing. Your notes are unchanged; each shared task and section checks its state with the server again.",
           0,
         );
       });
