@@ -84,6 +84,18 @@ const draw = (st) =>
         disabled: b.getAttribute("aria-disabled") === "true",
         reason: reasonOf(b),
       }));
+      // The destructive actions are in Obsidian's menu (A8): opened as a user does and read; the
+      // caller closes it with a real Escape.
+      // (Obsidian on macOS shows menus natively unless told not to: nothing of them is in the page.)
+      app.vault.setConfig("nativeMenus", false);
+      const menu = [];
+      const more = el.querySelector('button[data-pane-key="menu"]');
+      if (more !== null && more.getAttribute("aria-disabled") !== "true") {
+        more.click();
+        await sleep(150);
+        for (const i of document.querySelectorAll(".menu .menu-item"))
+          menu.push({ title: i.querySelector(".menu-item-title")?.textContent ?? "", disabled: i.classList.contains("is-disabled") });
+      }
       const primary = el.querySelector(".openlfcp-pane-primary button");
       const texts = [...el.querySelectorAll("*")]
         .filter((e) => [...e.childNodes].some((x) => x.nodeType === 3))
@@ -102,8 +114,9 @@ const draw = (st) =>
         primary: primary === null ? null : { action: primary.dataset.action ?? null, disabled: primary.getAttribute("aria-disabled") === "true" },
         none: el.querySelector(".openlfcp-pane-none")?.textContent ?? null,
         actions,
+        menu,
         all: el.textContent ?? "",
-        texts,
+        texts: [...texts, ...menu.map((i) => i.title)],
         preview,
         wantPreview,
       };
@@ -113,6 +126,13 @@ const draw = (st) =>
     st,
     PANE,
   );
+
+/** Closes the pane's menu, if one is open, with a real Escape, and waits until it is gone. */
+const closeMenu = async () => {
+  if (!(await inA(() => document.querySelector(".menu") !== null))) return;
+  await browser.keys("Escape");
+  await browser.waitUntil(() => inA(() => document.querySelector(".menu") === null), { timeout: 5_000, timeoutMsg: "the menu closed" });
+};
 
 /** Puts the real sections host back and closes the pane. */
 const restore = () =>
@@ -146,10 +166,18 @@ describe("LFCP-03-025: the UX fixture states in the real plugin's pane", functio
     if (NATIVE_NOT_RUN[st.id] !== undefined) continue;
     it(`${st.id}: the fixture's primary action, actions with reasons, claims`, async () => {
       const d = await draw(st);
+      await closeMenu();
       await $(".openlfcp-pane")
         .saveScreenshot(path.join(OUT, `${st.id}.png`))
         .catch((e) => evidence(`FIXTURE ${st.id} screenshot`, { error: String(e) }));
-      const by = (id) => d.actions.find((a) => a.action === id);
+      // A button of the pane, or an item of its menu: blocked or not, and why (a menu item's title says it).
+      const by = (id) => {
+        const b = d.actions.find((a) => a.action === id);
+        if (b !== undefined) return b;
+        const label = doc.actions.find((a) => a.id === id)?.label;
+        const item = d.menu.find((i) => i.title === label || i.title.startsWith(`${label} — `));
+        return item === undefined ? undefined : { action: id, disabled: item.disabled, reason: item.disabled ? item.title.slice(label.length + 3) : null };
+      };
       const problems = [];
       const wantPrimary = st.expected.primaryCta;
       if ((d.primary?.action ?? null) !== wantPrimary) problems.push(`primary ${d.primary?.action ?? null}, want ${wantPrimary}`);
@@ -182,7 +210,7 @@ describe("LFCP-03-025: the UX fixture states in the real plugin's pane", functio
         active: d.active,
         primary: d.primary,
         problems,
-        ...(problems.length > 0 ? { actions: d.actions, text: d.all.slice(0, 800) } : {}),
+        ...(problems.length > 0 ? { actions: d.actions, menu: d.menu, text: d.all.slice(0, 800) } : {}),
       });
       expect(problems).toEqual([]);
     });

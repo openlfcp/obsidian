@@ -25,21 +25,50 @@ const hex = (b) => Buffer.from(b).toString("hex");
 const bytes = (h) => Uint8Array.from(Buffer.from(h, "hex"));
 
 const paneText = () => inA(() => document.querySelector(".openlfcp-pane")?.textContent ?? "");
-/** The pane's button for action `id`: its label and whether it is enabled. */
-const paneButton = (id) =>
-  inA((_o, id) => {
-    const b = document.querySelector(`.openlfcp-pane button[data-action="${id}"]`);
-    return b === null ? null : { label: b.textContent, enabled: b.getAttribute("aria-disabled") !== "true" };
-  }, id);
-const clickPane = (id) =>
-  inA((_o, id) => {
-    // A destructive action sits in "More actions": opened first, as a user does.
-    const menu = document.querySelector(".openlfcp-pane details.openlfcp-pane-menu");
-    if (menu !== null) menu.open = true;
-    const b = document.querySelector(`.openlfcp-pane button[data-action="${id}"]`);
-    b?.click();
-    return b !== null;
-  }, id);
+/** The destructive actions' labels: they sit in the pane's "More actions" menu (A8), not in its DOM. */
+const MENU_LABEL = { "remove-access": "Remove access…", "detach-section": "Detach this section" };
+/** Closes the menu, if one is open, with a real Escape. */
+const closeMenu = async () => {
+  if (!(await inA(() => document.querySelector(".menu") !== null))) return;
+  await browser.keys("Escape");
+  await browser.waitUntil(() => inA(() => document.querySelector(".menu") === null), { timeout: 5_000, timeoutMsg: "the menu closed" });
+};
+/**
+ * The pane's action `id` as a user finds it: a button of the pane, or an item of the
+ * "More actions" menu, opened with a click on its button. The item is clicked when `click`.
+ */
+const paneAction = async (id, click) => {
+  const label = MENU_LABEL[id];
+  const found = await inA(
+    async ({ app }, id, label, click) => {
+      const b = document.querySelector(`.openlfcp-pane button[data-action="${id}"]`);
+      if (b !== null) {
+        if (click) b.click();
+        return { label: b.textContent, enabled: b.getAttribute("aria-disabled") !== "true", menu: false };
+      }
+      const more = document.querySelector('.openlfcp-pane button[data-pane-key="menu"]');
+      if (label === undefined || more === null || more.getAttribute("aria-disabled") === "true") return null;
+      // Obsidian on macOS shows menus natively unless told not to: nothing of them would be in the page.
+      app.vault.setConfig("nativeMenus", false);
+      more.click();
+      await new Promise((r) => setTimeout(r, 150));
+      const item = [...document.querySelectorAll(".menu .menu-item")].find((i) => (i.querySelector(".menu-item-title")?.textContent ?? "").startsWith(label));
+      if (item === undefined) return { label, enabled: false, missing: true, menu: true };
+      const enabled = !item.classList.contains("is-disabled");
+      if (click && enabled) item.click();
+      return { label, enabled, menu: true };
+    },
+    id,
+    label,
+    click,
+  );
+  // A clicked item closes the menu itself (and its action may open a dialog: no Escape then).
+  if (found?.menu === true && !(click && found.enabled)) await closeMenu();
+  return found;
+};
+/** The pane's action `id`: its label and whether it is enabled; null when not drawn. */
+const paneButton = (id) => paneAction(id, false).then((f) => (f === null || f.missing ? null : { label: f.label, enabled: f.enabled }));
+const clickPane = (id) => paneAction(id, true).then((f) => f !== null && f.enabled && f.missing !== true);
 const modalWith = (part) =>
   browser.waitUntil(
     () => inA((_o, part) => [...document.querySelectorAll(".modal-container .modal")].map((m) => m.textContent).find((t) => t.includes(part)) ?? false, part),
