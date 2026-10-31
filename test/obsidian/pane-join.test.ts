@@ -190,10 +190,16 @@ async function setup(opts: { note?: boolean } = {}) {
     if (b === undefined) throw new Error(`no button ${label} in ${text()}`);
     return b;
   };
-  /** A disabled button's reason, next to it in the same drawing. */
+  /**
+   * A disabled button's reason: next to it in the same drawing, or for an icon button of the
+   * header the tooltip's "label — reason", which is also its accessible name.
+   */
   const reason = (b: HTMLButtonElement) => {
     const id = b.getAttribute("aria-describedby");
-    return id === null ? null : (b.parentElement?.querySelector(`#${id}`)?.textContent ?? null);
+    if (id !== null) return b.parentElement?.querySelector(`#${id}`)?.textContent ?? null;
+    const name = b.getAttribute("aria-label");
+    const at = name?.indexOf(" — ") ?? -1;
+    return name === null || at < 0 ? null : name.slice(at + 3);
   };
   /** Pastes `link` in the field (masked) and chooses Join. */
   const paste = async (link: string, name = "") => {

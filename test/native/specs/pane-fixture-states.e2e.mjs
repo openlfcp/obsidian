@@ -77,7 +77,11 @@ const draw = (st) =>
       const el = view.contentEl;
       const reasonOf = (b) => {
         const id = b.getAttribute("aria-describedby");
-        return id === null ? null : (el.querySelector(`#${CSS.escape(id)}`)?.textContent ?? null);
+        if (id !== null) return el.querySelector(`#${CSS.escape(id)}`)?.textContent ?? null;
+        // A header icon: Obsidian's tooltip is its accessible name, "label — reason".
+        const name = b.getAttribute("aria-label");
+        const at = name?.indexOf(" — ") ?? -1;
+        return name === null || at < 0 ? null : name.slice(at + 3);
       };
       const actions = [...el.querySelectorAll("button[data-action]")].map((b) => ({
         action: b.dataset.action,
@@ -87,6 +91,7 @@ const draw = (st) =>
       // The destructive actions are in Obsidian's menu (A8): opened as a user does and read; the
       // caller closes it with a real Escape.
       // (Obsidian on macOS shows menus natively unless told not to: nothing of them is in the page.)
+      window.__lfcpNativeMenus ??= { value: app.vault.getConfig("nativeMenus") };
       app.vault.setConfig("nativeMenus", false);
       const menu = [];
       const more = el.querySelector('button[data-pane-key="menu"]');
@@ -137,6 +142,11 @@ const closeMenu = async () => {
 /** Puts the real sections host back and closes the pane. */
 const restore = () =>
   inA(async ({ app }, pane) => {
+    // The menus setting the specs changed goes back to what it was.
+    if (window.__lfcpNativeMenus !== undefined) {
+      app.vault.setConfig("nativeMenus", window.__lfcpNativeMenus.value);
+      delete window.__lfcpNativeMenus;
+    }
     app.workspace.detachLeavesOfType(pane);
     await app.plugins.disablePlugin("shared-tasks");
     await app.plugins.enablePlugin("shared-tasks");

@@ -116,7 +116,11 @@ async function drawn(st: State) {
   const menu = mock.shownMenus.at(-1)?.items ?? [];
   const reasonOf = (b: HTMLButtonElement) => {
     const id = b.getAttribute("aria-describedby");
-    return id === null ? null : (el.querySelector(`#${id}`)?.textContent ?? null);
+    if (id !== null) return el.querySelector(`#${id}`)?.textContent ?? null;
+    // A header icon: the tooltip is its accessible name, "label — reason".
+    const name = b.getAttribute("aria-label");
+    const at = name?.indexOf(" — ") ?? -1;
+    return name === null || at < 0 ? null : name.slice(at + 3);
   };
   /** A drawn action, as a button of the pane or an item of its menu: blocked or not, and why. */
   const action = (id: string): { blocked: boolean; reason: string | null } | undefined => {

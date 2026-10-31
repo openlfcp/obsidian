@@ -839,6 +839,7 @@ const HEADER_IDS = ["share-section", "insert-into-note", "join-with-link"] as co
 
 /** An entry the descriptors do not offer here is drawn disabled, with this reason (A5, A8). */
 const HEADER_ABSENT: Readonly<Record<(typeof HEADER_IDS)[number], Avail>> = {
+  // Unreachable today (the descriptor is never hidden), kept for symmetry.
   "share-section": { enabled: false, reason: "Sharing is not available here." },
   "insert-into-note": {
     enabled: false,
