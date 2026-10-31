@@ -19,6 +19,7 @@ import {
   type StatusView,
 } from "../status/reducer";
 import { STATUS_ICONS } from "./icons";
+import { SERVER_REFUSED_TEXT } from "./problems";
 
 /** How a card or a row reads at a glance: a problem, work under way, quiet, or fine. */
 export type FaceTone = "ok" | "problem" | "busy" | "muted" | "info";
@@ -114,12 +115,13 @@ function problemFace(v: StatusView, c: Condition | undefined): SectionFace {
       if (c.access === "refused") return face(warn("Not accepted"), first);
       return face(word("Waiting for key", "busy", STATUS_ICONS.busy), first);
     case "server-refused":
+      // The server's code is the details card's; the surface says it in words.
       return c.code === "RESOURCE_NOT_HOSTED"
         ? face(
             warn("Not on server"),
             "This section is not on its server, so nobody else gets its changes.",
           )
-        : face(warn("Not accepted"), first);
+        : face(warn("Not accepted"), SERVER_REFUSED_TEXT);
     case "invalid-profile":
       return face(warn("Not valid"), first);
     case "rejected":
