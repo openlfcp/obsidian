@@ -847,9 +847,10 @@ function cardOf(
       ctx.note === null
         ? { word: "No note", icon: STATUS_ICONS.idle, tone: "muted" }
         : { word: "Not shared", icon: STATUS_ICONS.idle, tone: "muted" },
-      selection ??
-        (ctx.cursor === "private-heading" ? "On a heading that is not shared" : null) ??
-        reading,
+      // In Reading view the card says why the primary is "Open for editing" (T4).
+      reading ??
+        selection ??
+        (ctx.cursor === "private-heading" ? "On a heading that is not shared" : null),
     );
   }
   const title = sectionLabel(s).label;
@@ -865,7 +866,7 @@ function cardOf(
   const unplaced =
     s.placements === 0 && s.damaged !== true && f.registry.placementIndex === "complete";
   const w = sectionFace(s.view, { shared: shared, local, unplaced });
-  return face(title, w, w.problem ? w.fact : (selection ?? reading ?? w.fact), w.problem);
+  return face(title, w, w.problem ? w.fact : (reading ?? selection ?? w.fact), w.problem);
 }
 
 /** What the pane shows for these facts. */
