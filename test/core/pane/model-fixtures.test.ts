@@ -19,6 +19,7 @@ import {
   paneModel,
   paneTexts,
 } from "../../../src/core/pane/model";
+import type { PaneProblem } from "../../../src/core/pane/problems";
 import { DETACH_CONFIRMATION } from "../../../src/core/sections/actions";
 import { accessView } from "../../../src/core/status/access";
 import { BODY_DELETE_TEXT, sectionCard, WHOLE_COPY_TEXT } from "../../../src/core/status/card";
@@ -341,6 +342,30 @@ describe("the state card (UXD-11, UX-08)", () => {
     expect(crossing.primaryNone).toBe(
       "Select the lines of one section, from its heading, to share it.",
     );
+  });
+
+  it("a problem row that says what the card says, with the card's button, is not listed again", () => {
+    const held = doc.states.find((x) => x.id === "held-boundary-queue-empty");
+    if (held === undefined) throw new Error("fixture missing");
+    const base = paneFactsOf(held.facts);
+    const fact = "3 edits not sent: the section's start or end marker is damaged.";
+    const row = (id: string, text: string, action: PaneProblem["action"]): PaneProblem => ({
+      id,
+      category: "held",
+      text,
+      source: "Plan.md, line 15",
+      action,
+      ref: null,
+    });
+    const m = paneModel({
+      ...base,
+      problems: [
+        row("same", fact, "repair-sections"),
+        row("other", "A line of the section cannot be shared.", "go-to-problem"),
+        row("same-text-other-button", fact, "go-to-problem"),
+      ],
+    });
+    expect(m.problems.map((p) => p.id)).toEqual(["other", "same-text-other-button"]);
   });
 
   it("a flow owns the card while it runs; an unknown result is a problem", () => {
