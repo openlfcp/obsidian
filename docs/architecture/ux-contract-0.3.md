@@ -119,6 +119,8 @@ Rules:
 - **A5.** An action that does not apply to the context is hidden. One that
   applies but is blocked is shown disabled with its reason, for example
   "Detach this section" while the section is loading (owner decision D10).
+  Except the header's three actions and "More actions" (A8): they are always
+  drawn, disabled when they do not apply or are blocked.
 - **A6. Pane entries (LFCP-03-012).** The ribbon icon (tooltip "Open Shared
   Tasks pane"), the command `open-pane` "Open Shared Tasks
   pane", the section card's "Open Shared Tasks pane" and the editor context
@@ -143,8 +145,9 @@ Rules:
   (`share-2`), "Insert into a note…" (`file-input`), "Join with a link…"
   (`link`), then "More actions" (`more-horizontal`) at the far end. They are
   there in every state and the header never changes shape: an action that is
-  blocked or does not apply is drawn disabled with its reason (A5), in the
-  tooltip and as the button's description, never removed. Each button keeps
+  blocked, or does not apply here, is drawn disabled with its reason in the
+  tooltip (which is also the button's accessible name, "label — reason"),
+  never removed. This is the one exception to A5's "hidden". Each button keeps
   the catalogue's label as its text and takes its tooltip from Obsidian. The
   destructive actions ("Remove access…", "Discard the local copy…", "Detach
   this section") are in the "More actions" menu, an Obsidian menu with an icon

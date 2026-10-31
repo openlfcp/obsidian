@@ -265,7 +265,8 @@ shared sections on this device.
 A row of icon buttons runs along the top of the pane: **"Share section…"**,
 **"Insert into a note…"** and **"Join with a link…"**, and at the right end
 **"More actions"** ("…"). Point at an icon to see its name. The row is always
-the same; an action that does not apply is dimmed, and its tooltip says why.
+the same: a dimmed icon means the action is blocked or not available yet, and
+its tooltip says why.
 **"More actions"** opens a menu with **"Remove access…"**, **"Discard the
 local copy…"** and **"Detach this section"**, each with its usual
 confirmation.
