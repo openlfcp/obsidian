@@ -24,6 +24,8 @@ export interface Expected {
   enabled: { action: string; reason: string }[];
   disabled: { action: string; reason: string }[];
   requiredClaims: string[];
+  /** What the section list says; what Details says is checked on the model (model-fixtures.test.ts). */
+  requiredListClaims?: string[];
   forbiddenClaims: string[];
 }
 export interface State {

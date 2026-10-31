@@ -234,6 +234,19 @@ describe("the UX 0.3 states on the real host (LFCP-03-013)", () => {
         expect(all).not.toContain("deletes it for everyone");
       });
 
+      it("UX-08: the section list says its claims, one line per section", async () => {
+        const d = await drawn(st);
+        const all = d.el.textContent ?? "";
+        for (const claim of st.expected.requiredListClaims ?? [])
+          expect(all, claim).toContain(claim);
+        // One line each: a status icon, the name and "where · status" in a single control.
+        for (const row of Array.from(d.el.querySelectorAll(".openlfcp-pane-row-label"))) {
+          expect(row.querySelector(".openlfcp-pane-icon")).not.toBeNull();
+          expect(row.querySelector(".openlfcp-pane-row-name")?.textContent).toBeTruthy();
+          expect(row.querySelector(".openlfcp-pane-row-meta")?.textContent).toMatch(/ · /);
+        }
+      });
+
       it("makes its claims, and none of the forbidden ones", async () => {
         const d = await drawn(st);
         const all = d.el.textContent ?? "";

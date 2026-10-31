@@ -188,10 +188,10 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
   it("says the section is damaged in this note, not that it is not inserted", () => {
     const m = draw(damaged, { cursorLine: 0 });
     const lines = JSON.stringify(m);
-    expect(lines).toContain("Damaged in this note");
-    expect(lines).not.toContain("Not inserted yet");
-    expect(m.sections.groups.find((g) => g.id === "in-note")?.rows[0]?.places).toBe(
-      "Damaged in this note",
+    expect(lines).toContain("damaged here");
+    expect(lines).not.toMatch(/not inserted yet/i);
+    expect(m.sections.groups.find((g) => g.id === "in-note")?.rows[0]?.meta).toMatch(
+      /^damaged here · /,
     );
   });
 

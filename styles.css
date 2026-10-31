@@ -551,9 +551,17 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-/* A row is chosen by the user (D9): a native button that reads as the row's name, wrapping. */
-.openlfcp-pane-row button.openlfcp-pane-row-label {
-  display: block;
+/*
+ * One line per section (UX-08): a status icon, the name, and on the right where
+ * it is and how it stands ("here · synced"); the meta wraps below the name when
+ * the pane is too narrow. A row is chosen by the user (D9): a native button
+ * that reads as the row, not as a button.
+ */
+.openlfcp-pane-row .openlfcp-pane-row-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--size-4-2);
   width: 100%;
   height: auto;
   padding: 0;
@@ -561,6 +569,34 @@
   white-space: normal;
   background: none;
   box-shadow: none;
+}
+
+.openlfcp-pane-row-name {
+  flex: 1 1 8em;
+  min-width: 0;
+}
+
+.openlfcp-pane-row-label .openlfcp-pane-icon {
+  align-self: center;
+  color: var(--text-muted);
+}
+
+.openlfcp-pane-row-label .svg-icon {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.openlfcp-pane-row-label .openlfcp-pane-icon.is-ok {
+  color: var(--text-success);
+}
+
+.openlfcp-pane-row-label .openlfcp-pane-icon.is-problem {
+  color: var(--text-error);
+}
+
+.openlfcp-pane-row-label .openlfcp-pane-row-meta {
+  flex: 0 1 auto;
+  text-align: end;
 }
 
 .openlfcp-pane-row.is-chosen {

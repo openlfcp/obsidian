@@ -416,10 +416,20 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     for (const r of g.rows) {
       const li = el(ul, "li", "openlfcp-pane-row");
       const pick = h.row;
-      if (pick === undefined) el(li, "div", "openlfcp-pane-row-label", r.label);
+      // One line: the status icon, the name, and where it is and how it stands on the right.
+      const line = <T extends "button" | "div">(parent: HTMLElement, tag: T) => {
+        const row = el(parent, tag, "openlfcp-pane-row-label");
+        const glyph = el(row, "span", `openlfcp-pane-icon is-${r.tone}`);
+        glyph.setAttribute("aria-hidden", "true");
+        h.chrome.icon(glyph, r.icon);
+        el(row, "span", "openlfcp-pane-row-name", r.label);
+        el(row, "span", "openlfcp-pane-row-meta", r.meta);
+        return row;
+      };
+      if (pick === undefined) line(li, "div");
       else {
         // D9: a row is chosen by the user, never by the pane on its own; a native button.
-        const b = el(li, "button", "openlfcp-pane-row-label", r.label);
+        const b = line(li, "button");
         b.type = "button";
         b.setAttribute(KEY, `row:${r.key}`);
         b.dataset.row = r.key;
@@ -428,7 +438,6 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
         b.addEventListener("click", () => pick(r.key));
       }
       if (r.alias !== null) el(li, "div", "openlfcp-pane-row-alias", r.alias);
-      el(li, "div", "openlfcp-pane-row-meta", `${r.status} · ${r.places}`);
     }
   }
 
