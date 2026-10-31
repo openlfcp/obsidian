@@ -258,7 +258,8 @@ Click the **Shared Tasks** icon in the left ribbon, run **"Open Shared Tasks
 pane"**, or right-click in a note and choose it. The pane opens in the right
 sidebar. Opening it again shows the same pane.
 
-The pane follows the last note you worked in. Below the icons it shows one
+The pane follows the last note you worked in. Under its title, **Shared
+Tasks**, and a row of icons, it shows one
 card for the place the cursor is on: the shared section's name, its status in
 a word with an icon (for example **Synced**, **Not syncing**, **Offline**,
 **Read-only**), one line of detail, and a highlighted button for the next

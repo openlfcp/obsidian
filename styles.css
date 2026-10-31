@@ -247,13 +247,14 @@
 }
 
 /*
- * The header (UXD-11, A8) is Obsidian's nav-header: a row of clickable icons,
- * as the File explorer and Search have. The theme and the platform size and
- * colour the buttons (clickable-icon, nav-action-button; larger targets on
- * mobile); only the layout is ours. The title stays for focus and screen
- * readers, visually hidden: the tab already names the pane.
+ * The header (UXD-11, A8) is Obsidian's nav-header: the pane's title, then a
+ * row of clickable icons, as the File explorer and Search have. The theme and
+ * the platform size and colour the buttons (clickable-icon, nav-action-button;
+ * larger targets on mobile); only the layout is ours.
  */
+/* The title above the row of icons, whatever the theme does with a nav-header. */
 .openlfcp-pane-header.nav-header {
+  display: block;
   padding: 0;
 }
 
@@ -277,13 +278,23 @@
 }
 
 /*
- * The title is the focus target when the pane opens (U03-18) but is visually
- * hidden: the ring goes round the header row instead, so a keyboard user
- * sees where focus is. Focus is not moved to Share: Enter would run it.
+ * The title, visible (owner decision 2026-10-31), in the theme's UI heading
+ * size. It is the focus target when the pane opens (U03-18), with its own
+ * ring. Focus is not moved to Share: Enter would run it.
  */
-.openlfcp-pane-header:has(.openlfcp-pane-title:focus-visible) {
+.openlfcp-pane-title {
+  margin: 0;
+  padding: var(--size-4-1) var(--size-4-2);
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.openlfcp-pane-title:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 1px;
+  border-radius: var(--radius-s);
 }
 
 /* A blocked action stays in place and focusable, quiet and without a hover. */
