@@ -271,7 +271,8 @@ and its button is the fix; in Reading view the button is **"Open for
 editing"**, and the card says so. Under the card come any other problems,
 each with where it is (for example "Other.md, line 31") and its own button:
 another copy of the section that holds edits, or a damaged marker of another
-section in the note, which is fixed first. Then a tip, and the shared
+section in the note. The card's button is always for the section under the
+cursor: a damaged marker of another section is fixed from its own row. Then a tip, and the shared
 sections on this device, one line each (for example "here · synced").
 
 The card keeps to one line. The caveats, times, the server and the full list

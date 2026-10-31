@@ -437,17 +437,26 @@ of the section at the cursor: one copy's held edits (the copy holding the
 most), its access or refusal, or its own damaged marker. That one row, found
 by its ID, is not listed a second time when its button is the card's primary,
 or the fix that Reading view's "Open for editing" leads to (T4: the card then
-says the problem and why the primary opens the editor). Every other row stays
+says the problem and why the primary opens the editor). One cause is one line
+and one button: a damaged marker of the cursor's section in this note is the
+card even when its copy holds edits for it (P1 row 6 takes the marker's own
+fix, Restore where it can, and that button acts on that item, as the row's
+would); the count of held edits is in Details. Every other row stays
 (UXD-12):
 
 - another copy held for the same cause, in another note: its row, with its
   place, says the same words, and the surface counts both copies' edits;
 - a damaged marker of another section of the note: its row, with its place
   and its fix, under a card that keeps the cursor's section and its own
-  status. P1 is unchanged: that fix is still the primary (UX-06);
+  status. The card's primary never fixes another section: it is the one P1
+  gives the cursor's section (none when there is nothing to do there), and
+  the fix is the row's button only (UX-06 still holds: no Insert is offered
+  for a damaged section);
 - with no section at the cursor and a damaged marker in the note, the card
   says "No section at the cursor" ("Not in a section": the cursor may be in
-  the damaged one) and the marker is a row below it.
+  the damaged one) and the marker is a row below it, with the only fix
+  button. The card has no primary and offers no share there; in Reading view
+  its primary is "Open for editing" (T4), which the row's fix waits for.
 
 A server's refusal code is on neither the card nor a row: they say "The sync
 server refused this section."; the code is in Details (F5).
