@@ -334,12 +334,11 @@ describe("pane performance on P200 (LFCP-03-026, U03-22)", () => {
     // The second projection: from the second note, Insert into a note… → Insert.
     await openNote(SECOND, 2);
     // The pane about the second note first (its context follows the active leaf), then its button.
-    // (The card no longer names the note: it is the active one, and the pane has drawn since, over its 100 ms window.)
-    await browser.waitUntil(
-      () => inA(({ app, obsidian }, file) => app.workspace.getActiveViewOfType(obsidian.MarkdownView)?.file?.path === file, SECOND),
-      { timeout: 30_000, timeoutMsg: "the second note active" },
-    );
-    await browser.pause(400);
+    // (The card no longer names the note: the pane's root says which note it was drawn for, T1.)
+    await browser.waitUntil(() => inA((_o, file) => document.querySelector(".openlfcp-pane")?.dataset.note === file, SECOND), {
+      timeout: 30_000,
+      timeoutMsg: "the pane drawn for the second note",
+    });
     await browser.waitUntil(async () => (await paneButton("insert-into-note"))?.disabled === false, { timeout: 120_000, timeoutMsg: "Insert into a note… in the pane" });
     const insertAsked = () =>
       inA(() => {
