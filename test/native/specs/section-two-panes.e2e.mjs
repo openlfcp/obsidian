@@ -83,6 +83,8 @@ const selectTask = (i, title) =>
     i,
     (e, _leaf, _app, title) => {
       const line = e.getValue().split("\n").findIndex((l) => /^[ \t]*[-*+] \[.\] /.test(l) && l.includes(`] ${title}`));
+      // No such Task: selecting from line -1 would cut the heading instead.
+      if (line < 0) throw new Error(`no Task "${title}" to select`);
       e.setSelection({ line, ch: 0 }, { line: line + 2, ch: 0 });
     },
     title,
@@ -135,7 +137,30 @@ const watchObsidian = () =>
           if (n instanceof HTMLElement && n.classList.contains("notice"))
             window.__panesLog.push({ t: Date.now() - t0, notice: n.textContent });
     }).observe(document.body, { childList: true, subtree: true });
-    app.vault.on("modify", (f) => window.__panesLog.push({ t: Date.now() - t0, modify: f.path }));
+    app.vault.on("modify", (f) => {
+      const t = Date.now() - t0;
+      window.__panesLog.push({ t, modify: f.path });
+      // What the save wrote: the Tasks on disk, against the panes' (below).
+      void app.vault.adapter.read(f.path).then((md) => window.__panesLog.push({ t, disk: tasksOf(md), crlf: md.includes("\r") }));
+    });
+    // Each pane's Tasks whenever they change: which pane lost or got a Task, and when.
+    const tasksOf = (md) => md.split(/\r?\n/).filter((l) => /^[ \t]*[-*+] \[.\] /.test(l)).map((l) => l.replace(/^[ \t]*[-*+] \[.\] /, ""));
+    const seen = [];
+    setInterval(() => {
+      (window.__panes ?? []).forEach((leaf, i) => {
+        const now = JSON.stringify(tasksOf(leaf.view?.editor?.getValue() ?? ""));
+        if (seen[i] !== now) window.__panesLog.push({ t: Date.now() - t0, pane: i, tasks: JSON.parse(now), dirty: leaf.view?.dirty });
+        seen[i] = now;
+      });
+    }, 20);
+    // Each operation the plugin records, when.
+    const ls = app.plugins.plugins["shared-tasks"].runtime.localState;
+    const put = ls.put.bind(ls);
+    ls.put = (key, value) => {
+      if (key.startsWith("section-op:") && Array.isArray(value?.intents))
+        window.__panesLog.push({ t: Date.now() - t0, op: value.phase, intents: value.intents.map((x) => x.intent) });
+      return put(key, value);
+    };
   });
 /** What watchObsidian saw since the last call. */
 const obsidianLog = () =>
@@ -168,7 +193,11 @@ describe("one shared section in two panes", () => {
       throw error;
     });
     const texts = await paneTexts();
-    evidence(`${label} obsidian`, { log: await obsidianLog() });
+    const same = new Set(texts).size === 1;
+    evidence(`${label} obsidian`, {
+      log: await obsidianLog(),
+      ...(same ? {} : { texts, disk: await inA(({ app }) => app.vault.adapter.read("Panes.md")), ops: await opsA() }),
+    });
     expect(new Set(texts).size).toBe(1);
     return s;
   };
