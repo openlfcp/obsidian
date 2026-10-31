@@ -31,3 +31,18 @@ export const ACTION_ICONS: Readonly<Record<ActionId, string>> = {
 
 /** The "More actions" button's icon. */
 export const MORE_ICON = "more-horizontal";
+
+/**
+ * The icon of a status (the state card and the section list's rows), by what
+ * it says: synced, a problem, work under way, offline, read-only, nothing to
+ * do yet, not known. Lucide names, as above.
+ */
+export const STATUS_ICONS = {
+  synced: "check-check",
+  problem: "triangle-alert",
+  busy: "loader",
+  offline: "cloud-off",
+  "read-only": "eye",
+  idle: "circle-dashed",
+  unknown: "circle-help",
+} as const;

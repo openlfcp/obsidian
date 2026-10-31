@@ -150,6 +150,36 @@ describe("pane view model on the UX 0.3 fixtures", () => {
         for (const p of problems.slice(card.problems.length)) expect(card.facts).toContain(p);
       });
 
+      it("UXD-11: one card, with a status word, one line of fact and the model's primary", () => {
+        const c = model.card;
+        expect(c.title).not.toBe("");
+        expect(c.status.word).not.toBe("");
+        expect(c.status.icon).not.toBe("");
+        expect(c.primary).toEqual(model.primary);
+        expect(c.none).toBe(model.primary === null ? model.primaryNone : null);
+        // One line, in words: no hex and no identifier on the surface.
+        expect(c.fact ?? "").not.toContain("\n");
+        expect(c.fact ?? "").not.toMatch(/[0-9a-f]{16,}/i);
+        // Beside the primary at most Details, and never Details twice.
+        expect(c.secondary === null || c.secondary.id === "open-details").toBe(true);
+        expect(c.secondary !== null && c.primary?.id === "open-details").toBe(false);
+        expect(c.secondary === null || c.secondary.enabled).toBe(true);
+        // A problem card is named a problem; "Synced" only for a section that is current.
+        const section = facts.section;
+        if (c.status.word === "Synced") {
+          expect(section?.view.sync.current).toBe(true);
+          expect(section?.view.conditions).toEqual([]);
+          expect(section?.view.held).toEqual([]);
+        }
+        if (c.problem) expect(c.status.tone).toBe("problem");
+        if (section !== null && model.flow === null)
+          expect(c.problem).toBe(
+            section.view.held.length > 0 ||
+              c.status.word === "Needs repair" ||
+              c.status.tone === "problem",
+          );
+      });
+
       it("makes the required claims", () => {
         const all = texts.join("\n");
         for (const claim of s.expected.requiredClaims) expect(all, claim).toContain(claim);
@@ -162,6 +192,87 @@ describe("pane view model on the UX 0.3 fixtures", () => {
       });
     });
   }
+});
+
+describe("the state card (UXD-11, UX-08)", () => {
+  const cardOf = (id: string) => {
+    const s = doc.states.find((x) => x.id === id);
+    if (s === undefined) throw new Error(id);
+    return paneModel(paneFactsOf(s.facts), { time }).card;
+  };
+
+  it("names the section and its status in a word, with the primary of P1", () => {
+    const c = cardOf("healthy-can-invite");
+    expect([c.title, c.status.word, c.status.icon, c.status.tone]).toEqual([
+      "Launch",
+      "Synced",
+      "check-check",
+      "ok",
+    ]);
+    expect(c.primary?.id).toBe("invite");
+    expect(c.secondary?.id).toBe("open-details");
+    expect(c.problem).toBe(false);
+  });
+
+  it("a problem owns the card: its fix is the primary", () => {
+    const c = cardOf("held-boundary-queue-empty");
+    expect([c.status.word, c.status.icon, c.status.tone, c.problem]).toEqual([
+      "Not syncing",
+      "triangle-alert",
+      "problem",
+      true,
+    ]);
+    expect(c.fact).toBe("3 edits not sent: the section's start or end marker is damaged.");
+    expect(c.primary?.id).toBe("repair-sections");
+  });
+
+  it("a conflict, offline and read-only each say their own word", () => {
+    expect(cardOf("offline-conflict").status.word).toBe("Conflict");
+    expect(cardOf("offline-queued").status).toEqual({
+      word: "Offline",
+      icon: "cloud-off",
+      tone: "muted",
+    });
+    expect(cardOf("healthy-read-only").status).toEqual({
+      word: "Read-only",
+      icon: "eye",
+      tone: "info",
+    });
+  });
+
+  it("a section that is still loading is progress, never current", () => {
+    const c = cardOf("loading");
+    expect(c.status).toEqual({ word: "Loading", icon: "loader", tone: "busy" });
+    expect(c.primary?.id).toBe("open-details");
+    expect(c.secondary).toBeNull();
+  });
+
+  it("no section: says so, and why there is no primary in its place", () => {
+    expect(cardOf("no-editor")).toMatchObject({
+      title: "No note open",
+      status: { word: "No note" },
+      none: "Open a note to share from it, or join with a link.",
+      primary: null,
+      secondary: null,
+    });
+    expect(cardOf("selection-crossing")).toMatchObject({
+      title: "No section at the cursor",
+      fact: "The selection runs past the end of the heading's section.",
+      none: "Select the lines of one section, from its heading, to share it.",
+    });
+  });
+
+  it("a flow owns the card while it runs; an unknown result is a problem", () => {
+    expect(cardOf("running-share")).toMatchObject({
+      title: "Sharing a section",
+      status: { word: "In progress" },
+      secondary: null,
+    });
+    expect(cardOf("unknown-result-join")).toMatchObject({
+      status: { word: "Result unknown" },
+      problem: true,
+    });
+  });
 });
 
 describe("pane view model rules beyond the fixtures", () => {
