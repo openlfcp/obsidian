@@ -164,8 +164,10 @@ Rules:
   only, `eye` read-only), ONE line of fact, the primary of P1 as a `mod-cta`
   button with its icon and label, and at most one secondary beside it:
   "Open details", unless that is the primary or there is no section. The card
-  says "Synced" only where `sync.current` holds (§6). A problem owns the
-  card (`is-problem`, the theme's error colours); its fix is the primary. A
+  says "Synced" only where `sync.current` holds (§6). The card is about the
+  section at the cursor and its own status (owner decision UXD-12). A
+  problem of that section owns the card (`is-problem`, the theme's error
+  colours); its fix is the primary. A
   running flow (P2) is drawn in the card's place, with its steps. Every other
   non-destructive action, and the destructive ones, are items of "More
   actions" (A8, A1): the card has no stack of buttons. Not on the surface,
@@ -418,9 +420,25 @@ Below the card the pane lists every problem of the section and of the
 note in view, one row each (`src/core/pane/problems.ts`). A row says what
 the problem is, where it comes from, and offers the one action that opens
 its resolver. The primary action of P1 is unchanged; the rows are the way
-to each problem, not a second precedence. The problem of the section at the
-cursor is the card itself (A9); the fix of a damaged section marker (its
-text, its button) is the card and is not listed a second time.
+to each problem, not a second precedence. The card (A9) says one problem
+of the section at the cursor: one copy's held edits (the copy holding the
+most), its access or refusal, or its own damaged marker. That one row, found
+by its ID, is not listed a second time when its button is the card's primary,
+or the fix that Reading view's "Open for editing" leads to (T4: the card then
+says the problem and why the primary opens the editor). Every other row stays
+(UXD-12):
+
+- another copy held for the same cause, in another note: its row, with its
+  place, says the same words, and the surface counts both copies' edits;
+- a damaged marker of another section of the note: its row, with its place
+  and its fix, under a card that keeps the cursor's section and its own
+  status. P1 is unchanged: that fix is still the primary (UX-06);
+- with no section at the cursor and a damaged marker in the note, the card
+  says "No section at the cursor" ("Not in a section": the cursor may be in
+  the damaged one) and the marker is a row below it.
+
+A server's refusal code is on neither the card nor a row: they say "The sync
+server refused this section."; the code is in Details (F5).
 
 | Problem | Source shown | Row action and what it carries |
 | --- | --- | --- |
@@ -554,7 +572,8 @@ unknown, never as zero.
   "Offline") without evidence of it, a removal or non-membership hedged
   ("As last verified; it may have changed.") while the access view is not
   current. The "Must not say" column applies to the card's word and line and
-  to Details alike.
+  to Details alike. Codes and identifiers (a server's refusal code) are
+  Details' only.
 
 ## 7. Names: shared title and local alias
 
