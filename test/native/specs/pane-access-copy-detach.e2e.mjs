@@ -49,6 +49,7 @@ const paneAction = async (id, click) => {
       const more = document.querySelector('.openlfcp-pane button[data-pane-key="menu"]');
       if (label === undefined || more === null || more.getAttribute("aria-disabled") === "true") return null;
       // Obsidian on macOS shows menus natively unless told not to: nothing of them would be in the page.
+      window.__lfcpNativeMenus ??= { value: app.vault.getConfig("nativeMenus") };
       app.vault.setConfig("nativeMenus", false);
       more.click();
       await new Promise((r) => setTimeout(r, 150));
@@ -101,8 +102,13 @@ describe("LFCP-03-019: access, copy and detach from the pane", () => {
   after(async () => {
     await closeModals("pane access").catch(() => undefined);
     await inA(({ app }, type) => app.workspace.detachLeavesOfType(type), VIEW);
-    await inA(() => {
+    await inA(({ app }) => {
       if (window.__lfcpClipboard !== undefined) navigator.clipboard.writeText = window.__lfcpClipboard;
+      // The menus setting the spec changed goes back to what it was.
+      if (window.__lfcpNativeMenus !== undefined) {
+        app.vault.setConfig("nativeMenus", window.__lfcpNativeMenus.value);
+        delete window.__lfcpNativeMenus;
+      }
     }).catch(() => undefined);
     await c?.stop().catch(() => undefined);
     await b?.stop().catch(() => undefined);
