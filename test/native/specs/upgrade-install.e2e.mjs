@@ -15,7 +15,7 @@
 // harness cache (releases/<version>/); a case without them is skipped.
 // The reference server at LFCP_SERVER_BIN.
 import { peer, restartableServer } from "../peer.bundle.mjs";
-import { evidence, inA, markerProblems, sectionOf, shareAndJoin, titles } from "./support/section-checks.mjs";
+import { editorA, evidence, inA, markerProblems, sectionOf, shareAndJoin, titles } from "./support/section-checks.mjs";
 import { badge, freshVault, install, noteText, open, outboundA, releaseFiles, typeAfter } from "./support/upgrade.mjs";
 
 /** Answers the open text prompt with `text` (input, then OK). */
@@ -226,13 +226,21 @@ describe("install and upgrade", () => {
       )
       .catch(() => false);
     const current = await browser.waitUntil(async () => (await badge()) === "CURRENT", { timeout: 45_000 }).catch(() => false);
+    // The typed text reaches the file by Obsidian's own save, about 2 s after
+    // the last key; B may have it sooner: the file is read once it shows what
+    // A's editor shows.
+    const shown = async () => titles(sectionOf(await editorA((e) => e.getValue())));
+    const saved = await browser
+      .waitUntil(async () => JSON.stringify(titles(sectionOf(await noteText("Beta.md")))) === JSON.stringify(await shown()), { timeout: 10_000 })
+      .catch(() => false);
     const md = await noteText("Beta.md");
-    const out = { old, now, reached, current, a: titles(sectionOf(md)), b: titles(sectionOf(b.files.get(bFile))), problems: markerProblems(md).problems };
+    const out = { old, now, reached, current, saved, editor: await shown(), a: titles(sectionOf(md)), b: titles(sectionOf(b.files.get(bFile))), problems: markerProblems(md).problems };
     evidence("FROM 0.4.0-beta.15", out);
     expect(now.status).toBe("ready");
     expect(now.principal).toBe(old.principal);
     expect(reached).toBe(true);
     expect(current).toBe(true);
+    expect(saved).toBe(true);
     expect(out.a).toEqual(["Alpha", "Beta edited offline", "Gamma"]);
     expect(out.b).toEqual(out.a);
     expect(out.problems).toEqual([]);
