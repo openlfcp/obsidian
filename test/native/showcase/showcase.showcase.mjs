@@ -453,6 +453,13 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
   after(async function () {
     this.timeout(120_000);
     for (const h of [hosts.A, hosts.B]) if (h !== null) await closeModals(h).catch(() => undefined);
+    // The menus setting the pane step changed goes back to what it was.
+    if (hosts.A !== null)
+      await on(hosts.A, () => {
+        if (window.__lfcpNativeMenus === undefined) return;
+        window.app.vault.setConfig("nativeMenus", window.__lfcpNativeMenus.value);
+        delete window.__lfcpNativeMenus;
+      }).catch(() => undefined);
     await hosts.B?.deleteSession().catch(() => undefined);
     hosts.B = null;
     await server?.stop();
@@ -679,6 +686,7 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
     await closeModals(hosts.A);
     // The destructive actions are in the pane's "More actions" menu: opened, as a user does.
     await on(hosts.A, () => {
+      window.__lfcpNativeMenus ??= { value: window.app.vault.getConfig("nativeMenus") };
       window.app.vault.setConfig("nativeMenus", false);
       document.querySelector('.openlfcp-pane button[data-pane-key="menu"]')?.click();
     });
