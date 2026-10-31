@@ -153,9 +153,22 @@ describe.skipIf(!live)("unfinished journeys across a crash (LFCP-03-017)", () =>
     expect(copies(B, path)).toBe(0);
     await showPane(B, path);
     const shown = pane(B);
-    expect(shown.text).toContain("Unfinished");
+    // The card's primary continues it; the Unfinished list names this note's insert and where it stopped.
     expect(shown.primary?.dataset.action).toBe("continue-flow");
-    expect(shown.text).toContain("An insert into this note is unfinished: continue it.");
+    expect(shown.el.querySelector(".openlfcp-pane-card")?.contains(shown.primary ?? null)).toBe(
+      true,
+    );
+    expect(shown.el.querySelector(".openlfcp-pane-unfinished")?.textContent).toContain(
+      `Inserting a shared section: ${path}: stopped before`,
+    );
+    // A new insert is not offered beside it: the header's Insert is blocked, saying why (UXD-11, A5).
+    const insert = shown.el.querySelector<HTMLElement>(
+      ".openlfcp-pane-header [data-action='insert-into-note']",
+    );
+    expect(insert?.getAttribute("aria-disabled")).toBe("true");
+    expect(insert?.getAttribute("aria-label")).toContain(
+      "An insert into this note is unfinished: continue it.",
+    );
 
     shown.primary?.click();
     await answer("the same preview", (m) => {
