@@ -205,12 +205,14 @@ describe("the pane header (UXD-11, A8)", () => {
     expect(join?.getAttribute("type")).toBe("button");
   });
 
-  it("keeps the title in the DOM, hidden from the eye, as the focus target", () => {
+  it("shows the title as the pane's heading, above the icons, and keeps it the focus target", () => {
     renderPane(root, modelOf("healthy-can-invite"), { chrome, action: () => undefined });
-    const title = root.querySelector<HTMLElement>("h2.openlfcp-pane-title");
+    const title = root.querySelector<HTMLElement>(".openlfcp-pane-header > h2.openlfcp-pane-title");
     expect(title?.textContent).toBe("Shared Tasks");
-    expect(title?.classList.contains("openlfcp-visually-hidden")).toBe(true);
+    expect(title?.classList.contains("openlfcp-visually-hidden")).toBe(false);
+    expect(title?.nextElementSibling?.classList.contains("openlfcp-pane-toolbar")).toBe(true);
     expect(title?.getAttribute("data-pane-key")).toBe("title");
+    expect(title?.tabIndex).toBe(-1);
   });
 
   it("A5: a blocked entry is disabled with its reason in the tooltip and as its description", () => {

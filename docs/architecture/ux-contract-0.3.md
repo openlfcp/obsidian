@@ -140,8 +140,10 @@ Rules:
   action that applies but is blocked is shown disabled with its reason
   (A5), for example "Invite collaborator…" while access is not checked
   with the server.
-- **A8. Pane header** (UXD-11). The header is a row of four icon buttons in
-  Obsidian's own nav-header style, in this order: "Share section…"
+- **A8. Pane header** (UXD-11). The header is the pane's visible title,
+  "Shared Tasks" (owner decision 2026-10-31: shown again; it is where focus
+  goes when the pane opens, with its own focus ring), above a row of four
+  icon buttons in Obsidian's own nav-header style, in this order: "Share section…"
   (`share-2`), "Insert into a note…" (`file-input`), "Join with a link…"
   (`link`), then "More actions" (`more-horizontal`) at the far end. They are
   there in every state and the header never changes shape: an action that is

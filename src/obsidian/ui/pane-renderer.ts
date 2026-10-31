@@ -32,10 +32,9 @@
 //   place. Caveats, times, the server and what a change does are in Details,
 //   not here; every action the card and the header do not draw is in the
 //   "More actions" menu. Problems the card is not about are listed below it.
-// - The title "Shared Tasks" stays in the DOM, visually hidden: it is the
-//   focus target when the pane opens (U03-18) and the pane's heading for a
-//   screen reader. The tab already shows the name, and at 330 px the room is
-//   worth more to the four buttons than to a second copy of it.
+// - The title "Shared Tasks" is the pane's visible heading, above the row of
+//   icons (owner decision 2026-10-31): the focus target when the pane opens
+//   (U03-18), with its own focus ring, and the heading for a screen reader.
 // - Narrow panes: everything wraps; colours and spacing are Obsidian's CSS variables.
 
 import type { ActionId } from "../../core/actions/catalog";
@@ -284,7 +283,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
   const header = el(root, "div", "openlfcp-pane-header nav-header");
   // Before the kept field: moving the header, never the field, keeps its focus.
   if (kept !== null) root.insertBefore(header, kept);
-  const title = el(header, "h2", "openlfcp-pane-title openlfcp-visually-hidden", model.title);
+  const title = el(header, "h2", "openlfcp-pane-title", model.title);
   title.tabIndex = -1;
   title.setAttribute(KEY, "title");
   const bar = el(header, "div", "nav-buttons-container openlfcp-pane-toolbar");
