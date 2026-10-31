@@ -56,6 +56,28 @@ describe("boundary repair (062)", () => {
     expect(() => boundaryRepair(broken, item, 7)).toThrow("not a candidate line");
   });
 
+  it("a choice shows the Task's text, not its ref marker (issue #87)", () => {
+    const md = [
+      "## Launch",
+      formatBoundary("start", ref),
+      "- [ ] One <!-- lfcp-ref: lfcp1:x -->",
+      "",
+      "- [ ] Two",
+      "  <!-- lfcp-ref: lfcp1:y -->",
+      "",
+      "## Other",
+      "",
+    ].join("\n");
+    const item = repairItems(md).find((i) => i.kind === "missing-end");
+    if (item?.kind !== "missing-end") throw new Error("no missing end");
+    // The marker still goes after the ref line: it belongs to the Task above it.
+    expect(item.candidates).toEqual([
+      { afterLine: 2, preview: "- [ ] One" },
+      { afterLine: 5, preview: "- [ ] Two" },
+    ]);
+    expect(JSON.stringify(item.candidates)).not.toContain("lfcp-ref");
+  });
+
   it("a missing start offers the headings above it", () => {
     const md = ["# Plan", "", "## Launch", "Text", formatBoundary("end", ref), ""].join("\n");
     const [item] = repairItems(md);

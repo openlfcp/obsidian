@@ -80,6 +80,24 @@ const MESSAGES: Partial<Record<SectionDiagnostic["code"], string>> = {
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]|$)/;
 const clip = (s: string) => (s.length > 60 ? `${s.slice(0, 59)}…` : s);
 
+/** A line that is only a binding marker (a Task's child-line `lfcp-ref`, a node's `lfcp-node`). */
+const BINDING_LINE = /^[ \t]*<!--[ \t]+(?:lfcp-ref:|lfcp-node:)[^>]*-->[ \t]*$/;
+/** A Task's ref at the end of its line. */
+const INLINE_REF = /[ \t]*<!--[ \t]+lfcp-ref:[^>]*-->/g;
+
+/**
+ * What a boundary choice after line `l` shows the user (issue #87): the text
+ * the block ends with, never a marker. A Task's child-line ref is its line's
+ * marker: the Task's own line above it is shown, without its ref. Never
+ * above `from` (the section's start marker).
+ */
+function readable(lines: readonly { text: string }[], l: number, from: number): string {
+  let at = l;
+  while (at > from && BINDING_LINE.test(lines[at]?.text ?? "")) at--;
+  const text = at > from ? (lines[at]?.text ?? "") : "";
+  return clip(text.replace(INLINE_REF, "").trimEnd());
+}
+
 /** How many characters a marker may differ by and still be restored: more is not a typo. */
 export const RESTORE_DISTANCE = 2;
 
@@ -239,7 +257,7 @@ export function repairItems(markdown: string, held: readonly string[] = []): Rep
           const atBoundary =
             (lines[l]?.text.trim() ?? "") !== "" &&
             (next === undefined || next.text.trim() === "" || ATX.test(next.text));
-          if (atBoundary) candidates.push({ afterLine: l, preview: clip(lines[l]?.text ?? "") });
+          if (atBoundary) candidates.push({ afterLine: l, preview: readable(lines, l, d.line) });
         }
         out.push({ kind: "missing-end", line: d.line, ref: marker.ref, candidates });
       } else {

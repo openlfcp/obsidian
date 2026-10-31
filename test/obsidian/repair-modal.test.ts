@@ -106,7 +106,7 @@ describe("repair dialog, a boundary choice (LFCP-03-070)", () => {
       kind: "missing-end" as const,
       line: 5,
       ref: {} as never,
-      candidates: [{ afterLine: 14, preview: "<!-- lfcp-ref: x -->" }],
+      candidates: [{ afterLine: 14, preview: "- [ ] Send the contract" }],
     };
     const m = new RepairModal(new App() as never, [item], [], actions);
     m.onOpen();
@@ -118,6 +118,10 @@ describe("repair dialog, a boundary choice (LFCP-03-070)", () => {
     expect(row.cls).toBe("modal-button-container");
     expect(row.children.map((b) => b.text)).toEqual(["Apply"]);
     expect(box.findAll("label")).toHaveLength(1);
+    expect(box.findAll("label")[0]?.textContent).toContain(
+      "After line 15: - [ ] Send the contract",
+    );
+    expect(box.textContent).not.toContain("lfcp-ref");
     expect(box.findAll("label")[0]?.findAll("button")).toEqual([]);
   });
 });
