@@ -1,0 +1,10 @@
+.a {
+  color: red;
+  background: var(--background-primary) url(x.png);
+  fill: black;
+  stroke: var(color);
+}
+
+.b {
+  color: CanvasText;
+}

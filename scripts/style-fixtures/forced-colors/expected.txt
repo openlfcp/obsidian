@@ -1,0 +1,1 @@
+styles.css:10 colour-value: color: Highlight (highlight is not an Obsidian variable)

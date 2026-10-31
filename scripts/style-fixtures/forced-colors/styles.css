@@ -1,0 +1,12 @@
+@media (forced-colors: active) {
+  .a {
+    color: CanvasText;
+    background: Canvas;
+  }
+}
+
+@media (max-width: 400px) {
+  .a {
+    color: Highlight;
+  }
+}
