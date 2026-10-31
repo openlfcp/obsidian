@@ -110,7 +110,8 @@
         }
       },
       "expected": {
-        "primaryCta": "open-details",
+        "primaryCta": null,
+        "primaryCtaNone": null,
         "enabled": [
           { "action": "open-details", "reason": "Details are always available." },
           { "action": "join-with-link", "reason": "Joining needs no loaded section." }
@@ -271,7 +272,8 @@
         }
       },
       "expected": {
-        "primaryCta": "open-details",
+        "primaryCta": null,
+        "primaryCtaNone": null,
         "enabled": [
           { "action": "open-details", "reason": "Details are always available." }
         ],
@@ -442,7 +444,8 @@
         }
       },
       "expected": {
-        "primaryCta": "open-details",
+        "primaryCta": null,
+        "primaryCtaNone": null,
         "enabled": [
           { "action": "open-details", "reason": "The card says which note could not be checked." }
         ],
@@ -487,7 +490,8 @@
         }
       },
       "expected": {
-        "primaryCta": "sync-details",
+        "primaryCta": null,
+        "primaryCtaNone": null,
         "enabled": [
           { "action": "sync-details", "reason": "Updates wait for the connection." },
           { "action": "open-details", "reason": "Details are always available." }
@@ -587,7 +591,8 @@
         }
       },
       "expected": {
-        "primaryCta": "open-details",
+        "primaryCta": null,
+        "primaryCtaNone": null,
         "enabled": [
           { "action": "open-details", "reason": "Details are always available." }
         ],

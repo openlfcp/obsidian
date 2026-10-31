@@ -20,7 +20,8 @@ import { type StatusView, statusView } from "../../src/core/status/reducer";
 
 export interface Expected {
   primaryCta: string | null;
-  primaryCtaNone?: string;
+  /** Why there is no primary; null: nothing to do (Details is beside). */
+  primaryCtaNone?: string | null;
   enabled: { action: string; reason: string }[];
   disabled: { action: string; reason: string }[];
   requiredClaims: string[];

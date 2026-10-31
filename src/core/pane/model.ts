@@ -612,6 +612,9 @@ function primaryOf(
   a: ReadonlyMap<ActionId, Avail>,
 ): { id: ActionId | null; none: string | null; fix?: true; wanted?: ActionId } {
   type Pick = { id: ActionId | null; none: string | null; fix?: true };
+  // Nothing to do here (owner decision 2026-10-31, mock): no primary and no sentence for its
+  // absence; the card's "Open details" stays beside, as its secondary.
+  const QUIET: Pick = { id: null, none: null };
   const ctx = f.context;
   const s = f.section;
   const v = s?.view;
@@ -642,7 +645,7 @@ function primaryOf(
       if (s.placements === 0 && s.damaged !== true && f.registry.placementIndex === "complete")
         return { id: "insert-into-note", none: null };
       if (a.get("invite")?.enabled === true && v.sync.current) return { id: "invite", none: null };
-      return { id: "open-details", none: null };
+      return QUIET;
     }
     return {
       id: null,
@@ -688,14 +691,13 @@ function primaryOf(
         case "access-checking":
         case "held-unchecked":
         case "connecting":
-          return { id: "open-details", none: null };
+          return QUIET;
         case "structural-conflict":
         case "scalar-conflict":
           return { id: "review-conflicts", none: null };
         default:
-          // Row 10: offline or queued with no other problem → sync details; else §5.1.
-          if (conditions.some((c) => c.kind === "offline" || c.kind === "pending"))
-            return { id: "sync-details", none: null };
+          // Row 10: offline or queued with no other problem → none (Details is beside); else §5.1.
+          if (conditions.some((c) => c.kind === "offline" || c.kind === "pending")) return QUIET;
           return ordinary();
       }
     // Row 12: an unfinished flow.

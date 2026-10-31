@@ -165,7 +165,9 @@ describe("one truth model for pane, card and badge (LFCP-03-013)", () => {
     );
     agree(unknown);
     const { model } = surfaces(unknown);
-    expect(model.primary?.id).toBe("open-details");
+    // Nothing to do yet: no primary; Details is beside, as the card's secondary.
+    expect(model.primary).toBeNull();
+    expect(model.card.secondary?.id).toBe("open-details");
   });
 
   it("healthy with the access list's grant: invite on the pane and the card alike", () => {

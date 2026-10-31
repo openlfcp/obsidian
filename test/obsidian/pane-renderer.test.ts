@@ -166,11 +166,13 @@ describe("pane renderer on the UX fixtures", () => {
     const invite = menus[0]?.items.find((a) => a.id === "invite");
     expect(invite).toMatchObject({ enabled: false });
     expect(invite?.reason).toBeTruthy();
-    // The primary runs its action; Details, beside it, runs its own.
-    byText("Sync details").click();
-    expect(clicked).toEqual(["sync-details"]);
+    // Nothing to do while offline: no primary; Details, in the card, runs its own, and Sync details is
+    // an item of the menu.
+    expect(root.querySelector(".openlfcp-pane-primary button")).toBeNull();
+    expect(buttons().some((b) => b.textContent === "Sync details")).toBe(false);
+    expect(menus[0]?.items.find((a) => a.id === "sync-details")).toMatchObject({ enabled: true });
     byText("Open details").click();
-    expect(clicked).toEqual(["sync-details", "open-details"]);
+    expect(clicked).toEqual(["open-details"]);
   });
 });
 

@@ -32,7 +32,8 @@ import { statusView } from "../../../src/core/status/reducer";
 
 interface Expected {
   primaryCta: string | null;
-  primaryCtaNone?: string;
+  /** Why there is no primary; null: nothing to do (Details is beside). */
+  primaryCtaNone?: string | null;
   enabled: { action: string; reason: string }[];
   disabled: { action: string; reason: string }[];
   /** What the pane's surface says (its card, flow, preview, problems). */
@@ -324,8 +325,37 @@ describe("the state card (UXD-11, UX-08)", () => {
   it("a section that is still loading is progress, never current", () => {
     const c = cardOf("loading");
     expect(c.status).toEqual({ word: "Loading", icon: "loader", tone: "busy" });
-    expect(modelOf("loading").primary?.id).toBe("open-details");
-    expect(c.secondary).toBeNull();
+    // Nothing to do while it loads (owner decision 2026-10-31): no primary, Details beside.
+    expect(modelOf("loading").primary).toBeNull();
+    expect(modelOf("loading").primaryNone).toBeNull();
+    expect(c.secondary?.id).toBe("open-details");
+  });
+
+  it("quiet states have no primary: Details is the card's one button", () => {
+    for (const id of [
+      "loading",
+      "healthy-read-only",
+      "held-unknown",
+      "offline-queued",
+      "access-stale",
+    ]) {
+      const m = modelOf(id);
+      expect([m.primary, m.primaryNone, m.card.secondary?.id], id).toEqual([
+        null,
+        null,
+        "open-details",
+      ]);
+    }
+    // A refusal without held edits keeps Details as its primary (P1 row 4), with no second Details.
+    const st = doc.states.find((x) => x.id === "healthy-can-invite");
+    if (st?.facts.section == null) throw new Error("fixture missing");
+    const refused = paneModel(
+      paneFactsOf({
+        ...st.facts,
+        section: { ...st.facts.section, state: "ATTENTION", refusal: "RESOURCE_REFUSED" },
+      }),
+    );
+    expect([refused.primary?.id, refused.card.secondary]).toEqual(["open-details", null]);
   });
 
   it("no section: says so, and why there is no primary in its place", () => {
