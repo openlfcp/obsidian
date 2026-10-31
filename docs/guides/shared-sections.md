@@ -262,8 +262,12 @@ The pane follows the last note you worked in. Below the icons it shows one
 card for the place the cursor is on: the shared section's name, its status in
 a word with an icon (for example **Synced**, **Not syncing**, **Offline**,
 **Read-only**), one line of detail, and one button for the next step, with
-**"Open details"** beside it. A problem turns the card red, and its button is
-the fix. Under the card come any other problems, a tip, and the shared
+**"Open details"** beside it. A problem of that section turns the card red,
+and its button is the fix; in Reading view the button is **"Open for
+editing"**, and the card says so. Under the card come any other problems,
+each with where it is (for example "Other.md, line 31") and its own button:
+another copy of the section that holds edits, or a damaged marker of another
+section in the note, which is fixed first. Then a tip, and the shared
 sections on this device, one line each (for example "here · synced").
 
 The card keeps to one line. The caveats, times, the server and the full list
