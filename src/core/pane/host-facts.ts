@@ -602,6 +602,7 @@ export function wiredModel(m: PaneModel, runs: (id: PaneAction["id"]) => boolean
   return {
     ...m,
     join: wire(m.join),
+    header: m.header.map(wire),
     primary: m.primary === null ? null : wire(m.primary),
     secondary: m.secondary.map(wire),
     menu: m.menu.map(wire),

@@ -519,10 +519,20 @@ describe("pane host facts (LFCP-03-012)", () => {
       hostPaneFacts({ note: note(4), registry: registry(), status: () => current }),
     );
     const wired = wiredModel(m, (id) => id === "join-with-link");
-    for (const a of [...wired.secondary, ...wired.menu, ...(wired.primary ? [wired.primary] : [])])
+    for (const a of [
+      ...wired.header,
+      ...wired.secondary,
+      ...wired.menu,
+      ...(wired.primary ? [wired.primary] : []),
+    ])
       if (a.id !== "join-with-link")
         expect(a).toMatchObject({ enabled: false, reason: expect.any(String) });
     expect(wired.join.enabled).toBe(true);
+    expect(wired.header.map((a) => [a.id, a.enabled])).toEqual([
+      ["share-section", false],
+      ["insert-into-note", false],
+      ["join-with-link", true],
+    ]);
     expect(paneTexts(wired)).toContain(SECTIONS_OFF);
     expect(paneTexts(wired).join("\n")).not.toMatch(/not available in the pane/i);
     expect(wiredModel(m, () => true)).toEqual(m);
