@@ -69,6 +69,15 @@ async function loaded() {
   return { app, plugin, host, ws, leaves, view, el, button, runs };
 }
 
+/** An item of the pane's "More actions" menu (A8), as drawn now; its click is the pane's click. */
+function menuItem(t: { el: () => HTMLElement }, title: string): mock.MenuItem {
+  mock.shownMenus.length = 0;
+  t.el().querySelector<HTMLButtonElement>('button[data-pane-key="menu"]')?.click();
+  const item = mock.shownMenus.at(-1)?.items.find((i) => i.title === title);
+  if (item === undefined) throw new Error(`no menu item ${title}`);
+  return item;
+}
+
 /** A fake sections host: the registry view and status sources the pane subscribes to. */
 function fakeSections() {
   const registryListeners = new Set<() => void>();
@@ -601,10 +610,9 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     const t = await open();
     t.sections.access.set(KEY, { canInvite: true, hosting: "hosted", canRemove: true });
     for (const l of t.sections.statusListeners) l();
-    const remove = t.el().querySelector<HTMLButtonElement>('button[data-action="remove-access"]');
-    expect(remove).not.toBeNull();
+    const remove = menuItem(t, "Remove access…");
     t.note.file = new mock.TFile("Copy of Plan.md");
-    remove?.click();
+    remove.onClickHandler();
     expect(t.runs.map((r) => r.id)).toEqual(["remove-access"]);
     expect(t.runs[0]?.request).toMatchObject({ section: { key: KEY } });
   });
@@ -613,8 +621,7 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     const t = await open();
     t.sections.access.set(KEY, { canInvite: true, hosting: "hosted", canRemove: true });
     for (const l of t.sections.statusListeners) l();
-    const remove = t.el().querySelector<HTMLButtonElement>('button[data-action="remove-access"]');
-    expect(remove).not.toBeNull();
+    const remove = menuItem(t, "Remove access…");
     // A second section below the first; the cursor moves into it before the redraw runs.
     const S2 = parseSectionRef(`lfcp1:${R0}#section:${SID2}`) as SectionRef;
     const key2 = `${R0}#${SID2}`;
@@ -631,7 +638,7 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     t.sections.access.set(key2, { canInvite: true, hosting: "hosted", canRemove: true });
     t.note.cursorLine = 8;
     mock.notices.length = 0;
-    remove?.click();
+    remove.onClickHandler();
     expect(t.runs).toEqual([]);
     expect(mock.notices.join("\n")).toContain("the pane changed");
   });

@@ -53,6 +53,7 @@ import type { ActionId } from "../../core/actions/catalog";
 import type { ActionRequest } from "../../core/actions/dispatcher";
 import type { HintId } from "../../core/pane/hints";
 import type { PaneModel } from "../../core/pane/model";
+import { obsidianChrome } from "./pane-chrome";
 import { renderPane } from "./pane-renderer";
 
 export const PANE_VIEW = "shared-tasks-pane";
@@ -123,7 +124,7 @@ export interface PaneHostPort {
 
 /** Every action a drawing shows, enabled or not. */
 function actionsOf(m: PaneModel): PaneModel["secondary"] {
-  return [m.join, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu];
+  return [...m.header, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu];
 }
 
 /** After a draw, further changes are coalesced over this many milliseconds (a caret event is not a redraw). */
@@ -262,8 +263,11 @@ export class SharedTasksView extends ItemView {
     const join = this.port.join;
     const joinGeneration = drawn.join ?? null;
     const hints = this.port.hints;
+    const run = (id: ActionId) => this.#click(generation, drawn, id);
     renderPane(root, drawn.model, {
-      action: (id) => this.#click(generation, drawn, id),
+      action: run,
+      // The header's icons, tooltips and menu: Obsidian's; a menu item is a click (L2).
+      chrome: obsidianChrome(run),
       ...(join === undefined
         ? {}
         : {

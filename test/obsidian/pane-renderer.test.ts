@@ -6,8 +6,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type FixtureFacts, paneFactsOf } from "../../src/core/pane/mock-facts";
-import { type PaneFlow, paneModel } from "../../src/core/pane/model";
-import { renderPane } from "../../src/obsidian/ui/pane-renderer";
+import { type PaneAction, type PaneFlow, paneModel } from "../../src/core/pane/model";
+import { MENU_EMPTY, type PaneChrome, renderPane } from "../../src/obsidian/ui/pane-renderer";
 
 const doc = JSON.parse(
   readFileSync(join(import.meta.dirname, "../fixtures/ux-0.3/states.json"), "utf8"),
@@ -25,8 +25,27 @@ const modelOf = (id: string, flow: PaneFlow | null = null) => {
 const JOIN_FLOW: PaneFlow = { kind: "join", stage: "link", outcome: "running" };
 
 let root: HTMLElement;
+/** The host's icons, tooltips and menu, as stand-ins that record what the pane asked of them. */
+let chrome: PaneChrome;
+let icons: [string, string][];
+let tips: [string, string][];
+let menus: { anchor: HTMLElement; items: readonly PaneAction[] }[];
 
 beforeEach(() => {
+  icons = [];
+  tips = [];
+  menus = [];
+  chrome = {
+    icon: (el, name) => {
+      icons.push([el.parentElement?.getAttribute("data-pane-key") ?? "", name]);
+    },
+    tooltip: (el, text) => {
+      tips.push([el.textContent ?? "", text]);
+    },
+    menu: (anchor, items) => {
+      menus.push({ anchor, items });
+    },
+  };
   document.body.replaceChildren();
   root = document.createElement("div");
   root.className = "is-narrow";
@@ -44,6 +63,9 @@ const byText = (label: string) => {
     );
   return b;
 };
+/** The header's icon buttons, in order: Share, Insert, Join, then "More actions". */
+const headerButtons = () =>
+  Array.from(root.querySelectorAll<HTMLButtonElement>(".openlfcp-pane-header button"));
 const primary = () => root.querySelector<HTMLButtonElement>(".openlfcp-pane-primary button");
 const text = () => root.textContent ?? "";
 
@@ -51,21 +73,50 @@ describe("pane renderer on the UX fixtures", () => {
   for (const s of doc.states)
     it(`${s.id}: one primary button, disabled reasons in words, destructive in the menu`, () => {
       const model = paneModel(paneFactsOf(s.facts));
-      renderPane(root, model, { action: () => undefined });
+      renderPane(root, model, { chrome, action: () => undefined });
       expect(primary()?.dataset.action ?? null).toBe(s.expected.primaryCta);
       expect(root.querySelectorAll(".openlfcp-pane-primary button").length).toBeLessThanOrEqual(1);
-      // A2: join in the header in every state.
-      expect(root.querySelector(".openlfcp-pane-header button")?.textContent).toBe(
+      // A2, A8: the same three icon buttons and "More actions", in every state.
+      expect(headerButtons().map((b) => b.textContent)).toEqual([
+        "Share section…",
+        "Insert into a note…",
         "Join with a link…",
-      );
+        "More actions",
+      ]);
+      expect(headerButtons().every((b) => b.classList.contains("clickable-icon"))).toBe(true);
+      expect(headerButtons().map((b) => b.dataset.action ?? null)).toEqual([
+        "share-section",
+        "insert-into-note",
+        "join-with-link",
+        null,
+      ]);
+      // No `title` attribute: the tooltip is the host's.
+      expect(headerButtons().every((b) => !b.hasAttribute("title"))).toBe(true);
       for (const b of buttons().filter((x) => x.getAttribute("aria-disabled") === "true")) {
         const reason = document.getElementById(b.getAttribute("aria-describedby") ?? "");
         expect(reason?.textContent, b.textContent ?? "").toBeTruthy();
         // Still reachable by keyboard: not the disabled attribute.
         expect(b.disabled).toBe(false);
       }
-      for (const b of buttons().filter((x) => x.classList.contains("mod-warning")))
-        expect(b.closest("details.openlfcp-pane-menu")).not.toBeNull();
+      // Destructive actions are never buttons in the pane: they go to the host's menu (A1, A8).
+      expect(buttons().filter((x) => x.classList.contains("mod-warning"))).toEqual([]);
+      for (const a of model.menu)
+        expect(buttons().some((x) => x.dataset.action === a.id)).toBe(false);
+      expect(root.querySelector("details")).toBeNull();
+      expect(menus).toEqual([]);
+      const more = headerButtons()[3];
+      if (more === undefined) throw new Error("no More actions button");
+      more.click();
+      if (model.menu.length === 0) {
+        expect(more.getAttribute("aria-disabled")).toBe("true");
+        expect(menus).toEqual([]);
+        expect(tips.at(-1)).toEqual(["More actions", `More actions — ${MENU_EMPTY}`]);
+      } else {
+        expect(menus.length).toBe(1);
+        expect(menus[0]?.anchor).toBe(more);
+        expect(menus[0]?.items).toEqual(model.menu);
+        expect(menus[0]?.items.every((a) => a.destructive)).toBe(true);
+      }
     });
 
   it("sets every string as text, never as markup", () => {
@@ -75,7 +126,7 @@ describe("pane renderer on the UX fixtures", () => {
       ...s.facts,
       section: { ...s.facts.section, sharedTitle: "<img src=x onerror=alert(1)>" },
     });
-    renderPane(root, paneModel(facts), { action: () => undefined });
+    renderPane(root, paneModel(facts), { chrome, action: () => undefined });
     expect(root.querySelector("img")).toBeNull();
     expect(text()).toContain("<img src=x onerror=alert(1)>");
   });
@@ -84,11 +135,95 @@ describe("pane renderer on the UX fixtures", () => {
     const s = doc.states.find((x) => x.id === "offline-queued");
     if (s === undefined) throw new Error("fixture missing");
     const clicked: string[] = [];
-    renderPane(root, paneModel(paneFactsOf(s.facts)), { action: (id) => clicked.push(id) });
+    renderPane(root, paneModel(paneFactsOf(s.facts)), { chrome, action: (id) => clicked.push(id) });
     byText("Invite collaborator…").click();
     expect(clicked).toEqual([]);
     byText("Sync details").click();
     expect(clicked).toEqual(["sync-details"]);
+  });
+});
+
+describe("the pane header (UXD-11, A8)", () => {
+  it("draws an icon and a host tooltip per button; the label is the button's text", () => {
+    renderPane(root, modelOf("healthy-can-invite"), { chrome, action: () => undefined });
+    expect(icons).toEqual([
+      ["header:share-section", "share-2"],
+      ["header:insert-into-note", "file-input"],
+      ["header:join-with-link", "link"],
+      ["menu", "more-horizontal"],
+    ]);
+    expect(tips.map(([, t]) => t.split(" — ")[0])).toEqual([
+      "Share section…",
+      "Insert into a note…",
+      "Join with a link…",
+      "More actions",
+    ]);
+    // The icon sits in its own hidden-from-readers span: the button's text is the label alone.
+    const join = headerButtons()[2];
+    expect(join?.querySelector(".openlfcp-pane-icon")?.getAttribute("aria-hidden")).toBe("true");
+    expect(join?.querySelector(".openlfcp-visually-hidden")?.textContent).toBe("Join with a link…");
+    expect(join?.tagName).toBe("BUTTON");
+    expect(join?.getAttribute("type")).toBe("button");
+  });
+
+  it("keeps the title in the DOM, hidden from the eye, as the focus target", () => {
+    renderPane(root, modelOf("healthy-can-invite"), { chrome, action: () => undefined });
+    const title = root.querySelector<HTMLElement>("h2.openlfcp-pane-title");
+    expect(title?.textContent).toBe("Shared Tasks");
+    expect(title?.classList.contains("openlfcp-visually-hidden")).toBe(true);
+    expect(title?.getAttribute("data-pane-key")).toBe("title");
+  });
+
+  it("A5: a blocked entry is disabled with its reason in the tooltip and as its description", () => {
+    // A selection and no shared section: Insert is not offered; the header still draws it, blocked.
+    const model = modelOf("selection-exact");
+    const insert = model.header.find((a) => a.id === "insert-into-note");
+    if (insert === undefined || insert.reason === null) throw new Error("fixture changed");
+    const clicked: string[] = [];
+    renderPane(root, model, { chrome, action: (id) => clicked.push(id) });
+    const b = headerButtons()[1];
+    expect(b?.textContent).toBe("Insert into a note…");
+    expect(b?.getAttribute("aria-disabled")).toBe("true");
+    expect(b?.classList.contains("is-disabled")).toBe(true);
+    expect(tips.find(([t]) => t === "Insert into a note…")?.[1]).toBe(
+      `Insert into a note… — ${insert.reason}`,
+    );
+    expect(document.getElementById(b?.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      insert.reason,
+    );
+    b?.click();
+    expect(clicked).toEqual([]);
+    // An enabled entry runs its action.
+    headerButtons()[2]?.click();
+    expect(clicked).toEqual(["join-with-link"]);
+  });
+
+  it("hands the menu its destructive items; a blocked one keeps its reason", () => {
+    const model = modelOf("loading");
+    renderPane(root, model, { chrome, action: () => undefined });
+    headerButtons()[3]?.click();
+    const items = menus[0]?.items ?? [];
+    expect(items.map((a) => a.id)).toEqual(model.menu.map((a) => a.id));
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((a) => a.destructive)).toBe(true);
+    const detach = items.find((a) => a.id === "detach-section");
+    expect(detach?.enabled).toBe(false);
+    expect(detach?.reason).toBeTruthy();
+  });
+
+  // The menu used to be a <details> that a redraw had to keep open. It is now the host's
+  // menu, outside the pane's DOM: a redraw cannot close it, so nothing is kept here.
+
+  it("keeps focus on a header button across a redraw", () => {
+    const draw = () =>
+      renderPane(root, modelOf("healthy-can-invite"), { chrome, action: () => undefined });
+    draw();
+    headerButtons()[0]?.focus();
+    draw();
+    expect(document.activeElement?.textContent).toBe("Share section…");
+    headerButtons()[3]?.focus();
+    draw();
+    expect(document.activeElement?.textContent).toBe("More actions");
   });
 });
 
@@ -97,6 +232,7 @@ describe("pane focus", () => {
     let flow: PaneFlow | null = null;
     const draw = () =>
       renderPane(root, modelOf("healthy-can-invite", flow), {
+        chrome,
         action: (id) => {
           if (id === "invite") flow = { kind: "invite", stage: "role", outcome: "running" };
           draw();
@@ -112,30 +248,18 @@ describe("pane focus", () => {
     expect(root.contains(document.activeElement)).toBe(true);
   });
 
-  it("keeps the menu open and the focus in it across a redraw", () => {
-    const draw = () => renderPane(root, modelOf("healthy-can-invite"), { action: () => undefined });
-    draw();
-    const menu = root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu");
-    if (menu === null) throw new Error("no menu");
-    menu.open = true;
-    byText("Detach this section").focus();
-    draw();
-    expect(root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open).toBe(true);
-    expect(document.activeElement?.textContent).toBe("Detach this section");
-  });
-
   it("LFCP-03-019: says what deleting, removing the copy and detaching do, beside the menu", () => {
     const s = doc.states.find((x) => x.id === "healthy-can-invite");
     if (s === undefined) throw new Error("no state");
     const model = paneModel(paneFactsOf(s.facts));
-    renderPane(root, model, { action: () => undefined });
+    renderPane(root, model, { chrome, action: () => undefined });
     const block = root.querySelector(".openlfcp-pane-effects");
     expect(block?.getAttribute("aria-label")).toBe("What changes do here");
     expect(
       Array.from(block?.querySelectorAll(".openlfcp-pane-line") ?? []).map((x) => x.textContent),
     ).toEqual([...model.effects]);
     // Shown with the menu closed: the user reads it before opening "More actions".
-    expect(root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open).toBe(false);
+    expect(menus).toEqual([]);
   });
 
   it("LFCP-03-022: a redraw keeps the join field itself: its text, caret and focus", () => {
@@ -143,6 +267,7 @@ describe("pane focus", () => {
     const joined: string[] = [];
     const draw = () =>
       renderPane(root, modelOf("no-editor", flow), {
+        chrome,
         action: (id) => {
           if (id === "join-with-link") flow = JOIN_FLOW;
           draw();
@@ -183,6 +308,7 @@ describe("pane focus", () => {
     const joined: string[] = [];
     const draw = () =>
       renderPane(root, modelOf("no-editor", flow), {
+        chrome,
         action: (id) => {
           if (id === "join-with-link") flow = JOIN_FLOW;
           draw();
@@ -210,6 +336,7 @@ describe("pane focus", () => {
     let flow: PaneFlow | null = null;
     const draw = () =>
       renderPane(root, modelOf("no-editor", flow), {
+        chrome,
         action: (id) => {
           if (id === "join-with-link") flow = JOIN_FLOW;
           draw();
@@ -244,8 +371,8 @@ describe("pane focus", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);
     outside.focus();
-    renderPane(root, modelOf("healthy-can-invite"), { action: () => undefined });
-    renderPane(root, modelOf("healthy-can-invite"), { action: () => undefined });
+    renderPane(root, modelOf("healthy-can-invite"), { chrome, action: () => undefined });
+    renderPane(root, modelOf("healthy-can-invite"), { chrome, action: () => undefined });
     expect(document.activeElement).toBe(outside);
   });
 });
@@ -261,6 +388,7 @@ describe("the pane's tip (LFCP-03-021)", () => {
     const hidden: string[] = [];
     const ran: string[] = [];
     renderPane(root, paneModel({ ...healthy(), hints: { hidden: [] } }), {
+      chrome,
       action: (id) => ran.push(id),
       hideHint: (id) => hidden.push(id),
       showHints: () => undefined,
@@ -281,6 +409,7 @@ describe("the pane's tip (LFCP-03-021)", () => {
     let shown = 0;
     const draw = (hidden: string[]) =>
       renderPane(root, paneModel({ ...healthy(), hints: { hidden } }), {
+        chrome,
         action: () => undefined,
         hideHint: () => undefined,
         showHints: () => shown++,
@@ -296,6 +425,7 @@ describe("the pane's tip (LFCP-03-021)", () => {
 
   it("without the handlers, the tip shows with no button", () => {
     renderPane(root, paneModel({ ...healthy(), hints: { hidden: ["section-copy"] } }), {
+      chrome,
       action: () => undefined,
     });
     expect(root.querySelector(".openlfcp-pane-hint")?.textContent).toContain("one-time link");
