@@ -402,6 +402,8 @@ export class E2EVault {
     this.#plugin.changes.close();
     for (const h of this.#instance.intervals) clearInterval(h);
     this.#instance.intervals.clear();
+    // The sections host's own timers (status pass, next passes, retries) go with the window.
+    this.#plugin.sections?.stop();
     for (const release of [...this.#instance.locks]) release();
     this.network.dropAll();
   }
