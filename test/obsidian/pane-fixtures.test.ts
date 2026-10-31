@@ -24,6 +24,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ACTIONS, type ActionId } from "../../src/core/actions/catalog";
 import { JoinFlow, type JoinFlowState } from "../../src/core/collab/join-flow";
 import { shareCounts, shareWarningText } from "../../src/core/sections/share";
 import OpenLfcpPlugin from "../../src/main";
@@ -108,15 +109,38 @@ async function drawn(st: State) {
   view.render();
   const el = view.contentEl as unknown as HTMLElement;
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button[data-action]"));
-  const action = (id: string) => buttons.find((b) => b.dataset.action === id);
+  // The destructive actions are in the host's menu (A8): opened as a user does, read as drawn.
+  mock.shownMenus.length = 0;
+  const more = el.querySelector<HTMLButtonElement>('button[data-pane-key="menu"]');
+  if (more?.getAttribute("aria-disabled") !== "true") more?.click();
+  const menu = mock.shownMenus.at(-1)?.items ?? [];
   const reasonOf = (b: HTMLButtonElement) => {
     const id = b.getAttribute("aria-describedby");
     return id === null ? null : (el.querySelector(`#${id}`)?.textContent ?? null);
   };
+  /** A drawn action, as a button of the pane or an item of its menu: blocked or not, and why. */
+  const action = (id: string): { blocked: boolean; reason: string | null } | undefined => {
+    const b = buttons.find((x) => x.dataset.action === id);
+    if (b !== undefined)
+      return { blocked: b.getAttribute("aria-disabled") === "true", reason: reasonOf(b) };
+    const label = ACTIONS[id as ActionId].label;
+    const item = menu.find((i) => i.title === label || i.title.startsWith(`${label} — `));
+    if (item === undefined) return undefined;
+    return {
+      blocked: item.disabled,
+      reason: item.disabled ? item.title.slice(label.length + 3) : null,
+    };
+  };
   const primary = el.querySelector<HTMLButtonElement>(".openlfcp-pane-primary button");
   const none = el.querySelector(".openlfcp-pane-none")?.textContent ?? null;
   (plugin as unknown as { sections: unknown }).sections = null;
-  return { el, buttons, action, reasonOf, primary, none, texts: textsOf(el) };
+  return {
+    el,
+    action,
+    primary,
+    none,
+    texts: [...textsOf(el), ...menu.map((i) => i.title)],
+  };
 }
 
 /** Every text the drawn pane shows, one per element with its own text. */
@@ -165,16 +189,13 @@ describe("the UX 0.3 states on the real host (LFCP-03-013)", () => {
         for (const e of st.expected.enabled) {
           const b = d.action(e.action);
           expect(b, `${e.action} drawn`).toBeDefined();
-          expect(
-            b?.getAttribute("aria-disabled"),
-            `${e.action} enabled (${b && d.reasonOf(b)})`,
-          ).toBeNull();
+          expect(b?.blocked, `${e.action} enabled (${b?.reason})`).toBe(false);
         }
         for (const x of st.expected.disabled) {
           const b = d.action(x.action);
           expect(b, `${x.action} drawn`).toBeDefined();
-          expect(b?.getAttribute("aria-disabled"), `${x.action} disabled`).toBe("true");
-          if (b !== undefined) expect(d.reasonOf(b)).toBe(x.reason);
+          expect(b?.blocked, `${x.action} disabled`).toBe(true);
+          if (b !== undefined) expect(b.reason).toBe(x.reason);
         }
       });
 

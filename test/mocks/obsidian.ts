@@ -234,6 +234,16 @@ export class MenuItem {
   setSection(_section: string): this {
     return this;
   }
+  warning = false;
+  disabled = false;
+  setWarning(warning: boolean): this {
+    this.warning = warning;
+    return this;
+  }
+  setDisabled(disabled: boolean): this {
+    this.disabled = disabled;
+    return this;
+  }
   onClick(handler: () => unknown): this {
     this.onClickHandler = handler;
     return this;
@@ -249,6 +259,26 @@ export class Menu {
     this.items.push(item);
     return this;
   }
+  /** Where it was shown (showAtPosition), if it was. */
+  shownAt: { x: number; y: number } | null = null;
+  showAtPosition(position: { x: number; y: number }, _doc?: Document): this {
+    this.shownAt = position;
+    shownMenus.push(this);
+    return this;
+  }
+}
+
+/** Every menu shown with showAtPosition, in order (a test reads and clears it). */
+export const shownMenus: Menu[] = [];
+
+/** Obsidian's icon helper: the mock records the icon's name on the element. */
+export function setIcon(parent: HTMLElement, iconId: string): void {
+  parent.setAttribute("data-icon", iconId);
+}
+
+/** Obsidian's tooltip helper: it reads aria-label, as the mock records it. */
+export function setTooltip(el: HTMLElement, tooltip: string): void {
+  el.setAttribute("aria-label", tooltip);
 }
 
 /**

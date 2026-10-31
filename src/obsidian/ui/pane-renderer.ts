@@ -16,15 +16,45 @@
 //   that ends it) joins nothing; only Join, or Enter outside one, does.
 //   Escape in the field is its Cancel; focus then goes back to "Join with a
 //   link…", the control that opened it.
+// - The header (UXD-11, A8) is Obsidian's own nav-header pattern: a row of
+//   clickable icon buttons, Share, Insert, Join, then "More actions" at the
+//   far end. It never changes shape; an action that is blocked or does not
+//   apply is drawn disabled (aria-disabled, with its reason in the tooltip
+//   and as the button's description). Each icon button keeps its label as
+//   visually hidden text, so its text is the catalogue's label, as for every
+//   other button. Icons, tooltips and the menu come from Obsidian: the
+//   renderer takes them as `chrome` and imports nothing from `obsidian`.
+// - The title "Shared Tasks" stays in the DOM, visually hidden: it is the
+//   focus target when the pane opens (U03-18) and the pane's heading for a
+//   screen reader. The tab already shows the name, and at 330 px the room is
+//   worth more to the four buttons than to a second copy of it.
 // - Narrow panes: everything wraps; colours and spacing are Obsidian's CSS variables.
 
 import type { ActionId } from "../../core/actions/catalog";
 import type { HintId } from "../../core/pane/hints";
+import { ACTION_ICONS, MORE_ICON } from "../../core/pane/icons";
 import type { PaneAction, PaneModel } from "../../core/pane/model";
 import { contentHash } from "../../core/projection/guard";
 
+/**
+ * What the pane borrows from the host's UI toolkit (Obsidian): icons,
+ * tooltips and the actions menu. Tests pass recording stand-ins.
+ */
+export interface PaneChrome {
+  /** Draws the icon `name` (a Lucide name) into `el`. */
+  readonly icon: (el: HTMLElement, name: string) => void;
+  /** Gives `el` a tooltip with `text`. */
+  readonly tooltip: (el: HTMLElement, text: string) => void;
+  /**
+   * Opens a menu of `items` under `anchor`. Choosing an item runs its action
+   * as the pane's own button would (the host checks it again, L2).
+   */
+  readonly menu: (anchor: HTMLElement, items: readonly PaneAction[]) => void;
+}
+
 export interface PaneHandlers {
   readonly action: (id: ActionId) => void;
+  readonly chrome: PaneChrome;
   /**
    * A link pasted in the join field and Join chosen (I5), with the optional
    * name on this device (N5); absent: the field is not offered.
@@ -46,6 +76,8 @@ export interface PaneHandlers {
 
 /** The attribute that names a focusable control across redraws. */
 const KEY = "data-pane-key";
+/** A header button's key prefix: its action may also be drawn below, with words. */
+const HEADER_KEY = "header:";
 
 function el<K extends keyof HTMLElementTagNameMap>(
   parent: HTMLElement,
@@ -107,6 +139,55 @@ function button(
   return b;
 }
 
+/** The "…" button's reason when the model offers no menu action. */
+export const MENU_EMPTY = "Nothing to remove or detach here.";
+export const MORE_LABEL = "More actions";
+
+/**
+ * A header icon button (A8): a native button holding the icon and the label
+ * as hidden text, so its text is the label. Blocked (A5): aria-disabled and
+ * `is-disabled`, still focusable, a click does nothing; the reason is in the
+ * tooltip and in a hidden description. The tooltip is the host's, not a
+ * `title` attribute.
+ */
+function iconButton(
+  parent: HTMLElement,
+  c: PaneChrome,
+  o: {
+    readonly label: string;
+    readonly icon: string;
+    readonly key: string;
+    readonly enabled: boolean;
+    readonly reason: string | null;
+    readonly run: (b: HTMLElement) => void;
+    readonly action?: ActionId;
+  },
+): HTMLElement {
+  const b = el(parent, "button", "clickable-icon nav-action-button openlfcp-pane-icon-button");
+  b.type = "button";
+  b.setAttribute(KEY, o.key);
+  if (o.action !== undefined) b.dataset.action = o.action;
+  const glyph = el(b, "span", "openlfcp-pane-icon");
+  glyph.setAttribute("aria-hidden", "true");
+  c.icon(glyph, o.icon);
+  el(b, "span", "openlfcp-visually-hidden", o.label);
+  if (o.enabled) {
+    c.tooltip(b, o.label);
+    b.addEventListener("click", () => o.run(b));
+    return b;
+  }
+  b.setAttribute("aria-disabled", "true");
+  b.classList.add("is-disabled");
+  if (o.reason === null) c.tooltip(b, o.label);
+  else {
+    c.tooltip(b, `${o.label} — ${o.reason}`);
+    const id = `openlfcp-pane-reason-${++ids}`;
+    el(parent, "span", "openlfcp-visually-hidden", o.reason).id = id;
+    b.setAttribute("aria-describedby", id);
+  }
+  return b;
+}
+
 function section(parent: HTMLElement, cls: string, label: string): HTMLElement {
   const s = el(parent, "section", `openlfcp-pane-block ${cls}`);
   s.setAttribute("aria-label", label);
@@ -119,9 +200,6 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
   const active = doc.activeElement;
   const hadFocus = active !== null && active !== doc.body && root.contains(active);
   const focusKey = hadFocus ? (active as HTMLElement).closest(`[${KEY}]`)?.getAttribute(KEY) : null;
-  // The menu stays as the user left it: a redraw does not close it under them.
-  const menuOpen =
-    root.querySelector<HTMLDetailsElement>("details.openlfcp-pane-menu")?.open === true;
   // The join field as drawn before, kept in place while it is still offered.
   const kept =
     model.joinField && h.join !== undefined
@@ -133,13 +211,34 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
   for (const child of Array.from(root.childNodes)) if (child !== kept) child.remove();
   root.classList.add("openlfcp-pane");
 
-  const header = el(root, "div", "openlfcp-pane-header");
+  const header = el(root, "div", "openlfcp-pane-header nav-header");
   // Before the kept field: moving the header, never the field, keeps its focus.
   if (kept !== null) root.insertBefore(header, kept);
-  const title = el(header, "h2", "openlfcp-pane-title", model.title);
+  const title = el(header, "h2", "openlfcp-pane-title openlfcp-visually-hidden", model.title);
   title.tabIndex = -1;
   title.setAttribute(KEY, "title");
-  button(header, model.join, h, "openlfcp-pane-join");
+  const bar = el(header, "div", "nav-buttons-container openlfcp-pane-toolbar");
+  for (const a of model.header)
+    iconButton(bar, h.chrome, {
+      label: a.label,
+      icon: ACTION_ICONS[a.id],
+      key: `${HEADER_KEY}${a.id}`,
+      enabled: a.enabled,
+      reason: a.reason,
+      run: () => h.action(a.id),
+      action: a.id,
+    });
+  el(bar, "span", "openlfcp-pane-toolbar-spacer");
+  // Destructive and rare actions: the host's menu, never buttons in the pane (A1, A8).
+  const items = model.menu;
+  iconButton(bar, h.chrome, {
+    label: MORE_LABEL,
+    icon: MORE_ICON,
+    key: "menu",
+    enabled: items.length > 0,
+    reason: items.length > 0 ? null : MENU_EMPTY,
+    run: (b) => h.chrome.menu(b, items),
+  });
 
   const handlers = (join: (link: string, name: string) => void): FormHandlers => ({
     join,
@@ -278,14 +377,6 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     for (const a of model.secondary) button(s, a, h, "openlfcp-pane-secondary");
   }
 
-  if (model.menu.length > 0) {
-    const d = el(root, "details", "openlfcp-pane-menu");
-    d.open = menuOpen;
-    const summary = el(d, "summary", undefined, "More actions");
-    summary.setAttribute(KEY, "menu");
-    for (const a of model.menu) button(d, a, h, "openlfcp-pane-secondary");
-  }
-
   // C6, N-05: what deleting, removing the copy and detaching do, before the user acts.
   if (model.effects.length > 0) {
     const e = section(root, "openlfcp-pane-effects", "What changes do here");
@@ -334,7 +425,7 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
     b.addEventListener("click", () => show());
   }
 
-  if (fieldNew && hadFocus && focusKey === "action:join-with-link") {
+  if (fieldNew && hadFocus && focusKey === `${HEADER_KEY}join-with-link`) {
     root.querySelector<HTMLInputElement>("input.openlfcp-pane-join-input")?.focus();
   } else if (hadFocus && !(kept?.contains(active) ?? false)) {
     const named = (key: string | null | undefined) =>
@@ -342,7 +433,8 @@ export function renderPane(root: HTMLElement, model: PaneModel, h: PaneHandlers)
         ? null
         : root.querySelector<HTMLElement>(`[${KEY}="${key}"]`);
     // The join field gone (Cancel, Escape, Join): back to the control that opened it.
-    const opener = focusKey?.startsWith("join-") === true ? named("action:join-with-link") : null;
+    const opener =
+      focusKey?.startsWith("join-") === true ? named(`${HEADER_KEY}join-with-link`) : null;
     (named(focusKey) ?? opener ?? title).focus();
   }
 }
