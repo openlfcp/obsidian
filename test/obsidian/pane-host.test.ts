@@ -321,12 +321,12 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     t.ws.views.push(note);
     t.ws.activeView = note;
     await t.plugin.openPane();
-    expect(t.el().textContent).toContain("In this note: Plan.md");
+    expect(t.el().textContent).not.toContain("No note open");
     // Focus moves to the pane: no Markdown view is active any more.
     t.ws.activeView = null;
     t.ws.trigger("active-leaf-change", t.leaves()[0]);
     t.view()?.render();
-    expect(t.el().textContent).toContain("In this note: Plan.md");
+    expect(t.el().textContent).not.toContain("No note open");
     t.button("Share section…").click();
     expect(t.runs.at(-1)).toMatchObject({
       id: "share-section",
@@ -710,7 +710,8 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
       checking: false,
     });
     for (const l of t.sections.flowListeners) l();
-    expect(t.el().textContent).toContain("For Plan.md");
+    expect(t.el().textContent).toContain("Target: Plan.md");
+    expect(t.el().textContent).toContain("The active note is Other.md; this stays on Plan.md.");
     // A later flow on the note in view does not take the current area.
     t.sections.flows.push({
       generation: 4,
@@ -722,8 +723,10 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
       checking: false,
     });
     for (const l of t.sections.flowListeners) l();
-    expect(t.el().textContent).toContain("For Plan.md");
+    expect(t.el().textContent).toContain("Target: Plan.md");
     expect(t.el().textContent).toContain("Inserting a shared section");
+    // The flow owns the one card (P2); the other is listed, not a second card.
+    expect(t.el().querySelectorAll(".openlfcp-pane-card").length).toBe(1);
     t.primary()?.click();
     expect(t.runs.at(-1)).toEqual({ id: "share-section", request: { flow: 3 }, surface: "pane" });
     // The flow ended: a click drawn for it (a late one) runs nothing; the pane holds the other.
@@ -731,7 +734,7 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
     t.sections.flows.splice(0, 1);
     late?.click();
     expect(t.runs).toHaveLength(1);
-    expect(t.el().textContent).toContain("For Other.md");
+    expect(t.el().textContent).toContain("Target: Other.md");
   });
 
   it("D12: an unknown result's Check the result names its flow", async () => {

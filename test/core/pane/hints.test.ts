@@ -44,7 +44,7 @@ const facts = (id: string, hidden: readonly string[] = []): PaneFacts => ({
   hints: { hidden },
 });
 
-const model = (f: PaneFacts) => paneModel(f, { time: () => "t" });
+const model = (f: PaneFacts) => paneModel(f);
 
 /** A first install: no note open, the list read and empty. */
 const FIRST: PaneFacts = {
@@ -167,13 +167,12 @@ describe("hiding a tip and bringing it back", () => {
     expect(model(facts("healthy-can-invite", [])).hint?.id).toBe("invite-link");
   });
 
-  it("never hides a problem, a held edit, an effect of a change or the one-time-link sentence", () => {
+  it("never hides a problem, a held edit or the one-time-link sentence", () => {
     for (const s of doc.states) {
       const shown = model(facts(s.id));
       const hidden = model(facts(s.id, [...HINT_IDS]));
-      expect(hidden.status, s.id).toEqual(shown.status);
+      expect(hidden.card, s.id).toEqual(shown.card);
       expect(hidden.problems, s.id).toEqual(shown.problems);
-      expect(hidden.effects, s.id).toEqual(shown.effects);
       expect(hidden.flow, s.id).toEqual(shown.flow);
       expect(hidden.primary, s.id).toEqual(shown.primary);
       expect(hidden.preview, s.id).toEqual(shown.preview);

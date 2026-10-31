@@ -222,15 +222,14 @@ export function rightsFact(v: StatusView): string {
  * §10, as LFCP-03-001 reproduced it; N-05): deleting visible text inside a
  * healthy section is a shared delete; removing a whole copy, or the note,
  * removes that copy only; detaching keeps the text as private text and
- * changes nothing shared, nobody's access included. Said before the user
- * acts, on the pane and the card; no new operation.
+ * changes nothing shared, nobody's access included. The details card says
+ * the first two (UXD-11: the pane's surface does not); detaching says its
+ * own in its confirmation (DETACH_CONFIRMATION). No new operation.
  */
 export const BODY_DELETE_TEXT =
   "Deleting text inside this section deletes it for everyone who has this section.";
 export const WHOLE_COPY_TEXT =
   "Removing this whole copy from the note, or deleting the note, removes only this copy.";
-export const DETACH_TEXT =
-  "Detach this section keeps its text here as your own. The shared section, its other copies and everyone's access stay as they are.";
 
 /**
  * What deleting does here, for this vault (C6, N-05): the shared delete

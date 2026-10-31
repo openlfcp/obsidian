@@ -1125,7 +1125,6 @@ export class SectionsHost {
         hosting: hosting ?? "unknown",
         canRemove: access.remove,
         removeNote: access.removeNote,
-        freshness: access.freshness,
       };
     },
     readable: (key) => key.includes("#") && this.#statuses.has(key),

@@ -219,6 +219,21 @@ describe("the UX 0.3 states on the real host (LFCP-03-013)", () => {
           expect(texts.join(" | ")).toContain("Sync server: wss://sync.example/v1/ws.");
         });
 
+      it("UX-08: one card with a status word; no status bullets, no effects text on the surface", async () => {
+        const d = await drawn(st);
+        expect(d.el.querySelectorAll(".openlfcp-pane-card").length).toBe(1);
+        expect(d.el.querySelector(".openlfcp-pane-status-word")?.textContent ?? "").not.toBe("");
+        expect(d.el.querySelector(".openlfcp-pane-status")).toBeNull();
+        expect(d.el.querySelector(".openlfcp-pane-effects")).toBeNull();
+        expect(d.el.querySelector(".openlfcp-pane-actions")).toBeNull();
+        expect(d.el.querySelectorAll(".openlfcp-pane-primary button").length).toBeLessThanOrEqual(
+          1,
+        );
+        const all = d.el.textContent ?? "";
+        expect(all).not.toContain("This does not mean others have seen it");
+        expect(all).not.toContain("deletes it for everyone");
+      });
+
       it("makes its claims, and none of the forbidden ones", async () => {
         const d = await drawn(st);
         const all = d.el.textContent ?? "";

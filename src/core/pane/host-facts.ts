@@ -58,8 +58,6 @@ export interface PaneAccess {
   readonly canRemove?: boolean | null;
   /** Why removing waits now (AccessView.removeNote), the card's words; null: it does not wait. */
   readonly removeNote?: string | null;
-  /** How fresh the access list is (AccessView.freshness), the card's sentence. */
-  readonly freshness?: string;
 }
 
 /**
@@ -249,10 +247,9 @@ function sectionOf(
     // The access list's (AccessView, the card's): unknown until read, never a default.
     canInvite: access?.canInvite ?? null,
     ...(access === undefined ? {} : { hosting: access.hosting }),
-    // Removing and the access list's freshness: the card's facts, from the same reading.
+    // Removing: the access list's fact, from the same reading.
     ...(access?.canRemove === undefined ? {} : { canRemove: access.canRemove }),
     ...(access?.removeNote === undefined ? {} : { removeNote: access.removeNote }),
-    ...(access?.freshness === undefined ? {} : { accessFreshness: access.freshness }),
     ...(journey?.shared === undefined ? {} : { shared: journey.shared }),
     ...(journey?.linkCopied === true ? { linkCopied: true } : {}),
   };
@@ -604,7 +601,7 @@ export function wiredModel(m: PaneModel, runs: (id: PaneAction["id"]) => boolean
     join: wire(m.join),
     header: m.header.map(wire),
     primary: m.primary === null ? null : wire(m.primary),
-    secondary: m.secondary.map(wire),
+    card: { ...m.card, secondary: m.card.secondary === null ? null : wire(m.card.secondary) },
     menu: m.menu.map(wire),
   };
 }

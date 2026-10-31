@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DESCRIPTORS, RUNNING, sectionFacts } from "../../../src/core/actions/descriptors";
 import { type FixtureFacts, paneFactsOf } from "../../../src/core/pane/mock-facts";
-import { type PaneFacts, paneModel, paneTexts } from "../../../src/core/pane/model";
+import { type PaneFacts, paneActions, paneModel, paneTexts } from "../../../src/core/pane/model";
 import type {
   CardAction,
   SectionNotes,
@@ -36,27 +36,33 @@ const CURRENT = "Current as last checked with the server";
 function surfaces(f: PaneFacts) {
   const s = f.section;
   if (s === null) throw new Error("no section");
-  const model = paneModel(f, { time: () => "t" });
+  const model = paneModel(f);
   const pane = paneTexts(model);
   const card = sectionCard({ title: "Launch", view: s.view, resource: "R", sectionId: "S" });
   const cardTexts = [card.status, ...card.facts, ...card.problems];
   const badge = headingBadge("Launch", s.view);
-  const actions = [...(model.primary === null ? [] : [model.primary]), ...model.secondary];
+  // What the pane offers beside the header: its primary, Details and the menu.
+  const actions = paneActions(model);
   return { s, model, pane, card, cardTexts, badge, actions };
 }
 
 function agree(f: PaneFacts) {
-  const { s, pane, card, cardTexts, badge, actions } = surfaces(f);
+  const { s, model, pane, card, cardTexts, badge, actions } = surfaces(f);
   const v = s.view;
   const says = (texts: readonly string[]) => texts.some((t) => t.includes(CURRENT));
-  // Current: on the pane and the card exactly when the view is; the badge quiet then.
-  expect(says(pane), "pane current").toBe(v.sync.current);
+  // Current: the details card says it exactly when the view is; the pane's state card only then
+  // ("Synced"), and never with a section held, queued or checking; the badge quiet then.
   expect(says(cardTexts), "card current").toBe(v.sync.current);
+  if (says(pane) || model.card.status.word === "Synced")
+    expect(v.sync.current, "pane current").toBe(true);
   if (v.sync.current) expect(badge.icon).toBeNull();
   else expect(badge.tooltip).not.toContain(CURRENT);
   // Held: on every surface, and never current.
+  // The pane's one line says the biggest copy's edits (counted, with the cause); the card lists each.
+  const biggest = [...v.held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1))[0];
+  if (biggest !== undefined && f.context.flow === null)
+    expect(pane.join("\n")).toContain(heldFact(biggest).split(" (")[0]);
   for (const h of v.held) {
-    expect(pane).toContain(heldFact(h));
     expect(card.facts).toContain(heldFact(h));
     expect(badge.accessibleName).toContain("edits not sent");
     expect(v.sync.current).toBe(false);
@@ -254,17 +260,15 @@ describe("the card's real path agrees with the pane (LFCP-03-013)", () => {
         ...(s.hosting === undefined ? {} : { hosting: s.hosting }),
       });
       const card = (await cardButtons(content)).find((a) => a.label === "Invite collaborator…");
-      const model = paneModel(f, { time: () => "t" });
-      const pane = [...(model.primary === null ? [] : [model.primary]), ...model.secondary].find(
-        (a) => a.id === "invite",
-      );
+      const model = paneModel(f);
+      const pane = paneActions(model).find((a) => a.id === "invite");
       expect(card === undefined ? "hidden" : (card.disabled ?? "enabled")).toBe(
         pane === undefined ? "hidden" : pane.enabled ? "enabled" : pane.reason,
       );
       // The connection line: the same sentence, or none, on both.
-      const paneLine = model.status.map((l) => l.text).filter((t) => CONNECTION.test(t));
+      const paneLine = [model.card.fact ?? ""].filter((t) => CONNECTION.test(t));
       const cardLine = content.facts.filter((t) => CONNECTION.test(t));
-      expect(paneLine).toEqual(cardLine);
+      for (const t of paneLine) expect(cardLine).toContain(t);
     });
   }
 });

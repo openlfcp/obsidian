@@ -304,21 +304,84 @@
   text-transform: uppercase;
 }
 
-.openlfcp-pane-block,
-.openlfcp-pane-status {
+.openlfcp-pane-block {
   margin: 0;
 }
 
-.openlfcp-pane-status {
-  padding-inline-start: var(--size-4-4);
+/*
+ * The state card (UXD-11, UX-08): the one body of the pane. The section's name
+ * and its status word with an icon on one row, one line of fact, then the
+ * actions: the primary with its icon and label, Details beside it. A problem
+ * takes the theme's error colours, so it reads as one without the word.
+ */
+.openlfcp-pane-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
 }
 
-.openlfcp-pane-fact.is-problem {
+.openlfcp-pane-card.is-problem {
+  border-color: var(--background-modifier-error);
+  background: color-mix(in srgb, var(--background-modifier-error) 10%, var(--background-primary));
+}
+
+.openlfcp-pane-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--size-2-2) var(--size-4-2);
+}
+
+.openlfcp-pane-card-head .openlfcp-pane-heading {
+  margin: 0;
+  min-width: 0;
+}
+
+.openlfcp-pane-status-word {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+}
+
+.openlfcp-pane-status-word .svg-icon {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.openlfcp-pane-card.is-ok .openlfcp-pane-status-word {
+  color: var(--text-success);
+}
+
+.openlfcp-pane-card.is-info .openlfcp-pane-status-word {
+  color: var(--text-accent);
+}
+
+.openlfcp-pane-card.is-problem .openlfcp-pane-status-word {
   color: var(--text-error);
 }
 
-.openlfcp-pane-fact.is-ok {
-  color: var(--text-success);
+.openlfcp-pane-fact {
+  margin: 0;
+}
+
+.openlfcp-pane-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+}
+
+/* An empty primary place takes no room (no primary, nothing to say in its place). */
+.openlfcp-pane-primary:empty {
+  display: none;
 }
 
 .openlfcp-pane-steps {
@@ -344,8 +407,10 @@
   padding: var(--size-4-2);
 }
 
-.openlfcp-pane-primary button,
-.openlfcp-pane-actions button {
+.openlfcp-pane-card-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
   max-width: 100%;
   height: auto;
   min-height: 24px;
@@ -353,10 +418,10 @@
   text-align: start;
 }
 
-.openlfcp-pane-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-2);
+.openlfcp-pane-card-actions .svg-icon {
+  flex: none;
+  width: var(--icon-s);
+  height: var(--icon-s);
 }
 
 .openlfcp-pane-action {

@@ -58,13 +58,20 @@ describe("action descriptors", () => {
     for (const s of doc.states) {
       const facts = paneFactsOf(s.facts);
       const m = paneModel(facts);
+      const expected = availabilities(facts);
+      // The header draws Share, Insert and Join always (A8); an entry the descriptors hide is drawn blocked, not an offer.
       const shown = new Map(
-        [m.join, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu].map((a) => [
+        [
+          m.join,
+          ...(m.primary === null ? [] : [m.primary]),
+          ...(m.card.secondary === null ? [] : [m.card.secondary]),
+          ...m.menu,
+          ...m.header.filter((a) => expected.has(a.id)),
+        ].map((a) => [
           a.id,
           a.enabled ? { kind: "enabled" } : { kind: "disabled", reason: a.reason },
         ]),
       );
-      const expected = availabilities(facts);
       // "Open for editing" may stand in for a source-changing primary (T4); otherwise the same entries.
       for (const [id, a] of shown) expect(a, `${s.id} ${id}`).toEqual(expected.get(id));
       for (const [id] of expected) expect(shown.has(id), `${s.id} ${id} shown`).toBe(true);

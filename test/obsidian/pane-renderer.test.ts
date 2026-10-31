@@ -78,6 +78,21 @@ describe("pane renderer on the UX fixtures", () => {
       renderPane(root, model, { chrome, action: () => undefined });
       expect(primary()?.dataset.action ?? null).toBe(s.expected.primaryCta);
       expect(root.querySelectorAll(".openlfcp-pane-primary button").length).toBeLessThanOrEqual(1);
+      // UXD-11: the body is one card; its status is a word with an icon, never a bullet list.
+      const cards = root.querySelectorAll(".openlfcp-pane-card");
+      expect(cards.length).toBe(1);
+      expect(root.querySelector(".openlfcp-pane-status")).toBeNull();
+      expect(root.querySelector(".openlfcp-pane-actions")).toBeNull();
+      expect(root.querySelector(".openlfcp-pane-effects")).toBeNull();
+      expect(root.querySelector(".openlfcp-pane-status-word")?.textContent).toBe(
+        model.card.status.word,
+      );
+      expect(cards[0]?.classList.contains("is-problem")).toBe(model.card.problem);
+      // At most one `mod-cta` in the card, with the primary's label; Details beside it.
+      expect(cards[0]?.querySelectorAll("button.mod-cta").length).toBeLessThanOrEqual(1);
+      expect(
+        cards[0]?.querySelectorAll(".openlfcp-pane-card-actions > .openlfcp-pane-action").length,
+      ).toBe(model.card.secondary === null ? 0 : 1);
       // A2, A8: the same three icon buttons and "More actions", in every state.
       expect(headerButtons().map((b) => b.textContent)).toEqual([
         "Share section…",
@@ -107,6 +122,7 @@ describe("pane renderer on the UX fixtures", () => {
       }
       // Destructive actions are never buttons in the pane: they go to the host's menu (A1, A8).
       expect(buttons().filter((x) => x.classList.contains("mod-warning"))).toEqual([]);
+      // Nothing the menu holds is drawn as a button as well.
       for (const a of model.menu)
         expect(buttons().some((x) => x.dataset.action === a.id)).toBe(false);
       expect(root.querySelector("details")).toBeNull();
@@ -122,7 +138,8 @@ describe("pane renderer on the UX fixtures", () => {
         expect(menus.length).toBe(1);
         expect(menus[0]?.anchor).toBe(more);
         expect(menus[0]?.items).toEqual(model.menu);
-        expect(menus[0]?.items.every((a) => a.destructive)).toBe(true);
+        for (const a of model.menu.filter((x) => x.destructive))
+          expect(menus[0]?.items).toContainEqual(a);
       }
     });
 
@@ -138,22 +155,29 @@ describe("pane renderer on the UX fixtures", () => {
     expect(text()).toContain("<img src=x onerror=alert(1)>");
   });
 
-  it("a disabled action does nothing when clicked", () => {
+  it("a disabled action does nothing when clicked; one the card does not draw is in the menu", () => {
     const s = doc.states.find((x) => x.id === "offline-queued");
     if (s === undefined) throw new Error("fixture missing");
     const clicked: string[] = [];
     renderPane(root, paneModel(paneFactsOf(s.facts)), { chrome, action: (id) => clicked.push(id) });
-    byText("Invite collaborator…").click();
-    expect(clicked).toEqual([]);
+    // Invite waits here: not a button of the card, an item of the menu, blocked, with its reason.
+    expect(buttons().some((b) => b.textContent === "Invite collaborator…")).toBe(false);
+    headerButtons()[3]?.click();
+    const invite = menus[0]?.items.find((a) => a.id === "invite");
+    expect(invite).toMatchObject({ enabled: false });
+    expect(invite?.reason).toBeTruthy();
+    // The primary runs its action; Details, beside it, runs its own.
     byText("Sync details").click();
     expect(clicked).toEqual(["sync-details"]);
+    byText("Open details").click();
+    expect(clicked).toEqual(["sync-details", "open-details"]);
   });
 });
 
 describe("the pane header (UXD-11, A8)", () => {
   it("draws an icon and a host tooltip per button; the label is the button's text", () => {
     renderPane(root, modelOf("healthy-can-invite"), { chrome, action: () => undefined });
-    expect(icons).toEqual([
+    expect(icons.filter(([key]) => key.startsWith("header:") || key === "menu")).toEqual([
       ["header:share-section", "share-2"],
       ["header:insert-into-note", "file-input"],
       ["header:join-with-link", "link"],
@@ -211,14 +235,16 @@ describe("the pane header (UXD-11, A8)", () => {
     expect(clicked).toEqual(["join-with-link"]);
   });
 
-  it("hands the menu its destructive items; a blocked one keeps its reason", () => {
+  it("hands the menu everything the card and the header do not draw; a blocked item keeps its reason", () => {
     const model = modelOf("loading");
     renderPane(root, model, { chrome, action: () => undefined });
     headerButtons()[3]?.click();
     const items = menus[0]?.items ?? [];
     expect(items.map((a) => a.id)).toEqual(model.menu.map((a) => a.id));
     expect(items.length).toBeGreaterThan(0);
-    expect(items.every((a) => a.destructive)).toBe(true);
+    // The destructive ones are only ever here; the plain ones too (UXD-11), with their icons.
+    expect(items.some((a) => a.destructive)).toBe(true);
+    expect(items.some((a) => !a.destructive)).toBe(true);
     const detach = items.find((a) => a.id === "detach-section");
     expect(detach?.enabled).toBe(false);
     expect(detach?.reason).toBeTruthy();
@@ -261,18 +287,15 @@ describe("pane focus", () => {
     expect(root.contains(document.activeElement)).toBe(true);
   });
 
-  it("LFCP-03-019: says what deleting, removing the copy and detaching do, beside the menu", () => {
+  it("UXD-11: what deleting, removing the copy and detaching do is Details', not the surface's", () => {
     const s = doc.states.find((x) => x.id === "healthy-can-invite");
     if (s === undefined) throw new Error("no state");
-    const model = paneModel(paneFactsOf(s.facts));
-    renderPane(root, model, { chrome, action: () => undefined });
-    const block = root.querySelector(".openlfcp-pane-effects");
-    expect(block?.getAttribute("aria-label")).toBe("What changes do here");
-    expect(
-      Array.from(block?.querySelectorAll(".openlfcp-pane-line") ?? []).map((x) => x.textContent),
-    ).toEqual([...model.effects]);
-    // Shown with the menu closed: the user reads it before opening "More actions".
-    expect(menus).toEqual([]);
+    renderPane(root, paneModel(paneFactsOf(s.facts)), { chrome, action: () => undefined });
+    expect(root.querySelector(".openlfcp-pane-effects")).toBeNull();
+    expect(text()).not.toContain("deletes it for everyone");
+    expect(text()).not.toContain("This does not mean others have seen it");
+    // The way to them is the card's Details, next to its primary.
+    expect(byText("Open details").dataset.action).toBe("open-details");
   });
 
   it("LFCP-03-022: a redraw keeps the join field itself: its text, caret and focus", () => {

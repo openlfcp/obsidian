@@ -52,7 +52,7 @@ import {
 import type { ActionId } from "../../core/actions/catalog";
 import type { ActionRequest } from "../../core/actions/dispatcher";
 import type { HintId } from "../../core/pane/hints";
-import type { PaneModel } from "../../core/pane/model";
+import { type PaneModel, paneActions } from "../../core/pane/model";
 import { obsidianChrome } from "./pane-chrome";
 import { renderPane } from "./pane-renderer";
 
@@ -120,11 +120,6 @@ export interface PaneHostPort {
   readonly join?: PaneJoinPort;
   /** The tips' port; absent: tips show without "Hide tip" and "Show tips again". */
   readonly hints?: PaneHintsPort;
-}
-
-/** Every action a drawing shows, enabled or not. */
-function actionsOf(m: PaneModel): PaneModel["secondary"] {
-  return [...m.header, ...(m.primary === null ? [] : [m.primary]), ...m.secondary, ...m.menu];
 }
 
 /** After a draw, further changes are coalesced over this many milliseconds (a caret event is not a redraw). */
@@ -339,7 +334,7 @@ export class SharedTasksView extends ItemView {
     // A button of a pane drawn before a close does nothing.
     if (generation !== this.#generation) return;
     const now = this.port.snapshot(this.#liveTarget(), this.#ui());
-    const offered = actionsOf(now.model).find((a) => a.id === id);
+    const offered = paneActions(now.model).find((a) => a.id === id);
     if (offered?.enabled !== true || now.identity(id) !== drawn.identity(id)) {
       // Never silent (LFCP-03-060): the pane shows what is true now, and says the click did nothing.
       new Notice(PANE_CHANGED);

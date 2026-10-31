@@ -17,7 +17,7 @@ import {
   unknownStatus,
   wiredModel,
 } from "../../../src/core/pane/host-facts";
-import { paneModel, paneTexts } from "../../../src/core/pane/model";
+import { paneActions, paneModel, paneTexts } from "../../../src/core/pane/model";
 import {
   formatBoundary,
   parseSectionRef,
@@ -106,12 +106,15 @@ describe("pane host facts (LFCP-03-012)", () => {
       hostPaneFacts({ note: null, registry: registry(), status: () => undefined }),
     );
     expect(m.join).toMatchObject({ label: "Join with a link…", enabled: true });
-    expect(m.context.heading).toBe("No note open");
+    expect(m.card).toMatchObject({
+      title: "No note open",
+      status: { word: "No note" },
+      fact: null,
+    });
     expect(m.primary).toBeNull();
     expect(m.primaryNone).toBe("Open a note to share from it, or join with a link.");
     expect(m.sections.summary).toBe("1 shared section on this device");
     expect(m.sections.groups.map((g) => g.rows.map((r) => r.label))).toEqual([["Launch"]]);
-    expect(m.status).toEqual([]);
   });
 
   it("a private heading under the cursor offers Share section…; private text does not", () => {
@@ -139,9 +142,12 @@ describe("pane host facts (LFCP-03-012)", () => {
     });
     expect(f.section?.view).toBe(current);
     const m = paneModel(f);
-    expect(m.context.lines).toContain("On this device: Work launch");
+    expect(m.card.title).toBe("Launch");
+    expect(m.sections.groups.flatMap((g) => g.rows.map((r) => r.alias))).toContain(
+      "On this device: Work launch",
+    );
     // No access list read: inviting waits, it is never granted by default.
-    expect(m.secondary.find((a) => a.id === "invite")).toMatchObject({ enabled: false });
+    expect(paneActions(m).find((a) => a.id === "invite")).toMatchObject({ enabled: false });
   });
 
   it("canInvite comes from the access list; unknown is neither a grant nor a denial (M3)", () => {
@@ -156,10 +162,7 @@ describe("pane host facts (LFCP-03-012)", () => {
       );
     const allowed = invite({ canInvite: true, hosting: "hosted" });
     expect(allowed.primary).toMatchObject({ id: "invite", enabled: true, reason: null });
-    const all = (m: ReturnType<typeof paneModel>) => [
-      ...(m.primary === null ? [] : [m.primary]),
-      ...m.secondary,
-    ];
+    const all = paneActions;
     const not = all(invite({ canInvite: false, hosting: "hosted" })).find((a) => a.id === "invite");
     expect(not).toMatchObject({
       enabled: false,
@@ -185,7 +188,7 @@ describe("pane host facts (LFCP-03-012)", () => {
     ).toMatchObject({ enabled: false });
   });
 
-  it("LFCP-03-019: access freshness, rights and Remove access are the card's, from the access list", () => {
+  it("LFCP-03-019: rights and Remove access are the details card's, from the access list", () => {
     const facts = (access?: PaneAccess, view = current) =>
       hostPaneFacts({
         note: note(4),
@@ -193,21 +196,17 @@ describe("pane host facts (LFCP-03-012)", () => {
         status: () => view,
         ...(access === undefined ? {} : { access: () => access }),
       });
-    const freshness = "Access verified with the server at 14:02:00.";
     const read = facts({
       canInvite: true,
       hosting: "hosted",
       canRemove: true,
       removeNote: null,
-      freshness,
     });
     const m = paneModel(read);
-    const texts = m.status.map((l) => l.text);
     const card = sectionCard({ title: "Launch", view: current, resource: "R", sectionId: "S" });
-    // The rights sentence is the card's, and so is the freshness of the list once read.
-    expect(texts).toContain(rightsFact(current));
+    // The rights sentence is the details card's; the pane's card says no caveat and no time (UXD-11).
     expect(card.facts).toContain(rightsFact(current));
-    expect(texts).toContain(freshness);
+    expect(paneTexts(m)).not.toContain(rightsFact(current));
     expect(m.menu.find((a) => a.id === "remove-access")).toMatchObject({ enabled: true });
     // Removing waits as the card says it; nobody to remove: not offered at all.
     const waits =
@@ -228,16 +227,19 @@ describe("pane host facts (LFCP-03-012)", () => {
     });
     // A reader is told so on both surfaces, in the same words.
     const reader = statusView({ ...currentFacts, access: "reader" });
-    expect(paneModel(facts(undefined, reader)).status.map((l) => l.text)).toContain(
-      "You can read this section, not edit it.",
-    );
-    // Without the section's key: the problem and the rights say the same thing, nothing promised.
+    expect(paneModel(facts(undefined, reader)).card).toMatchObject({
+      status: { word: "Read-only", icon: "eye" },
+      fact: "You can read this section, not edit it.",
+    });
+    // Without the section's key: the card says it waits, the details card says what the rights are;
+    // nothing is promised.
     const keyless = statusView({ ...currentFacts, access: "unavailable-key" });
-    const keyLines = paneModel(facts(undefined, keyless)).status.map((l) => l.text);
-    expect(keyLines).toContain(
+    expect(paneModel(facts(undefined, keyless)).card.status.word).toBe("Waiting for key");
+    const keyCard = sectionCard({ title: "Launch", view: keyless, resource: "R", sectionId: "S" });
+    expect(keyCard.facts).toContain(
       "Your edits to this section wait on this device until it holds the section's key.",
     );
-    expect(keyLines).not.toContain("You can edit this section.");
+    expect(keyCard.facts).not.toContain("You can edit this section.");
   });
 
   it("N3: before its shared title loads a section is named by its alias, with the qualifier", () => {
@@ -245,7 +247,7 @@ describe("pane host facts (LFCP-03-012)", () => {
     const m = paneModel(
       hostPaneFacts({ note: note(4), registry: registry({ rows }), status: () => current }),
     );
-    expect(m.context.lines).toContain("Work (name on this device)");
+    expect(m.card.title).toBe("Work (name on this device)");
     // No row yet (the registry not read): the heading in this note names it.
     const bare = hostPaneFacts({
       note: note(4),
@@ -420,7 +422,6 @@ describe("pane host facts (LFCP-03-012)", () => {
     const card = sectionCard({ title: "Launch", view, resource: R0, sectionId: SID });
     const badge = headingBadge("Launch", view);
     const said = "Not checked with the server yet. Local updates wait on this device.";
-    expect(pane).toContain(said);
     expect(card.facts).toContain(said);
     for (const t of [...pane, ...card.facts, card.status, badge.tooltip, badge.accessibleName])
       expect(t, t).not.toMatch(/offline/i);
@@ -444,6 +445,12 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(sectionCard({ title: "L", view: quiet, resource: R0, sectionId: SID }).facts).toContain(
       said,
     );
+    // The pane's card says it in a word and one line: "Not checked", never "Offline" (F4).
+    const base = f.section;
+    if (base === null) throw new Error("no section");
+    const quietPane = paneModel({ ...f, section: { ...base, view: quiet } });
+    expect(quietPane.card.status).toMatchObject({ word: "Not checked", tone: "muted" });
+    expect(quietPane.card.fact).toBe(said);
   });
 
   it("a selection is the executor's own scope rule: exact or refused, never widened", () => {
@@ -521,7 +528,7 @@ describe("pane host facts (LFCP-03-012)", () => {
     const wired = wiredModel(m, (id) => id === "join-with-link");
     for (const a of [
       ...wired.header,
-      ...wired.secondary,
+      ...(wired.card.secondary ? [wired.card.secondary] : []),
       ...wired.menu,
       ...(wired.primary ? [wired.primary] : []),
     ])
