@@ -102,7 +102,7 @@ The palette IDs are those registered at `c66a6f5` in
 Rules:
 
 - **A1.** A destructive action is never the primary call to action. It sits in
-  a menu or a secondary row and keeps its existing confirmation.
+  the "More actions" menu (A8) and keeps its existing confirmation.
 - **A2.** "Join with a link…" stays in the pane header in every state,
   including no open note. In the header it is an icon button (`link`); its
   label, "Join with a link…", is the text inside the button and its tooltip,
@@ -155,6 +155,26 @@ Rules:
   names its reason after its title, and the button is disabled when the menu
   would be empty. The header repeats Share and Insert as icons; the primary
   action may still show the same one with its words.
+- **A9. Pane body: one state card** (UXD-11; owner decision 2026-10-31:
+  caveats, times, the server and hex go to Details). Below the header the
+  pane draws one card for what the cursor is on, and nothing else about it:
+  the section's name (else "No section at the cursor" or "No note open"), a
+  status word with its icon (`check-check` synced, `triangle-alert` a
+  problem, `loader` work under way, `cloud-off` offline or on this device
+  only, `eye` read-only), ONE line of fact, the primary of P1 as a `mod-cta`
+  button with its icon and label, and at most one secondary beside it:
+  "Open details", unless that is the primary or there is no section. The card
+  says "Synced" only where `sync.current` holds (§6). A problem owns the
+  card (`is-problem`, the theme's error colours); its fix is the primary. A
+  running flow (P2) is drawn in the card's place, with its steps. Every other
+  non-destructive action, and the destructive ones, are items of "More
+  actions" (A8, A1): the card has no stack of buttons. Not on the surface,
+  and reachable from Details: the caveats ("This does not mean others have
+  seen it."), "You can edit this section.", the access list's freshness and
+  times, the server, identifiers, the queue's and the held edits' full
+  sentences, and what deleting text and removing a whole copy do (C6). The
+  section list below is one line per section: a status icon, the name, and
+  "where · status" ("here · synced").
 
 ## 4. Target and selection
 
@@ -278,8 +298,9 @@ An ineligible selection blocks "Share section…" with one reason:
 
 ## 5. Primary call to action
 
-The pane shows at most one primary call to action for the current target.
-Every other problem is listed below it, in the same order.
+The pane shows at most one primary call to action for the current target,
+in its state card (A9). Every other problem is listed below the card, in the
+same order.
 
 **P1. Precedence.** The first matching row decides the primary action:
 
@@ -387,17 +408,19 @@ what is in progress. The fixtures' `primaryCtaNone` holds these sentences.
 | A healthy section, invite allowed | `invite` |
 | A healthy section, invite not allowed | `open-details` |
 | Offline with updates queued and no other problem | `sync-details` |
-| Setup incomplete (no server, sections off) | `open-settings`, with the exact reason (also a secondary action next to a share preview, to change its sync server, I8) |
+| Setup incomplete (no server, sections off) | `open-settings`, with the exact reason (also an item of "More actions" next to a share preview, to change its sync server, I8) |
 | No open Markdown note | None. "Join with a link…" and the section list stay available |
 | Reading view, source-changing action wanted | `open-for-editing` |
 
 ### 5.2 Problem hub (LFCP-03-018)
 
-Below the status the pane lists every problem of the section and of the
+Below the card the pane lists every problem of the section and of the
 note in view, one row each (`src/core/pane/problems.ts`). A row says what
 the problem is, where it comes from, and offers the one action that opens
 its resolver. The primary action of P1 is unchanged; the rows are the way
-to each problem, not a second precedence.
+to each problem, not a second precedence. The problem of the section at the
+cursor is the card itself (A9); the fix of a damaged section marker (its
+text, its button) is the card and is not listed a second time.
 
 | Problem | Source shown | Row action and what it carries |
 | --- | --- | --- |
@@ -522,6 +545,16 @@ unknown, never as zero.
   crossed out) next to the tooltip "Not checked with the server yet; local
   updates will wait". The crossed-out cloud is only for offline with
   evidence.
+- **F5. Surface and Details** (UXD-11; owner decision 2026-10-31). The
+  pane's state card says a status word and ONE line, each a cut of the
+  sentences in the table above (the first sentence, or the held edits'
+  "N edits not sent: <cause>."); the full sentences, with their caveats,
+  times and the queue, are the details card's. A cut makes no claim the table
+  forbids: "Synced" only where `sync.current` holds, "Not checked" (not
+  "Offline") without evidence of it, a removal or non-membership hedged
+  ("As last verified; it may have changed.") while the access view is not
+  current. The "Must not say" column applies to the card's word and line and
+  to Details alike.
 
 ## 7. Names: shared title and local alias
 
@@ -582,17 +615,18 @@ preview (MARKDOWN-SECTIONS-01 §8).
   visible content in a healthy section deletes it for everyone (a retained
   tombstone). Removing a whole copy or deleting the note removes the local
   copy only. Detach strips bindings and changes nothing shared. The pane
-  explains only these meanings. With the cursor in a section, the pane says
-  them before the user acts, next to "More actions" (LFCP-03-019, N-05):
-  "Deleting text inside this section deletes it for everyone who has this
-  section." (only where this vault's edits go out: a writer whose access the
-  server accepts), "Removing this whole copy from the note, or deleting the
-  note, removes only this copy.", and, where "Detach this section" is
-  offered, "Detach this section keeps its text here as your own. The shared
-  section, its other copies and everyone's access stay as they are." The
-  card says the first two under "What is shared". The detach confirmation
-  says that the shared section, the other notes, the collaborators and
-  their access are not changed. No new operation is added.
+  explains only these meanings (LFCP-03-019, N-05). Owner decision
+  2026-10-31 (UXD-11): not on the pane's surface, which draws no effects
+  paragraph; they are in Details. The details card says, under "What is
+  shared", "Deleting text inside this section deletes it for everyone who has
+  this section." (only where this vault's edits go out: a writer whose access
+  the server accepts) and "Removing this whole copy from the note, or deleting
+  the note, removes only this copy." The detach confirmation says, before
+  anything changes, that the text stays in the note as the user's own and that
+  the shared section, the other notes, the collaborators and their access are
+  not changed ("Detach this section keeps its text here as your own…" is no
+  longer drawn). Every other destructive action keeps its own confirmation
+  (A1). No new operation is added.
 - **C7. Boundary cues** (LFCP-03-020, package §8). A thin dotted line marks
   a section's last visible line. With an idle cursor (moved, not typing)
   on that line the editor shows "Inside the shared section"; on the line
@@ -736,8 +770,15 @@ state gives:
 - `expected.primaryCta`: an action ID, or `null` with a reason;
 - `expected.enabled` and `expected.disabled`: action IDs, each with its
   reason;
+- `expected.requiredClaims`: what the pane's surface says (its card, flow,
+  preview and problems). `expected.requiredListClaims`: what the section
+  list says (checked where the host gives its rows).
+  `expected.requiredDetailsClaims`: the caveats and facts that left the
+  surface (A9), which the details card must say: checked on the section
+  card built from the same facts;
 - `expected.forbiddenClaims`: strings that must not appear on any surface
-  in that state. `globalForbiddenClaims` apply to every state.
+  in that state, Details included. `globalForbiddenClaims` apply to every
+  state.
 
 The schema test checks the shape, the coverage of the eight required
 states and the consistency with the catalogue. A fixture's section must be
