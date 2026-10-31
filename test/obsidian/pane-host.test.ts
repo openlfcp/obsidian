@@ -13,7 +13,7 @@ import { fromBase64url, type ResourceId } from "@openlfcp/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionId } from "../../src/core/actions/catalog";
 import type { ActionRequest, Surface } from "../../src/core/actions/dispatcher";
-import type { PaneAccess } from "../../src/core/pane/host-facts";
+import { type PaneAccess, SECTIONS_OFF } from "../../src/core/pane/host-facts";
 import { contentHash } from "../../src/core/projection/guard";
 import type { ActiveFlow } from "../../src/core/sections/actions";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
@@ -475,6 +475,28 @@ describe("the pane's context, flows and clicks (LFCP-03-013)", () => {
       t.el().querySelector<HTMLButtonElement>(".openlfcp-pane-primary button") ?? null;
     return { ...t, sections, note, primary };
   }
+
+  it("A5, A6: with shared sections off, the header's Share and Insert are off with that reason and run nothing; Join runs", async () => {
+    const t = await loaded();
+    (t.plugin as unknown as { sections: unknown }).sections = null;
+    const note = new mock.MarkdownView(new mock.TFile("Plan.md"), TEXT);
+    note.cursorLine = 1;
+    t.ws.views.push(note);
+    t.ws.activeView = note;
+    await t.plugin.openPane();
+    const header = (id: string) =>
+      t.el().querySelector<HTMLButtonElement>(`.openlfcp-pane-header button[data-action="${id}"]`);
+    for (const id of ["share-section", "insert-into-note"]) {
+      const b = header(id);
+      expect(b?.getAttribute("aria-disabled"), id).toBe("true");
+      b?.click();
+    }
+    expect(t.runs).toEqual([]);
+    expect(header("share-section")?.getAttribute("aria-label")).toContain(SECTIONS_OFF);
+    expect(header("join-with-link")?.getAttribute("aria-disabled")).toBeNull();
+    header("join-with-link")?.click();
+    expect(t.runs.map((r) => r.id)).toEqual(["join-with-link"]);
+  });
 
   it("M3 / I4: with the access list's grant the primary action is Invite, run on that section", async () => {
     const t = await open();
