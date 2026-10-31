@@ -371,9 +371,30 @@ payment.
 - **Local storage on this device:** IndexedDB for the sync state (its
   decrypted part sealed at rest), and Obsidian's secret storage for the
   keys; neither is inside the vault.
-- **Bundled WebAssembly.** The plugin ships Automerge (the CRDT engine) as
-  WebAssembly inside `main.js`, stored compressed and decoded when the
-  plugin starts. Nothing is downloaded at run time.
+- **Bundled WebAssembly:** see below. Nothing is downloaded at run time.
+
+### Bundled WebAssembly
+
+`main.js` contains one WebAssembly module: `automerge_wasm_bg.wasm` from
+[Automerge](https://github.com/automerge/automerge) 3.5.0 (the npm package
+`@automerge/automerge`, the CRDT engine the SDK uses), unchanged. The build
+takes the bytes from the package's own base64 module, compresses them
+(deflate) and stores them in `main.js` as base64; when the plugin starts
+they are decompressed and compiled. `scripts/build-plugins.mjs` does this,
+and `test/bundle.test.ts` checks it.
+
+You can check that the release's `main.js` holds nothing else: a release
+is built by CI from the tagged commit, with the SDK and Automerge from npm
+at the versions in `pnpm-lock.yaml` (`pnpm install --frozen-lockfile`;
+`scripts/check-release-deps.mjs` refuses a commit that links the SDK from
+a local checkout instead), and carries a build provenance attestation
+(`gh attestation verify main.js --repo openlfcp/obsidian`). Building the
+same commit with `pnpm install --frozen-lockfile && pnpm build` gives the
+same `main.js`: the native workflow's `release_build` run prints its
+SHA-256 (`.github/workflows/native.yml`), each release candidate's report
+in `docs/devel/reports/` records that a local build's checksum equals it,
+and the release notes list the SHA-256 of each release file to compare
+with.
 
 ## Support
 
