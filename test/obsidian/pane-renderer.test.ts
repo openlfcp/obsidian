@@ -470,3 +470,76 @@ describe("the pane's tip (LFCP-03-021)", () => {
     ).toBe(false);
   });
 });
+
+describe("the section list (UX-08)", () => {
+  const rowsOf = (model: ReturnType<typeof modelOf>) => {
+    const rows = [
+      {
+        key: "R#1",
+        sharedTitle: "Sprint",
+        localAlias: null,
+        notes: ["Plan.md"],
+        placed: "placed" as const,
+        state: "CURRENT" as const,
+      },
+      {
+        key: "R#2",
+        sharedTitle: "Shopping",
+        localAlias: "Groceries",
+        notes: ["A.md", "B.md"],
+        placed: "placed" as const,
+        state: "LOCAL_DURABLE" as const,
+      },
+      {
+        key: "R#3",
+        sharedTitle: "Renovation",
+        localAlias: null,
+        notes: [],
+        placed: "unplaced" as const,
+        state: "OFFLINE" as const,
+      },
+    ];
+    return { ...model, rows };
+  };
+
+  it("draws one line per section: icon, name, and where and how it stands; the alias only when it differs", () => {
+    const s = doc.states.find((x) => x.id === "healthy-can-invite");
+    if (s === undefined) throw new Error("fixture missing");
+    const facts = paneFactsOf(s.facts);
+    const model = paneModel({
+      ...facts,
+      context: { ...facts.context, note: "Plan.md" },
+      registry: { ...facts.registry, rows: rowsOf(modelOf("healthy-can-invite")).rows },
+    });
+    const chosen: string[] = [];
+    renderPane(root, model, {
+      chrome,
+      action: () => undefined,
+      row: (key) => chosen.push(key),
+      chosen: "R#2",
+    });
+    const lines = Array.from(root.querySelectorAll<HTMLElement>(".openlfcp-pane-row")).map((li) => [
+      li.querySelector(".openlfcp-pane-row-name")?.textContent,
+      li.querySelector(".openlfcp-pane-row-meta")?.textContent,
+      li.querySelector(".openlfcp-pane-row-alias")?.textContent ?? null,
+    ]);
+    expect(lines).toEqual([
+      ["Sprint", "here · synced", null],
+      ["Shopping", "in 2 notes · pending", "On this device: Groceries"],
+      ["Renovation", "not inserted yet · offline", null],
+    ]);
+    // D9: the row is a pressed-state button, chosen by the user alone.
+    const second = root.querySelector<HTMLButtonElement>('button[data-row="R#2"]');
+    expect(second?.getAttribute("aria-pressed")).toBe("true");
+    expect(second?.closest("li")?.classList.contains("is-chosen")).toBe(true);
+    expect(root.querySelector('button[data-row="R#1"]')?.getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+    second?.click();
+    expect(chosen).toEqual(["R#2"]);
+    // The status icons: a check for synced, a spinner for work under way, a cloud for offline.
+    expect(icons.map(([, n]) => n)).toEqual(
+      expect.arrayContaining(["check-check", "loader", "cloud-off"]),
+    );
+  });
+});

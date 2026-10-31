@@ -36,7 +36,7 @@ import {
   selectionReasonText as reasonText,
   type SelectionReason as TargetSelectionReason,
 } from "../sections/target";
-import { type Condition, STATE_LABEL, type StatusState, type StatusView } from "../status/reducer";
+import type { Condition, StatusState, StatusView } from "../status/reducer";
 import {
   FLOW_STAGES,
   FLOW_TITLE,
@@ -48,7 +48,7 @@ import {
 import { HIDE_HINT, HINTS, type HintId, hiddenHints, paneHint, SHOW_HINTS } from "./hints";
 import { STATUS_ICONS } from "./icons";
 import type { PaneProblem, ProblemCategory } from "./problems";
-import { type FaceTone, sectionFace } from "./state-card";
+import { type FaceTone, rowWord, sectionFace } from "./state-card";
 
 /** Why a selection cannot be shared exactly (UX §4.2): the executor's reasons (LFCP-03-009). */
 export type SelectionReason = TargetSelectionReason;
@@ -254,8 +254,11 @@ export interface PaneRowView {
   readonly label: string;
   /** "On this device: …" (N2), or null. */
   readonly alias: string | null;
-  readonly status: string;
-  readonly places: string;
+  /** The status icon (a Lucide name) and how it reads at a glance. */
+  readonly icon: string;
+  readonly tone: FaceTone;
+  /** One line right of the name: where it is, then its status: "here · synced", "in 2 notes · pending". */
+  readonly meta: string;
 }
 
 export interface PaneGroup {
@@ -354,7 +357,7 @@ export function paneFocus(keys: {
 }
 
 /** A section whose copy in this note has a damaged marker. */
-const DAMAGED_HERE = "Damaged in this note";
+const DAMAGED_HERE = "damaged here";
 
 /** Row 6 of P1: the first source condition, mapped by that projection's own facts. */
 function sourcePrimary(v: StatusView, c: Extract<Condition, { kind: "source" }>): ActionId {
@@ -497,24 +500,32 @@ function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGrou
             ? null
             : `${plural(r.sections, "shared section")} on this device`;
   const rows = r.rows ?? [];
+  const note = f.context.note;
+  /** Where the row's section is, in a few words (the status follows it). */
+  const placesOf = (row: PaneRow): string =>
+    row.damaged === true && row.placed === "unplaced"
+      ? DAMAGED_HERE
+      : note !== null && row.notes.includes(note)
+        ? row.notes.length > 1
+          ? `here and in ${plural(row.notes.length - 1, "other note")}`
+          : "here"
+        : row.placed === "unplaced"
+          ? "not inserted yet"
+          : row.placed === "unknown"
+            ? "looking for copies…"
+            : `in ${plural(row.notes.length, "note")}`;
   const view = (row: PaneRow): PaneRowView => {
     const l = sectionLabel(row);
+    const w = rowWord(row.state, row.label);
     return {
       key: row.key,
       label: l.label,
       alias: l.alias,
-      status: row.state === null ? "Status not known yet" : (row.label ?? STATE_LABEL[row.state]),
-      places:
-        row.damaged === true && row.placed === "unplaced"
-          ? DAMAGED_HERE
-          : row.placed === "unplaced"
-            ? "Not inserted yet"
-            : row.placed === "unknown"
-              ? "Looking for copies in your notes…"
-              : `In ${plural(row.notes.length, "note")}`,
+      icon: w.icon,
+      tone: w.tone,
+      meta: `${placesOf(row)} · ${w.word}`,
     };
   };
-  const note = f.context.note;
   const groups: PaneGroup[] = [
     {
       id: "in-note",
@@ -988,12 +999,7 @@ export function paneTexts(m: PaneModel): string[] {
     ...(m.sections.summary === null ? [] : [m.sections.summary]),
     ...m.sections.groups.flatMap((g) => [
       g.title,
-      ...g.rows.flatMap((r) => [
-        r.label,
-        ...(r.alias === null ? [] : [r.alias]),
-        r.status,
-        r.places,
-      ]),
+      ...g.rows.flatMap((r) => [r.label, ...(r.alias === null ? [] : [r.alias]), r.meta]),
     ]),
     ...m.unfinished.flatMap((u) => [u.title, u.detail]),
     ...(m.notice === null ? [] : [m.notice]),
