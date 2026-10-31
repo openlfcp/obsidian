@@ -150,8 +150,10 @@ plugin's recommended config, type-aware, `src/` only) with
 
 Choices that stay in that config or in the code:
 
-- `obsidianmd/ui/sentence-case` is off: "Shared Tasks" and "OpenLFCP" are
-  proper nouns the rule cannot know, and the Scorecard does not list it.
+- `obsidianmd/ui/sentence-case` warns, with its own brand list: Obsidian,
+  Shared Tasks, OpenLFCP. The list replaces the rule's built-in one, which
+  names "Cursor", a word the UI uses in its ordinary sense; `lfcp://`
+  links are not prose.
 - `test/` and `scripts/` are not linted: the Scorecard scans `src/`.
 - No `eslint-disable` comments: the config sets `noInlineConfig`, so a
   comment cannot hide a warning the Scorecard would still count.
