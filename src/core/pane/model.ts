@@ -930,7 +930,12 @@ export function paneModel(f: PaneFacts): PaneModel {
       f.context.flow === null || f.context.flow.outcome === "unfinished"
         ? null
         : flowView(f.context.flow),
-    problems: problemViews(f, p.id).filter((x) => x.id !== fix?.id),
+    problems: problemViews(f, p.id).filter(
+      (x) =>
+        x.id !== fix?.id &&
+        // A row that says what the card says, with the card's own button, is the card (not twice).
+        !(card.problem && x.text === card.fact && (x.action === null || x.action.id === p.id)),
+    ),
     preview:
       preview === undefined
         ? []
