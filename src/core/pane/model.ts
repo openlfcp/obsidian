@@ -55,7 +55,9 @@ import {
   stageOf,
 } from "./flows";
 import { HIDE_HINT, HINTS, type HintId, hiddenHints, paneHint, SHOW_HINTS } from "./hints";
+import { STATUS_ICONS } from "./icons";
 import type { PaneProblem, ProblemCategory } from "./problems";
+import { type FaceTone, sectionFace } from "./state-card";
 
 /** Why a selection cannot be shared exactly (UX §4.2): the executor's reasons (LFCP-03-009). */
 export type SelectionReason = TargetSelectionReason;
@@ -251,6 +253,27 @@ export interface PaneProblemView {
   readonly action: PaneAction | null;
 }
 
+/**
+ * The pane's body (UXD-11): one card for what the cursor is on. A title, a
+ * status word with its icon, ONE line of fact, one primary with its words and
+ * at most one secondary beside it. Caveats, times, the server and what a
+ * change does are in Details (`open-details`), not here.
+ */
+export interface PaneCard {
+  /** The section's name; "No section at the cursor", "No note open", or a running flow's title. */
+  readonly title: string;
+  readonly status: { readonly word: string; readonly icon: string; readonly tone: FaceTone };
+  /** The one line; null: the word says it. */
+  readonly fact: string | null;
+  /** Why there is no primary button, in its place (P4); null when there is one. */
+  readonly none: string | null;
+  readonly primary: PaneAction | null;
+  /** Beside the primary: Details, unless Details is the primary or there is no section. */
+  readonly secondary: PaneAction | null;
+  /** A problem owns the card: drawn as one, its primary the fix. */
+  readonly problem: boolean;
+}
+
 export interface PaneRowView {
   readonly key: string;
   readonly label: string;
@@ -280,6 +303,8 @@ export interface PaneModel {
   readonly header: readonly PaneAction[];
   /** The field for a pasted invitation link (I5): shown while a join waits for it. */
   readonly joinField: boolean;
+  /** The body: one card for the section at the cursor (UXD-11). */
+  readonly card: PaneCard;
   /** The current area: the note, section or selection; the flow's target while a flow owns it. */
   readonly context: { readonly heading: string; readonly lines: readonly string[] };
   readonly flow: PaneFlowView | null;
@@ -667,10 +692,10 @@ function availability(f: PaneFacts): Map<ActionId, Avail> {
 }
 
 /**
- * The action that fixes a damaged section boundary of the note in view
- * (UX-06): the first boundary problem row of that note with its own fix.
+ * The problem row that fixes a damaged section boundary of the note in view
+ * (UX-06): the first boundary row of that note with its own fix.
  */
-function noteFix(f: PaneFacts): ActionId | null {
+function noteFixRow(f: PaneFacts): PaneProblem | null {
   const note = f.context.note;
   if (note === null) return null;
   for (const p of f.problems ?? [])
@@ -680,15 +705,18 @@ function noteFix(f: PaneFacts): ActionId | null {
       p.ref?.kind === "repair" &&
       p.ref.path === note
     )
-      return p.action;
+      return p;
   return null;
 }
+
+/** The action that fixes it (UX-06). */
+const noteFix = (f: PaneFacts): ActionId | null => noteFixRow(f)?.action ?? null;
 
 /** P1: the first matching row decides the primary action; null with the reason when none. */
 function primaryOf(
   f: PaneFacts,
   a: ReadonlyMap<ActionId, Avail>,
-): { id: ActionId | null; none: string | null } {
+): { id: ActionId | null; none: string | null; fix?: true } {
   type Pick = { id: ActionId | null; none: string | null; fix?: true };
   const ctx = f.context;
   const s = f.section;
@@ -786,7 +814,7 @@ function primaryOf(
   if (p.id !== null && ctx.editor === "reading" && SOURCE_CHANGING.has(p.id))
     return { id: "open-for-editing", none: null };
   // The fix of a damaged marker is the problem row's own action: it needs no section status.
-  if (p.fix === true) return { id: p.id, none: null };
+  if (p.fix === true) return { id: p.id, none: null, fix: true };
   if (p.id !== null && a.get(p.id)?.enabled !== true)
     return { id: null, none: a.get(p.id)?.reason ?? "Not available now." };
   return p;
@@ -901,6 +929,99 @@ function effectsOf(f: PaneFacts, a: ReadonlyMap<ActionId, Avail>): string[] {
   return [...changeEffects(s.view), ...(a.has("detach-section") ? [DETACH_TEXT] : [])];
 }
 
+/** The note's reading-view line (T4). */
+const READING_LINE = "Reading view: open the note for editing to change it.";
+
+/**
+ * The card (UXD-11): what the cursor is on, its status in a word, one line,
+ * the primary, and Details beside it. A running flow owns the area (P2): the
+ * card is the flow's, drawn with its steps.
+ */
+function cardOf(
+  f: PaneFacts,
+  a: ReadonlyMap<ActionId, Avail>,
+  p: { readonly id: ActionId | null; readonly none: string | null; readonly fix?: true },
+  primary: PaneAction | null,
+): PaneCard {
+  const ctx = f.context;
+  const s = f.section;
+  const flow = ctx.flow?.outcome === "unfinished" ? null : ctx.flow;
+  const details = a.get("open-details");
+  const secondary =
+    s !== null && p.id !== "open-details" && details !== undefined && flow === null
+      ? action("open-details", details)
+      : null;
+  const none = primary === null ? p.none : null;
+  const face = (
+    title: string,
+    w: { word: string; icon: string; tone: FaceTone },
+    fact: string | null,
+    problem = false,
+  ): PaneCard => ({
+    title,
+    status: { word: w.word, icon: w.icon, tone: w.tone },
+    fact,
+    none,
+    primary,
+    secondary,
+    problem,
+  });
+  if (flow !== null) {
+    const stage = stageOf(flow.kind, flow.stage);
+    const w =
+      flow.outcome === "unknown"
+        ? { word: "Result unknown", icon: STATUS_ICONS.problem, tone: "problem" as const }
+        : {
+            word: "In progress",
+            icon: STATUS_ICONS.busy,
+            tone: stage.waits === "effect" ? ("busy" as const) : ("info" as const),
+          };
+    return face(FLOW_TITLE[flow.kind], w, null, flow.outcome === "unknown");
+  }
+  const sel = ctx.selection;
+  const selection =
+    sel === null
+      ? null
+      : sel.eligibility === "exact"
+        ? `Selection: lines ${sel.fromLine}–${sel.toLine}`
+        : selectionReasonText(sel);
+  const reading = ctx.editor === "reading" ? READING_LINE : null;
+  const fix = p.fix === true ? noteFixRow(f) : null;
+  if (s === null) {
+    const title = ctx.note === null ? "No note open" : "No section at the cursor";
+    if (fix !== null)
+      return face(
+        "A shared section in this note",
+        { word: "Needs repair", icon: STATUS_ICONS.problem, tone: "problem" },
+        fix.text,
+        true,
+      );
+    return face(
+      title,
+      ctx.note === null
+        ? { word: "No note", icon: STATUS_ICONS.idle, tone: "muted" }
+        : { word: "Not shared", icon: STATUS_ICONS.idle, tone: "muted" },
+      selection ??
+        (ctx.cursor === "private-heading" ? "On a heading that is not shared" : null) ??
+        reading,
+    );
+  }
+  const title = sectionLabel(s).label;
+  if (fix !== null)
+    return face(
+      title,
+      { word: "Needs repair", icon: STATUS_ICONS.problem, tone: "problem" },
+      fix.text,
+      true,
+    );
+  const shared = sharedLine(s, a.get("invite")?.enabled === true);
+  const local = s.hosting === "pending" || (s.shared?.kind === "local" && s.hosting !== "hosted");
+  const unplaced =
+    s.placements === 0 && s.damaged !== true && f.registry.placementIndex === "complete";
+  const w = sectionFace(s.view, { shared: shared?.text ?? null, local, unplaced });
+  return face(title, w, w.problem ? w.fact : (selection ?? reading ?? w.fact), w.problem);
+}
+
 /** What the pane shows for these facts. */
 export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
   const a = availability(f);
@@ -955,6 +1076,7 @@ export function paneModel(f: PaneFacts, o: PaneOptions = {}): PaneModel {
       f.context.flow?.kind === "join" &&
       f.context.flow.outcome === "running" &&
       f.context.flow.stage === "link",
+    card: cardOf(f, a, p, primary),
     context: contextArea(f),
     flow:
       f.context.flow === null || f.context.flow.outcome === "unfinished"
