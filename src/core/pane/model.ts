@@ -773,14 +773,15 @@ const READING_LINE = "Reading view: open the note for editing to change it.";
 function cardOf(
   f: PaneFacts,
   a: ReadonlyMap<ActionId, Avail>,
-  p: { readonly id: ActionId | null; readonly none: string | null; readonly fix?: true },
+  primary: ActionId | null,
+  fixRow: PaneProblem | null,
 ): PaneCard {
   const ctx = f.context;
   const s = f.section;
   const flow = ctx.flow?.outcome === "unfinished" ? null : ctx.flow;
   const details = a.get("open-details");
   const secondary =
-    s !== null && p.id !== "open-details" && details !== undefined && flow === null
+    s !== null && primary !== "open-details" && details !== undefined && flow === null
       ? action("open-details", details)
       : null;
   const face = (
@@ -820,7 +821,7 @@ function cardOf(
         ? `Selection: lines ${sel.fromLine}–${sel.toLine}`
         : selectionReasonText(sel);
   const reading = ctx.editor === "reading" ? READING_LINE : null;
-  const fix = p.fix === true ? noteFixRow(f) : null;
+  const fix = fixRow;
   if (s === null) {
     const title = ctx.note === null ? "No note open" : "No section at the cursor";
     if (fix !== null)
@@ -862,7 +863,9 @@ export function paneModel(f: PaneFacts): PaneModel {
   const p = primaryOf(f, a);
   const primary =
     p.id === null ? null : action(p.id, a.get(p.id) ?? { enabled: true, reason: null });
-  const card = cardOf(f, a, p);
+  // The fix of a damaged marker is the card itself (its text, its button): not listed again (UX-06).
+  const fix = p.fix === true ? noteFixRow(f) : null;
+  const card = cardOf(f, a, p.id, fix);
   // The header draws Share, Insert and Join; the card draws the primary and Details.
   const drawn = new Set<ActionId>([
     ...HEADER_IDS,
@@ -916,7 +919,7 @@ export function paneModel(f: PaneFacts): PaneModel {
       f.context.flow === null || f.context.flow.outcome === "unfinished"
         ? null
         : flowView(f.context.flow),
-    problems: problemViews(f, p.id),
+    problems: problemViews(f, p.id).filter((x) => x.id !== fix?.id),
     preview:
       preview === undefined
         ? []
