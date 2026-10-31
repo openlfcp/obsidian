@@ -10,6 +10,34 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-31
+
+The Shared Tasks pane is redrawn: icons at the top, one card for the place
+the cursor is on, one button for the next step.
+Notes: [docs/releases/0.6.0.md](docs/releases/0.6.0.md).
+
+### Changed
+
+- The pane has a row of icons at the top (Share section, Insert into a
+  note, Join with a link, More actions) under its title, Shared Tasks.
+- One card for the place the cursor is on: the section's name, its status
+  in a word, one line, and one highlighted button for the next step, with
+  Open details beside it; no highlighted button when there is nothing to do.
+- Times, the server and caveats moved to the section's details; rare and
+  destructive actions moved to the More actions menu.
+- A problem the card states is not listed again; other problems are listed
+  with their place and their own button. The section list has one line per
+  section.
+- A few messages are worded in sentence case.
+
+### Fixed
+
+- The repair dialog showed a raw marker line instead of the task's text,
+  and the pane could show Repair twice
+  ([#87](https://github.com/openlfcp/obsidian/issues/87)).
+- Timers of shared sections kept running briefly after the plugin was
+  turned off ([#81](https://github.com/openlfcp/obsidian/issues/81)).
+
 ## [0.5.2] — 2026-10-30
 
 The plugin passes the community directory's lint review.
