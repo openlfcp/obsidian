@@ -583,9 +583,10 @@ function availability(f: PaneFacts): Map<ActionId, Avail> {
 
 /**
  * The problem row that fixes a damaged section boundary of the note in view
- * (UX-06): the first boundary row of that note with its own fix.
+ * (UX-06): the first boundary row of that note with its own fix; with
+ * `section`, the first of that section's.
  */
-function noteFixRow(f: PaneFacts): PaneProblem | null {
+function noteFixRow(f: PaneFacts, section?: string): PaneProblem | null {
   const note = f.context.note;
   if (note === null) return null;
   for (const p of f.problems ?? [])
@@ -593,14 +594,22 @@ function noteFixRow(f: PaneFacts): PaneProblem | null {
       p.category === "boundary" &&
       (p.action === "restore-marker" || p.action === "repair-sections") &&
       p.ref?.kind === "repair" &&
-      p.ref.path === note
+      p.ref.path === note &&
+      (section === undefined || p.section === section)
     )
       return p;
   return null;
 }
 
-/** The action that fixes it (UX-06). */
-const noteFix = (f: PaneFacts): ActionId | null => noteFixRow(f)?.action ?? null;
+/**
+ * The fix of a damaged marker of the section at the cursor, in this note
+ * (UX-06): the card's own problem, so its fix is the primary. A damaged
+ * marker of another section, or with no section at the cursor, is a row
+ * with its place and its own button; the card's primary never fixes it
+ * (UXD-12: one cause, one line, one button).
+ */
+const ownFixRow = (f: PaneFacts): PaneProblem | null =>
+  f.section === null ? null : noteFixRow(f, f.section.key);
 
 /**
  * P1: the first matching row decides the primary action; null with the reason
@@ -620,6 +629,10 @@ function primaryOf(
   const v = s?.view;
   const conditions = v?.conditions ?? [];
   const flow = ctx.flow;
+  // UX-06: this section's damaged marker in this note is fixed before anything else is offered.
+  const own = ownFixRow(f);
+  const fix: Pick | null =
+    own === null || own.action === null ? null : { id: own.action, none: null, fix: true };
   const ordinary = (): Pick => {
     if (f.setup) return { id: "open-settings", none: null };
     if (ctx.editor === "none")
@@ -637,10 +650,13 @@ function primaryOf(
         ? { id: null, none: NO_PRIMARY.noSection }
         : { id: "share-whole-section", none: null };
     if (ctx.cursor === "private-heading") return { id: "share-section", none: null };
-    // UX-06: a damaged marker in this note is fixed before anything else is offered
-    // (a share the cursor or selection asks for stays first).
-    const fix = noteFix(f);
-    if (fix !== null) return { id: fix, none: null, fix: true };
+    // A share the cursor or selection asks for stays first.
+    if (fix !== null) return fix;
+    // No section at the cursor, a damaged marker in the note: its row has the fix (UXD-12),
+    // and no share is offered here (the cursor may be in the damaged one). In Reading view
+    // that fix waits for an editor: the primary opens it (T4).
+    if (s === null && noteFixRow(f) !== null)
+      return ctx.editor === "reading" ? { id: "open-for-editing", none: null } : QUIET;
     if (s !== null && v !== undefined) {
       if (s.placements === 0 && s.damaged !== true && f.registry.placementIndex === "complete")
         return { id: "insert-into-note", none: null };
@@ -684,8 +700,9 @@ function primaryOf(
               : "review-local-changes",
             none: null,
           };
+        // The copy held by its damaged marker in this note: the marker's own fix, said once.
         case "source":
-          return { id: sourcePrimary(v, first), none: null };
+          return fix ?? { id: sourcePrimary(v, first), none: null };
         case "held-unknown":
         case "loading":
         case "access-checking":
@@ -862,12 +879,13 @@ function cardOf(
       : `${fact} ${wanted === "repair-sections" || wanted === "restore-marker" ? READING_REPAIR : READING_LINE}`;
   const fix = fixRow;
   if (s === null) {
+    const damaged = noteFixRow(f) !== null;
     const title = ctx.note === null ? "No note open" : "No section at the cursor";
     return face(
       title,
       ctx.note === null
         ? { word: "No note", icon: STATUS_ICONS.idle, tone: "muted" }
-        : fix !== null
+        : damaged
           ? // Not "Not shared": the cursor may be in the section whose marker is damaged.
             { word: "Not in a section", icon: STATUS_ICONS.idle, tone: "muted" }
           : { word: "Not shared", icon: STATUS_ICONS.idle, tone: "muted" },
@@ -875,12 +893,12 @@ function cardOf(
       reading ??
         selection ??
         (ctx.cursor === "private-heading" ? "On a heading that is not shared" : null) ??
-        (fix !== null ? NOTE_DAMAGED : null),
+        (damaged ? NOTE_DAMAGED : null),
     );
   }
   const title = sectionLabel(s).label;
   // This section's own damaged marker in the note: its fix is the card (UX-06).
-  if (fix !== null && fix.section === s.key)
+  if (fix !== null)
     return face(
       title,
       { word: "Needs repair", icon: STATUS_ICONS.problem, tone: "problem" },
@@ -908,8 +926,8 @@ export function paneModel(f: PaneFacts): PaneModel {
   const p = primaryOf(f, a);
   const primary =
     p.id === null ? null : action(p.id, a.get(p.id) ?? { enabled: true, reason: null });
-  // The fix of a damaged marker is the primary (UX-06); the card says it when it is this section's.
-  const fix = p.fix === true ? noteFixRow(f) : null;
+  // The fix of this section's damaged marker is the primary (UX-06), and the card says it.
+  const fix = p.fix === true ? ownFixRow(f) : null;
   const card = cardOf(f, a, p.id, p.wanted ?? null, fix);
   // The header draws Share, Insert and Join; the card draws the primary and Details.
   const drawn = new Set<ActionId>([
