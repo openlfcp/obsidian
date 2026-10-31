@@ -111,6 +111,24 @@ describe("pane view model on the UX 0.3 fixtures", () => {
         }
       });
 
+      it("A8: the header is Share, Insert, Join in every state; Join is the model's join", () => {
+        expect(model.header.map((a) => a.id)).toEqual([
+          "share-section",
+          "insert-into-note",
+          "join-with-link",
+        ]);
+        expect(model.header[2]).toEqual(model.join);
+        for (const a of model.header)
+          expect(a.enabled || (a.reason ?? "") !== "", `${a.id} disabled without a reason`).toBe(
+            true,
+          );
+        // The same descriptors as the actions below: a header entry agrees with its twin.
+        for (const a of model.header) {
+          const twin = byId.get(a.id);
+          if (twin !== undefined) expect(a).toEqual(twin);
+        }
+      });
+
       it("keeps destructive actions out of the primary place and every action unique", () => {
         expect(model.secondary.every((a) => !a.destructive)).toBe(true);
         expect(model.menu.every((a) => a.destructive)).toBe(true);
@@ -183,6 +201,19 @@ describe("pane view model rules beyond the fixtures", () => {
     expect(pending?.reason).toBe(
       "Removing access waits until this device's earlier access change is recorded by the server.",
     );
+  });
+
+  it("A8: an entry the descriptors hide is still in the header, disabled with its reason", () => {
+    // A selection and no shared section on this device: "Insert into a note…" is not offered below.
+    const m = paneModel(state("selection-exact"), { time });
+    expect([m.primary, ...m.secondary, ...m.menu].some((a) => a?.id === "insert-into-note")).toBe(
+      false,
+    );
+    const insert = m.header.find((a) => a.id === "insert-into-note");
+    expect(insert?.enabled).toBe(false);
+    expect(insert?.reason).toMatch(/share one/);
+    expect(m.header.length).toBe(3);
+    expect(m.header[2]?.enabled).toBe(true);
   });
 
   it("D10: hides what does not apply, disables with a reason what applies but is blocked", () => {
