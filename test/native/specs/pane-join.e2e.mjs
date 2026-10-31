@@ -17,11 +17,6 @@ const FILE = "Pane join.md";
 
 const paneText = () => inA(() => document.querySelector(".openlfcp-pane")?.textContent ?? "");
 const paneHtml = () => inA(() => document.querySelector(".openlfcp-pane")?.innerHTML ?? "");
-const primary = () =>
-  inA(() => {
-    const b = document.querySelector(".openlfcp-pane .openlfcp-pane-primary button");
-    return b === null ? null : { label: b.textContent, disabled: b.getAttribute("aria-disabled") === "true" };
-  });
 const clickPane = (label) =>
   inA((_o, label) => {
     const b = [...document.querySelectorAll(".openlfcp-pane button")].find((x) => x.textContent === label);
@@ -108,13 +103,22 @@ describe("LFCP-03-015: join → insert in the pane", () => {
     expect(field.cleared).toBe(true);
     expect(field.modals).toBe(0);
 
-    // Each step, as the pane shows it, until the section is joined and loaded.
+    // Each step, as the pane shows it, until the section is joined and loaded. The step, the
+    // primary button and the text from one look at the pane: the last step and the button may
+    // come in the same render, and reading them apart could miss that step.
     const steps = [];
     await browser.waitUntil(
       async () => {
-        const step = await inA(() => document.querySelector(".openlfcp-pane .openlfcp-pane-step.is-current")?.textContent ?? null);
-        if (step !== null && steps.at(-1) !== step) steps.push(step);
-        return (await primary())?.label === "Insert into a note…" && (await paneText()).includes("Not inserted yet");
+        const now = await inA(() => {
+          const pane = document.querySelector(".openlfcp-pane");
+          return {
+            step: pane?.querySelector(".openlfcp-pane-step.is-current")?.textContent ?? null,
+            primary: pane?.querySelector(".openlfcp-pane-primary button")?.textContent ?? null,
+            text: pane?.textContent ?? "",
+          };
+        });
+        if (now.step !== null && steps.at(-1) !== now.step) steps.push(now.step);
+        return now.primary === "Insert into a note…" && now.text.includes("Not inserted yet");
       },
       { timeout: 90_000, interval: 100, timeoutMsg: "the section joined and listed as not inserted yet" },
     );
