@@ -1,8 +1,10 @@
 // LFCP-03-019 (U03-15, U03-17, U03-19; F-01): access, copy and detach from
 // the Shared Tasks pane of a real Obsidian, without the command palette. A
 // shares a section; the headless peers B and C join it. With the cursor in
-// A's copy, the pane says this vault's rights and the access list's
-// freshness, and what deleting, removing the copy and detaching do (N-05).
+// A's copy, the pane's card says the section is synced in a word and a line,
+// and Details (UXD-11) says this vault's rights, the access list's freshness
+// and what deleting and removing the copy do (N-05); detaching says its own
+// in its confirmation.
 // "Copy readable text" and "Copy shared section" copy A's copy (without and
 // with its bindings). "Remove access…" opens the card; C is removed there,
 // after its confirmation: C is told it is removed, B keeps its access.
@@ -25,8 +27,13 @@ const hex = (b) => Buffer.from(b).toString("hex");
 const bytes = (h) => Uint8Array.from(Buffer.from(h, "hex"));
 
 const paneText = () => inA(() => document.querySelector(".openlfcp-pane")?.textContent ?? "");
-/** The destructive actions' labels: they sit in the pane's "More actions" menu (A8), not in its DOM. */
-const MENU_LABEL = { "remove-access": "Remove access…", "detach-section": "Detach this section" };
+/** The actions the card does not draw: they sit in the pane's "More actions" menu (A8), not in its DOM. */
+const MENU_LABEL = {
+  "remove-access": "Remove access…",
+  "detach-section": "Detach this section",
+  "copy-readable": "Copy readable text",
+  "copy-shared-section": "Copy shared section",
+};
 /** Closes the menu, if one is open, with a real Escape. */
 const closeMenu = async () => {
   if (!(await inA(() => document.querySelector(".menu") !== null))) return;
@@ -150,17 +157,31 @@ describe("LFCP-03-019: access, copy and detach from the pane", () => {
       }, TOOLTIP),
     ).toBe(true);
     await $(".openlfcp-pane").waitForExist({ timeout: 10_000 });
-    // Rights, the access list's freshness, and what changes do: before anything is done.
+    // The card says it in a word and a line; the rest is in Details (UXD-11), before anything is done.
     await browser.waitUntil(
       async () => {
         const t = await paneText();
-        return t.includes("You can edit this section.") && t.includes("Access verified with the server") && (await paneButton("remove-access"))?.enabled === true;
+        return t.includes("Synced") && (await paneButton("remove-access"))?.enabled === true;
       },
-      { timeout: 60_000, timeoutMsg: "the pane with A's rights, freshness and Remove access…" },
+      { timeout: 60_000, timeoutMsg: "the pane's card (synced) and Remove access…" },
     );
     const before = await paneText();
     evidence("PANE-ACCESS facts", { text: before.slice(0, 900) });
-    for (const s of [BODY_DELETE, WHOLE_COPY, DETACH]) expect(before).toContain(s);
+    // Nothing of it on the surface: no caveat, no time, no effects paragraph.
+    for (const s of ["You can edit this section.", "Access verified with the server", BODY_DELETE, WHOLE_COPY, DETACH, "This does not mean others have seen it"])
+      expect(before).not.toContain(s);
+    expect(await inA(() => document.querySelector(".openlfcp-pane .openlfcp-pane-status") === null)).toBe(true);
+    // Details, from the card's button: the rights, the access list's freshness, and what changes do.
+    expect(await inA(() => {
+      const b = document.querySelector('.openlfcp-pane .openlfcp-pane-card button[data-action="open-details"]');
+      b?.click();
+      return b !== null;
+    })).toBe(true);
+    const details = await modalWith("You can edit this section.");
+    evidence("PANE-ACCESS details", { text: details.slice(0, 1500) });
+    expect(details).toContain("Access verified with the server");
+    for (const s of [BODY_DELETE, WHOLE_COPY]) expect(details).toContain(s);
+    await closeModals("details from the pane's card");
 
     // Copy readable text and Copy shared section, from the pane: A's copy, without and with bindings.
     await inA(() => {

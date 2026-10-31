@@ -114,7 +114,12 @@ const draw = (st) =>
               counts: `${H.shareCounts(pv.counts)}.`,
               warnings: pv.warnings.map((w) => H.shareWarningText(w)).filter((t) => t !== null),
             };
+      const cards = el.querySelectorAll(".openlfcp-pane-card");
       const out = {
+        cards: cards.length,
+        word: el.querySelector(".openlfcp-pane-status-word")?.textContent ?? null,
+        bullets: el.querySelectorAll(".openlfcp-pane-status, .openlfcp-pane-effects, .openlfcp-pane-actions").length,
+        cta: cards[0]?.querySelectorAll("button.mod-cta").length ?? 0,
         active: app.workspace.getActiveViewOfType(obsidian.MarkdownView)?.file?.path ?? null,
         primary: primary === null ? null : { action: primary.dataset.action ?? null, disabled: primary.getAttribute("aria-disabled") === "true" },
         none: el.querySelector(".openlfcp-pane-none")?.textContent ?? null,
@@ -206,7 +211,13 @@ describe("LFCP-03-025: the UX fixture states in the real plugin's pane", functio
           if (b.reason !== x.reason) problems.push(`${x.action} reason "${b.reason}", want "${x.reason}"`);
         }
       }
-      for (const claim of st.expected.requiredClaims) if (!d.all.includes(claim)) problems.push(`missing claim "${claim}"`);
+      // UX-08: one card with a status word; no status bullets, effects paragraph or stack of buttons.
+      if (d.cards !== 1) problems.push(`${d.cards} cards, want 1`);
+      if (d.word === null || d.word === "") problems.push("no status word");
+      if (d.bullets !== 0) problems.push(`${d.bullets} status or effects blocks on the surface`);
+      if (d.cta > 1) problems.push(`${d.cta} mod-cta buttons in the card`);
+      for (const claim of [...st.expected.requiredClaims, ...(st.expected.requiredListClaims ?? [])])
+        if (!d.all.includes(claim)) problems.push(`missing claim "${claim}"`);
       for (const claim of [...st.expected.forbiddenClaims, ...doc.globalForbiddenClaims])
         for (const t of d.texts) if (!time.test(t) && t.toLowerCase().includes(claim.toLowerCase())) problems.push(`"${t}" says "${claim}"`);
       if (d.wantPreview !== null) {
@@ -219,6 +230,7 @@ describe("LFCP-03-025: the UX fixture states in the real plugin's pane", functio
         result: problems.length === 0 ? "PASS" : "FAIL",
         active: d.active,
         primary: d.primary,
+        word: d.word,
         problems,
         ...(problems.length > 0 ? { actions: d.actions, menu: d.menu, text: d.all.slice(0, 800) } : {}),
       });

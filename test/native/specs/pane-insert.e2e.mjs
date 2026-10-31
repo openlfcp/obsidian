@@ -92,12 +92,19 @@ const open = (file, line) =>
     file,
     line,
   );
-/** Waits until the pane is about `file`. */
-const paneOn = (file) =>
-  browser.waitUntil(async () => (await inA(() => document.querySelector(".openlfcp-pane")?.textContent ?? "")).includes(`In this note: ${file}`), {
-    timeout: 20_000,
-    timeoutMsg: `the pane on ${file}`,
-  });
+/**
+ * Waits until the pane is about `file`. The card no longer names the note (UXD-11): the pane
+ * follows the last active Markdown note (T1), so the note is the active one and the pane has
+ * drawn since (its redraws are coalesced over 100 ms).
+ */
+const paneOn = async (file) => {
+  await browser.waitUntil(
+    () => inA(({ app, obsidian }, file) => app.workspace.getActiveViewOfType(obsidian.MarkdownView)?.file?.path === file, file),
+    { timeout: 20_000, timeoutMsg: `the note ${file} active` },
+  );
+  await browser.pause(400);
+  await $(".openlfcp-pane .openlfcp-pane-card").waitForExist({ timeout: 20_000, timeoutMsg: `the pane's card on ${file}` });
+};
 const read = (file) => inA(({ app }, file) => app.vault.adapter.read(file), file);
 const noticeWith = (part) =>
   browser.waitUntil(
