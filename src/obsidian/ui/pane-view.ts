@@ -253,7 +253,8 @@ export class SharedTasksView extends ItemView {
     this.#stale = false;
     this.drawings++;
     const generation = this.#generation;
-    const drawn = this.port.snapshot(this.#liveTarget(), this.#ui());
+    const target = this.#liveTarget();
+    const drawn = this.port.snapshot(target, this.#ui());
     this.#pinned = drawn.pinned;
     const join = this.port.join;
     const joinGeneration = drawn.join ?? null;
@@ -293,6 +294,8 @@ export class SharedTasksView extends ItemView {
             },
           }),
     });
+    // The note this drawing is about (T1): the card does not name it; a reader of the DOM can.
+    root.dataset.note = target?.file?.path ?? "";
   }
 
   /**

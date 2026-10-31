@@ -322,6 +322,7 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     t.ws.activeView = note;
     await t.plugin.openPane();
     expect(t.el().textContent).not.toContain("No note open");
+    expect(t.el().querySelector<HTMLElement>(".openlfcp-pane")?.dataset.note).toBe("Plan.md");
     // Focus moves to the pane: no Markdown view is active any more.
     t.ws.activeView = null;
     t.ws.trigger("active-leaf-change", t.leaves()[0]);
@@ -337,6 +338,7 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     t.ws.views.length = 0;
     t.view()?.render();
     expect(t.el().textContent).toContain("No note open");
+    expect(t.el().querySelector<HTMLElement>(".openlfcp-pane")?.dataset.note).toBe("");
     (t.plugin as unknown as { sections: unknown }).sections = null;
   });
 
