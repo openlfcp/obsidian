@@ -172,15 +172,16 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
     );
   const damaged = doc(START.replace("lfcp1:", "hlfcp1:"));
 
-  it("shows one problem, with Restore as the one button, and never Insert into a note", () => {
+  it("shows one card with the problem and Restore as the one button, never Insert into a note", () => {
     const m = draw(damaged);
-    expect(m.problems).toHaveLength(1);
-    expect(m.problems[0]?.text).toContain('The start line of "Tasks 1" was changed.');
-    expect(m.problems[0]?.text).toContain("not being sent");
+    // R5: the problem is the card (its text, its fix); it is not listed a second time.
+    expect(m.card.problem).toBe(true);
+    expect(m.card.fact).toContain('The start line of "Tasks 1" was changed.');
+    expect(m.card.fact).toContain("not being sent");
+    expect(m.card.status.word).toBe("Needs repair");
+    expect(m.problems).toEqual([]);
     expect(m.primary?.id).toBe("restore-marker");
     expect(m.primary?.label).toBe("Restore");
-    // The same button is not drawn twice.
-    expect(m.problems[0]?.action).toBeNull();
     expect(m.primary?.label).not.toContain("Insert");
   });
 
