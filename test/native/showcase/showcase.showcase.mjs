@@ -677,9 +677,10 @@ describe("LFCP-03-068: showcase frames from two real Obsidian apps", function ()
     await hosts.A.pause(800);
     await snap("15-section-card");
     await closeModals(hosts.A);
+    // The destructive actions are in the pane's "More actions" menu: opened, as a user does.
     await on(hosts.A, () => {
-      const menu = document.querySelector(".openlfcp-pane details.openlfcp-pane-menu");
-      if (menu !== null) menu.open = true;
+      window.app.vault.setConfig("nativeMenus", false);
+      document.querySelector('.openlfcp-pane button[data-pane-key="menu"]')?.click();
     });
     await hosts.A.pause(500);
     await snap("16-pane-copy-detach");

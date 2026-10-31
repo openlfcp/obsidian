@@ -153,7 +153,10 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
     evidence("KEYS-OPEN", { platform: process.platform, opened, leaves, steps: walk.trail.length, left: walk.found, visited });
     expect(leaves).toBe(1);
     expect(opened).toMatchObject({ inPane: true, key: "title" });
-    expect(visited).toContain("action:join-with-link");
+    // The header's icon buttons (A8) are in the tab order, before the primary's words.
+    expect(visited).toContain("header:share-section");
+    expect(visited).toContain("header:join-with-link");
+    expect(visited).toContain("menu");
     expect(visited).toContain("action:share-section");
     // A pane is not a modal: Tab leaves it.
     expect(walk.found).toBe(true);
@@ -250,7 +253,7 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
     await urgentChange();
     const typing = await focus();
     const drawnTyping = (await drawings()) - before;
-    await inA(() => document.querySelector('.openlfcp-pane [data-pane-key="action:join-with-link"]')?.focus());
+    await inA(() => document.querySelector('.openlfcp-pane [data-pane-key="header:join-with-link"]')?.focus());
     const before2 = await drawings();
     await urgentChange();
     const onButton = await focus();
@@ -259,11 +262,11 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
     expect(drawnTyping).toBeGreaterThan(0);
     expect(typing.editor).toBe(true);
     expect(drawnButton).toBeGreaterThan(0);
-    expect(onButton).toMatchObject({ inPane: true, key: "action:join-with-link" });
+    expect(onButton).toMatchObject({ inPane: true, key: "header:join-with-link" });
   });
 
   it("U03-18, IME: the join field through a redraw and a composition; Enter in it joins nothing; Escape cancels", async () => {
-    await inA(() => document.querySelector('.openlfcp-pane [data-pane-key="action:join-with-link"]')?.focus());
+    await inA(() => document.querySelector('.openlfcp-pane [data-pane-key="header:join-with-link"]')?.focus());
     await browser.keys("Enter");
     await $(".openlfcp-pane input.openlfcp-pane-join-input").waitForExist({ timeout: 10_000 });
     const field = await focus();
@@ -330,7 +333,7 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
     await browser.waitUntil(() => inA(() => document.querySelector(".openlfcp-pane form") === null), { timeout: 5_000, timeoutMsg: "the field cancelled" });
     const afterEscape = await focus();
     evidence("KEYS-JOIN-ESCAPE", { afterEscape });
-    expect(afterEscape).toMatchObject({ inPane: true, key: "action:join-with-link" });
+    expect(afterEscape).toMatchObject({ inPane: true, key: "header:join-with-link" });
   });
 
   it("U03-19: Source, Live Preview and Reading: the pane's context and next step", async () => {
@@ -383,7 +386,7 @@ describe("LFCP-03-022: keyboard, modes and lifecycle of the pane", () => {
             if (typeof split?.setSize === "function") split.setSize(240);
             // The join field open too: its inputs must fit.
             if (document.querySelector(".openlfcp-pane form") === null)
-              document.querySelector('.openlfcp-pane [data-pane-key="action:join-with-link"]')?.click();
+              document.querySelector('.openlfcp-pane [data-pane-key="header:join-with-link"]')?.click();
           },
           theme,
           zoom,
