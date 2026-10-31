@@ -261,8 +261,11 @@ sidebar. Opening it again shows the same pane.
 The pane follows the last note you worked in. Below the icons it shows one
 card for the place the cursor is on: the shared section's name, its status in
 a word with an icon (for example **Synced**, **Not syncing**, **Offline**,
-**Read-only**), one line of detail, and one button for the next step, with
-**"Open details"** beside it. A problem of that section turns the card red,
+**Read-only**), one line of detail, and a highlighted button for the next
+step, with **"Open details"** beside it. When there is nothing to do (for
+example a synced section you cannot invite others to, a read-only one, one
+still loading, or offline with updates waiting) there is no highlighted
+button, only **"Open details"**. A problem of that section turns the card red,
 and its button is the fix; in Reading view the button is **"Open for
 editing"**, and the card says so. Under the card come any other problems,
 each with where it is (for example "Other.md, line 31") and its own button:

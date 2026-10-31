@@ -233,17 +233,12 @@ describe("Shared Tasks pane host (LFCP-03-012)", () => {
     menu.items[1]?.onClickHandler();
     await wait(0);
     expect(t.leaves()).toHaveLength(1);
-    // Inside the shared section: its details, with the section it is about.
+    // Inside a shared section with nothing to do: no next step (the pane has no primary), the pane.
     view.cursorLine = 4;
     const inside = new mock.Menu();
     t.ws.trigger("editor-menu", inside, view.editor, view);
-    expect(inside.items.map((i) => i.title)).toEqual(["Open details", OPEN_PANE]);
-    inside.items[0]?.onClickHandler();
-    expect(t.runs[1]).toMatchObject({
-      id: "open-details",
-      request: { section: { key: KEY, title: "Launch" } },
-      surface: "menu",
-    });
+    expect(inside.items.map((i) => i.title)).toEqual([OPEN_PANE]);
+    expect(t.runs).toHaveLength(1);
     (t.plugin as unknown as { sections: unknown }).sections = null;
   });
 

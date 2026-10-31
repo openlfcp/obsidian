@@ -316,8 +316,12 @@ describe("UX 0.3 state fixtures", () => {
         expect(on.size, `${id}: enabled repeats an action`).toBe(enabled.length);
         expect(off.size, `${id}: disabled repeats an action`).toBe(disabled.length);
         for (const a of on) expect(off.has(a), `${id}: ${a} both enabled and disabled`).toBe(false);
-        if (e.primaryCta === null) str(e.primaryCtaNone, `${id}.primaryCtaNone`);
-        else {
+        // No primary: a sentence says why; or nothing is to be done (null), and Details is beside.
+        if (e.primaryCta === null) {
+          if (e.primaryCtaNone === null)
+            expect(on.has("open-details"), `${id}: quiet without Details`).toBe(true);
+          else str(e.primaryCtaNone, `${id}.primaryCtaNone`);
+        } else {
           const cta = str(e.primaryCta, `${id}.primaryCta`);
           expect(catalogue.get(cta)?.destructive, `${id}: primary ${cta}`).toBe(false);
           expect(on.has(cta), `${id}: primary ${cta} is not enabled`).toBe(true);

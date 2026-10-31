@@ -163,7 +163,11 @@ Rules:
   problem, `loader` work under way, `cloud-off` offline or on this device
   only, `eye` read-only), ONE line of fact, the primary of P1 as a `mod-cta`
   button with its icon and label, and at most one secondary beside it:
-  "Open details", unless that is the primary or there is no section. The card
+  "Open details", unless that is the primary or there is no section. Where
+  there is nothing to do (a quiet state: P1 rows 7, 9 to 11a and §5.1's
+  healthy section without an invitation to offer) there is no `mod-cta` at
+  all, as in the mock (owner decision 2026-10-31): "Open details" is the
+  card's one button. The card
   says "Synced" only where `sync.current` holds (§6). The card is about the
   section at the cursor and its own status (owner decision UXD-12). A
   problem of that section owns the card (`is-problem`, the theme's error
@@ -314,12 +318,12 @@ same order.
 | 4 | Conditions `access`, `server-refused`, `invalid-profile` | `review-local-changes` when edits are held, else `open-details` |
 | 5 | Conditions `rejected`, `stale-work` | `review-conflicts` when work waits for review, else `review-local-changes` |
 | 6 | The first `source` condition, mapped by that projection's facts (below) | By the table below |
-| 7 | Condition `held-unknown` (`heldCheck: "failed"`) | `open-details` |
+| 7 | Condition `held-unknown` (`heldCheck: "failed"`) | None (quiet; "Open details" beside) |
 | 8 | Conditions `structural-conflict`, then `scalar-conflict` | `review-conflicts` |
-| 9 | Conditions `loading`, `access-checking` | `open-details` (no "current" claim) |
-| 10 | Conditions `catching-up`, `local-edit`, `offline`, `pending`, `control-pending`, `evidence-unavailable` | §5.1 (offline or queued with no other problem: `sync-details`) |
-| 11 | Condition `held-unchecked` (`heldCheck: "pending"`) | `open-details` (no "current" claim) |
-| 11a | Condition `connecting` (`connection: "connecting"`, LFCP-03-005) | `open-details` (no "current" claim) |
+| 9 | Conditions `loading`, `access-checking` | None (quiet, no "current" claim) |
+| 10 | Conditions `catching-up`, `local-edit`, `offline`, `pending`, `control-pending`, `evidence-unavailable` | §5.1 (offline or queued with no other problem: none, quiet; "Sync details" is in the menu) |
+| 11 | Condition `held-unchecked` (`heldCheck: "pending"`) | None (quiet, no "current" claim) |
+| 11a | Condition `connecting` (`connection: "connecting"`, LFCP-03-005) | None (quiet, no "current" claim) |
 | 12 | An unfinished flow (P2) | `continue-flow` |
 | 13 | No condition: ordinary context | §5.1 |
 
@@ -399,6 +403,12 @@ says why in one sentence for the user, never in the contract's terms:
 selection with no fallback); "Put the cursor on a heading, or select a
 section, to share it." (private text, no section). A running step says
 what is in progress. The fixtures' `primaryCtaNone` holds these sentences.
+A quiet state (rows 7, 9 to 11a, a healthy section without an invitation to
+offer) has nothing to do: no primary and no sentence in its place
+(`primaryCtaNone: null`); the card's "Open details" is its one button (A9).
+Rows 1 and 4 keep `open-details` as the primary: a local save failure, or
+an access or refusal problem with no held edits, is a problem the details
+card explains.
 
 ### 5.1 Ordinary context
 
@@ -408,8 +418,8 @@ what is in progress. The fixtures' `primaryCtaNone` holds these sentences.
 | Ineligible selection with a fallback | `share-whole-section` |
 | A joined section not inserted anywhere (after the placement index is complete) | `insert-into-note` |
 | A healthy section, invite allowed | `invite` |
-| A healthy section, invite not allowed | `open-details` |
-| Offline with updates queued and no other problem | `sync-details` |
+| A healthy section, invite not allowed (a member, a reader) or not current | None: quiet, "Open details" beside (A9) |
+| Offline with updates queued and no other problem | None: quiet; "Sync details" in the menu |
 | Setup incomplete (no server, sections off) | `open-settings`, with the exact reason (also an item of "More actions" next to a share preview, to change its sync server, I8) |
 | No open Markdown note | None. "Join with a link…" and the section list stay available |
 | Reading view, source-changing action wanted | `open-for-editing` |
@@ -786,7 +796,9 @@ state gives:
   `refusal` are the view's fields of the same names.
   `section.accessView.canInvite` comes from the access list (`AccessView`),
   not from the status facts;
-- `expected.primaryCta`: an action ID, or `null` with a reason;
+- `expected.primaryCta`: an action ID, or `null` with a reason
+  (`primaryCtaNone`), or `null` with `primaryCtaNone: null` for a quiet
+  state, where "Open details" must be enabled;
 - `expected.enabled` and `expected.disabled`: action IDs, each with its
   reason;
 - `expected.requiredClaims`: what the pane's surface says (its card, flow,
