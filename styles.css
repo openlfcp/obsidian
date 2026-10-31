@@ -185,7 +185,8 @@
  * carry the meaning, never color alone. Nothing here animates, so reduced
  * motion has nothing to stop.
  */
-.openlfcp-live-region {
+.openlfcp-live-region,
+.openlfcp-visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -245,17 +246,39 @@
   border-inline-end: 1px dashed var(--background-modifier-border);
 }
 
-.openlfcp-pane-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--size-4-2);
+/*
+ * The header (UXD-11, A8) is Obsidian's nav-header: a row of clickable icons,
+ * as the File explorer and Search have. The theme and the platform size and
+ * colour the buttons (clickable-icon, nav-action-button; larger targets on
+ * mobile); only the layout is ours. The title stays for focus and screen
+ * readers, visually hidden: the tab already names the pane.
+ */
+.openlfcp-pane-header.nav-header {
+  padding: 0;
 }
 
-.openlfcp-pane-title {
-  margin: 0;
-  font-size: var(--font-ui-medium);
+.openlfcp-pane-toolbar {
+  width: 100%;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+
+/* Share, Insert and Join to the left; "More actions" alone at the far end. */
+.openlfcp-pane-toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.openlfcp-pane-icon-button {
+  flex: none;
+}
+
+.openlfcp-pane-icon {
+  display: inline-flex;
+}
+
+/* A blocked action stays in place and focusable, quiet and without a hover. */
+.openlfcp-pane-icon-button.is-disabled:hover {
+  background-color: transparent;
 }
 
 .openlfcp-pane-heading {
@@ -312,9 +335,7 @@
 }
 
 .openlfcp-pane-primary button,
-.openlfcp-pane-actions button,
-.openlfcp-pane-menu button,
-.openlfcp-pane-header button {
+.openlfcp-pane-actions button {
   max-width: 100%;
   height: auto;
   min-height: 24px;
@@ -361,8 +382,50 @@
   cursor: not-allowed;
 }
 
+/*
+ * A button keeps its shape in every theme: some themes flatten buttons to
+ * plain words. The pane's buttons set their own background, border, radius
+ * and shadow from Obsidian's variables, so a theme that overrides the native
+ * ones cannot turn them back into text. Not for the header's icons (the
+ * theme styles clickable-icon) nor the list's row names, which read as text.
+ */
+.openlfcp-pane button:not(.clickable-icon, .openlfcp-pane-row-label) {
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  box-shadow: var(--input-shadow);
+}
+
+/* A blocked button (A5) keeps its look under the pointer: nothing happens on a click. */
+.openlfcp-pane button:not(.clickable-icon, .openlfcp-pane-row-label, .is-disabled):hover {
+  background: var(--interactive-hover);
+  box-shadow: var(--input-shadow-hover);
+}
+
+.openlfcp-pane button.mod-cta:not(.clickable-icon, .openlfcp-pane-row-label) {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: transparent;
+}
+
+.openlfcp-pane button.mod-cta:not(.clickable-icon, .openlfcp-pane-row-label, .is-disabled):hover {
+  background: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
+}
+
+.openlfcp-pane button.mod-warning:not(.clickable-icon, .openlfcp-pane-row-label) {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  border-color: transparent;
+}
+
+.openlfcp-pane
+  button.mod-warning:not(.clickable-icon, .openlfcp-pane-row-label, .is-disabled):hover {
+  background: var(--background-modifier-error-hover);
+}
+
 .openlfcp-pane button:focus-visible,
-.openlfcp-pane summary:focus-visible,
 .openlfcp-pane input:focus-visible,
 .openlfcp-pane-title:focus-visible {
   outline: 2px solid var(--interactive-accent);
