@@ -602,11 +602,15 @@ function noteFixRow(f: PaneFacts): PaneProblem | null {
 /** The action that fixes it (UX-06). */
 const noteFix = (f: PaneFacts): ActionId | null => noteFixRow(f)?.action ?? null;
 
-/** P1: the first matching row decides the primary action; null with the reason when none. */
+/**
+ * P1: the first matching row decides the primary action; null with the reason
+ * when none. `wanted`: the source-changing action that Reading view turned
+ * into "Open for editing" (T4).
+ */
 function primaryOf(
   f: PaneFacts,
   a: ReadonlyMap<ActionId, Avail>,
-): { id: ActionId | null; none: string | null; fix?: true } {
+): { id: ActionId | null; none: string | null; fix?: true; wanted?: ActionId } {
   type Pick = { id: ActionId | null; none: string | null; fix?: true };
   const ctx = f.context;
   const s = f.section;
@@ -702,7 +706,12 @@ function primaryOf(
   const p = pick();
   // T4: in Reading view a source-changing primary becomes "Open for editing".
   if (p.id !== null && ctx.editor === "reading" && SOURCE_CHANGING.has(p.id))
-    return { id: "open-for-editing", none: null };
+    return {
+      id: "open-for-editing",
+      none: null,
+      wanted: p.id,
+      ...(p.fix === true ? { fix: true as const } : {}),
+    };
   // The fix of a damaged marker is the problem row's own action: it needs no section status.
   if (p.fix === true) return { id: p.id, none: null, fix: true };
   if (p.id !== null && a.get(p.id)?.enabled !== true)
@@ -778,6 +787,8 @@ const action = (id: ActionId, x: Avail): PaneAction => ({
 
 /** The note's reading-view line (T4). */
 const READING_LINE = "Reading view: open the note for editing to change it.";
+/** After a problem whose fix waits for an editor (T4): why the primary is "Open for editing". */
+const READING_REPAIR = "Reading view: open the note for editing to repair it.";
 /** No section at the cursor, and a damaged marker in the note: its row is below the card (UXD-12). */
 const NOTE_DAMAGED = "A shared section's marker in this note is damaged.";
 
@@ -792,6 +803,7 @@ function cardOf(
   f: PaneFacts,
   a: ReadonlyMap<ActionId, Avail>,
   primary: ActionId | null,
+  wanted: ActionId | null,
   fixRow: PaneProblem | null,
 ): PaneCard {
   const ctx = f.context;
@@ -841,6 +853,11 @@ function cardOf(
         ? `Selection: lines ${sel.fromLine}–${sel.toLine}`
         : selectionReasonText(sel);
   const reading = ctx.editor === "reading" ? READING_LINE : null;
+  // A problem's line, and in Reading view why its fix is "Open for editing" (T4): one line, no row again.
+  const problemLine = (fact: string) =>
+    primary !== "open-for-editing"
+      ? fact
+      : `${fact} ${wanted === "repair-sections" || wanted === "restore-marker" ? READING_REPAIR : READING_LINE}`;
   const fix = fixRow;
   if (s === null) {
     const title = ctx.note === null ? "No note open" : "No section at the cursor";
@@ -865,7 +882,7 @@ function cardOf(
     return face(
       title,
       { word: "Needs repair", icon: STATUS_ICONS.problem, tone: "problem" },
-      fix.text,
+      problemLine(fix.text),
       true,
       fix.id,
     );
@@ -877,7 +894,7 @@ function cardOf(
   return face(
     title,
     w,
-    w.problem ? w.fact : (reading ?? selection ?? w.fact),
+    w.problem ? problemLine(w.fact ?? "") : (reading ?? selection ?? w.fact),
     w.problem,
     w.about ?? null,
   );
@@ -891,7 +908,7 @@ export function paneModel(f: PaneFacts): PaneModel {
     p.id === null ? null : action(p.id, a.get(p.id) ?? { enabled: true, reason: null });
   // The fix of a damaged marker is the primary (UX-06); the card says it when it is this section's.
   const fix = p.fix === true ? noteFixRow(f) : null;
-  const card = cardOf(f, a, p.id, fix);
+  const card = cardOf(f, a, p.id, p.wanted ?? null, fix);
   // The header draws Share, Insert and Join; the card draws the primary and Details.
   const drawn = new Set<ActionId>([
     ...HEADER_IDS,
@@ -945,10 +962,14 @@ export function paneModel(f: PaneFacts): PaneModel {
       f.context.flow === null || f.context.flow.outcome === "unfinished"
         ? null
         : flowView(f.context.flow),
-    // The one row the card says, with the card's own button, is the card: not listed twice.
-    // Any other row stays, another copy with the same cause too.
+    // The one row the card says, with the card's own button (or the one Reading view waits for), is
+    // the card: not listed twice. Any other row stays, another copy with the same cause too.
     problems: problemViews(f, p.id).filter(
-      (x) => !(x.id === card.about && (x.action === null || x.action.id === p.id)),
+      (x) =>
+        !(
+          x.id === card.about &&
+          (x.action === null || x.action.id === p.id || x.action.id === p.wanted)
+        ),
     ),
     preview:
       preview === undefined
