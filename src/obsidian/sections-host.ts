@@ -587,7 +587,7 @@ export class SectionsHost {
       },
       failed: (e) => this.#bookkeepingFailed(e),
       settle: (units) => runtime.discardStaleUnits(units),
-      setTimer: (fn, ms) => window.setTimeout(fn, ms),
+      setTimer: (fn, ms) => this.#later(fn, ms),
       ready: async (r) => {
         const R = fromBase64url(r) as ResourceId;
         if (runtime.phase(R) !== "LIVE") return false;
@@ -788,7 +788,7 @@ export class SectionsHost {
   readonly #soon = new Map<string, number>();
   /** One more pass of note `path` in 2 s (drift marks wait for a pass with the same Text). */
   #passSoon(path: string): void {
-    if (this.#soon.has(path)) return;
+    if (this.#stopped || this.#soon.has(path)) return;
     this.#soon.set(
       path,
       window.setTimeout(() => {
@@ -1089,12 +1089,28 @@ export class SectionsHost {
   /** The invite checks waiting now: stop() wakes them, not the pane's status listeners. */
   readonly #inviteWaits = new Set<() => void>();
 
+  /** The timers the port set through #later (stale work's retries), until they fire. */
+  readonly #timers = new Set<number>();
+  /** A timer for the port: stop() clears it, and none is set after. */
+  #later(fn: () => void, ms: number): void {
+    if (this.#stopped) return;
+    const timer = window.setTimeout(() => {
+      this.#timers.delete(timer);
+      fn();
+    }, ms);
+    this.#timers.add(timer);
+  }
+
   /** The plugin unloads: an invite check waiting now ends at once, and none asks again. */
   stop(): void {
     this.#stopped = true;
-    // The pending status pass would fire after the window is gone.
+    // The pending status pass, a note's next pass and the port's retries would
+    // fire after the window is gone.
     if (this.#statusDue !== null) window.clearTimeout(this.#statusDue);
     this.#statusDue = null;
+    for (const t of [...this.#soon.values(), ...this.#timers]) window.clearTimeout(t);
+    this.#soon.clear();
+    this.#timers.clear();
     for (const w of [...this.#inviteWaits]) w();
   }
 
