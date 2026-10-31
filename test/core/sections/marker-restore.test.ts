@@ -21,6 +21,7 @@ import {
   restoreText,
 } from "../../../src/core/sections/repair";
 import type { TargetCapture } from "../../../src/core/sections/target";
+import { statusView } from "../../../src/core/status/reducer";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const SID = "019a2f85-7b31-7c42-b85a-fc843e2f4001";
@@ -172,17 +173,84 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
     );
   const damaged = doc(START.replace("lfcp1:", "hlfcp1:"));
 
-  it("shows one card with the problem and Restore as the one button, never Insert into a note", () => {
+  it("no section at the cursor: the damage is one row with its place, Restore the primary, never Insert", () => {
     const m = draw(damaged);
-    // R5: the problem is the card (its text, its fix); it is not listed a second time.
-    expect(m.card.problem).toBe(true);
-    expect(m.card.fact).toContain('The start line of "Tasks 1" was changed.');
-    expect(m.card.fact).toContain("not being sent");
-    expect(m.card.status.word).toBe("Needs repair");
-    expect(m.problems).toEqual([]);
+    // UXD-12: the card is about the cursor (no section is read there now), not about the damage.
+    expect(m.card).toMatchObject({
+      title: "No section at the cursor",
+      status: { word: "Not in a section" },
+      fact: "A shared section's marker in this note is damaged.",
+      problem: false,
+    });
+    // R5: one cause, one row: its text, its place and its fix.
+    expect(m.problems).toHaveLength(1);
+    expect(m.problems[0]?.text).toContain('The start line of "Tasks 1" was changed.');
+    expect(m.problems[0]?.text).toContain("not being sent");
+    expect(m.problems[0]?.source).toBe("Plan.md, line 3");
+    expect(m.problems[0]?.action?.id).toBe("restore-marker");
     expect(m.primary?.id).toBe("restore-marker");
     expect(m.primary?.label).toBe("Restore");
     expect(m.primary?.label).not.toContain("Insert");
+  });
+
+  it("the cursor in a healthy section: the card is that section's; another's damaged marker is a row", () => {
+    // Far from the first section's ID: the damaged line can only be this one's.
+    const SID3 = "019a2f86-0c4d-7e19-9a3b-5d2c71e0b6f8";
+    const S2 = parseSectionRef(`lfcp1:${R0}#section:${SID3}`) as SectionRef;
+    const B = formatBoundary("start", S2).replace("lfcp1:", "hlfcp1:");
+    const text = [
+      "# Plan",
+      "## Tasks 1",
+      START,
+      "- [ ] Alpha",
+      END,
+      "## Tasks 2",
+      B,
+      "- [ ] Beta",
+      formatBoundary("end", S2),
+      "",
+    ].join("\n");
+    const rows = registry().rows;
+    const two = {
+      ...registry(),
+      sections: 2,
+      unplaced: 0,
+      rows: [
+        { ...rows[0], placements: [{ path: "Plan.md" }], placementCount: 1, placed: "placed" },
+        { ...rows[0], sectionId: SID3, key: `${R0}#${SID3}`, sharedTitle: "Tasks 2" },
+      ],
+    } as unknown as RegistrySnapshot;
+    // Tasks 1 is current: its card has nothing to fix.
+    const current = statusView({
+      session: "s",
+      revision: 1,
+      replica: "loaded",
+      access: "writer",
+      accessVerifiedAt: 1,
+      accessCurrent: true,
+      pendingControl: [],
+      connection: "connected",
+      catchUp: "current-at-checkpoint",
+      problems: [],
+      batches: [],
+      acceptanceEvidence: "available",
+      projections: [],
+    });
+    const m = paneModel(
+      hostPane({
+        note: note(text, { cursorLine: 3 }),
+        registry: two,
+        status: (k) => (k === KEY ? current : undefined),
+      }).facts,
+    );
+    expect(m.card).toMatchObject({ title: "Tasks 1", status: { word: "Synced" }, problem: false });
+    expect(m.card.fact ?? "").not.toContain("Tasks 2");
+    expect(m.problems).toHaveLength(1);
+    expect(m.problems[0]?.text).toContain('The start line of "Tasks 2" was changed.');
+    expect(m.problems[0]?.source).toBe("Plan.md, line 7");
+    expect(m.problems[0]?.action).toMatchObject({ id: "restore-marker", enabled: true });
+    // P1 is unchanged (UX-06): a damaged marker in the note is fixed first.
+    expect(m.primary?.id).toBe("restore-marker");
   });
 
   it("says the section is damaged in this note, not that it is not inserted", () => {
@@ -211,6 +279,12 @@ describe("the pane for a damaged marker (UX-05, UX-06)", () => {
   it("in Reading view a restore waits for editing", () => {
     const m = draw(damaged, { mode: "reading" });
     expect(m.primary?.id).toBe("open-for-editing");
+    expect(m.card.fact).toBe("Reading view: open the note for editing to change it.");
+    expect(m.problems[0]?.action).toMatchObject({
+      id: "restore-marker",
+      enabled: false,
+      reason: "Open the note for editing to repair it.",
+    });
   });
 });
 

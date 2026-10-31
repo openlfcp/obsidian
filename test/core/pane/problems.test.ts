@@ -161,6 +161,8 @@ describe("problem hub rows (LFCP-03-018)", () => {
           line: 2,
           revision: contentHash(NO_END),
         },
+        // The section its marker names: the card speaks of it only when it is the one at the cursor.
+        section: KEY,
       },
     ]);
   });

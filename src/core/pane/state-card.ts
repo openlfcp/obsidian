@@ -19,7 +19,7 @@ import {
   type StatusView,
 } from "../status/reducer";
 import { STATUS_ICONS } from "./icons";
-import { SERVER_REFUSED_TEXT } from "./problems";
+import { accessProblemId, heldProblemId, SERVER_REFUSED_TEXT } from "./problems";
 
 /** How a card or a row reads at a glance: a problem, work under way, quiet, or fine. */
 export type FaceTone = "ok" | "problem" | "busy" | "muted" | "info";
@@ -38,6 +38,8 @@ export interface SectionFace extends StatusWord {
   readonly fact: string | null;
   /** A problem owns the card (it is drawn as one). */
   readonly problem: boolean;
+  /** The one problem row (problems.ts ID) the line says: that row is the card, not listed again. */
+  readonly about?: string;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -66,12 +68,13 @@ export function hasProblem(v: StatusView): boolean {
   return v.held.length > 0 || sectionProblems(v).length > 0;
 }
 
+/** The copy the card speaks of: the one that holds the most edits (the first row of them, problems.ts). */
+const heldFirst = (held: readonly HeldEdits[]): HeldEdits | undefined =>
+  [...held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1))[0];
+
 /** One copy's held edits as a line: "3 edits not sent: the section's start or end marker is damaged." */
-function heldLine(held: readonly HeldEdits[]): string {
-  const h = [...held].sort((a, b) => (b.count ?? 1) - (a.count ?? 1))[0];
-  if (h === undefined) return "";
-  return `${h.count === null ? "Edits" : plural(h.count, "edit")} not sent: ${heldCauseText(h)}.`;
-}
+const heldLine = (h: HeldEdits): string =>
+  `${h.count === null ? "Edits" : plural(h.count, "edit")} not sent: ${heldCauseText(h)}.`;
 
 /** Said after a removal or non-membership that this device has not seen confirmed now (§6). */
 const AS_VERIFIED = " As last verified; it may have changed.";
@@ -86,13 +89,18 @@ const HELD_SPEAKS: ReadonlySet<Condition["kind"] | undefined> = new Set([
 ]);
 
 function problemFace(v: StatusView, c: Condition | undefined): SectionFace {
-  const held = v.held.length > 0 && HELD_SPEAKS.has(c?.kind);
+  const held = HELD_SPEAKS.has(c?.kind) ? heldFirst(v.held) : undefined;
   // Edits held in a note are never hidden behind a server's answer: counted, with their cause.
-  const face = (w: StatusWord, fact: string): SectionFace => ({
-    ...w,
-    fact: held ? heldLine(v.held) : fact,
-    problem: true,
-  });
+  // The line is one copy's (one row); another copy's row stays listed with its place.
+  const face = (w: StatusWord, fact: string, about?: string): SectionFace => {
+    const row = held === undefined ? about : heldProblemId(held);
+    return {
+      ...w,
+      fact: held === undefined ? fact : heldLine(held),
+      problem: true,
+      ...(row === undefined ? {} : { about: row }),
+    };
+  };
   const warn = (w: string) => word(w, "problem", STATUS_ICONS.problem);
   const first = lead(sectionProblems(v)[0] ?? "");
   switch (c?.kind) {
@@ -106,22 +114,25 @@ function problemFace(v: StatusView, c: Condition | undefined): SectionFace {
         return face(
           warn("No access"),
           `Your access to this section was removed.${v.access.current === true ? "" : AS_VERIFIED}`,
+          accessProblemId(c),
         );
       if (c.access === "not-member")
         return face(
           warn("No access"),
           `This vault is not a member of this section.${v.access.current === true ? "" : AS_VERIFIED}`,
+          accessProblemId(c),
         );
-      if (c.access === "refused") return face(warn("Not accepted"), first);
-      return face(word("Waiting for key", "busy", STATUS_ICONS.busy), first);
+      if (c.access === "refused") return face(warn("Not accepted"), first, accessProblemId(c));
+      return face(word("Waiting for key", "busy", STATUS_ICONS.busy), first, accessProblemId(c));
     case "server-refused":
       // The server's code is the details card's; the surface says it in words.
       return c.code === "RESOURCE_NOT_HOSTED"
         ? face(
             warn("Not on server"),
             "This section is not on its server, so nobody else gets its changes.",
+            accessProblemId(c),
           )
-        : face(warn("Not accepted"), SERVER_REFUSED_TEXT);
+        : face(warn("Not accepted"), SERVER_REFUSED_TEXT, accessProblemId(c));
     case "invalid-profile":
       return face(warn("Not valid"), first);
     case "rejected":
@@ -145,7 +156,7 @@ function problemFace(v: StatusView, c: Condition | undefined): SectionFace {
       return face(warn("Conflict"), first);
     default:
       // Edits held for a reason no condition carries (typing in a read-only section).
-      return face(warn("Not syncing"), heldLine(v.held));
+      return face(warn("Not syncing"), "");
   }
 }
 
