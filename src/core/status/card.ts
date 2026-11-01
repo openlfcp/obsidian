@@ -6,7 +6,7 @@
 
 import type { AccessView } from "./access";
 import { type HeldEdits, heldAdvice, heldCauseText } from "./held";
-import type { Condition, StatusView } from "./reducer";
+import { type Condition, type StatusView, unknownStatus } from "./reducer";
 
 export interface CardInput {
   /** The section's title as the note shows it (local, never sent from here). */
@@ -378,4 +378,25 @@ export function sectionCard(input: CardInput): SectionCard {
     view: v,
     ...(input.hosting === undefined ? {} : { hosting: input.hosting }),
   };
+}
+
+/**
+ * The card of a section whose status this device has not computed yet: what
+ * is known (loading, nothing checked with the server), never a "still
+ * loading" notice in its place. `unavailable`: why Shared Tasks cannot run
+ * on this device (its local data locked, another instance holding it), said
+ * first: the section will not load until that changes.
+ */
+export function notLoadedCard(
+  input: Pick<CardInput, "title" | "resource" | "sectionId">,
+  unavailable: string | null,
+): SectionCard {
+  const card = sectionCard({ ...input, view: unknownStatus() });
+  return unavailable === null
+    ? card
+    : {
+        ...card,
+        status: "Not available on this device",
+        problems: [unavailable, ...card.problems],
+      };
 }

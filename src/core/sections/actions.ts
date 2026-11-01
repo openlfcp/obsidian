@@ -38,6 +38,7 @@ import {
   type HostNeeds,
   hostRefusal,
   hostRefusalNotice,
+  hostRefusalReason,
   INVITE_WAITS,
   sectionFacts,
 } from "../actions/descriptors";
@@ -49,7 +50,7 @@ import { type NoteTarget, NoteTargets } from "../note-targets";
 import { contentHash } from "../projection/guard";
 import { scanRefs } from "../refs";
 import { REMOVE_CONFIRMATION, type RevokeOutcome, revokeMessage } from "../status/access";
-import type { SectionCard } from "../status/card";
+import { notLoadedCard, type SectionCard } from "../status/card";
 import type {
   BaseService,
   CandidateService,
@@ -1994,13 +1995,19 @@ export class SectionActions {
    */
   async openCard(key: string, title: string): Promise<void> {
     const { prompter, services } = this.env;
-    if (this.#refused({}, false)) return;
-    const content = await services.cardContent(key, title);
-    if (content === null) {
-      prompter.notice("Shared Tasks: this section is still loading. Try again in a moment.");
-      return;
-    }
-    const R = fromKey(key.slice(0, key.indexOf("#")));
+    const at = key.indexOf("#");
+    if (at < 0) return;
+    // Not loaded yet, or never while Shared Tasks cannot run here: the card
+    // still opens and says what is known, and why (never "try again" alone).
+    const loaded = await services.cardContent(key, title);
+    const down = services.unavailable();
+    const content =
+      loaded ??
+      notLoadedCard(
+        { title, resource: key.slice(0, at), sectionId: key.slice(at + 1) },
+        down === null ? null : hostRefusalReason({ kind: "unavailable", text: down }),
+      );
+    const R = fromKey(key.slice(0, at));
     const section = { key, title };
     const still = (run: (c: ResourceCommands) => Promise<void>) => () => {
       const commands = services.commands();
@@ -2066,11 +2073,16 @@ export class SectionActions {
                 ]
               : []),
           ]),
-      {
-        label: "Resource status",
-        run: () =>
-          void this.#fromCard("resource-status", { section }, () => this.resourceStatus(key)),
-      },
+      // A Resource this device has not loaded has no status to show yet.
+      ...(loaded === null
+        ? []
+        : [
+            {
+              label: "Resource status",
+              run: () =>
+                void this.#fromCard("resource-status", { section }, () => this.resourceStatus(key)),
+            },
+          ]),
       // LFCP-03-012: the card is one of the pane's entries.
       ...(this.#openPane === null ? [] : [{ label: PANE_LINK, run: this.#openPane }]),
       // Text kept on this device after a refusal (a local copy, never applied by itself).

@@ -10,6 +10,19 @@ since 0.4.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- When Shared Tasks can't open its local data on a device (its secrets or
+  database gone, records that disagree), the pane, the section card, the
+  section list and the badge in the note say so and why, instead of
+  loading forever. The pane offers "Open settings", where "Create a new
+  identity" is; nothing is reset by itself.
+- "Open details" opens the section's card while it is still loading, or
+  while Shared Tasks can't run, with what is known.
+- The diagnostics report gives the reason of a locked runtime
+  (`Runtime: locked (marker-missing)`), logs `runtime-locked` instead of
+  `runtime-ready` for it, and names an iPhone or iPad `mobile-ios`.
+
 ## [0.6.0] — 2026-10-31
 
 The Shared Tasks pane is redrawn: icons at the top, one card for the place

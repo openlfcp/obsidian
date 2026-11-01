@@ -59,12 +59,14 @@ export async function collectDiagnostics(src: DiagnosticSources): Promise<Diagno
   const sections = (await src.sections?.diagnostics()) ?? { sections: [], candidates: [] };
   const local = await runtime?.localStateDiagnostics().catch(() => null);
   const kept = await runtime?.keptDiscarded().catch(() => undefined);
+  const status = runtime?.status;
   return {
     generatedAt: (src.now ?? Date.now)(),
     plugin: src.plugin,
     obsidian: src.obsidian,
     platform: src.platform,
-    runtime: src.needsRestart ? "needs-restart" : (runtime?.status.kind ?? "not-started"),
+    runtime: src.needsRestart ? "needs-restart" : (status?.kind ?? "not-started"),
+    runtimeReason: !src.needsRestart && status?.kind === "locked" ? status.reason : null,
     localEncryption:
       runtime === null || runtime === undefined || local === undefined
         ? null

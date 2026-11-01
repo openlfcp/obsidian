@@ -1390,17 +1390,31 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     };
   }
 
-  it("refused before the card: another instance holds the data; a section still loading", async () => {
-    const held = cardSetup(() => ({ unavailable: () => "Shared Tasks: another instance." }));
-    await held.actions.openCard(KEY, "Launch");
+  it("opens before its section has loaded: what is known, and why while Shared Tasks cannot run", async () => {
     const loading = cardSetup();
     loading.set(null);
     await loading.actions.openCard(KEY, "Launch");
-    expect(held.prompter.notices).toEqual(["Shared Tasks: another instance."]);
-    expect(loading.prompter.notices).toEqual([
-      "Shared Tasks: this section is still loading. Try again in a moment.",
-    ]);
-    expect([...held.prompter.dialogs, ...loading.prompter.dialogs]).toEqual([]);
+    expect(loading.prompter.notices).toEqual([]);
+    const [content, actions] = loading.opened();
+    expect(content.status).toBe("Loading shared section");
+    // Nothing to show of a Resource this device has not loaded.
+    expect(actions.map((a) => a.label)).not.toContain("Resource status");
+
+    const locked = cardSetup(() => ({
+      unavailable: () => "Shared Tasks can't open its local data on this device.",
+    }));
+    locked.set(null);
+    await locked.actions.openCard(KEY, "Launch");
+    expect(locked.prompter.notices).toEqual([]);
+    expect(locked.opened()[0].status).toBe("Not available on this device");
+    expect(locked.opened()[0].problems[0]).toBe(
+      "Shared Tasks can't open its local data on this device.",
+    );
+    // Another instance holding the data: said without the plugin's name, inside the card.
+    const held = cardSetup(() => ({ unavailable: () => "Shared Tasks: another instance." }));
+    held.set(null);
+    await held.actions.openCard(KEY, "Launch");
+    expect(held.opened()[0].problems[0]).toBe("another instance.");
   });
 
   it("offers what the facts allow, in order; read-only offers no invite and no removal", async () => {

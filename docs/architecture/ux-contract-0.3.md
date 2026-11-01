@@ -322,7 +322,7 @@ same order.
 | 6 | The first `source` condition, mapped by that projection's facts (below) | By the table below |
 | 7 | Condition `held-unknown` (`heldCheck: "failed"`) | None (quiet; "Open details" beside) |
 | 8 | Conditions `structural-conflict`, then `scalar-conflict` | `review-conflicts` |
-| 9 | Conditions `loading`, `access-checking` | None (quiet, no "current" claim) |
+| 9 | Conditions `loading`, `access-checking` | None (quiet, no "current" claim). While the host cannot run (its local data locked on this device, another instance holding it, its start failed), `loading` never ends: the card says "Not available" with the reason, and the primary is `open-settings` when the settings offer the way out (a new identity after a lock), else none |
 | 10 | Conditions `catching-up`, `local-edit`, `offline`, `pending`, `control-pending`, `evidence-unavailable` | §5.1 (offline or queued with no other problem: none, quiet; "Sync details" is in the menu) |
 | 11 | Condition `held-unchecked` (`heldCheck: "pending"`) | None (quiet, no "current" claim) |
 | 11a | Condition `connecting` (`connection: "connecting"`, LFCP-03-005) | None (quiet, no "current" claim) |

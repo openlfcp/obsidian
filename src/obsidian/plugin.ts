@@ -42,9 +42,11 @@ import {
   type DiagnosticInput,
   DiagnosticLog,
   diagnosticReport,
+  platformName,
   safeEvent,
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
+import { lockedText } from "../core/lfcp/install";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
 import { hideHint } from "../core/pane/hints";
@@ -797,13 +799,24 @@ export default class OpenLfcpPlugin extends Plugin {
         if (!this.#lockHeldSaid) new Notice(`Shared Tasks: ${LOCK_HELD_ADVICE}`, 0);
         this.#lockHeldSaid = true;
         this.#bar?.setText("Shared Tasks: paused (another window)");
+        this.#barPaused = true;
         this.sections?.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
         this.#lockRetry = window.setTimeout(() => void this.#retryStart(), this.lockRetryMs);
-      } else if (this.#lockHeldSaid) {
-        // Running after a wait for the lock: back to normal, no reload needed.
+      } else if (runtime.status.kind === "locked") {
+        // Its local data cannot be opened here (secrets or database lost,
+        // records that disagree): not "loading" forever. Every surface says
+        // why, and the settings offer the way out; nothing is reset by itself.
         this.#lockHeldSaid = false;
+        this.sections?.unavailable(lockedText(runtime.status.reason), true);
+        this.#bar?.setText("Shared Tasks: not available on this device");
+        this.#barPaused = true;
+        this.#nudgePane();
+      } else {
+        // Running (after a wait for the lock, or a new identity): back to normal, no reload needed.
         this.sections?.unavailable(null);
-        this.#bar?.setText(this.conflicts.summary());
+        if (this.#barPaused) this.#bar?.setText(this.conflicts.summary());
+        this.#barPaused = false;
+        this.#lockHeldSaid = false;
       }
       // LFCP-02-055: local data of a plugin before 0.4 was upgraded now; said once.
       if (runtime.upgradedLocalData)
@@ -825,7 +838,13 @@ export default class OpenLfcpPlugin extends Plugin {
           0,
         );
       });
-      this.#diagnostics.add(safeEvent(Date.now(), "runtime-ready", {}));
+      // Started, but locked: which lock, not "ready" (the report said ready while locked).
+      const started = runtime.status;
+      this.#diagnostics.add(
+        started.kind === "locked"
+          ? safeEvent(Date.now(), "runtime-locked", { reason: started.reason })
+          : safeEvent(Date.now(), "runtime-ready", {}),
+      );
       runtime.onCheckpointRebuilt(() =>
         this.#diagnostics.add(safeEvent(Date.now(), "checkpoint-rebuilt", {})),
       );
@@ -908,6 +927,8 @@ export default class OpenLfcpPlugin extends Plugin {
   /** The lock-held notice was shown (once per load); the start failure notice was. */
   #lockHeldSaid = false;
   #startFailureSaid = false;
+  /** The status bar says the plugin is paused or locked (set back once it runs). */
+  #barPaused = false;
   /** The background retry of a start that found the writer lock held (or its database blocked). */
   #lockRetry: number | null = null;
   /** Starts tried again after "blocked by another connection", and how far apart (tests shorten it). */
@@ -915,6 +936,19 @@ export default class OpenLfcpPlugin extends Plugin {
   protected blockedRetryMs = 500;
   /** How long after finding the writer lock held a start is tried again (tests shorten it). */
   protected lockRetryMs = 5000;
+
+  /**
+   * Settings' "Create a new identity", after a lock (never offered for
+   * "lock-held"): a new install with a new Principal, then a start on it, so
+   * every surface runs again without a reload.
+   */
+  async createNewIdentity(): Promise<void> {
+    const runtime = this.runtime;
+    if (runtime === null) return;
+    await runtime.createNewPrincipal();
+    if (this.#lockRetry !== null) window.clearTimeout(this.#lockRetry);
+    await this.#retryStart();
+  }
 
   /** The lock was held: the locked runtime stopped, a new start tried. */
   async #retryStart(): Promise<void> {
@@ -1300,19 +1334,7 @@ export default class OpenLfcpPlugin extends Plugin {
       events: this.#diagnostics.events,
       plugin: this.manifest.version,
       obsidian: apiVersion,
-      platform: `${Platform.isMobileApp ? "mobile" : "desktop"}-${
-        Platform.isMacOS
-          ? "macos"
-          : Platform.isWin
-            ? "windows"
-            : Platform.isLinux
-              ? "linux"
-              : Platform.isIosApp
-                ? "ios"
-                : Platform.isAndroidApp
-                  ? "android"
-                  : "other"
-      }`,
+      platform: platformName(Platform),
       needsRestart: this.needsRestart !== null,
     });
   }

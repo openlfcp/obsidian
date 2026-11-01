@@ -13,6 +13,7 @@ import {
 } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it, vi } from "vitest";
+import { lockedText } from "../../src/core/lfcp/install";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
@@ -44,7 +45,10 @@ class TestPlugin extends OpenLfcpPlugin {
     if (this.stopDelayMs > 0) await new Promise((r) => setTimeout(r, this.stopDelayMs));
     await super.stopRuntime();
   }
+  /** Stands in for the sections host from the first start on (null: none, as without a DOM). */
+  sectionsStub: object | null = null;
   protected override runtimeEnv(): RuntimeEnv {
+    if (this.sectionsStub !== null) this.sections = this.sectionsStub as never;
     this.starts++;
     const fail = this.failWith;
     // The real Obsidian mapping, with counted timers and an offline socket.
@@ -434,6 +438,59 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await second.stopRuntime();
   });
 
+  it("a vault whose secrets are gone starts locked: the report says why, not 'ready'", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (the marker with them).
+    app.secretStorage = new mock.SecretStorage();
+    const { plugin, host } = await load(app);
+    const r = await plugin.whenRuntimeStarted();
+    expect(r?.status).toMatchObject({ kind: "locked", reason: "marker-missing" });
+    mock.modals.length = 0;
+    host.commands.find((c) => c.id === "export-diagnostics")?.callback?.();
+    const modal = mock.modals[0] as unknown as { contentEl: mock.FakeElement };
+    for (let i = 0; i < 40 && !modal.contentEl.textContent.includes("Runtime:"); i++)
+      await sleep(10);
+    const report = modal.contentEl.textContent;
+    expect(report).toContain("Runtime: locked (marker-missing)");
+    expect(report).toMatch(/runtime-locked reason=marker-missing/);
+    expect(report).not.toContain("runtime-ready");
+    host.unload();
+    await plugin.stopRuntime();
+  });
+
+  it("local data locked (secrets gone): the sections say why; a new identity, asked for, runs again", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (the install marker with them).
+    app.secretStorage = new mock.SecretStorage();
+    const plugin = new TestPlugin(app as never, manifest as never);
+    // What the plugin tells its sections host (the host itself needs a DOM: sections.test).
+    const told: [string | null, boolean][] = [];
+    plugin.sectionsStub = new Proxy({} as Record<string, unknown>, {
+      get: (_t, name) =>
+        name === "unavailable"
+          ? (message: string | null, recover = false) => told.push([message, recover])
+          : () => Promise.resolve(),
+    });
+    await plugin.onload();
+    const r = await plugin.whenRuntimeStarted();
+    expect(r?.status).toMatchObject({ kind: "locked", reason: "marker-missing" });
+    expect(told).toEqual([[lockedText("marker-missing"), true]]);
+    // Nothing was reset by itself: the settings' button makes the new identity.
+    await plugin.createNewIdentity();
+    expect((await plugin.whenRuntimeStarted())?.status.kind).toBe("ready");
+    expect(told.at(-1)).toEqual([null, false]);
+    (plugin as unknown as mock.Plugin).unload();
+    await plugin.stopRuntime();
+  });
+
   it("another instance holding the vault's data: paused, and said what to do", async () => {
     const app = new mock.App();
     const first = await load(app);
@@ -456,7 +513,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await first.plugin.stopRuntime();
   });
 
-  it("a section's card, while another instance holds the vault's data, says so, not 'still loading'", async () => {
+  it("a section's card, while another instance holds the vault's data, opens and says so, not 'still loading'", async () => {
     const host = new SectionsHost(
       new mock.App() as never,
       () => undefined,
@@ -467,10 +524,20 @@ describe("plugin lifecycle (LFCP-059)", () => {
     );
     host.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
     mock.notices.length = 0;
-    await host.openCard("x#y", "Plan");
-    expect(mock.notices).toEqual([
-      "Shared Tasks: another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
-    ]);
+    mock.modals.length = 0;
+    // The card remembers where focus was, to give it back (Obsidian's activeDocument).
+    vi.stubGlobal("activeDocument", { activeElement: null });
+    try {
+      await host.openCard("AAAAAAAAAAAAAAAAAAAAAA#y", "Plan");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(mock.notices).toEqual([]);
+    const card = (mock.modals.at(-1) as unknown as { contentEl: mock.FakeElement }).contentEl;
+    expect(card.textContent).toContain("Not available on this device");
+    expect(card.textContent).toContain(
+      "another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
+    );
   });
 
   it("deleting a note not checked for held edits yet recomputes the statuses (no lasting 'Checking…')", async () => {
