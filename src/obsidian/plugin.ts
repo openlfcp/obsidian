@@ -42,6 +42,7 @@ import {
   type DiagnosticInput,
   DiagnosticLog,
   diagnosticReport,
+  platformName,
   safeEvent,
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
@@ -825,7 +826,13 @@ export default class OpenLfcpPlugin extends Plugin {
           0,
         );
       });
-      this.#diagnostics.add(safeEvent(Date.now(), "runtime-ready", {}));
+      // Started, but locked: which lock, not "ready" (the report said ready while locked).
+      const started = runtime.status;
+      this.#diagnostics.add(
+        started.kind === "locked"
+          ? safeEvent(Date.now(), "runtime-locked", { reason: started.reason })
+          : safeEvent(Date.now(), "runtime-ready", {}),
+      );
       runtime.onCheckpointRebuilt(() =>
         this.#diagnostics.add(safeEvent(Date.now(), "checkpoint-rebuilt", {})),
       );
@@ -1300,19 +1307,7 @@ export default class OpenLfcpPlugin extends Plugin {
       events: this.#diagnostics.events,
       plugin: this.manifest.version,
       obsidian: apiVersion,
-      platform: `${Platform.isMobileApp ? "mobile" : "desktop"}-${
-        Platform.isMacOS
-          ? "macos"
-          : Platform.isWin
-            ? "windows"
-            : Platform.isLinux
-              ? "linux"
-              : Platform.isIosApp
-                ? "ios"
-                : Platform.isAndroidApp
-                  ? "android"
-                  : "other"
-      }`,
+      platform: platformName(Platform),
       needsRestart: this.needsRestart !== null,
     });
   }

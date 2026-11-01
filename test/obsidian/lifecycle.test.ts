@@ -434,6 +434,30 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await second.stopRuntime();
   });
 
+  it("a vault whose secrets are gone starts locked: the report says why, not 'ready'", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (the marker with them).
+    app.secretStorage = new mock.SecretStorage();
+    const { plugin, host } = await load(app);
+    const r = await plugin.whenRuntimeStarted();
+    expect(r?.status).toMatchObject({ kind: "locked", reason: "marker-missing" });
+    mock.modals.length = 0;
+    host.commands.find((c) => c.id === "export-diagnostics")?.callback?.();
+    const modal = mock.modals[0] as unknown as { contentEl: mock.FakeElement };
+    for (let i = 0; i < 40 && !modal.contentEl.textContent.includes("Runtime:"); i++)
+      await sleep(10);
+    const report = modal.contentEl.textContent;
+    expect(report).toContain("Runtime: locked (marker-missing)");
+    expect(report).toMatch(/runtime-locked reason=marker-missing/);
+    expect(report).not.toContain("runtime-ready");
+    host.unload();
+    await plugin.stopRuntime();
+  });
+
   it("another instance holding the vault's data: paused, and said what to do", async () => {
     const app = new mock.App();
     const first = await load(app);

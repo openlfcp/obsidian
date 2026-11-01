@@ -10,7 +10,12 @@ import { type ObjectId, toHex } from "@openlfcp/core";
 import { createTask } from "@openlfcp/shared-objects";
 import { afterEach, describe, expect, it } from "vitest";
 import { Collaboration } from "../../src/core/collab/service";
-import { DiagnosticLog, diagnosticReport, safeEvent } from "../../src/core/diagnostics";
+import {
+  DiagnosticLog,
+  diagnosticReport,
+  platformName,
+  safeEvent,
+} from "../../src/core/diagnostics";
 import {
   collectDiagnostics,
   keptCandidates,
@@ -201,5 +206,48 @@ describe("diagnostics from a real runtime (LFCP-02-065)", () => {
     };
     expect(await keptCandidates(journal)).toEqual([{ reason: "rejected", characters: 1 }]);
     expect(await saveFailedConditions(journal, ["op"])).toEqual(["save-failed"]);
+  });
+
+  it("a locked runtime says why: its lock reason follows the state, a ready one has none", async () => {
+    // One vault's install on a device whose secret store then lost its slots.
+    const local = new FakeLocal();
+    const first = await LfcpRuntime.start(new Device().env(local));
+    await first.stop();
+    const runtime = await LfcpRuntime.start(new Device().env(local));
+    running.push(runtime);
+    expect(runtime.status.kind).toBe("locked");
+    const base = {
+      runtime,
+      collab: null,
+      sections: null,
+      events: [],
+      plugin: "0.6.0",
+      obsidian: "1.14.5",
+      platform: "mobile-ios",
+      needsRestart: false,
+    };
+    const locked = await collectDiagnostics(base);
+    expect(locked.runtimeReason).toBe("marker-missing");
+    expect(diagnosticReport(locked, false)).toContain("Runtime: locked (marker-missing)\n");
+    const ready = await LfcpRuntime.start(new Device().env(new FakeLocal()));
+    running.push(ready);
+    const report = diagnosticReport(await collectDiagnostics({ ...base, runtime: ready }), false);
+    expect(report).toContain("Runtime: ready\n");
+  });
+
+  it("an iPhone or iPad is named ios, though Obsidian also reads it as macOS", () => {
+    const flags = {
+      isMobileApp: true,
+      isIosApp: true,
+      isAndroidApp: false,
+      isMacOS: true,
+      isWin: false,
+      isLinux: false,
+    };
+    expect(platformName(flags)).toBe("mobile-ios");
+    expect(platformName({ ...flags, isIosApp: false, isAndroidApp: true, isMacOS: false })).toBe(
+      "mobile-android",
+    );
+    expect(platformName({ ...flags, isMobileApp: false, isIosApp: false })).toBe("desktop-macos");
   });
 });
