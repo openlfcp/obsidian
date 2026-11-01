@@ -110,6 +110,16 @@ export const LOCK_MESSAGES: Readonly<Record<LockReason, string>> = {
   "lock-held": "Another Shared Tasks instance holds this vault's data.",
 };
 
+/**
+ * What every surface says while this vault's install is locked for any
+ * reason but "lock-held" (which passes by itself): that Shared Tasks cannot
+ * open its local data here, why, and the way out the settings offer (a new
+ * identity, never made without the user asking).
+ */
+export function lockedText(reason: LockReason): string {
+  return `Shared Tasks can't open its local data on this device. ${LOCK_MESSAGES[reason]} Your notes are not affected. To sync from this vault again, create a new identity in the Shared Tasks settings.`;
+}
+
 /** The local Principal: public identity plus its keys (never shown or exported). */
 export interface LocalPrincipal {
   readonly id: PrincipalId;

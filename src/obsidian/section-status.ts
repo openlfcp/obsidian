@@ -50,6 +50,9 @@ export { sectionAtLine, sectionKey };
 /** The statuses of every known section, by key (replaces the previous ones). */
 export const setSectionStatuses = StateEffect.define<ReadonlyMap<string, StatusView>>();
 
+/** Why Shared Tasks cannot run on this device (its local data locked…), or null: the badges say so. */
+export const setSectionsUnavailable = StateEffect.define<string | null>();
+
 const SVG = "http://www.w3.org/2000/svg";
 
 /** The project mark's two ticks (marketing/brand/logo, 64 × 64), in the text color. */
@@ -170,8 +173,28 @@ const LOADING = (title: string): HeadingBadge => ({
   accessibleName: `Shared section ${title}, loading shared section, open details`,
 });
 
-export const badgeOf = (title: string, view: StatusView | undefined): HeadingBadge =>
-  view === undefined ? LOADING(title) : headingBadge(title, view);
+/**
+ * Before the host has a status, while it cannot run (its local data locked,
+ * another instance holding it): nothing is loading, so nothing spins.
+ */
+const UNAVAILABLE = (title: string): HeadingBadge => ({
+  state: "ATTENTION",
+  icon: "error",
+  tooltip: "Shared Tasks is not available on this device",
+  accessibleName: `Shared section ${title}, Shared Tasks is not available on this device, open details`,
+});
+
+/** `unavailable`: why the host cannot run, or null (a section with no status is then loading). */
+export const badgeOf = (
+  title: string,
+  view: StatusView | undefined,
+  unavailable: string | null = null,
+): HeadingBadge =>
+  view !== undefined
+    ? headingBadge(title, view)
+    : unavailable === null
+      ? LOADING(title)
+      : UNAVAILABLE(title);
 
 class BadgeWidget extends WidgetType {
   constructor(
@@ -260,6 +283,7 @@ function build(
   state: EditorState,
   statuses: ReadonlyMap<string, StatusView>,
   open: OpenCard,
+  unavailable: string | null,
 ): DecorationSet {
   const text = state.doc.toString();
   if (!text.includes("lfcp-section")) return Decoration.none;
@@ -283,7 +307,7 @@ function build(
     out.push(
       Decoration.widget({
         widget: new BadgeWidget(
-          badgeOf(s.heading.title, view),
+          badgeOf(s.heading.title, view, unavailable),
           sectionKey(s.ref),
           s.heading.title,
           open,
@@ -310,7 +334,7 @@ function build(
     out.push(
       Decoration.widget({
         widget: new BadgeWidget(
-          badgeOf(d.heading.title, statuses.get(sectionKey(d.ref))),
+          badgeOf(d.heading.title, statuses.get(sectionKey(d.ref)), unavailable),
           sectionKey(d.ref),
           d.heading.title,
           open,
@@ -324,6 +348,7 @@ function build(
 
 interface Value {
   readonly statuses: ReadonlyMap<string, StatusView>;
+  readonly unavailable: string | null;
   readonly deco: DecorationSet;
 }
 
@@ -369,6 +394,8 @@ export function sectionStatusExtension(
   open: OpenCard,
   /** A user edit a read-only section stopped, with its title (said by the host). */
   onReadOnly: (title: string) => void = () => undefined,
+  /** Why the host cannot run now, or null (setSectionsUnavailable changes it). */
+  unavailable: () => string | null = () => null,
 ): {
   readonly extension: Extension;
   readonly views: ReadonlySet<EditorView>;
@@ -377,18 +404,25 @@ export function sectionStatusExtension(
   const field = StateField.define<Value>({
     create: (state) => {
       const statuses = initial();
-      return { statuses, deco: build(state, statuses, open) };
+      const down = unavailable();
+      return { statuses, unavailable: down, deco: build(state, statuses, open, down) };
     },
     update(value, tr) {
       let statuses = value.statuses;
+      let down = value.unavailable;
       let changed = tr.docChanged;
       for (const e of tr.effects) {
         if (e.is(setSectionStatuses)) {
           statuses = e.value;
           changed = true;
+        } else if (e.is(setSectionsUnavailable)) {
+          down = e.value;
+          changed = true;
         } else if (e.is(foldEffect) || e.is(unfoldEffect)) changed = true;
       }
-      return changed ? { statuses, deco: build(tr.state, statuses, open) } : value;
+      return changed
+        ? { statuses, unavailable: down, deco: build(tr.state, statuses, open, down) }
+        : value;
     },
     provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
   });
@@ -423,6 +457,8 @@ export class ReadingBadges {
   constructor(
     private readonly status: (key: string) => StatusView | undefined,
     private readonly open: OpenCard,
+    /** Why the host cannot run now, or null. */
+    private readonly unavailable: () => string | null = () => null,
   ) {}
 
   render(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
@@ -442,7 +478,7 @@ export class ReadingBadges {
     if (section === undefined) return;
     const key = sectionKey(section.ref);
     const badge = spanIn(heading.ownerDocument);
-    renderBadge(badge, badgeOf(section.title, this.status(key)));
+    renderBadge(badge, badgeOf(section.title, this.status(key), this.unavailable()));
     badge.dataset.title = section.title;
     badge.dataset.section = key;
     attachBadge(badge, this.open);
@@ -458,7 +494,10 @@ export class ReadingBadges {
           badges.delete(badge);
           continue;
         }
-        renderBadge(badge, badgeOf(badge.dataset.title ?? "", this.status(key)));
+        renderBadge(
+          badge,
+          badgeOf(badge.dataset.title ?? "", this.status(key), this.unavailable()),
+        );
       }
   }
 }

@@ -177,7 +177,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       if (status.reason !== "lock-held")
         identity.addButton((button) =>
           button.setButtonText("Create a new identity").onClick(async () => {
-            await runtime?.createNewPrincipal();
+            await this.plugin.createNewIdentity();
             this.update();
           }),
         );

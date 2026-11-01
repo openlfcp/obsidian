@@ -487,20 +487,35 @@ function dismissOf(flow: PaneFlow): string | null {
   return flow.stage === "link" ? "Cancel" : flow.stage === "choose-place" ? "Later" : null;
 }
 
+/**
+ * Why the host cannot run (its local data locked, another instance holding
+ * it, its start failed), as the user reads it; null when it runs. Nothing
+ * waits to load then: the pane says this instead of "loading".
+ */
+function hostDown(f: PaneFacts): string | null {
+  const host = f.host ?? RUNNING;
+  return host.unavailable === null
+    ? null
+    : hostRefusalReason({ kind: "unavailable", text: host.unavailable });
+}
+
 function sectionGroups(f: PaneFacts): { summary: string | null; groups: PaneGroup[] } {
   const r = f.registry;
+  const down = r.status === "loading" ? hostDown(f) : null;
   const summary =
-    r.status === "loading"
-      ? "Reading the shared sections on this device…"
-      : r.status === "error"
-        ? "The list of shared sections could not be read again; it shows the last one."
-        : r.sections === 0
-          ? (r.legacy ?? 0) > 0
-            ? EMPTY_SECTIONS_LEGACY
-            : EMPTY_SECTIONS
-          : r.sections === null
-            ? null
-            : `${plural(r.sections, "shared section")} on this device`;
+    down !== null
+      ? down
+      : r.status === "loading"
+        ? "Reading the shared sections on this device…"
+        : r.status === "error"
+          ? "The list of shared sections could not be read again; it shows the last one."
+          : r.sections === 0
+            ? (r.legacy ?? 0) > 0
+              ? EMPTY_SECTIONS_LEGACY
+              : EMPTY_SECTIONS
+            : r.sections === null
+              ? null
+              : `${plural(r.sections, "shared section")} on this device`;
   const rows = r.rows ?? [];
   const note = f.context.note;
   /** Where the row's section is, in a few words (the status follows it). */
@@ -703,8 +718,12 @@ function primaryOf(
         // The copy held by its damaged marker in this note: the marker's own fix, said once.
         case "source":
           return fix ?? { id: sourcePrimary(v, first), none: null };
-        case "held-unknown":
+        // Not loaded, and it will not while the host cannot run: the settings' way out, if any.
         case "loading":
+          return (f.host?.unavailable ?? null) !== null && f.host?.recoverInSettings === true
+            ? { id: "open-settings", none: null }
+            : QUIET;
+        case "held-unknown":
         case "access-checking":
         case "held-unchecked":
         case "connecting":
@@ -906,6 +925,15 @@ function cardOf(
       true,
       fix.id,
     );
+  // Not loaded while the host cannot run: why, never "Loading" (it would never end).
+  const down = s.view.conditions[0]?.kind === "loading" ? hostDown(f) : null;
+  if (down !== null)
+    return face(
+      title,
+      { word: "Not available", icon: STATUS_ICONS.problem, tone: "problem" },
+      down,
+      true,
+    );
   const shared = sharedLine(s, a.get("invite")?.enabled === true);
   const local = s.hosting === "pending" || (s.shared?.kind === "local" && s.hosting !== "hosted");
   const unplaced =
@@ -929,6 +957,7 @@ export function paneModel(f: PaneFacts): PaneModel {
   // The fix of this section's damaged marker is the primary (UX-06), and the card says it.
   const fix = p.fix === true ? ownFixRow(f) : null;
   const card = cardOf(f, a, p.id, p.wanted ?? null, fix);
+  const down = hostDown(f);
   // The header draws Share, Insert and Join; the card draws the primary and Details.
   const drawn = new Set<ActionId>([
     ...HEADER_IDS,
@@ -972,7 +1001,11 @@ export function paneModel(f: PaneFacts): PaneModel {
   return {
     title: "Shared Tasks",
     join: action("join-with-link", a.get("join-with-link") ?? HEADER_ABSENT["join-with-link"]),
-    header: HEADER_IDS.map((id) => action(id, a.get(id) ?? HEADER_ABSENT[id])),
+    // While the host cannot run, each header action that is off says that, not a lesser reason.
+    header: HEADER_IDS.map((id) => {
+      const x = a.get(id) ?? HEADER_ABSENT[id];
+      return action(id, down !== null && !x.enabled ? { enabled: false, reason: down } : x);
+    }),
     joinField:
       f.context.flow?.kind === "join" &&
       f.context.flow.outcome === "running" &&

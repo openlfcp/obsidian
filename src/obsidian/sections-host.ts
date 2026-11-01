@@ -107,6 +107,7 @@ import {
   sectionKey,
   sectionStatusExtension,
   setSectionStatuses,
+  setSectionsUnavailable,
 } from "./section-status";
 import { captureEditor, editorMode } from "./section-target";
 import { ObsidianSectionPrompter } from "./ui/section-prompter";
@@ -173,6 +174,7 @@ export class SectionsHost {
     () => this.#statuses,
     (key, title) => void this.openCard(key, title),
     (title) => this.#readOnlyTyping(title),
+    () => this.#unavailable,
   );
   /** When a read-only section last said it stopped typing (F-04): once per few seconds. */
   #readOnlySaid = 0;
@@ -189,6 +191,7 @@ export class SectionsHost {
   readonly reading = new ReadingBadges(
     (key) => this.#statuses.get(key),
     (key, title) => void this.openCard(key, title),
+    () => this.#unavailable,
   );
   #statuses: ReadonlyMap<string, StatusView> = new Map();
   /** A new blocking condition is announced once (064). */
@@ -760,13 +763,22 @@ export class SectionsHost {
   }
 
   /**
-   * The plugin cannot run here (another instance holds this vault's data):
-   * the cards say so, and what to do, instead of "still loading".
+   * The plugin cannot run here (another instance holds this vault's data,
+   * its local data is locked, its start failed): the cards, the badges and
+   * the action guards say so, and what to do, instead of "still loading".
+   * `recoverInSettings`: the way out is in the settings (a new identity).
    */
-  unavailable(message: string | null): void {
+  unavailable(message: string | null, recoverInSettings = false): void {
+    const changed = message !== this.#unavailable;
     this.#unavailable = message;
+    this.#recoverInSettings = message !== null && recoverInSettings;
+    if (!changed) return;
+    for (const view of this.status.views)
+      view.dispatch({ effects: setSectionsUnavailable.of(message) });
+    this.reading.update();
   }
   #unavailable: string | null = null;
+  #recoverInSettings = false;
 
   /**
    * The details card of a section (LFCP-02-059), opened from its badge:
@@ -1199,6 +1211,7 @@ export class SectionsHost {
   hostFacts(): HostFacts {
     return {
       unavailable: this.#unavailable,
+      recoverInSettings: this.#recoverInSettings,
       starting: this.#runtime === null,
       readOnly: this.#runtime?.sectionsReadOnly === true,
       server: this.server().trim() !== "",

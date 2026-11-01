@@ -13,6 +13,7 @@ import {
 } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it, vi } from "vitest";
+import { lockedText } from "../../src/core/lfcp/install";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
@@ -44,7 +45,10 @@ class TestPlugin extends OpenLfcpPlugin {
     if (this.stopDelayMs > 0) await new Promise((r) => setTimeout(r, this.stopDelayMs));
     await super.stopRuntime();
   }
+  /** Stands in for the sections host from the first start on (null: none, as without a DOM). */
+  sectionsStub: object | null = null;
   protected override runtimeEnv(): RuntimeEnv {
+    if (this.sectionsStub !== null) this.sections = this.sectionsStub as never;
     this.starts++;
     const fail = this.failWith;
     // The real Obsidian mapping, with counted timers and an offline socket.
@@ -455,6 +459,35 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(report).toMatch(/runtime-locked reason=marker-missing/);
     expect(report).not.toContain("runtime-ready");
     host.unload();
+    await plugin.stopRuntime();
+  });
+
+  it("local data locked (secrets gone): the sections say why; a new identity, asked for, runs again", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (the install marker with them).
+    app.secretStorage = new mock.SecretStorage();
+    const plugin = new TestPlugin(app as never, manifest as never);
+    // What the plugin tells its sections host (the host itself needs a DOM: sections.test).
+    const told: [string | null, boolean][] = [];
+    plugin.sectionsStub = new Proxy({} as Record<string, unknown>, {
+      get: (_t, name) =>
+        name === "unavailable"
+          ? (message: string | null, recover = false) => told.push([message, recover])
+          : () => Promise.resolve(),
+    });
+    await plugin.onload();
+    const r = await plugin.whenRuntimeStarted();
+    expect(r?.status).toMatchObject({ kind: "locked", reason: "marker-missing" });
+    expect(told).toEqual([[lockedText("marker-missing"), true]]);
+    // Nothing was reset by itself: the settings' button makes the new identity.
+    await plugin.createNewIdentity();
+    expect((await plugin.whenRuntimeStarted())?.status.kind).toBe("ready");
+    expect(told.at(-1)).toEqual([null, false]);
+    (plugin as unknown as mock.Plugin).unload();
     await plugin.stopRuntime();
   });
 
