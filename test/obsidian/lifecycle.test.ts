@@ -480,7 +480,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await first.plugin.stopRuntime();
   });
 
-  it("a section's card, while another instance holds the vault's data, says so, not 'still loading'", async () => {
+  it("a section's card, while another instance holds the vault's data, opens and says so, not 'still loading'", async () => {
     const host = new SectionsHost(
       new mock.App() as never,
       () => undefined,
@@ -491,10 +491,20 @@ describe("plugin lifecycle (LFCP-059)", () => {
     );
     host.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
     mock.notices.length = 0;
-    await host.openCard("x#y", "Plan");
-    expect(mock.notices).toEqual([
-      "Shared Tasks: another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
-    ]);
+    mock.modals.length = 0;
+    // The card remembers where focus was, to give it back (Obsidian's activeDocument).
+    vi.stubGlobal("activeDocument", { activeElement: null });
+    try {
+      await host.openCard("AAAAAAAAAAAAAAAAAAAAAA#y", "Plan");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(mock.notices).toEqual([]);
+    const card = (mock.modals.at(-1) as unknown as { contentEl: mock.FakeElement }).contentEl;
+    expect(card.textContent).toContain("Not available on this device");
+    expect(card.textContent).toContain(
+      "another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
+    );
   });
 
   it("deleting a note not checked for held edits yet recomputes the statuses (no lasting 'Checking…')", async () => {

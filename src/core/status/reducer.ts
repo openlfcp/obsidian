@@ -685,3 +685,25 @@ export function applyEvent(store: StatusStore, event: StatusEvent): StatusStore 
 export function storeView(store: StatusStore): StatusView {
   return statusView(store.needsSnapshot ? { ...store.facts, catchUp: "unknown" } : store.facts);
 }
+
+/**
+ * The status of a section whose status this device has not computed yet:
+ * the reducer's own view of "no evidence" (loading, access unknown, no
+ * connection seen). Never healthy, never a denial.
+ */
+export function unknownStatus(): StatusView {
+  return statusView({
+    session: "",
+    revision: 0,
+    replica: "not-loaded",
+    access: "unknown",
+    pendingControl: [],
+    connection: "offline",
+    connectionQualifier: "no-evidence",
+    catchUp: "not-started",
+    problems: [],
+    batches: [],
+    acceptanceEvidence: "unavailable",
+    projections: [],
+  });
+}
