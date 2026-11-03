@@ -8,7 +8,7 @@
 // is whoever created the collaboration (or received it by transfer).
 
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
-import { BARRIER_ENTRY_TEXT, identityBlocked } from "../lfcp/identity-barrier";
+import { BARRIER_ENTRY_TEXT, IDENTITY_SYNC, identityBlocked } from "../lfcp/identity-barrier";
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
 import type { ResourceStatus } from "./service";
 
@@ -133,13 +133,15 @@ export function statusView(s: ResourceStatus): StatusView {
     {
       label: "Sync",
       value:
-        s.state === "recovering"
-          ? SYNC.recovering
-          : s.refusal === null
-            ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
-            : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
-              ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
-              : refusalText(s.refusal, s.profile),
+        s.identityBlock !== undefined
+          ? IDENTITY_SYNC
+          : s.state === "recovering"
+            ? SYNC.recovering
+            : s.refusal === null
+              ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
+              : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
+                ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
+                : refusalText(s.refusal, s.profile),
     },
     {
       label: "Hosting",

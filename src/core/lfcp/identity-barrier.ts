@@ -63,6 +63,9 @@ export const IDENTITY_BLOCKED = identityBlocked();
 export const IDENTITY_BLOCKED_LOCAL =
   "Your copy stays readable on this device; edits you make here wait on this device and are not sent until you update.";
 
+/** Resource status's Sync row past a barrier: not offline, not retrying (obsidian#105 R5). */
+export const IDENTITY_SYNC = "Not syncing: this needs a newer version of Shared Tasks";
+
 /** A pairing link pasted where an invitation link goes (IDENTITY-PROFILE-01 §5.2). */
 export const PAIRING_LINK_TEXT =
   "This is a link to add a device, not an invitation. Adding devices comes in a later version of Shared Tasks: update the plugin when it is available, then use the link again. It was not used.";

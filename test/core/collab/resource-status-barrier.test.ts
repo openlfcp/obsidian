@@ -53,6 +53,13 @@ describe("Resource status past an identity barrier", () => {
     expect(
       statusView(status({ profile: PROFILE_ID, state: "error", identityBlock: block })).banner,
     ).toBe(`${identityBlocked("collaboration")}. Its data stays readable on this device.`);
+    // R5 (obsidian#105): the Sync row says the same, not offline or retrying.
+    for (const state of ["offline", "error", "available"] as const) {
+      const sync = statusView(
+        status({ profile: PROFILE_ID, state, phase: "CONTROL_SYNC", identityBlock: block }),
+      ).rows.find((r) => r.label === "Sync")?.value;
+      expect(sync).toBe("Not syncing: this needs a newer version of Shared Tasks");
+    }
     const plain = statusView(status({ profile: PROFILE_ID, state: "error" }));
     expect(plain.banner).toBeNull();
     expect(plain.rows.some((r) => r.label === "Blocked at")).toBe(false);
