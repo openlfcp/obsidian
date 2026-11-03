@@ -80,12 +80,12 @@ import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import type { DiscardResult } from "../sections/create";
 import { historyRows } from "./history";
 import {
-  type BarrierRefusal,
   type BarrierWatch,
+  barrierRefusedBySdk,
   type IdentityBlock,
   IdentityBlocks,
-  reservedTypeOf,
-  watchBarrier,
+  SessionBarriers,
+  watchControlBatch,
 } from "./identity-barrier";
 import {
   createInstall,
@@ -381,6 +381,8 @@ interface Pooled {
   readonly reconnect: RestartableReconnect;
   /** What its transport did last (transport.ts, LFCP-03-005). */
   readonly transport: TransportTracker;
+  /** The barrier batches it brought and the SDK's refusals of them (LFCP-04-406). */
+  readonly barriers: SessionBarriers;
 }
 
 interface Opened {
@@ -1870,17 +1872,15 @@ export class LfcpRuntime {
     // ACKs). The items themselves are in storage, per Resource.
     const reconnect = restartableReconnect();
     const liveness = this.#env.liveness ?? LIVENESS;
-    // Resources (hex) whose barrier records came on this session (LFCP-04-406).
-    const sighted = new Set<string>();
+    // LFCP-04-406: the Resources open on this session (its own resource-state
+    // events), whose Control Records are read for a barrier before the SDK.
+    const open = new Set<string>();
+    const barriers = new SessionBarriers((resource) => open.has(resource));
     const probe = new LivenessProbe(
       () => this.#env.webSocket ?? platformWebSocket(),
       () => this.#env.timers.now(),
       liveness,
-      (data) =>
-        watchBarrier(data, (s) => {
-          sighted.add(s.resource);
-          this.#identity.seen(s);
-        }),
+      (data) => barriers.frame(data),
     );
     const client = new SyncClient({
       url,
@@ -1912,15 +1912,18 @@ export class LfcpRuntime {
       if (e.type === "connection") transport.connection(e.state);
       if (e.type === "connection" && e.state === "DISCONNECTED")
         disconnectedAt = this.#env.timers.now();
-      // LFCP-04-406: the SDK's parser refused a type 9 or 10 record this
-      // session brought; its error names no Resource, the sightings do.
-      const reserved =
-        e.type === "error" && e.resourceId === undefined ? reservedTypeOf(e.message) : null;
-      if (reserved !== null)
-        for (const key of sighted)
-          void this.#identityRefused(key, { kind: "reserved", type: reserved }).catch(
-            () => undefined,
-          );
+      if (e.type === "resource-state") {
+        if (e.state === "CLOSED") open.delete(toHex(e.resourceId));
+        else open.add(toHex(e.resourceId));
+      }
+      // LFCP-04-406: the SDK refused a batch with a barrier record this session brought.
+      if (e.type === "error")
+        for (const key of barriers.refused({
+          code: e.code,
+          message: e.message,
+          ...(e.resourceId === undefined ? {} : { resource: toHex(e.resourceId) }),
+        }))
+          void this.#barrierRefused(barriers, key).catch(() => undefined);
       // The end of an ordinary connection loss is not an error event (beta.9 check).
       if (
         e.type === "error" &&
@@ -1979,7 +1982,7 @@ export class LfcpRuntime {
       },
       this.#env.tickMs ?? 250,
     );
-    const created: Pooled = { client, stopDriver, unsubscribe, reconnect, transport };
+    const created: Pooled = { client, stopDriver, unsubscribe, reconnect, transport, barriers };
     this.#pool.set(url, created);
     return created;
   }
@@ -1994,8 +1997,8 @@ export class LfcpRuntime {
       if (e.state === "LIVE") {
         this.#errors.delete(key);
         this.#refusals.delete(key);
-        // Its chain validated: not past a barrier this version cannot read.
-        void this.#identity.validated(key).catch(() => undefined);
+        // Its chain validated, up to its stored head: a block lifts only past its barrier.
+        void this.#identityValidated(e.resourceId).catch(() => undefined);
         // A later refusal of this collaboration is news again.
         void this.localState
           .update(`refused-reported:${key}`, () => undefined)
@@ -2015,10 +2018,6 @@ export class LfcpRuntime {
       this.#engineTrapped(e.message);
     } else if (e.type === "error" && e.resourceId !== undefined) {
       this.#errors.set(toHex(e.resourceId), e.code);
-      if (this.#identity.sighting(toHex(e.resourceId)) !== null)
-        void this.#identityRefused(toHex(e.resourceId), { kind: "chain", code: e.code }).catch(
-          () => undefined,
-        );
     }
     for (const l of this.#listeners) l(e);
   }
@@ -2032,11 +2031,22 @@ export class LfcpRuntime {
       secrets: i.secrets,
       principal: i.principal,
       now: () => this.#env.timers.now(),
-      // The join's own connection is watched for a barrier too (LFCP-04-406).
-      webSocket: (url, protocols) =>
-        tapMessages((this.#env.webSocket ?? platformWebSocket())(url, protocols), (data) =>
-          watchBarrier(data, (s) => this.#identity.seen(s)),
-        ),
+      // LFCP-04-406: a join's own connection is watched too. Nothing of the
+      // Resource is stored yet: a barrier the SDK cannot get past from the
+      // Genesis on is one the join can never claim past.
+      webSocket: (url, protocols) => {
+        const join = new SessionBarriers(() => true);
+        return tapMessages((this.#env.webSocket ?? platformWebSocket())(url, protocols), (data) =>
+          watchControlBatch(data, (b) => {
+            join.batch(b);
+            if (
+              b.records.some((r) => r.entry !== null) &&
+              barrierRefusedBySdk(b.resource, [], join.received(b.resource)) !== null
+            )
+              this.#identity.joinSeen(b.resource);
+          }),
+        );
+      },
       session: (url) => this.#session(url).client,
     };
   }
@@ -2079,11 +2089,32 @@ export class LfcpRuntime {
     return this.#identity.whenSeen(toHex(resource));
   }
 
-  /** The SDK refused a chain in which a barrier was seen: recorded with the last validated head. */
-  async #identityRefused(key: string, refusal: BarrierRefusal): Promise<void> {
-    if (this.#identity.sighting(key) === null) return;
-    const head = await this.#install.storage?.control.head(resourceId(fromHex(key)));
-    await this.#identity.refused(key, refusal, head === undefined ? null : toHex(head.head));
+  /**
+   * The SDK refused a batch of `key` with a barrier record: the block is
+   * recorded when the same SDK, from the stored chain, cannot get past that
+   * barrier (validateControlChain), at the stored head.
+   */
+  async #barrierRefused(barriers: SessionBarriers, key: string): Promise<void> {
+    const storage = this.#install.storage;
+    if (storage === null) return;
+    const R = resourceId(fromHex(key));
+    const stored = await loadControlChain(storage, R);
+    if (stored === undefined || stored.kind !== "linear") return;
+    const barrier = barrierRefusedBySdk(
+      key,
+      stored.records.map((r) => r.signed.bytes),
+      barriers.received(key),
+    );
+    if (barrier === null) return;
+    await this.#identity.block(key, barrier, toHex(stored.state.head));
+  }
+
+  /** A session of `resource` went LIVE: its validated chain reaches the stored head. */
+  async #identityValidated(resource: ResourceId): Promise<void> {
+    const head = await this.#install.storage?.control.head(resource);
+    if (head === undefined) return;
+    for (const p of this.#pool.values()) p.barriers.validated(toHex(resource), head.controlSeq);
+    await this.#identity.validated(toHex(resource), head.controlSeq);
   }
 
   /**

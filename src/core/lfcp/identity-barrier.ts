@@ -16,7 +16,12 @@
 // (LFCP-WIRE-01 §10) that gives up (null) on anything it does not expect.
 
 import { toHex } from "@openlfcp/core";
-import { decodeMessage, MESSAGE_TYPE, parseSignedObject } from "@openlfcp/wire";
+import {
+  decodeMessage,
+  MESSAGE_TYPE,
+  parseSignedObject,
+  validateControlChain,
+} from "@openlfcp/wire";
 
 /** The four entries of the barrier (LFCP-WIRE-01 §100.1). */
 export type BarrierEntry = "device-grant" | "device-revoke" | "genesis-device" | "transfer-device";
@@ -229,37 +234,76 @@ function frameType(frame: Uint8Array): bigint | null {
   return t === null || t.major !== 0 ? null : t.arg;
 }
 
+/** One Control Record of a CONTROL_BATCH: its exact bytes, place and barrier entry (null: none). */
+export interface BatchRecord {
+  readonly bytes: Uint8Array;
+  readonly seq: bigint;
+  readonly recordId: string;
+  readonly entry: BarrierEntry | null;
+  /** Its Control Record type, when the payload could be read. */
+  readonly type: bigint | null;
+}
+
+/** A CONTROL_BATCH a server sent: its Resource (hex) and that Resource's records in it. */
+export interface ControlBatch {
+  readonly resource: string;
+  readonly records: readonly BatchRecord[];
+}
+
 /**
- * The barrier records a server frame carries, lowest sequence first: only
- * a CONTROL_BATCH is decoded (any other frame costs a few bytes' peek).
+ * The CONTROL_BATCH a server frame is, with each record of its Resource
+ * read for the barrier, or null for any other frame (which costs a few
+ * bytes' peek). A record of another Resource in the batch is the SDK's to
+ * refuse, never a barrier here.
  */
-export function barrierInFrame(frame: Uint8Array): BarrierSighting[] {
-  if (frameType(frame) !== CONTROL_BATCH) return [];
+export function controlBatchOf(frame: Uint8Array): ControlBatch | null {
+  if (frameType(frame) !== CONTROL_BATCH) return null;
   let objects: readonly Uint8Array[];
   let resource: string;
   try {
     // The SDK applies its own size limit to the same frame; here it only classifies.
     const m = decodeMessage(frame, { maxMessageBytes: frame.length });
-    if (m.type !== "CONTROL_BATCH") return [];
+    if (m.type !== "CONTROL_BATCH") return null;
     objects = m.body.objects;
     resource = toHex(m.body.resourceId);
   } catch {
-    return [];
+    return null;
   }
-  const out: BarrierSighting[] = [];
+  const records: BatchRecord[] = [];
   for (const bytes of objects) {
-    const b = barrierEntryOf(bytes);
-    // A record of another Resource in this batch is the SDK's to refuse, not a barrier here.
-    if (b === null || b.resource !== resource) continue;
-    let recordId: string;
+    let signed: ReturnType<typeof parseSignedObject>;
     try {
-      recordId = toHex(parseSignedObject(bytes).id);
+      signed = parseSignedObject(bytes);
     } catch {
       continue;
     }
-    out.push({ resource, seq: b.seq, recordId, entry: b.entry });
+    const p = payloadOf(signed.payloadBytes);
+    if (p === null || p.resource !== resource) continue;
+    records.push({
+      bytes: signed.bytes,
+      seq: p.seq,
+      recordId: toHex(signed.id),
+      entry: barrierEntryOf(bytes)?.entry ?? null,
+      type: p.type,
+    });
   }
-  return out.sort((a, b) => (a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0));
+  return { resource, records };
+}
+
+const bySeq = <T extends { readonly seq: bigint }>(a: T, b: T) =>
+  a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0;
+
+/** The barrier records a server frame carries, lowest sequence first. */
+export function barrierInFrame(frame: Uint8Array): BarrierSighting[] {
+  const batch = controlBatchOf(frame);
+  if (batch === null) return [];
+  return batch.records
+    .flatMap((r) =>
+      r.entry === null
+        ? []
+        : [{ resource: batch.resource, seq: r.seq, recordId: r.recordId, entry: r.entry }],
+    )
+    .sort(bySeq);
 }
 
 /** The frame's bytes as the SDK reads them (connection.js BYTES), or null for text and others. */
@@ -271,18 +315,28 @@ function frameBytes(data: unknown): Uint8Array | null {
 }
 
 /**
- * Reads each frame the SDK receives for barrier records, before the SDK
- * handles it: `seen` hears of each one. A failure here never reaches the
- * SDK's handling of the frame.
+ * Reads a frame the SDK receives, before the SDK handles it: `batch`
+ * hears of a CONTROL_BATCH. A failure here never reaches the SDK's
+ * handling of the frame.
  */
-export function watchBarrier(data: unknown, seen: (s: BarrierSighting) => void): void {
+export function watchControlBatch(data: unknown, batch: (b: ControlBatch) => void): void {
   const frame = frameBytes(data);
   if (frame === null) return;
   try {
-    for (const s of barrierInFrame(frame)) seen(s);
+    const b = controlBatchOf(frame);
+    if (b !== null && b.records.length > 0) batch(b);
   } catch {
     // Recognition is best effort; the SDK's own refusal stands either way.
   }
+}
+
+/** watchControlBatch for the barrier records only. */
+export function watchBarrier(data: unknown, seen: (s: BarrierSighting) => void): void {
+  watchControlBatch(data, (b) => {
+    for (const r of b.records)
+      if (r.entry !== null)
+        seen({ resource: b.resource, seq: r.seq, recordId: r.recordId, entry: r.entry });
+  });
 }
 
 /** The chain errors a pre-identity SDK gives a barrier (§100.1) for a Resource it names. */
@@ -291,30 +345,117 @@ export const BARRIER_ERROR_CODES: ReadonlySet<string> = new Set([
   "MALFORMED_MESSAGE",
 ]);
 
-/**
- * How the SDK refused a chain with a barrier in it. The 0.2.2 SDK names the
- * Resource for a Genesis field 5 or a commit field 2 (MALFORMED_MESSAGE);
- * for types 9 and 10 its record parser throws before the chain is
- * validated, and the session's error names no Resource, only the type
- * ("Control Record type 9 is reserved for LFCP core (§14)", code INTERNAL).
- */
-export type BarrierRefusal =
-  | { readonly kind: "chain"; readonly code: string }
-  | { readonly kind: "reserved"; readonly type: bigint };
-
 /** The reserved core type an SDK error message names, or null. */
 export function reservedTypeOf(message: string): bigint | null {
   const m = /Control Record type (\d+) is reserved for LFCP core/.exec(message);
   return m?.[1] === undefined ? null : BigInt(m[1]);
 }
 
-/** The Control Record type of an entry that is a type of its own (9, 10); null for the two fields. */
-const ENTRY_TYPE: Readonly<Record<BarrierEntry, bigint | null>> = {
-  "device-grant": TYPE_DEVICE_GRANT,
-  "device-revoke": TYPE_DEVICE_REVOKE,
-  "genesis-device": null,
-  "transfer-device": null,
-};
+/**
+ * Whether the SDK in use refuses `resource`'s `stored` chain (validated,
+ * Genesis first) extended by `received` because of a barrier record, and if so the
+ * barrier: the first barrier record past the stored head. The SDK's own
+ * validateControlChain decides: its first problem must be a record it
+ * cannot read (UNSUPPORTED_TYPE, MALFORMED) that is one of the barrier
+ * records. Null otherwise (nothing past the head, a valid extension, or a
+ * chain broken for another reason).
+ */
+export function barrierRefusedBySdk(
+  resource: string,
+  stored: readonly Uint8Array[],
+  received: readonly BatchRecord[],
+): BarrierSighting | null {
+  const next = BigInt(stored.length);
+  const unique = new Map<string, BatchRecord>();
+  for (const r of received) if (r.seq >= next) unique.set(r.recordId, r);
+  const past = [...unique.values()].sort(bySeq);
+  const barrier = past.find((r) => r.entry !== null);
+  if (barrier === undefined || barrier.entry === null) return null;
+  const result = validateControlChain([...stored, ...past.map((r) => r.bytes)]);
+  if (result.kind !== "invalid") return null;
+  if (result.problem !== "UNSUPPORTED_TYPE" && result.problem !== "MALFORMED") return null;
+  const flagged = result.recordId === null ? null : toHex(result.recordId);
+  if (!past.some((r) => r.entry !== null && r.recordId === flagged)) return null;
+  return { resource, seq: barrier.seq, recordId: barrier.recordId, entry: barrier.entry };
+}
+
+/**
+ * One session's view of the barrier (LFCP-04-406): the Control Records it
+ * brought for the Resources it has open, and the batches with a barrier
+ * record whose refusal by the SDK is still to come, in arrival order. The
+ * SDK handles a session's messages one at a time in that order, and
+ * refuses a batch it reads with a record of type 9 or 10 by an error that
+ * names only the type: the oldest pending batch with that type is the one.
+ * A batch for a Resource the session has not open is ignored by the SDK,
+ * and here.
+ */
+export class SessionBarriers {
+  readonly #isOpen: (resource: string) => boolean;
+  /** Records received per Resource (hex), by record ID. */
+  readonly #received = new Map<string, Map<string, BatchRecord>>();
+  readonly #pending: { readonly resource: string; readonly types: ReadonlySet<bigint> }[] = [];
+
+  constructor(isOpen: (resource: string) => boolean) {
+    this.#isOpen = isOpen;
+  }
+
+  /** A frame the SDK is about to handle. */
+  frame(data: unknown): void {
+    watchControlBatch(data, (b) => this.batch(b));
+  }
+
+  batch(b: ControlBatch): void {
+    if (!this.#isOpen(b.resource)) return;
+    const pool = this.#received.get(b.resource) ?? new Map<string, BatchRecord>();
+    for (const r of b.records) pool.set(r.recordId, r);
+    this.#received.set(b.resource, pool);
+    if (b.records.some((r) => r.entry !== null))
+      this.#pending.push({
+        resource: b.resource,
+        types: new Set(b.records.flatMap((r) => (r.type === null ? [] : [r.type]))),
+      });
+  }
+
+  /**
+   * The SDK reported an error on this session: the Resources (hex) whose
+   * pending barrier batch it refuses. A chain error names its Resource; a
+   * reserved type error names none, and takes the oldest pending batch
+   * that has a record of that type.
+   */
+  refused(e: { readonly code: string; readonly message: string; readonly resource?: string }) {
+    if (e.resource !== undefined) {
+      if (!BARRIER_ERROR_CODES.has(e.code)) return [];
+      const before = this.#pending.length;
+      this.#drop((p) => p.resource === e.resource);
+      return this.#pending.length < before ? [e.resource] : [];
+    }
+    const type = reservedTypeOf(e.message);
+    if (type === null) return [];
+    const at = this.#pending.findIndex((p) => p.types.has(type));
+    const hit = this.#pending[at];
+    if (hit === undefined) return [];
+    this.#pending.splice(at, 1);
+    return [hit.resource];
+  }
+
+  /** The records received for `resource`. */
+  received(resource: string): BatchRecord[] {
+    return [...(this.#received.get(resource)?.values() ?? [])];
+  }
+
+  /** The Resource's chain is validated up to `seq`: what it covers is forgotten. */
+  validated(resource: string, seq: bigint): void {
+    const pool = this.#received.get(resource);
+    for (const [id, r] of pool ?? []) if (r.seq <= seq) pool?.delete(id);
+  }
+
+  #drop(match: (p: { readonly resource: string }) => boolean): void {
+    for (let i = this.#pending.length - 1; i >= 0; i--) {
+      const p = this.#pending[i];
+      if (p !== undefined && match(p)) this.#pending.splice(i, 1);
+    }
+  }
+}
 
 /** A stored IdentityBlock, or null when `value` is not one (an older or damaged row). */
 export function identityBlockOf(value: unknown): IdentityBlock | null {
@@ -325,6 +466,7 @@ export function identityBlockOf(value: unknown): IdentityBlock | null {
     (v.head !== null && typeof v.head !== "string") ||
     typeof v.recordId !== "string" ||
     typeof v.seq !== "string" ||
+    !/^\d+$/.test(v.seq) ||
     typeof v.entry !== "string" ||
     !entries.includes(v.entry) ||
     typeof v.at !== "number"
@@ -351,25 +493,25 @@ const BLOCK_PREFIX = "identity-block:";
 /** A wait for a barrier record of one Resource (IdentityBlocks.whenSeen). */
 export interface BarrierWatch {
   readonly seen: Promise<unknown>;
-  /** A barrier record of the Resource arrived, now or before. */
+  /** A barrier the SDK cannot get past arrived for the Resource, now or before. */
   happened(): boolean;
   cancel(): void;
 }
 
 /**
- * The Resources past their barrier on this device (§100.1): a barrier seen
- * in a server's CONTROL_BATCH this session, confirmed by the SDK's refusal
- * of that chain, is persisted ("blocked at head H by an unsupported
- * record") so that the update message survives restarts, offline included.
- * A Resource whose session goes LIVE validated its chain: it is not blocked.
+ * The Resources past their barrier on this device (§100.1), persisted
+ * ("blocked at head H by an unsupported record") so that the update
+ * message survives restarts, offline included. A block is lifted only
+ * when the Resource's validated chain reaches the barrier's sequence, never
+ * because a session went LIVE on an older head.
  */
 export class IdentityBlocks {
   readonly #store: () => IdentityBlockStore | null;
   readonly #now: () => number;
-  /** The lowest barrier record seen per Resource (hex) since the start. */
-  readonly #seen = new Map<string, BarrierSighting>();
   readonly #blocks = new Map<string, IdentityBlock>();
-  readonly #waiters = new Map<string, Set<(s: BarrierSighting) => void>>();
+  /** Resources (hex) a join's connection brought a barrier for. */
+  readonly #joinSeen = new Set<string>();
+  readonly #waiters = new Map<string, Set<() => void>>();
 
   constructor(store: () => IdentityBlockStore | null, now: () => number) {
     this.#store = store;
@@ -386,31 +528,56 @@ export class IdentityBlocks {
     }
   }
 
-  /** A barrier record arrived from the server (watchBarrier). */
-  seen(s: BarrierSighting): void {
-    const was = this.#seen.get(s.resource);
-    if (was === undefined || s.seq < was.seq) this.#seen.set(s.resource, s);
-    const waiting = this.#waiters.get(s.resource);
-    this.#waiters.delete(s.resource);
-    for (const w of waiting ?? []) w(s);
-  }
-
-  /** The barrier record seen for `resource` since the start, or null. */
-  sighting(resource: string): BarrierSighting | null {
-    return this.#seen.get(resource) ?? null;
+  /**
+   * `resource` is blocked at `head` by `barrier`, which the SDK refused. A
+   * block already recorded keeps its first head and record.
+   */
+  async block(resource: string, barrier: BarrierSighting, head: string | null): Promise<void> {
+    if (this.#blocks.has(resource)) return;
+    const block: IdentityBlock = {
+      head,
+      recordId: barrier.recordId,
+      seq: String(barrier.seq),
+      entry: barrier.entry,
+      at: this.#now(),
+    };
+    this.#blocks.set(resource, block);
+    await this.#store()?.put(BLOCK_PREFIX + resource, block);
   }
 
   /**
-   * Resolves when a barrier record of `resource` arrives (a join waiting on
-   * a chain it cannot validate); `happened` says it at once; `cancel`
-   * forgets the wait.
+   * The Resource's chain is validated up to `seq`: past its barrier's
+   * sequence (an update read it), the block is lifted; below, it stays.
+   */
+  async validated(resource: string, seq: bigint): Promise<void> {
+    const block = this.#blocks.get(resource);
+    if (block === undefined || seq < BigInt(block.seq)) return;
+    this.#blocks.delete(resource);
+    await this.#store()?.put(BLOCK_PREFIX + resource, undefined);
+  }
+
+  /** The persisted block of `resource`, or null. */
+  get(resource: string): IdentityBlock | null {
+    return this.#blocks.get(resource) ?? null;
+  }
+
+  /** A join's connection brought a barrier of `resource` that the SDK cannot get past. */
+  joinSeen(resource: string): void {
+    this.#joinSeen.add(resource);
+    const waiting = this.#waiters.get(resource);
+    this.#waiters.delete(resource);
+    for (const w of waiting ?? []) w();
+  }
+
+  /**
+   * Resolves when a join's connection brings such a barrier of `resource`;
+   * `happened` says it at once; `cancel` forgets the wait.
    */
   whenSeen(resource: string): BarrierWatch {
-    const happened = () => this.#seen.has(resource);
-    const now = this.#seen.get(resource);
-    if (now !== undefined) return { seen: Promise.resolve(now), happened, cancel: () => undefined };
-    let waiter: ((s: BarrierSighting) => void) | undefined;
-    const seen = new Promise<BarrierSighting>((resolve) => {
+    const happened = () => this.#joinSeen.has(resource);
+    if (happened()) return { seen: Promise.resolve(), happened, cancel: () => undefined };
+    let waiter: (() => void) | undefined;
+    const seen = new Promise<void>((resolve) => {
       waiter = resolve;
     });
     const set = this.#waiters.get(resource) ?? new Set();
@@ -424,45 +591,5 @@ export class IdentityBlocks {
         if (set.size === 0 && this.#waiters.get(resource) === set) this.#waiters.delete(resource);
       },
     };
-  }
-
-  /**
-   * The SDK refused `resource`'s chain: when that is the refusal the
-   * barrier seen gets (a chain error, or the parse error of its very type),
-   * the block is recorded with `head`, the last validated head this device
-   * holds. A block already recorded keeps its first head and record. True
-   * when blocked.
-   */
-  async refused(resource: string, refusal: BarrierRefusal, head: string | null): Promise<boolean> {
-    const s = this.#seen.get(resource);
-    const confirms =
-      s !== undefined &&
-      (refusal.kind === "chain"
-        ? BARRIER_ERROR_CODES.has(refusal.code)
-        : ENTRY_TYPE[s.entry] === refusal.type);
-    if (!confirms) return this.#blocks.has(resource);
-    if (this.#blocks.has(resource)) return true;
-    const block: IdentityBlock = {
-      head,
-      recordId: s.recordId,
-      seq: String(s.seq),
-      entry: s.entry,
-      at: this.#now(),
-    };
-    this.#blocks.set(resource, block);
-    await this.#store()?.put(BLOCK_PREFIX + resource, block);
-    return true;
-  }
-
-  /** The Resource's chain validated (its session went LIVE): not blocked. */
-  async validated(resource: string): Promise<void> {
-    this.#seen.delete(resource);
-    if (!this.#blocks.delete(resource)) return;
-    await this.#store()?.put(BLOCK_PREFIX + resource, undefined);
-  }
-
-  /** The persisted block of `resource`, or null. */
-  get(resource: string): IdentityBlock | null {
-    return this.#blocks.get(resource) ?? null;
   }
 }
