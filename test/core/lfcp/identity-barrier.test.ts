@@ -25,10 +25,12 @@ import { describe, expect, it } from "vitest";
 import {
   barrierEntryOf,
   barrierInFrame,
+  barrierRefusedBySdk,
+  controlBatchOf,
   type IdentityBlockStore,
   IdentityBlocks,
   isPairingLink,
-  reservedTypeOf,
+  SessionBarriers,
   watchBarrier,
 } from "../../../src/core/lfcp/identity-barrier";
 
@@ -216,16 +218,13 @@ describe("the blocked state (WIRE §100.1: persisted, survives restarts)", () =>
     entry: "device-grant" as const,
   };
 
-  it("a barrier seen and the chain refused: blocked at the last validated head, kept across a restart", async () => {
+  it("blocked at the last validated head, the first block kept, read back after a restart", async () => {
     const store = memoryStore();
     const blocks = new IdentityBlocks(
       () => store,
       () => 1000,
     );
-    blocks.seen(sighting);
-    expect(
-      await blocks.refused(R, { kind: "chain", code: "INVALID_CONTROL_CHAIN" }, "cd".repeat(32)),
-    ).toBe(true);
+    await blocks.block(R, sighting, "cd".repeat(32));
     expect(blocks.get(R)).toEqual({
       head: "cd".repeat(32),
       recordId: "ab".repeat(32),
@@ -233,11 +232,8 @@ describe("the blocked state (WIRE §100.1: persisted, survives restarts)", () =>
       entry: "device-grant",
       at: 1000,
     });
-    // A later refusal keeps the first head and record.
-    blocks.seen({ ...sighting, seq: 9n, recordId: "ef".repeat(32) });
-    await blocks.refused(R, { kind: "chain", code: "MALFORMED_MESSAGE" }, "00".repeat(32));
+    await blocks.block(R, { ...sighting, seq: 9n, recordId: "ef".repeat(32) }, "00".repeat(32));
     expect(blocks.get(R)?.head).toBe("cd".repeat(32));
-
     const restarted = new IdentityBlocks(
       () => store,
       () => 2000,
@@ -246,49 +242,18 @@ describe("the blocked state (WIRE §100.1: persisted, survives restarts)", () =>
     expect(restarted.get(R)).toEqual(blocks.get(R));
   });
 
-  it("no barrier seen, or another refusal: not blocked (the generic error stands)", async () => {
-    const blocks = new IdentityBlocks(
-      () => memoryStore(),
-      () => 0,
-    );
-    expect(await blocks.refused(R, { kind: "chain", code: "INVALID_CONTROL_CHAIN" }, null)).toBe(
-      false,
-    );
-    blocks.seen(sighting);
-    expect(await blocks.refused(R, { kind: "chain", code: "TIMEOUT" }, null)).toBe(false);
-    expect(await blocks.refused(R, { kind: "chain", code: "AUTHORIZATION_FAILED" }, null)).toBe(
-      false,
-    );
-    expect(blocks.get(R)).toBeNull();
-  });
-
-  it("types 9 and 10: the SDK parser's refusal of that very type confirms (0.2.2 names no Resource)", async () => {
-    expect(reservedTypeOf("Control Record type 9 is reserved for LFCP core (§14)")).toBe(9n);
-    expect(reservedTypeOf("the server's Control Records do not validate (MALFORMED)")).toBeNull();
-    const blocks = new IdentityBlocks(
-      () => memoryStore(),
-      () => 0,
-    );
-    blocks.seen(sighting);
-    expect(await blocks.refused(R, { kind: "reserved", type: 10n }, null)).toBe(false);
-    expect(await blocks.refused(R, { kind: "reserved", type: 9n }, null)).toBe(true);
-    const other = toHex(generateResourceId());
-    blocks.seen({ ...sighting, resource: other, entry: "genesis-device" });
-    expect(await blocks.refused(other, { kind: "reserved", type: 9n }, null)).toBe(false);
-  });
-
-  it("the chain validated (LIVE): the block and its row are gone", async () => {
+  it("lifted only once the validated chain reaches the barrier's sequence (R2)", async () => {
     const store = memoryStore();
     const blocks = new IdentityBlocks(
       () => store,
       () => 0,
     );
-    blocks.seen(sighting);
-    await blocks.refused(R, { kind: "chain", code: "INVALID_CONTROL_CHAIN" }, null);
+    await blocks.block(R, sighting, null);
+    await blocks.validated(R, 6n);
+    expect(blocks.get(R)).not.toBeNull();
     expect(store.rows.size).toBe(1);
-    await blocks.validated(R);
+    await blocks.validated(R, 7n);
     expect(blocks.get(R)).toBeNull();
-    expect(blocks.sighting(R)).toBeNull();
     expect(store.rows.size).toBe(0);
   });
 
@@ -301,6 +266,12 @@ describe("the blocked state (WIRE §100.1: persisted, survives restarts)", () =>
       at: 0,
       head: null,
       entry: "nope",
+    });
+    await store.put(`identity-block:${toHex(generateResourceId())}`, {
+      ...sighting,
+      seq: "x1",
+      at: 0,
+      head: null,
     });
     const blocks = new IdentityBlocks(
       () => store,
@@ -317,13 +288,63 @@ describe("the blocked state (WIRE §100.1: persisted, survives restarts)", () =>
     );
     const watch = blocks.whenSeen(R);
     expect(watch.happened()).toBe(false);
-    blocks.seen(sighting);
+    blocks.joinSeen(R);
     expect(watch.happened()).toBe(true);
-    await expect(watch.seen).resolves.toEqual(sighting);
+    await expect(watch.seen).resolves.toBeUndefined();
     watch.cancel();
-    const late = blocks.whenSeen(R);
-    expect(late.happened()).toBe(true);
-    await expect(late.seen).resolves.toEqual(sighting);
+    expect(blocks.whenSeen(R).happened()).toBe(true);
+  });
+});
+
+describe("which refusal is whose (one session, SDK order)", () => {
+  const A = generateResourceId();
+  const B = generateResourceId();
+  const batch = (R: ResourceId, ...objects: Uint8Array[]) =>
+    controlBatchOf(encodeMessage(createMessage("CONTROL_BATCH", { resourceId: R, objects })));
+  const grant = (R: ResourceId) => record(R, 1n, 9n, body(0n));
+  const commit = (R: ResourceId) => record(R, 1n, 6n, body(0n, 1n, 2n));
+  const reserved = (type: number) => ({
+    code: "INTERNAL",
+    message: `Control Record type ${type} is reserved for LFCP core (§14)`,
+  });
+
+  it("a batch for a Resource not open on the session is ignored (R3)", () => {
+    const s = new SessionBarriers((r) => r === toHex(B));
+    for (const b of [batch(A, grant(A)), batch(B, grant(B))]) if (b !== null) s.batch(b);
+    expect(s.received(toHex(A))).toEqual([]);
+    expect(s.refused(reserved(9))).toEqual([toHex(B)]);
+    expect(s.refused(reserved(9))).toEqual([]);
+  });
+
+  it("a reserved type error takes the oldest pending batch with that type; a chain error names its own", () => {
+    const s = new SessionBarriers(() => true);
+    for (const b of [batch(A, commit(A)), batch(B, grant(B))]) if (b !== null) s.batch(b);
+    expect(s.refused(reserved(10))).toEqual([]);
+    expect(s.refused(reserved(9))).toEqual([toHex(B)]);
+    expect(s.refused({ code: "TIMEOUT", message: "x", resource: toHex(A) })).toEqual([]);
+    expect(s.refused({ code: "MALFORMED_MESSAGE", message: "x", resource: toHex(A) })).toEqual([
+      toHex(A),
+    ]);
+  });
+
+  it("the SDK itself decides: only a chain it cannot get past because of a barrier record (R1)", () => {
+    const R = generateResourceId();
+    const g = genesis(R);
+    const c = record(R, 1n, 6n, body(0n, 1n, 2n), g.recordId);
+    const d = record(R, 2n, 9n, body(0n), objectId(c));
+    const received = batch(R, c, d)?.records ?? [];
+    // Mixed: a commit with field 2, then a DEVICE_GRANT; the barrier is the first of them.
+    expect(barrierRefusedBySdk(toHex(R), [g.bytes], received)).toMatchObject({
+      seq: 1n,
+      entry: "transfer-device",
+    });
+    // Nothing past the stored head, or no barrier record: no block.
+    expect(barrierRefusedBySdk(toHex(R), [g.bytes], [])).toBeNull();
+    const plain = batch(R, record(R, 1n, 31n, body(0n), g.recordId))?.records ?? [];
+    expect(barrierRefusedBySdk(toHex(R), [g.bytes], plain)).toBeNull();
+    // A join: nothing stored, a Genesis with field 5.
+    const g5 = batch(R, record(R, 0n, 0n, body(0n, 1n, 2n, 3n, 4n, 5n)))?.records ?? [];
+    expect(barrierRefusedBySdk(toHex(R), [], g5)?.entry).toBe("genesis-device");
   });
 });
 
