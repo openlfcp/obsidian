@@ -53,6 +53,7 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
+import type { BarrierWatch } from "../lfcp/identity-barrier";
 import {
   type BlockedCollaborator,
   type CollaborationContext,
@@ -87,6 +88,8 @@ export interface CollabRuntime {
   reopenSection?(resource: ResourceId): void;
   /** The server's refusal of a Resource for good, or null. */
   refusal?(resource: ResourceId): { readonly code: string } | null;
+  /** A barrier record of the Resource arrived (LfcpRuntime.barrierSeen). */
+  barrierSeen?(resource: ResourceId): BarrierWatch;
   /** This vault's write access to a shared-sections Resource, with the reason when denied. */
   canWriteSection?(
     resource: ResourceId,
@@ -693,18 +696,36 @@ export class Collaboration {
       name: options.name,
       url: parseInviteUri(uri.trim()).endpoints[0] ?? "",
     } satisfies JoinRecord);
-    const accepted: AcceptedInvitation = await acceptInvitation({
-      onProgress: (p) => stage(SDK_STAGE[p.stage]),
-      link: uri.trim(),
-      claimant: { signer: c.principal.signer, agreement: c.principal.agreement },
-      storage: c.storage,
-      secrets: c.secrets,
-      now: c.now,
-      ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
-      timeout: this.#o.sleep(this.#o.joinTimeoutMs),
-      // Another profile is refused before the claim, so the link stays unused.
-      dataProfiles: wanted,
-    });
+    // LFCP-04-406: a chain past an identity barrier never validates here, so
+    // no claim is made on it; the join stops when the barrier arrives
+    // instead of waiting for the timeout, and says the plugin needs an update.
+    const barrier = this.#runtime.barrierSeen?.(R);
+    const beforeClaim = () => barrier?.happened() === true && last !== "claiming capability";
+    let accepted: AcceptedInvitation;
+    try {
+      accepted = await acceptInvitation({
+        onProgress: (p) => stage(SDK_STAGE[p.stage]),
+        link: uri.trim(),
+        claimant: { signer: c.principal.signer, agreement: c.principal.agreement },
+        storage: c.storage,
+        secrets: c.secrets,
+        now: c.now,
+        ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
+        timeout: Promise.race([
+          this.#o.sleep(this.#o.joinTimeoutMs),
+          ...(barrier === undefined ? [] : [barrier.seen.then(() => undefined)]),
+        ]),
+        // Another profile is refused before the claim, so the link stays unused.
+        dataProfiles: wanted,
+      });
+    } catch (e) {
+      if (beforeClaim()) return { kind: "needs-newer-version", resourceId: R };
+      throw e;
+    } finally {
+      barrier?.cancel();
+    }
+    if (accepted.kind !== "claimed" && beforeClaim())
+      return { kind: "needs-newer-version", resourceId: R };
     if (accepted.kind === "profile-unsupported")
       return profiles.includes(accepted.dataProfile)
         ? { kind: "other-profile", resourceId: R, profile: accepted.dataProfile }
