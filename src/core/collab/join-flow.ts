@@ -33,6 +33,7 @@ import type { ResourceId } from "@openlfcp/core";
 import { toHex } from "@openlfcp/core";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { parseInviteUri } from "@openlfcp/wire";
+import { isPairingLink, PAIRING_LINK_TEXT } from "../lfcp/identity-barrier";
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
 import {
   ALREADY_HELD,
@@ -55,6 +56,8 @@ export type JoinFlowStage = "link" | "claiming capability" | "access" | "loading
 /** Why a join stopped, told apart by its real cause (I6). */
 export type JoinProblem =
   | "malformed"
+  /** A pairing link (lfcp://pair/…): this version cannot add devices (LFCP-04-406). */
+  | "pairing"
   | "used"
   | "removed"
   | "needs-newer-version"
@@ -198,6 +201,11 @@ export class JoinFlow {
   async submit(link: string, name = ""): Promise<void> {
     const at = this.#state;
     if (at === null || at.stage !== "link" || at.outcome !== "running") return;
+    // Before the invitation parser: a pairing link is told apart, never parsed (its fragment is a device's keys).
+    if (isPairingLink(link)) {
+      this.#problem("pairing", PAIRING_LINK_TEXT);
+      return;
+    }
     if (!isInvitation(link)) {
       this.#problem("malformed", JOIN_TEXT.malformed);
       return;

@@ -22,6 +22,7 @@ import {
   REMOVED_REJOIN,
 } from "../../../src/core/collab/messages";
 import type { JoinOutcome, JoinStage } from "../../../src/core/collab/service";
+import { PAIRING_LINK_TEXT } from "../../../src/core/lfcp/identity-barrier";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const R = fromBase64url(R0) as ResourceId;
@@ -276,6 +277,21 @@ describe("the join flow (LFCP-03-015)", () => {
       problem: JOIN_TEXT.malformed,
     });
     expect(s.calls.join).toHaveLength(0);
+  });
+
+  it("a pairing link is told apart from an invitation, never parsed or sent (LFCP-04-406)", async () => {
+    const s = scripted([]);
+    const { f } = flow(s.collab);
+    f.open();
+    const pairing = `lfcp://pair/${R0}?endpoint=ws%3A%2F%2F127.0.0.1%3A9&device=${R0}#secret=${SECRET}`;
+    await f.submit(` ${pairing}`);
+    expect(f.state()).toMatchObject({
+      stage: "link",
+      problemKind: "pairing",
+      problem: PAIRING_LINK_TEXT,
+    });
+    expect(s.calls.join).toHaveLength(0);
+    expect(JSON.stringify(f.state())).not.toContain(SECRET);
   });
 
   it("a lost claim stays unknown and is checked from its journal, never sent again", async () => {
