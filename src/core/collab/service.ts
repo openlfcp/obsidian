@@ -703,12 +703,18 @@ export class Collaboration {
     // LFCP-04-406: a chain past an identity barrier never validates here, so
     // no claim is made on it; the join stops when the barrier arrives
     // instead of waiting for the timeout, and says the plugin needs an update.
+    // Once the claim starts (or a journaled one is settled), its answer
+    // decides: from then on the barrier neither ends the wait nor the outcome.
     const barrier = this.#runtime.barrierSeen?.(R);
-    const beforeClaim = () => barrier?.happened() === true && last !== "claiming capability";
+    let claimStarted = false;
+    const beforeClaim = () => barrier?.happened() === true && !claimStarted;
     let accepted: AcceptedInvitation;
     try {
       accepted = await acceptInvitation({
-        onProgress: (p) => stage(SDK_STAGE[p.stage]),
+        onProgress: (p) => {
+          if (p.stage === "claiming-capability") claimStarted = true;
+          stage(SDK_STAGE[p.stage]);
+        },
         link: uri.trim(),
         claimant: { signer: c.principal.signer, agreement: c.principal.agreement },
         storage: c.storage,
@@ -717,7 +723,13 @@ export class Collaboration {
         ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
         timeout: Promise.race([
           this.#o.sleep(this.#o.joinTimeoutMs),
-          ...(barrier === undefined ? [] : [barrier.seen.then(() => undefined)]),
+          ...(barrier === undefined
+            ? []
+            : [
+                barrier.seen.then(() =>
+                  claimStarted ? new Promise<void>(() => undefined) : undefined,
+                ),
+              ]),
         ]),
         // Another profile is refused before the claim, so the link stays unused.
         dataProfiles: wanted,
