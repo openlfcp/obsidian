@@ -327,9 +327,15 @@ describe("which refusal is whose (one session, SDK order)", () => {
     for (const f of [frame(A, grant(A)), opened(B), frame(B, grant(B))]) s.frame(f);
     expect(whose(s.refused(reserved(9)))).toEqual([toHex(B)]);
     expect(s.refused(reserved(9))).toEqual([]);
-    // A RESOURCE_OPENED again (a reopen) starts the Resource over.
+    // A RESOURCE_OPENED again (a late or repeated answer) keeps what came (C1);
+    // the Resource's CLOSED starts it over.
     s.frame(frame(B, grant(B)));
     s.frame(opened(B));
+    expect(s.received(toHex(B)).map((r) => r.entry)).toEqual(["device-grant"]);
+    expect(whose(s.refused(reserved(9)))).toEqual([toHex(B)]);
+    s.closed(toHex(B));
+    expect(s.received(toHex(B))).toEqual([]);
+    s.frame(frame(B, grant(B)));
     expect(s.received(toHex(B))).toEqual([]);
   });
 

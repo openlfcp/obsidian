@@ -2,8 +2,8 @@
 // real runtime and SDK 0.2.2 with a scripted server: a barrier behind
 // another barrier in one batch, a refusal followed by LIVE from the sync of
 // the old head, a barrier for a Resource the session never opened, or still
-// opens, while another Resource's barrier is refused, and records of an
-// earlier connection after a reconnect.
+// opens, while another Resource's barrier is refused, records of an
+// earlier connection after a reconnect, and a late RESOURCE_OPENED (C1).
 
 import { LFCP_SUBPROTOCOL, type WebSocketFactory, type WebSocketLike } from "@openlfcp/client";
 import { type ResourceId, toHex } from "@openlfcp/core";
@@ -313,6 +313,76 @@ describe("identity barrier review follow-up (obsidian#105)", () => {
     client.start();
     await until(() => errors.some((x) => x.includes("type 9")));
     await until(() => runtime.identityBlock(r) !== null);
+    expect(runtime.identityBlock(r)).toMatchObject({ entry: "device-grant", seq: "1" });
+  });
+
+  it("C1: a late RESOURCE_OPENED (a retried open after a reconnect) does not erase a barrier already received", async () => {
+    let R: ResourceId | undefined;
+    let head: Uint8Array = new Uint8Array();
+    let grant: Uint8Array = new Uint8Array();
+    let reconnected = false;
+    let late: AnyMessage | undefined;
+    let opens = 0;
+    const server = new AnsweringServer((m, emit) => {
+      if (R === undefined) return;
+      if (m.type === "CONTROL_GET" && reconnected && late !== undefined) {
+        emit(replyTo(m, "CONTROL_BATCH", { resourceId: R, objects: [grant] }));
+        // The answer to the first RESOURCE_OPEN of this connection, late: the SDK ignores it.
+        emit(late);
+        return;
+      }
+      if (m.type !== "RESOURCE_OPEN") return;
+      if (!reconnected) {
+        emit(
+          replyTo(m, "RESOURCE_OPENED", {
+            resourceId: R,
+            heads: [{ seq: 0n, recordId: head as never }],
+            haves: [],
+          }),
+        );
+        return;
+      }
+      opens++;
+      const answer = replyTo(m, "RESOURCE_OPENED", {
+        resourceId: R,
+        heads: [{ seq: 1n, recordId: objectId(grant) as never }],
+        haves: [],
+      });
+      if (opens === 1) late = answer;
+      else emit(answer);
+    });
+    const runtime = await LfcpRuntime.start(
+      new Device().env(new FakeLocal(), { webSocket: server.factory }),
+    );
+    running.push(runtime);
+    const signer = runtime.collaborationContext()?.principal.signer;
+    if (signer === undefined) throw new Error("not ready");
+    const r = await runtime.createSectionResource({
+      name: "late answer",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    R = r;
+    head = (await runtime.storage?.control.head(r))?.head ?? new Uint8Array();
+    grant = record(r, 1, 9, head, signer);
+    const errors: string[] = [];
+    runtime.on((e) => {
+      if (e.type === "error") errors.push(e.message);
+    });
+    await runtime.openSection(r);
+    await until(() => runtime.phase(r) === "LIVE");
+    const client = runtime.collaborationContext()?.session(URL);
+    if (client === undefined) throw new Error("no session");
+    await client.stop();
+    reconnected = true;
+    client.start();
+    await until(() => late !== undefined);
+    // The SDK's own request timeout (15 s) sends RESOURCE_OPEN again; only its tick is advanced.
+    client.tick(Date.now() + 16_000);
+    await until(() => errors.some((x) => x.includes("type 9")));
+    await client.idle();
+    await sleep(80);
+    expect(opens).toBe(2);
     expect(runtime.identityBlock(r)).toMatchObject({ entry: "device-grant", seq: "1" });
   });
 });

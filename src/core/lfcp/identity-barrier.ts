@@ -403,14 +403,14 @@ export interface RefusedBatch {
 /**
  * One connection's view of the barrier (LFCP-04-406), mirroring when the
  * SDK 0.2.2 reads a CONTROL_BATCH: only for a Resource it has open, and
- * only once that Resource's RESOURCE_OPENED was handled on this connection
+ * only once that Resource's RESOURCE_OPENED came on this connection
  * (before it the Resource is OPENING with no Control view, and the SDK
  * ignores its batches). Frames are handled by the SDK one at a time in
  * arrival order, so the batches with a barrier record wait for their
  * refusal in that order: a reserved type error (it names no Resource)
  * takes the oldest pending batch with a record of that type. A new
- * connection, or a new RESOURCE_OPENED, starts over, as the SDK does
- * (ctx.view and ctx.fetched are reset).
+ * connection, or the Resource's CLOSED, starts over, as the SDK does
+ * (ctx.view and ctx.fetched are reset); another RESOURCE_OPENED does not.
  */
 export class SessionBarriers {
   readonly #isOpen: (resource: string) => boolean;
@@ -449,9 +449,12 @@ export class SessionBarriers {
     const frame = frameBytes(data);
     if (frame === null) return;
     try {
+      // RESOURCE_OPENED only starts the count: a late or repeated answer
+      // (the SDK ignores it once the Resource left OPENING) must not erase
+      // what this connection already brought (obsidian#105 C1). A new open
+      // cycle starts from CLOSED or a new connection, which reset.
       const opened = resourceOpenedOf(frame);
       if (opened !== null) {
-        this.#forget(opened);
         if (this.#isOpen(opened)) this.#opened.add(opened);
         return;
       }
