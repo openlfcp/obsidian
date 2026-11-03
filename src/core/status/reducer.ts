@@ -116,6 +116,11 @@ export interface StatusFacts {
    * problem, so never shown as offline.
    */
   readonly refusal?: string;
+  /**
+   * Past an identity barrier this version cannot read (LFCP-04-406, WIRE
+   * §100.1): nothing syncs until the plugin is updated, so never offline.
+   */
+  readonly newerVersion?: true;
   readonly catchUp: "not-started" | "receiving" | "current-at-checkpoint" | "unknown";
   readonly problems: readonly ModelProblemFacts[];
   readonly batches: readonly BatchFacts[];
@@ -158,6 +163,8 @@ export type Condition =
   | { readonly kind: "save-failed"; readonly batchIds: readonly string[] }
   | { readonly kind: "access"; readonly access: StatusFacts["access"] }
   | { readonly kind: "server-refused"; readonly code: string }
+  /** The section uses records of a newer version (a person's devices, LFCP-04-406). */
+  | { readonly kind: "newer-version" }
   | { readonly kind: "invalid-profile" }
   | { readonly kind: "rejected"; readonly batchIds: readonly string[]; readonly code: string }
   | { readonly kind: "stale-work"; readonly pending: number; readonly review: number }
@@ -315,7 +322,9 @@ export function statusView(facts: StatusFacts): StatusView {
   // 1. Local persistence failure.
   const failed = facts.batches.filter((b) => b.failed === true);
   if (failed.length > 0) c.push({ kind: "save-failed", batchIds: failed.map((b) => b.id) });
-  // 2. Access, key or control rejection; an invalid profile.
+  // 2. Access, key or control rejection; an invalid profile. Past an
+  // identity barrier first: no access fact after it can be learned here.
+  if (facts.newerVersion === true) c.push({ kind: "newer-version" });
   if (
     facts.access === "revoked" ||
     facts.access === "not-member" ||
@@ -381,6 +390,7 @@ export function statusView(facts: StatusFacts): StatusView {
   // 7. Offline or a failed connection.
   if (
     facts.refusal === undefined &&
+    facts.newerVersion !== true &&
     facts.access !== "refused" &&
     (facts.connection === "offline" || facts.connection === "failed")
   )
@@ -399,6 +409,7 @@ export function statusView(facts: StatusFacts): StatusView {
   // server until it is up, so never current; last, like the check above.
   if (
     facts.refusal === undefined &&
+    facts.newerVersion !== true &&
     facts.access !== "refused" &&
     facts.connection === "connecting"
   )
@@ -567,6 +578,7 @@ function primary(
       return "LOCAL_SAVE_FAILED";
     case "access":
     case "server-refused":
+    case "newer-version":
     case "invalid-profile":
     case "rejected":
     case "stale-work":

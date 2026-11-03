@@ -18,6 +18,7 @@ export function blockingSignature(view: StatusView): string | null {
       (c) =>
         c.kind === "save-failed" ||
         c.kind === "access" ||
+        c.kind === "newer-version" ||
         c.kind === "invalid-profile" ||
         c.kind === "rejected" ||
         c.kind === "stale-work" ||

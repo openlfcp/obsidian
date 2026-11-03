@@ -4,6 +4,7 @@
 // facts after. Every string is plain text: the card sets it as text, never
 // as markup, so a title or a name cannot inject anything.
 
+import { IDENTITY_BLOCKED, IDENTITY_BLOCKED_LOCAL } from "../lfcp/identity-barrier";
 import type { AccessView } from "./access";
 import { type HeldEdits, heldAdvice, heldCauseText } from "./held";
 import type { Condition, StatusView } from "./reducer";
@@ -73,6 +74,8 @@ function problemText(c: Condition): string | null {
       return c.code === "RESOURCE_NOT_HOSTED"
         ? 'This section is not on its server, so nobody else gets its changes; they stay on this device. In "Resource status", choose "Host on the server now".'
         : `The sync server refused this section (${c.code}). Your local copy stays; new edits are kept on this device only.`;
+    case "newer-version":
+      return `${IDENTITY_BLOCKED}. ${IDENTITY_BLOCKED_LOCAL}`;
     case "invalid-profile":
       return "This section's data is not valid for this version of Shared Tasks.";
     case "stale-work":
@@ -211,6 +214,8 @@ export function rightsFact(v: StatusView): string {
       (c.kind === "server-refused" && c.code !== "RESOURCE_NOT_HOSTED"),
   );
   if (denied) return "The sync server does not accept your edits to this section now.";
+  if (v.conditions.some((c) => c.kind === "newer-version"))
+    return "Your edits to this section wait on this device until Shared Tasks is updated.";
   // KEY_BLOCKED / key-unavailable: edits wait here (the problem says why); none is promised.
   if (v.conditions.some((c) => c.kind === "access" && c.access === "unavailable-key"))
     return "Your edits to this section wait on this device until it holds the section's key.";
@@ -296,7 +301,9 @@ export function sectionCard(input: CardInput): SectionCard {
     facts.push(
       `${plural(v.acceptedBatches, "update was", "updates were")} accepted by the server.`,
     );
-  if (kinds.has("server-refused")) facts.push("Not synced: the server refuses this section.");
+  if (kinds.has("newer-version"))
+    facts.push("Not synced: this section needs a newer version of Shared Tasks.");
+  else if (kinds.has("server-refused")) facts.push("Not synced: the server refuses this section.");
   else if (denied)
     facts.push("Not synced: the server does not accept changes from this vault for this section.");
   else if (kinds.has("stale-work"))

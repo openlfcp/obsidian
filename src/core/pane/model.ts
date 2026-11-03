@@ -690,6 +690,7 @@ function primaryOf(
       switch (first.kind) {
         case "access":
         case "server-refused":
+        case "newer-version":
         case "invalid-profile":
           return { id: v.held.length > 0 ? "review-local-changes" : "open-details", none: null };
         case "rejected":
