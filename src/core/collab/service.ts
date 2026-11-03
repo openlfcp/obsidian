@@ -53,7 +53,7 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
-import type { BarrierWatch } from "../lfcp/identity-barrier";
+import type { BarrierWatch, IdentityBlock } from "../lfcp/identity-barrier";
 import {
   type BlockedCollaborator,
   type CollaborationContext,
@@ -88,6 +88,8 @@ export interface CollabRuntime {
   reopenSection?(resource: ResourceId): void;
   /** The server's refusal of a Resource for good, or null. */
   refusal?(resource: ResourceId): { readonly code: string } | null;
+  /** Past an identity barrier this version cannot read (LfcpRuntime.identityBlock, LFCP-04-406). */
+  identityBlock?(resource: ResourceId): IdentityBlock | null;
   /** A barrier record of the Resource arrived (LfcpRuntime.barrierSeen). */
   barrierSeen?(resource: ResourceId): BarrierWatch;
   /** This vault's write access to a shared-sections Resource, with the reason when denied. */
@@ -266,6 +268,8 @@ export interface ResourceStatus {
   readonly refusal: { readonly code: string; readonly url: string } | null;
   /** True when the Control Chain has forked: everything security-sensitive is blocked. */
   readonly blocked: boolean;
+  /** Past an identity barrier this version cannot read (LFCP-04-406): where and by what, or absent. */
+  readonly identityBlock?: IdentityBlock;
   readonly phase: string;
   readonly hosting: "hosted" | "pending" | "unknown";
   readonly controlHead: string | null;
@@ -982,6 +986,7 @@ export class Collaboration {
     }
     const hosting = await this.#runtime.localState.get(hostingKey(R));
     const notApplied = await this.#runtime.blockedCollaborators?.(R).catch(() => []);
+    const identityBlock = this.#runtime.identityBlock?.(R);
     return {
       localName: entry.localName,
       resourceId: toBase64url(R),
@@ -989,6 +994,7 @@ export class Collaboration {
       state: entry.state,
       refusal: entry.refusal === null ? null : { code: entry.refusal.code, url: entry.refusal.url },
       blocked: entry.state === "control_conflict",
+      ...(identityBlock === null || identityBlock === undefined ? {} : { identityBlock }),
       phase: this.#runtime.phase(R),
       hosting: hosting === "hosted" || hosting === "pending" ? hosting : "unknown",
       controlHead: entry.lastKnownControlHead,
