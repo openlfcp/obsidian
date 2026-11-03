@@ -92,6 +92,7 @@ const TYPE_TRANSFER_COMMIT = 6n;
 const TYPE_DEVICE_GRANT = 9n;
 const TYPE_DEVICE_REVOKE = 10n;
 const CONTROL_BATCH = MESSAGE_TYPE.CONTROL_BATCH;
+const RESOURCE_OPENED = MESSAGE_TYPE.RESOURCE_OPENED;
 
 /** A bounded reader of deterministic CBOR (no indefinite lengths): null when out of bounds or unexpected. */
 class Cbor {
@@ -382,33 +383,88 @@ export function barrierRefusedBySdk(
   return { resource, seq: barrier.seq, recordId: barrier.recordId, entry: barrier.entry };
 }
 
+/** The Resource (hex) a RESOURCE_OPENED frame answers for, or null for any other frame. */
+function resourceOpenedOf(frame: Uint8Array): string | null {
+  if (frameType(frame) !== RESOURCE_OPENED) return null;
+  try {
+    const m = decodeMessage(frame, { maxMessageBytes: frame.length });
+    return m.type === "RESOURCE_OPENED" ? toHex(m.body.resourceId) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What a refusal confirms: the Resource and the records received for it when it came. */
+export interface RefusedBatch {
+  readonly resource: string;
+  readonly received: readonly BatchRecord[];
+}
+
 /**
- * One session's view of the barrier (LFCP-04-406): the Control Records it
- * brought for the Resources it has open, and the batches with a barrier
- * record whose refusal by the SDK is still to come, in arrival order. The
- * SDK handles a session's messages one at a time in that order, and
- * refuses a batch it reads with a record of type 9 or 10 by an error that
- * names only the type: the oldest pending batch with that type is the one.
- * A batch for a Resource the session has not open is ignored by the SDK,
- * and here.
+ * One connection's view of the barrier (LFCP-04-406), mirroring when the
+ * SDK 0.2.2 reads a CONTROL_BATCH: only for a Resource it has open, and
+ * only once that Resource's RESOURCE_OPENED was handled on this connection
+ * (before it the Resource is OPENING with no Control view, and the SDK
+ * ignores its batches). Frames are handled by the SDK one at a time in
+ * arrival order, so the batches with a barrier record wait for their
+ * refusal in that order: a reserved type error (it names no Resource)
+ * takes the oldest pending batch with a record of that type. A new
+ * connection, or a new RESOURCE_OPENED, starts over, as the SDK does
+ * (ctx.view and ctx.fetched are reset).
  */
 export class SessionBarriers {
   readonly #isOpen: (resource: string) => boolean;
-  /** Records received per Resource (hex), by record ID. */
+  readonly #opensFirst: boolean;
+  /** Resources (hex) whose RESOURCE_OPENED came on this connection. */
+  readonly #opened = new Set<string>();
+  /** Records received per Resource (hex) on this connection, by record ID. */
   readonly #received = new Map<string, Map<string, BatchRecord>>();
   readonly #pending: { readonly resource: string; readonly types: ReadonlySet<bigint> }[] = [];
 
-  constructor(isOpen: (resource: string) => boolean) {
+  /**
+   * `opensFirst`: batches count only after the Resource's RESOURCE_OPENED
+   * (a SyncClient's session); false for a join's connection, which reads
+   * every batch of its Resource.
+   */
+  constructor(isOpen: (resource: string) => boolean, opensFirst = true) {
     this.#isOpen = isOpen;
+    this.#opensFirst = opensFirst;
+  }
+
+  /** A new connection: nothing of the previous one counts. */
+  connection(): void {
+    this.#opened.clear();
+    this.#received.clear();
+    this.#pending.length = 0;
+  }
+
+  /** The Resource was closed on the session. */
+  closed(resource: string): void {
+    this.#opened.delete(resource);
+    this.#forget(resource);
   }
 
   /** A frame the SDK is about to handle. */
   frame(data: unknown): void {
-    watchControlBatch(data, (b) => this.batch(b));
+    const frame = frameBytes(data);
+    if (frame === null) return;
+    try {
+      const opened = resourceOpenedOf(frame);
+      if (opened !== null) {
+        this.#forget(opened);
+        if (this.#isOpen(opened)) this.#opened.add(opened);
+        return;
+      }
+      const b = controlBatchOf(frame);
+      if (b !== null && b.records.length > 0) this.batch(b);
+    } catch {
+      // Recognition is best effort; the SDK's own refusal stands either way.
+    }
   }
 
   batch(b: ControlBatch): void {
     if (!this.#isOpen(b.resource)) return;
+    if (this.#opensFirst && !this.#opened.has(b.resource)) return;
     const pool = this.#received.get(b.resource) ?? new Map<string, BatchRecord>();
     for (const r of b.records) pool.set(r.recordId, r);
     this.#received.set(b.resource, pool);
@@ -420,28 +476,36 @@ export class SessionBarriers {
   }
 
   /**
-   * The SDK reported an error on this session: the Resources (hex) whose
-   * pending barrier batch it refuses. A chain error names its Resource; a
-   * reserved type error names none, and takes the oldest pending batch
-   * that has a record of that type.
+   * The SDK reported an error on this session: the batches it refuses,
+   * each with the records received for its Resource at this moment (a
+   * later connection does not change them). A chain error names its
+   * Resource; a reserved type error names none, and takes the oldest
+   * pending batch that has a record of that type.
    */
-  refused(e: { readonly code: string; readonly message: string; readonly resource?: string }) {
+  refused(e: {
+    readonly code: string;
+    readonly message: string;
+    readonly resource?: string;
+  }): RefusedBatch[] {
+    const hit = (resource: string): RefusedBatch[] => [
+      { resource, received: this.received(resource) },
+    ];
     if (e.resource !== undefined) {
       if (!BARRIER_ERROR_CODES.has(e.code)) return [];
       const before = this.#pending.length;
       this.#drop((p) => p.resource === e.resource);
-      return this.#pending.length < before ? [e.resource] : [];
+      return this.#pending.length < before ? hit(e.resource) : [];
     }
     const type = reservedTypeOf(e.message);
     if (type === null) return [];
     const at = this.#pending.findIndex((p) => p.types.has(type));
-    const hit = this.#pending[at];
-    if (hit === undefined) return [];
+    const first = this.#pending[at];
+    if (first === undefined) return [];
     this.#pending.splice(at, 1);
-    return [hit.resource];
+    return hit(first.resource);
   }
 
-  /** The records received for `resource`. */
+  /** The records received for `resource` on this connection. */
   received(resource: string): BatchRecord[] {
     return [...(this.#received.get(resource)?.values() ?? [])];
   }
@@ -450,6 +514,11 @@ export class SessionBarriers {
   validated(resource: string, seq: bigint): void {
     const pool = this.#received.get(resource);
     for (const [id, r] of pool ?? []) if (r.seq <= seq) pool?.delete(id);
+  }
+
+  #forget(resource: string): void {
+    this.#received.delete(resource);
+    this.#drop((p) => p.resource === resource);
   }
 
   #drop(match: (p: { readonly resource: string }) => boolean): void {

@@ -308,23 +308,51 @@ describe("which refusal is whose (one session, SDK order)", () => {
     message: `Control Record type ${type} is reserved for LFCP core (§14)`,
   });
 
+  const frame = (R: ResourceId, ...objects: Uint8Array[]) =>
+    encodeMessage(createMessage("CONTROL_BATCH", { resourceId: R, objects }));
+  const opened = (R: ResourceId) =>
+    encodeMessage(createMessage("RESOURCE_OPENED", { resourceId: R, heads: [], haves: [] }));
+  const whose = (r: readonly { readonly resource: string }[]) => r.map((x) => x.resource);
+
   it("a batch for a Resource not open on the session is ignored (R3)", () => {
     const s = new SessionBarriers((r) => r === toHex(B));
-    for (const b of [batch(A, grant(A)), batch(B, grant(B))]) if (b !== null) s.batch(b);
+    for (const f of [opened(A), opened(B), frame(A, grant(A)), frame(B, grant(B))]) s.frame(f);
     expect(s.received(toHex(A))).toEqual([]);
-    expect(s.refused(reserved(9))).toEqual([toHex(B)]);
+    expect(whose(s.refused(reserved(9)))).toEqual([toHex(B)]);
+    expect(s.refused(reserved(9))).toEqual([]);
+  });
+
+  it("a batch before the Resource's RESOURCE_OPENED (still OPENING) is ignored, as the SDK ignores it (B1)", () => {
+    const s = new SessionBarriers(() => true);
+    for (const f of [frame(A, grant(A)), opened(B), frame(B, grant(B))]) s.frame(f);
+    expect(whose(s.refused(reserved(9)))).toEqual([toHex(B)]);
+    expect(s.refused(reserved(9))).toEqual([]);
+    // A RESOURCE_OPENED again (a reopen) starts the Resource over.
+    s.frame(frame(B, grant(B)));
+    s.frame(opened(B));
+    expect(s.received(toHex(B))).toEqual([]);
+  });
+
+  it("a new connection starts over; a refusal keeps the records it came with (B2)", () => {
+    const s = new SessionBarriers(() => true);
+    for (const f of [opened(A), frame(A, grant(A))]) s.frame(f);
+    const [refused] = s.refused(reserved(9));
+    s.connection();
+    expect(refused?.received.map((r) => r.entry)).toEqual(["device-grant"]);
+    expect(s.received(toHex(A))).toEqual([]);
+    s.frame(frame(A, grant(A)));
     expect(s.refused(reserved(9))).toEqual([]);
   });
 
   it("a reserved type error takes the oldest pending batch with that type; a chain error names its own", () => {
     const s = new SessionBarriers(() => true);
-    for (const b of [batch(A, commit(A)), batch(B, grant(B))]) if (b !== null) s.batch(b);
+    for (const f of [opened(A), opened(B), frame(A, commit(A)), frame(B, grant(B))]) s.frame(f);
     expect(s.refused(reserved(10))).toEqual([]);
-    expect(s.refused(reserved(9))).toEqual([toHex(B)]);
+    expect(whose(s.refused(reserved(9)))).toEqual([toHex(B)]);
     expect(s.refused({ code: "TIMEOUT", message: "x", resource: toHex(A) })).toEqual([]);
-    expect(s.refused({ code: "MALFORMED_MESSAGE", message: "x", resource: toHex(A) })).toEqual([
-      toHex(A),
-    ]);
+    expect(
+      whose(s.refused({ code: "MALFORMED_MESSAGE", message: "x", resource: toHex(A) })),
+    ).toEqual([toHex(A)]);
   });
 
   it("the SDK itself decides: only a chain it cannot get past because of a barrier record (R1)", () => {

@@ -84,6 +84,7 @@ import {
   barrierRefusedBySdk,
   type IdentityBlock,
   IdentityBlocks,
+  type RefusedBatch,
   SessionBarriers,
   watchControlBatch,
 } from "./identity-barrier";
@@ -1877,7 +1878,11 @@ export class LfcpRuntime {
     const open = new Set<string>();
     const barriers = new SessionBarriers((resource) => open.has(resource));
     const probe = new LivenessProbe(
-      () => this.#env.webSocket ?? platformWebSocket(),
+      () => (url, protocols) => {
+        // A new connection: the SDK starts over (every Resource reopens), so do the barriers.
+        barriers.connection();
+        return (this.#env.webSocket ?? platformWebSocket())(url, protocols);
+      },
       () => this.#env.timers.now(),
       liveness,
       (data) => barriers.frame(data),
@@ -1913,17 +1918,19 @@ export class LfcpRuntime {
       if (e.type === "connection" && e.state === "DISCONNECTED")
         disconnectedAt = this.#env.timers.now();
       if (e.type === "resource-state") {
-        if (e.state === "CLOSED") open.delete(toHex(e.resourceId));
-        else open.add(toHex(e.resourceId));
+        if (e.state === "CLOSED") {
+          open.delete(toHex(e.resourceId));
+          barriers.closed(toHex(e.resourceId));
+        } else open.add(toHex(e.resourceId));
       }
       // LFCP-04-406: the SDK refused a batch with a barrier record this session brought.
       if (e.type === "error")
-        for (const key of barriers.refused({
+        for (const refused of barriers.refused({
           code: e.code,
           message: e.message,
           ...(e.resourceId === undefined ? {} : { resource: toHex(e.resourceId) }),
         }))
-          void this.#barrierRefused(barriers, key).catch(() => undefined);
+          void this.#barrierRefused(refused).catch(() => undefined);
       // The end of an ordinary connection loss is not an error event (beta.9 check).
       if (
         e.type === "error" &&
@@ -2035,7 +2042,7 @@ export class LfcpRuntime {
       // Resource is stored yet: a barrier the SDK cannot get past from the
       // Genesis on is one the join can never claim past.
       webSocket: (url, protocols) => {
-        const join = new SessionBarriers(() => true);
+        const join = new SessionBarriers(() => true, false);
         return tapMessages((this.#env.webSocket ?? platformWebSocket())(url, protocols), (data) =>
           watchControlBatch(data, (b) => {
             join.batch(b);
@@ -2094,16 +2101,16 @@ export class LfcpRuntime {
    * recorded when the same SDK, from the stored chain, cannot get past that
    * barrier (validateControlChain), at the stored head.
    */
-  async #barrierRefused(barriers: SessionBarriers, key: string): Promise<void> {
+  async #barrierRefused(refused: RefusedBatch): Promise<void> {
     const storage = this.#install.storage;
     if (storage === null) return;
-    const R = resourceId(fromHex(key));
-    const stored = await loadControlChain(storage, R);
+    const key = refused.resource;
+    const stored = await loadControlChain(storage, resourceId(fromHex(key)));
     if (stored === undefined || stored.kind !== "linear") return;
     const barrier = barrierRefusedBySdk(
       key,
       stored.records.map((r) => r.signed.bytes),
-      barriers.received(key),
+      refused.received,
     );
     if (barrier === null) return;
     await this.#identity.block(key, barrier, toHex(stored.state.head));

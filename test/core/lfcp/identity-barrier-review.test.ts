@@ -1,11 +1,12 @@
-// LFCP-04-406 review follow-up (obsidian#105, R1–R3), against the real
-// runtime and SDK 0.2.2 with a scripted server: a barrier behind another
-// barrier in one batch, a refusal followed by LIVE from the sync of the old
-// head, and a barrier for a Resource the session never opened while another
-// Resource's barrier is refused.
+// LFCP-04-406 review follow-up (obsidian#105, R1–R3, B1–B2), against the
+// real runtime and SDK 0.2.2 with a scripted server: a barrier behind
+// another barrier in one batch, a refusal followed by LIVE from the sync of
+// the old head, a barrier for a Resource the session never opened, or still
+// opens, while another Resource's barrier is refused, and records of an
+// earlier connection after a reconnect.
 
 import { LFCP_SUBPROTOCOL, type WebSocketFactory, type WebSocketLike } from "@openlfcp/client";
-import type { ResourceId } from "@openlfcp/core";
+import { type ResourceId, toHex } from "@openlfcp/core";
 import {
   type AnyMessage,
   createMessage,
@@ -31,10 +32,11 @@ afterEach(async () => {
 });
 
 /** A record at `seq` of `type` (9: body {0: h''}; 6: a commit with field 2), signed by `signer`. */
-function record(R: ResourceId, seq: number, type: 6 | 9, prev: Uint8Array, signer: Signer) {
+function record(R: ResourceId, seq: number, type: 6 | 9 | 31, prev: Uint8Array, signer: Signer) {
   const b = (x: Uint8Array) => [0x58, x.length, ...x];
   const body = type === 6 ? [0xa3, 0x00, 0x40, 0x01, 0x40, 0x02, 0x40] : [0xa1, 0x00, 0x40];
-  const payload = [0xa6, 0x00, ...b(R), 0x01, seq, 0x02, ...b(prev), 0x03, type, 0x04];
+  const t = type < 24 ? [type] : [0x18, type];
+  const payload = [0xa6, 0x00, ...b(R), 0x01, seq, 0x02, ...b(prev), 0x03, ...t, 0x04];
   return signObject(
     Uint8Array.from([...payload, ...b(signer.descriptor.principalId), 0x05, ...body]),
     signer,
@@ -42,7 +44,7 @@ function record(R: ResourceId, seq: number, type: 6 | 9, prev: Uint8Array, signe
 }
 
 async function until(check: () => boolean): Promise<void> {
-  for (let i = 0; i < 500; i++) {
+  for (let i = 0; i < 300; i++) {
     if (check()) return;
     await sleep(10);
   }
@@ -174,4 +176,179 @@ describe("identity barrier review follow-up (obsidian#105)", () => {
     expect(runtime.phase(a.R)).toBe("CLOSED");
     expect(runtime.identityBlock(a.R)).toBeNull();
   });
+
+  it("B1: a batch for a Resource still OPENING (ignored by the SDK) neither takes another's refusal nor outlives a restart", async () => {
+    let A: ResourceId | undefined;
+    let B: ResourceId | undefined;
+    let headA: Uint8Array = new Uint8Array();
+    let grantA: Uint8Array = new Uint8Array();
+    let grantB: Uint8Array = new Uint8Array();
+    let releaseA: () => void = () => undefined;
+    const server = new AnsweringServer((m, emit) => {
+      if (m.type === "RESOURCE_OPEN" && A !== undefined && B !== undefined) {
+        if (toHex(m.body.resourceId) === toHex(A))
+          releaseA = () =>
+            emit(
+              replyTo(m, "RESOURCE_OPENED", {
+                resourceId: m.body.resourceId,
+                heads: [{ seq: 0n, recordId: headA as never }],
+                haves: [],
+              }),
+            );
+        else
+          emit(
+            replyTo(m, "RESOURCE_OPENED", {
+              resourceId: m.body.resourceId,
+              heads: [{ seq: 1n, recordId: objectId(grantB) as never }],
+              haves: [],
+            }),
+          );
+      }
+      if (m.type === "CONTROL_GET" && A !== undefined && B !== undefined) {
+        emit(createMessage("CONTROL_BATCH", { resourceId: A, objects: [grantA] }));
+        emit(replyTo(m, "CONTROL_BATCH", { resourceId: B, objects: [grantB] }));
+      }
+    });
+    const device = new Device();
+    const local = new FakeLocal();
+    const runtime = await LfcpRuntime.start(device.env(local, { webSocket: server.factory }));
+    running.push(runtime);
+    const signer = runtime.collaborationContext()?.principal.signer;
+    if (signer === undefined) throw new Error("not ready");
+    A = await runtime.createSectionResource({
+      name: "healthy A",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    B = await runtime.createSectionResource({
+      name: "barrier B",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    headA = (await runtime.storage?.control.head(A))?.head ?? new Uint8Array();
+    grantA = record(A, 1, 9, headA, signer);
+    grantB = record(
+      B,
+      1,
+      9,
+      (await runtime.storage?.control.head(B))?.head ?? new Uint8Array(),
+      signer,
+    );
+    const errors: string[] = [];
+    runtime.on((e) => {
+      if (e.type === "error") errors.push(e.message);
+    });
+    const a = A;
+    const b = B;
+    await runtime.openSection(a);
+    await until(() => runtime.phase(a) === "OPENING");
+    await runtime.openSection(b);
+    await until(() => errors.some((x) => x.includes("type 9")));
+    await until(() => runtime.identityBlock(b) !== null);
+    expect(runtime.identityBlock(a)).toBeNull();
+    releaseA();
+    await until(() => runtime.phase(a) === "LIVE");
+    await sleep(50);
+    await runtime.stop();
+    running.splice(0);
+    const again = await LfcpRuntime.start(device.env(local));
+    running.push(again);
+    expect(again.identityBlock(a)).toBeNull();
+    expect(again.identityBlock(b)).toMatchObject({ entry: "device-grant" });
+  });
+
+  it("B2: records refused on an earlier connection do not hide the barrier after a reconnect", async () => {
+    let R: ResourceId | undefined;
+    let old: Uint8Array = new Uint8Array();
+    let grant: Uint8Array = new Uint8Array();
+    let second = false;
+    const server = new AnsweringServer((m, emit) => {
+      if (R === undefined) return;
+      const now = second ? grant : old;
+      if (m.type === "RESOURCE_OPEN")
+        emit(
+          replyTo(m, "RESOURCE_OPENED", {
+            resourceId: R,
+            heads: [{ seq: 1n, recordId: objectId(now) as never }],
+            haves: [],
+          }),
+        );
+      if (m.type === "CONTROL_GET")
+        emit(replyTo(m, "CONTROL_BATCH", { resourceId: R, objects: [now] }));
+    });
+    const runtime = await LfcpRuntime.start(
+      new Device().env(new FakeLocal(), { webSocket: server.factory }),
+    );
+    running.push(runtime);
+    const signer = runtime.collaborationContext()?.principal.signer;
+    if (signer === undefined) throw new Error("not ready");
+    const r = await runtime.createSectionResource({
+      name: "reconnect",
+      endpoints: [URL],
+      coordinatorUrl: URL,
+    });
+    R = r;
+    const head = (await runtime.storage?.control.head(r))?.head ?? new Uint8Array();
+    grant = record(r, 1, 9, head, signer);
+    // An unknown core type (31) whose record ID sorts before the grant's: the
+    // SDK's validator reports it first when both are validated together.
+    for (let i = 0; i < 10_000; i++) {
+      const prev = head.slice();
+      prev[0] = i & 255;
+      prev[1] = i >> 8;
+      old = record(r, 1, 31, prev, signer);
+      if (toHex(objectId(old)) < toHex(objectId(grant))) break;
+    }
+    const errors: string[] = [];
+    runtime.on((e) => {
+      if (e.type === "error") errors.push(e.message);
+    });
+    await runtime.openSection(r);
+    await until(() => errors.some((x) => x.includes("type 31")));
+    expect(runtime.identityBlock(r)).toBeNull();
+    const client = runtime.collaborationContext()?.session(URL);
+    if (client === undefined) throw new Error("no session");
+    await client.stop();
+    second = true;
+    client.start();
+    await until(() => errors.some((x) => x.includes("type 9")));
+    await until(() => runtime.identityBlock(r) !== null);
+    expect(runtime.identityBlock(r)).toMatchObject({ entry: "device-grant", seq: "1" });
+  });
 });
+
+/** A server that completes the handshake and lets `answer` reply to each delivered message. */
+class AnsweringServer {
+  constructor(private readonly answer: (m: AnyMessage, emit: (m: AnyMessage) => void) => void) {}
+
+  readonly factory: WebSocketFactory = () => {
+    let session: ServerSession = startServerSession();
+    const socket: WebSocketLike = {
+      binaryType: "arraybuffer",
+      protocol: LFCP_SUBPROTOCOL,
+      onopen: null,
+      onclose: null,
+      onerror: null,
+      onmessage: null,
+      close: () => undefined,
+      send: (data) => {
+        const m = decodeMessage(Uint8Array.from(data as Uint8Array));
+        const step = serverReceive(session, m, {
+          serverId: new Uint8Array(32).fill(5),
+          wireProfiles: [WIRE_PROFILE],
+          maxMessageBytes: 1_000_000n,
+          durability: 2n,
+          heartbeatMs: 30_000n,
+        });
+        session = step.session;
+        const emit = (x: AnyMessage) => socket.onmessage?.({ data: encodeMessage(x) });
+        setTimeout(() => {
+          for (const x of step.send) emit(x);
+          if (step.deliver !== undefined) this.answer(step.deliver, emit);
+        }, 0);
+      },
+    };
+    setTimeout(() => socket.onopen?.({}), 0);
+    return socket;
+  };
+}
