@@ -44,6 +44,7 @@ import {
   LfcpError,
   type PrincipalId,
   type ResourceId,
+  resourceId,
   toHex,
 } from "@openlfcp/core";
 import {
@@ -79,6 +80,14 @@ import { signControlRecord, validateControlChain } from "@openlfcp/wire";
 import type { DiscardResult } from "../sections/create";
 import { historyRows } from "./history";
 import {
+  type BarrierRefusal,
+  type BarrierWatch,
+  type IdentityBlock,
+  IdentityBlocks,
+  reservedTypeOf,
+  watchBarrier,
+} from "./identity-barrier";
+import {
   createInstall,
   databaseName,
   INSTALL_KEY,
@@ -89,7 +98,7 @@ import {
   type LockReason,
   openInstall,
 } from "./install";
-import { LIVENESS, type LivenessOptions, LivenessProbe } from "./liveness";
+import { LIVENESS, type LivenessOptions, LivenessProbe, tapMessages } from "./liveness";
 import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
 import { type RestartableReconnect, restartableReconnect } from "./reconnect";
 import { listenerErrorClass, lossNoise, sdkErrorClass } from "./sdk-errors";
@@ -439,6 +448,11 @@ export class LfcpRuntime {
   readonly #resourceOpening = new Map<string, Promise<OpenResource>>();
   readonly #phases = new Map<string, ResourcePhase>();
   readonly #errors = new Map<string, string>();
+  /** Resources past an identity barrier this version cannot read (LFCP-04-406, WIRE §100.1). */
+  readonly #identity = new IdentityBlocks(
+    () => (this.#stopped ? null : this.localState),
+    () => this.#env.timers.now(),
+  );
   /** Terminal refusals by the server (POST-017), per Resource. */
   readonly #refusals = new Map<string, ResourceRefusal>();
   /** Resources whose access the client is recovering (LFCP-02-106). */
@@ -538,6 +552,7 @@ export class LfcpRuntime {
     runtime.upgradedLocalData = before === true && install.storage !== null;
     await runtime.#moveNamesOutOfLabels();
     await runtime.#forgetDiscarded().catch(() => undefined);
+    await runtime.#identity.load().catch(() => undefined);
     return runtime;
   }
 
@@ -1855,10 +1870,17 @@ export class LfcpRuntime {
     // ACKs). The items themselves are in storage, per Resource.
     const reconnect = restartableReconnect();
     const liveness = this.#env.liveness ?? LIVENESS;
+    // Resources (hex) whose barrier records came on this session (LFCP-04-406).
+    const sighted = new Set<string>();
     const probe = new LivenessProbe(
       () => this.#env.webSocket ?? platformWebSocket(),
       () => this.#env.timers.now(),
       liveness,
+      (data) =>
+        watchBarrier(data, (s) => {
+          sighted.add(s.resource);
+          this.#identity.seen(s);
+        }),
     );
     const client = new SyncClient({
       url,
@@ -1890,6 +1912,15 @@ export class LfcpRuntime {
       if (e.type === "connection") transport.connection(e.state);
       if (e.type === "connection" && e.state === "DISCONNECTED")
         disconnectedAt = this.#env.timers.now();
+      // LFCP-04-406: the SDK's parser refused a type 9 or 10 record this
+      // session brought; its error names no Resource, the sightings do.
+      const reserved =
+        e.type === "error" && e.resourceId === undefined ? reservedTypeOf(e.message) : null;
+      if (reserved !== null)
+        for (const key of sighted)
+          void this.#identityRefused(key, { kind: "reserved", type: reserved }).catch(
+            () => undefined,
+          );
       // The end of an ordinary connection loss is not an error event (beta.9 check).
       if (
         e.type === "error" &&
@@ -1963,6 +1994,8 @@ export class LfcpRuntime {
       if (e.state === "LIVE") {
         this.#errors.delete(key);
         this.#refusals.delete(key);
+        // Its chain validated: not past a barrier this version cannot read.
+        void this.#identity.validated(key).catch(() => undefined);
         // A later refusal of this collaboration is news again.
         void this.localState
           .update(`refused-reported:${key}`, () => undefined)
@@ -1982,6 +2015,10 @@ export class LfcpRuntime {
       this.#engineTrapped(e.message);
     } else if (e.type === "error" && e.resourceId !== undefined) {
       this.#errors.set(toHex(e.resourceId), e.code);
+      if (this.#identity.sighting(toHex(e.resourceId)) !== null)
+        void this.#identityRefused(toHex(e.resourceId), { kind: "chain", code: e.code }).catch(
+          () => undefined,
+        );
     }
     for (const l of this.#listeners) l(e);
   }
@@ -1995,7 +2032,11 @@ export class LfcpRuntime {
       secrets: i.secrets,
       principal: i.principal,
       now: () => this.#env.timers.now(),
-      ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
+      // The join's own connection is watched for a barrier too (LFCP-04-406).
+      webSocket: (url, protocols) =>
+        tapMessages((this.#env.webSocket ?? platformWebSocket())(url, protocols), (data) =>
+          watchBarrier(data, (s) => this.#identity.seen(s)),
+        ),
       session: (url) => this.#session(url).client,
     };
   }
@@ -2019,6 +2060,30 @@ export class LfcpRuntime {
   /** The server's refusal of a Resource for good (POST-017), until it opens again; null when none. */
   refusal(resource: ResourceId): ResourceRefusal | null {
     return this.#refusals.get(toHex(resource)) ?? null;
+  }
+
+  /**
+   * The Resource is past an identity barrier this version cannot read
+   * (LFCP-04-406, WIRE §100.1): where it is blocked and by what, kept
+   * across restarts; null when it is not.
+   */
+  identityBlock(resource: ResourceId): IdentityBlock | null {
+    return this.#identity.get(toHex(resource));
+  }
+
+  /**
+   * Resolves when a barrier record of `resource` arrives from a server (a
+   * join that cannot validate the chain it fetches); `cancel` forgets it.
+   */
+  barrierSeen(resource: ResourceId): BarrierWatch {
+    return this.#identity.whenSeen(toHex(resource));
+  }
+
+  /** The SDK refused a chain in which a barrier was seen: recorded with the last validated head. */
+  async #identityRefused(key: string, refusal: BarrierRefusal): Promise<void> {
+    if (this.#identity.sighting(key) === null) return;
+    const head = await this.#install.storage?.control.head(resourceId(fromHex(key)));
+    await this.#identity.refused(key, refusal, head === undefined ? null : toHex(head.head));
   }
 
   /**
