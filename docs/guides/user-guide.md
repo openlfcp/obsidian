@@ -227,6 +227,8 @@ shared task ref"** to put the marker back under its task.
 | *could not join* | The reason follows in the notice. Most often the link was already used, since each link works once. Ask for a new one. |
 | *"…" was hosted again on wss://…* | Nothing to do. The server had lost the collaboration (for example after a restore from a backup); Shared Tasks put it back and is sending the missing changes. |
 | *"…" stopped syncing* | The server no longer has the collaboration and refused to take it back, or no longer lets you in. Your tasks stay on your computer. "Resource status" says why; ask the collaboration's owner. |
+| *This section now uses a person's linked devices… Update the plugin* | Someone who shares the section added or removed a device, which needs a newer version of Shared Tasks. Update Shared Tasks in Settings → Community plugins. Until then your copy stays readable and your edits wait on this device. |
+| *This is a link to add a device, not an invitation* | A `lfcp://pair/…` link adds a device to a person's identity, which comes in a later version. Nothing was used; ask for an invitation link (`lfcp://join/…`) to join a section. |
 | *could not join… needs a newer version of Shared Tasks* | The collaboration uses a newer kind of sharing. Update Shared Tasks in Settings → Community plugins, then join again with the same link: it has not been used. |
 | A change does not arrive | Check that both of you are online, then look at "Resource status". |
 

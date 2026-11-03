@@ -10,6 +10,17 @@ since 0.4.0.
 
 ## [Unreleased]
 
+### Added
+
+- Ready for linked devices (one person, several devices), which a later
+  version adds: a shared section where someone added or removed a device
+  stops syncing with "This section now uses a person's linked devices…
+  Update the plugin", kept across restarts, instead of a generic error or
+  endless loading. Its copy stays readable; edits made here wait on this
+  device.
+- Join tells a device pairing link (`lfcp://pair/…`) from an invitation:
+  "This is a link to add a device, not an invitation…", and uses nothing.
+
 ## [0.6.0] — 2026-10-31
 
 The Shared Tasks pane is redrawn: icons at the top, one card for the place
