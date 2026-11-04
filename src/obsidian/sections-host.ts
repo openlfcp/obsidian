@@ -28,6 +28,7 @@ import type { HostFacts } from "../core/actions/descriptors";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
+import { ALIASES_KEY } from "../core/identity/people";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { PaneAccessFacts } from "../core/pane/access-facts";
@@ -883,7 +884,7 @@ export class SectionsHost {
       .catch(() => undefined);
     const runtime = this.#runtime;
     const mine = await runtime?.sectionAccessState(R).catch(() => undefined);
-    const aliases = ((await runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>;
+    const aliases = ((await runtime?.localState.get(ALIASES_KEY)) ?? {}) as Record<string, string>;
     const access = accessView({
       participants: status?.participants ?? [],
       mine:
@@ -1565,10 +1566,10 @@ export class SectionsHost {
       resolveRecovery: (key, item, choice) => this.#resolveRecovery(key, item, choice),
       commands: () => this.commands(),
       aliases: async () =>
-        ((await this.#runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>,
+        ((await this.#runtime?.localState.get(ALIASES_KEY)) ?? {}) as Record<string, string>,
       setAlias: async (id, name) => {
         if (this.#runtime === null) return false;
-        await this.#runtime.localState.update(ALIASES, (v) => {
+        await this.#runtime.localState.update(ALIASES_KEY, (v) => {
           const all = { ...((v ?? {}) as Record<string, string>) };
           if (name.trim() === "") delete all[id];
           else all[id] = name.trim();
@@ -1733,9 +1734,6 @@ const DATA_EVENTS: ReadonlySet<string> = new Set([
   "epoch-reconciled",
   "key-blocked",
 ]);
-
-/** Local aliases of identities (Principal ID → label), in the plugin's local state. */
-const ALIASES = "identity-aliases";
 
 const fromKey64 = (hex: string): ResourceId => fromHex(hex) as ResourceId;
 

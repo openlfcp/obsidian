@@ -31,6 +31,16 @@ export const SHORT_ID = 8;
 /** A Principal ID (hex) as it is shown, and as a local alias is keyed. */
 export const shortId = (hex: string): string => hex.slice(0, SHORT_ID);
 
+/**
+ * Where the local aliases live in the plugin's sealed local state: short
+ * root ID → label, labels of this device only (never sent or verified).
+ */
+export const ALIASES_KEY = "identity-aliases";
+
+/** The local aliases, as read from local state (anything else reads as none). */
+export const aliasesOf = (stored: unknown): Readonly<Record<string, string>> =>
+  typeof stored === "object" && stored !== null ? (stored as Record<string, string>) : {};
+
 /** A device's kind (§7.2), by name; codes this version does not know are "other". */
 export type DeviceKindName = "personal" | "service" | "pairing" | "other";
 

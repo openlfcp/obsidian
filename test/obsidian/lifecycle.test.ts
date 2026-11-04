@@ -3,7 +3,7 @@
 // are the mock's, IndexedDB is fake-indexeddb, the network is offline.
 
 import "fake-indexeddb/auto";
-import { toBase64url, toHex } from "@openlfcp/core";
+import { fromHex, principalId, toBase64url, toHex } from "@openlfcp/core";
 import {
   complete,
   createTask,
@@ -13,14 +13,17 @@ import {
 } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it, vi } from "vitest";
+import { fingerprintOf, shortId } from "../../src/core/identity/people";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
 import OpenLfcpPlugin, { LOCK_HELD_ADVICE } from "../../src/obsidian/plugin";
 import { SectionsHost } from "../../src/obsidian/sections-host";
+import { P } from "../core/identity/x-chain";
 import * as mock from "../mocks/obsidian";
 import { collaborator, storeBlocked } from "../support/blocked-units";
+import { storeX } from "../support/identity-resource";
 import { Device } from "../support/lfcp-env";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -414,6 +417,35 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(blockedNotices()).toHaveLength(1);
     third.host.unload();
     await third.plugin.stopRuntime();
+  });
+
+  it("names the author of blocked edits by the person's saved alias, the device as detail (review obsidian#106 R2)", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const runtime = first.plugin.runtime;
+    if (runtime === null) throw new Error("no runtime");
+    // Resource X: DEV_B is a device of OWNER, whom this device named "Olga" (aliases by root).
+    const R = await storeX(runtime);
+    await runtime.setLocalName(R, "Team X");
+    await runtime.localState.update("identity-aliases", () => ({ [shortId(P("OWNER"))]: "Olga" }));
+    await storeBlocked(runtime.storage as LfcpStorage, R, [
+      { n: 1, who: 0, seq: 1n, status: "equivocation", actor: principalId(fromHex(P("DEV_B"))) },
+    ]);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    mock.notices.length = 0;
+    const second = await load(app, first.host.stored);
+    await ready(second.plugin);
+    for (let i = 0; i < 50; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      await second.plugin.blockedChecks;
+    }
+    expect(mock.notices.filter((n) => n.includes('"Team X"'))).toEqual([
+      `Shared Tasks: edits from Olga (from ${fingerprintOf(P("DEV_B"))}) in "Team X" can't be applied (ACTOR_EQUIVOCATION). See "Resource status".`,
+    ]);
+    second.host.unload();
+    await second.plugin.stopRuntime();
   });
 
   it("reloaded in the same window: the new instance waits for the old one to stop, and runs", async () => {
