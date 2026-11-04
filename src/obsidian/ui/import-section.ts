@@ -49,7 +49,7 @@ export class ImportSectionModal extends Modal {
     }
     for (const a of p.assignees)
       el.createEl("p", {
-        text: `Assignees are copied as names only (${a.refs.length}): they get no access to the new section until you invite them.`,
+        text: `Assignees are copied as names only (${a.people}): they get no access to the new section until you invite them.`,
         cls: "setting-item-description",
       });
     for (const b of p.blocks)

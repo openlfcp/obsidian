@@ -1640,7 +1640,14 @@ export class SectionsHost {
     const replica = (await runtime.profileOf(R)).replica;
     const view = replica.task(objectId);
     const pending = ((await runtime.storage?.outbound.list(R)) ?? []).length > 0;
-    return view === undefined ? undefined : { view, revision: replica.heads().join(","), pending };
+    if (view === undefined) return undefined;
+    const people = await runtime.people(R).catch(() => undefined);
+    return {
+      view,
+      revision: replica.heads().join(","),
+      pending,
+      ...(people === undefined ? {} : { people }),
+    };
   }
 
   /** The vault changed: notes with sections are indexed and reconciled when closed. */
