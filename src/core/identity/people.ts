@@ -183,9 +183,70 @@ export function authorLabel(
   labels: Readonly<Record<string, string>> = {},
 ): string {
   const { root, device } = authorOf(people, actor);
-  const detail = deviceDetail(device, people.mine(root) ? labels : {});
-  const name = aliases[shortId(root)] ?? shortId(root);
-  return detail === null ? name : `${name} (${detail})`;
+  return personLabel(people, { root, devices: device === null ? [] : [device] }, aliases, labels);
+}
+
+/**
+ * A person and the devices that wrote, as one line (§10): the person's
+ * local alias, else its short ID, then each device as detail:
+ * "Anna (from abcd-…, via efgh-…)". Just the name when only the root's own
+ * installation wrote.
+ */
+export function personLabel(
+  people: People,
+  person: { readonly root: string; readonly devices: readonly PersonDevice[] },
+  aliases: Readonly<Record<string, string>> = {},
+  labels: Readonly<Record<string, string>> = {},
+): string {
+  const own = people.mine(person.root) ? labels : {};
+  const details = person.devices.flatMap((d) => deviceDetail(d, own) ?? []);
+  const name = aliases[shortId(person.root)] ?? shortId(person.root);
+  return details.length === 0 ? name : `${name} (${details.join(", ")})`;
+}
+
+/** Edits of one person that cannot be applied (blockedByPerson). */
+export interface BlockedPerson {
+  /** The root (hex). */
+  readonly root: string;
+  readonly units: number;
+  /** Reason codes, sorted. */
+  readonly reasons: readonly string[];
+  /** The person's devices among the authors, in first-seen order; not the root's own installation. */
+  readonly devices: readonly PersonDevice[];
+}
+
+/**
+ * Blocked authors by person (§10 "Attribution"): the units of all of a
+ * person's installations count once for `rootOf(actor)`, reasons merged,
+ * the writing devices kept as detail; in the order of each person's first
+ * actor.
+ */
+export function blockedByPerson(
+  people: People,
+  blocked: readonly {
+    readonly principal: string;
+    readonly units: number;
+    readonly reasons: readonly string[];
+  }[],
+): BlockedPerson[] {
+  const byRoot = new Map<
+    string,
+    { units: number; reasons: Set<string>; devices: PersonDevice[] }
+  >();
+  for (const b of blocked) {
+    const { root, device } = authorOf(people, b.principal);
+    const entry = byRoot.get(root) ?? { units: 0, reasons: new Set<string>(), devices: [] };
+    entry.units += b.units;
+    for (const r of b.reasons) entry.reasons.add(r);
+    if (device !== null && !entry.devices.includes(device)) entry.devices.push(device);
+    byRoot.set(root, entry);
+  }
+  return [...byRoot].map(([root, e]) => ({
+    root,
+    units: e.units,
+    reasons: [...e.reasons].sort(),
+    devices: e.devices,
+  }));
 }
 
 /**

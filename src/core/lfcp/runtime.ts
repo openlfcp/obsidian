@@ -77,7 +77,7 @@ import {
   type SecretStore,
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
-import { type People, peopleOf } from "../identity/people";
+import { type BlockedPerson, blockedByPerson, type People, peopleOf } from "../identity/people";
 import type { DiscardResult } from "../sections/create";
 import { historyRows } from "./history";
 import {
@@ -1171,18 +1171,25 @@ export class LfcpRuntime {
   }
 
   /**
-   * The blocked collaborators of `resource` not reported before, and
-   * records them as reported (in local state, so a restart does not report
-   * them again): one notice per Resource and collaborator.
+   * The people whose edits of `resource` cannot be applied, not reported
+   * before, and records them as reported (in local state, so a restart does
+   * not report them again): one notice per Resource and person
+   * (IDENTITY-PROFILE-01 §10; review obsidian#106 R3). The marks are root
+   * IDs: a Principal no chain binds is its own root, so marks kept before
+   * devices keep their meaning. A further installation of a person already
+   * reported raises no new notice (Resource status lists it); a Principal
+   * reported before a chain bound it is reported once more under its
+   * person, if that person was not.
    */
-  async newlyBlocked(resource: ResourceId): Promise<BlockedCollaborator[]> {
+  async newlyBlocked(resource: ResourceId): Promise<BlockedPerson[]> {
     const blocked = await this.blockedCollaborators(resource);
     if (blocked.length === 0) return [];
-    let fresh: BlockedCollaborator[] = [];
+    const persons = blockedByPerson(await this.people(resource), blocked);
+    let fresh: BlockedPerson[] = [];
     await this.localState.update(`blocked-reported:${toHex(resource)}`, (value) => {
       const reported = new Set((value ?? []) as string[]);
-      fresh = blocked.filter((b) => !reported.has(b.principal));
-      for (const b of fresh) reported.add(b.principal);
+      fresh = persons.filter((p) => !reported.has(p.root));
+      for (const p of fresh) reported.add(p.root);
       return [...reported].sort();
     });
     return fresh;

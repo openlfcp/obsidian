@@ -448,6 +448,53 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await second.plugin.stopRuntime();
   });
 
+  it("notifies once per person, not once per installation, also for a device blocked later (review obsidian#106 R3)", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const runtime = first.plugin.runtime;
+    if (runtime === null) throw new Error("no runtime");
+    const R = await storeX(runtime);
+    await runtime.setLocalName(R, "Team X");
+    await runtime.localState.update("identity-aliases", () => ({ [shortId(P("OWNER"))]: "Olga" }));
+    const actor = (label: string) => principalId(fromHex(P(label)));
+    // OWNER writes from its root installation and from DEV_B: one person.
+    await storeBlocked(runtime.storage as LfcpStorage, R, [
+      { n: 1, who: 0, seq: 1n, status: "equivocation", actor: actor("OWNER") },
+      { n: 2, who: 0, seq: 1n, status: "equivocation", actor: actor("DEV_B") },
+    ]);
+    const notices = () => mock.notices.filter((n) => n.includes('"Team X"'));
+    const settled = async (plugin: OpenLfcpPlugin) => {
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+        await plugin.blockedChecks;
+      }
+    };
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    mock.notices.length = 0;
+    const second = await load(app, first.host.stored);
+    await ready(second.plugin);
+    await settled(second.plugin);
+    expect(notices()).toEqual([
+      `Shared Tasks: edits from Olga (from ${fingerprintOf(P("DEV_B"))}) in "Team X" can't be applied (ACTOR_EQUIVOCATION). See "Resource status".`,
+    ]);
+    // Later, a third installation of the same person (DEV_A, revoked since): no second notice.
+    const later = second.plugin.runtime;
+    if (later === null) throw new Error("no runtime");
+    await storeBlocked(later.storage as LfcpStorage, R, [
+      { n: 3, who: 0, seq: 1n, status: "equivocation", actor: actor("DEV_A") },
+    ]);
+    second.host.unload();
+    await second.plugin.stopRuntime();
+    const third = await load(app, second.host.stored);
+    await ready(third.plugin);
+    await settled(third.plugin);
+    expect(notices()).toHaveLength(1);
+    third.host.unload();
+    await third.plugin.stopRuntime();
+  });
+
   it("reloaded in the same window: the new instance waits for the old one to stop, and runs", async () => {
     const app = new mock.App();
     const first = await load(app);
