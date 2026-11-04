@@ -18,6 +18,7 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { INVITE_WAITS } from "../actions/descriptors";
 import { clock } from "../clock";
+import { isPairingLink, PAIRING_LINK_TEXT } from "../lfcp/identity-barrier";
 import { NEEDS_NEWER_VERSION, type RegistryEntry } from "../lfcp/runtime";
 import type { MutationGuard } from "../projection/guard";
 import { renderNewTaskLine } from "../projection/render";
@@ -459,6 +460,11 @@ export class CollabCommands {
         masked: true,
       });
       if (link === null || link.trim() === "") return;
+      // LFCP-04-406: a pairing link is not an invitation; nothing is asked or claimed.
+      if (isPairingLink(link)) {
+        p.notice(`Shared Tasks: ${PAIRING_LINK_TEXT}`);
+        return;
+      }
       // N5: optional; empty, a shared section shows its own title.
       const name = await p.text({
         title: "Name on this device",

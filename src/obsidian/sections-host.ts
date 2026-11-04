@@ -1287,6 +1287,8 @@ export class SectionsHost {
             (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit")
               .length ?? 0,
           refusal: runtime.refusal(R)?.code ?? null,
+          // LFCP-04-406: past an identity barrier, kept across restarts.
+          newerVersion: runtime.identityBlock(R) !== null,
           // LFCP-03-005: connecting and failed only from the session's own transitions.
           transport: runtime.transport(R),
           // LFCP-03-003: a note with the section not checked yet may hold edits.

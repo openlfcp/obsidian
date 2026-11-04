@@ -53,6 +53,7 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
+import type { BarrierWatch, IdentityBlock } from "../lfcp/identity-barrier";
 import {
   type BlockedCollaborator,
   type CollaborationContext,
@@ -87,6 +88,10 @@ export interface CollabRuntime {
   reopenSection?(resource: ResourceId): void;
   /** The server's refusal of a Resource for good, or null. */
   refusal?(resource: ResourceId): { readonly code: string } | null;
+  /** Past an identity barrier this version cannot read (LfcpRuntime.identityBlock, LFCP-04-406). */
+  identityBlock?(resource: ResourceId): IdentityBlock | null;
+  /** A barrier record of the Resource arrived (LfcpRuntime.barrierSeen). */
+  barrierSeen?(resource: ResourceId): BarrierWatch;
   /** This vault's write access to a shared-sections Resource, with the reason when denied. */
   canWriteSection?(
     resource: ResourceId,
@@ -263,6 +268,8 @@ export interface ResourceStatus {
   readonly refusal: { readonly code: string; readonly url: string } | null;
   /** True when the Control Chain has forked: everything security-sensitive is blocked. */
   readonly blocked: boolean;
+  /** Past an identity barrier this version cannot read (LFCP-04-406): where and by what, or absent. */
+  readonly identityBlock?: IdentityBlock;
   readonly phase: string;
   readonly hosting: "hosted" | "pending" | "unknown";
   readonly controlHead: string | null;
@@ -693,18 +700,48 @@ export class Collaboration {
       name: options.name,
       url: parseInviteUri(uri.trim()).endpoints[0] ?? "",
     } satisfies JoinRecord);
-    const accepted: AcceptedInvitation = await acceptInvitation({
-      onProgress: (p) => stage(SDK_STAGE[p.stage]),
-      link: uri.trim(),
-      claimant: { signer: c.principal.signer, agreement: c.principal.agreement },
-      storage: c.storage,
-      secrets: c.secrets,
-      now: c.now,
-      ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
-      timeout: this.#o.sleep(this.#o.joinTimeoutMs),
-      // Another profile is refused before the claim, so the link stays unused.
-      dataProfiles: wanted,
-    });
+    // LFCP-04-406: a chain past an identity barrier never validates here, so
+    // no claim is made on it; the join stops when the barrier arrives
+    // instead of waiting for the timeout, and says the plugin needs an update.
+    // Once the claim starts (or a journaled one is settled), its answer
+    // decides: from then on the barrier neither ends the wait nor the outcome.
+    const barrier = this.#runtime.barrierSeen?.(R);
+    let claimStarted = false;
+    const beforeClaim = () => barrier?.happened() === true && !claimStarted;
+    let accepted: AcceptedInvitation;
+    try {
+      accepted = await acceptInvitation({
+        onProgress: (p) => {
+          if (p.stage === "claiming-capability") claimStarted = true;
+          stage(SDK_STAGE[p.stage]);
+        },
+        link: uri.trim(),
+        claimant: { signer: c.principal.signer, agreement: c.principal.agreement },
+        storage: c.storage,
+        secrets: c.secrets,
+        now: c.now,
+        ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
+        timeout: Promise.race([
+          this.#o.sleep(this.#o.joinTimeoutMs),
+          ...(barrier === undefined
+            ? []
+            : [
+                barrier.seen.then(() =>
+                  claimStarted ? new Promise<void>(() => undefined) : undefined,
+                ),
+              ]),
+        ]),
+        // Another profile is refused before the claim, so the link stays unused.
+        dataProfiles: wanted,
+      });
+    } catch (e) {
+      if (beforeClaim()) return { kind: "needs-newer-version", resourceId: R };
+      throw e;
+    } finally {
+      barrier?.cancel();
+    }
+    if (accepted.kind !== "claimed" && beforeClaim())
+      return { kind: "needs-newer-version", resourceId: R };
     if (accepted.kind === "profile-unsupported")
       return profiles.includes(accepted.dataProfile)
         ? { kind: "other-profile", resourceId: R, profile: accepted.dataProfile }
@@ -961,6 +998,7 @@ export class Collaboration {
     }
     const hosting = await this.#runtime.localState.get(hostingKey(R));
     const notApplied = await this.#runtime.blockedCollaborators?.(R).catch(() => []);
+    const identityBlock = this.#runtime.identityBlock?.(R);
     return {
       localName: entry.localName,
       resourceId: toBase64url(R),
@@ -968,6 +1006,7 @@ export class Collaboration {
       state: entry.state,
       refusal: entry.refusal === null ? null : { code: entry.refusal.code, url: entry.refusal.url },
       blocked: entry.state === "control_conflict",
+      ...(identityBlock === null || identityBlock === undefined ? {} : { identityBlock }),
       phase: this.#runtime.phase(R),
       hosting: hosting === "hosted" || hosting === "pending" ? hosting : "unknown",
       controlHead: entry.lastKnownControlHead,

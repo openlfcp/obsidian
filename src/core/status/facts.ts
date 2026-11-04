@@ -45,6 +45,11 @@ export interface ObservedSection {
    * (RESOURCE_NOT_HOSTED, …): the session is up, the section is not synced.
    */
   readonly refusal?: string | null;
+  /**
+   * The Resource is past an identity barrier this version cannot read
+   * (LFCP-04-406, WIRE §100.1): blocked until the plugin is updated.
+   */
+  readonly newerVersion?: boolean;
   /** Own operations a Key Epoch cut off and that were re-applied or discarded: their batches are settled. */
   readonly settledOperations?: ReadonlySet<string>;
   /** Own offline work a Key Epoch cut off (stale-work.ts). */
@@ -117,6 +122,7 @@ export function observedFacts(o: ObservedSection): StatusFacts {
       : { accessVerifiedAt: sdk.access.verifiedAt ?? null, accessCurrent: sdk.accessCurrent }),
     ...connectionFact(live || syncing, o.transport ?? NO_TRANSPORT),
     ...(o.refusal === null || o.refusal === undefined ? {} : { refusal: o.refusal }),
+    ...(o.newerVersion === true ? { newerVersion: true } : {}),
     // The SDK's catch-up fact (028); a skipped revision or a held change keeps receiving.
     catchUp:
       sdk?.needsSnapshot === true || (o.load !== undefined && !o.load.loaded)

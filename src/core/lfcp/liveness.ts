@@ -14,7 +14,8 @@
 // its 3 × h timeout are unchanged.
 //
 // It sees the connection through the WebSocket factory the SDK is given:
-// the bytes are not read, only that a message arrived.
+// it notes only that a message arrived; the bytes go to `onFrame` (the
+// identity barrier watch, identity-barrier.ts), which reads them.
 
 import type { WebSocketFactory, WebSocketLike } from "@openlfcp/client";
 import { createMessage, encodeMessage } from "@openlfcp/wire";
@@ -38,6 +39,8 @@ export class LivenessProbe {
     private readonly base: () => WebSocketFactory,
     private readonly now: () => number,
     private readonly options: LivenessOptions = LIVENESS,
+    /** Each received frame, before the SDK handles it (the identity barrier watch, LFCP-04-406). */
+    private readonly onFrame: (data: unknown) => void = () => undefined,
   ) {}
 
   /** The factory for the SDK: the platform's sockets, each message's arrival noted. */
@@ -46,54 +49,13 @@ export class LivenessProbe {
     this.#socket = real;
     this.#lastReceived = this.now();
     this.#pingAt = null;
-    const heard = () => {
+    const heard = (data: unknown) => {
+      this.onFrame(data);
       if (this.#socket !== real) return;
       this.#lastReceived = this.now();
       this.#pingAt = null;
     };
-    return {
-      get binaryType() {
-        return real.binaryType;
-      },
-      set binaryType(v: string) {
-        real.binaryType = v;
-      },
-      get protocol() {
-        return real.protocol;
-      },
-      send: (data) => real.send(data),
-      close: (code, reason) => real.close(code, reason),
-      get onopen() {
-        return real.onopen;
-      },
-      set onopen(fn) {
-        real.onopen = fn;
-      },
-      get onclose() {
-        return real.onclose;
-      },
-      set onclose(fn) {
-        real.onclose = fn;
-      },
-      get onerror() {
-        return real.onerror;
-      },
-      set onerror(fn) {
-        real.onerror = fn;
-      },
-      get onmessage() {
-        return real.onmessage;
-      },
-      set onmessage(fn) {
-        real.onmessage =
-          fn === null
-            ? null
-            : (ev) => {
-                heard();
-                fn(ev);
-              };
-      },
-    };
+    return tapMessages(real, heard);
   };
 
   /**
@@ -129,4 +91,54 @@ export class LivenessProbe {
     }
     return true;
   }
+}
+
+/**
+ * `real` with each received message's data passed to `heard` before the
+ * SDK's own handler sees it; everything else as `real` does.
+ */
+export function tapMessages(real: WebSocketLike, heard: (data: unknown) => void): WebSocketLike {
+  return {
+    get binaryType() {
+      return real.binaryType;
+    },
+    set binaryType(v: string) {
+      real.binaryType = v;
+    },
+    get protocol() {
+      return real.protocol;
+    },
+    send: (data) => real.send(data),
+    close: (code, reason) => real.close(code, reason),
+    get onopen() {
+      return real.onopen;
+    },
+    set onopen(fn) {
+      real.onopen = fn;
+    },
+    get onclose() {
+      return real.onclose;
+    },
+    set onclose(fn) {
+      real.onclose = fn;
+    },
+    get onerror() {
+      return real.onerror;
+    },
+    set onerror(fn) {
+      real.onerror = fn;
+    },
+    get onmessage() {
+      return real.onmessage;
+    },
+    set onmessage(fn) {
+      real.onmessage =
+        fn === null
+          ? null
+          : (ev) => {
+              heard(ev.data);
+              fn(ev);
+            };
+    },
+  };
 }
