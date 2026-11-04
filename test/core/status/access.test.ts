@@ -103,6 +103,7 @@ describe("the access list (060)", () => {
         role: "owner",
         you: true,
         removable: false,
+        devices: [],
       },
       {
         id: "bbbb2222",
@@ -112,6 +113,7 @@ describe("the access list (060)", () => {
         role: "can edit",
         you: false,
         removable: true,
+        devices: [],
       },
       {
         id: "cccc3333",
@@ -121,6 +123,7 @@ describe("the access list (060)", () => {
         role: "can read",
         you: false,
         removable: true,
+        devices: [],
       },
     ]);
     expect(v.invitations).toEqual([

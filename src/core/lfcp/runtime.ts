@@ -77,6 +77,7 @@ import {
   type SecretStore,
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
+import { type People, peopleOf } from "../identity/people";
 import type { DiscardResult } from "../sections/create";
 import { historyRows } from "./history";
 import {
@@ -1155,6 +1156,18 @@ export class LfcpRuntime {
       .map(([principal, e]) =>
         Object.freeze({ principal, units: e.units, reasons: Object.freeze([...e.reasons].sort()) }),
       );
+  }
+
+  /**
+   * The people of `resource` (LFCP-04-411, IDENTITY-PROFILE-01 §10): who
+   * each Principal is as a person, from the stored, validated Control
+   * state; every Principal is its own person while none is stored or the
+   * chain has forked.
+   */
+  async people(resource: ResourceId): Promise<People> {
+    const { storage, principal } = this.#ready();
+    const chain = await loadControlChain(storage, resource);
+    return peopleOf(chain?.kind === "linear" ? chain.state : null, toHex(principal.id));
   }
 
   /**

@@ -1580,16 +1580,17 @@ export class SectionsHost {
         const runtime = this.#runtime;
         if (runtime === null) return null;
         const r = await runtime.revokeSectionAccess(R, fromHex(principal) as PrincipalId);
-        return r.kind === "refused"
-          ? { kind: "refused", reason: r.reason }
-          : {
-              kind: "queued",
-              rotated: r.epoch !== null,
-              remainingPaths: r.remainingPaths.map((p) => ({
-                issuer: toHex(p.issuer),
-                abilities: p.abilities,
-              })),
-            };
+        if (r.kind === "refused") return { kind: "refused", reason: r.reason };
+        // A grant issued from a device is its person's (IDENTITY-PROFILE-01 §10).
+        const people = await runtime.people(R).catch(() => null);
+        return {
+          kind: "queued",
+          rotated: r.epoch !== null,
+          remainingPaths: r.remainingPaths.map((p) => ({
+            issuer: people?.root(toHex(p.issuer)) ?? toHex(p.issuer),
+            abilities: p.abilities,
+          })),
+        };
       },
     };
   }
