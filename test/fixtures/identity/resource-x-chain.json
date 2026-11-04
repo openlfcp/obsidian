@@ -1,0 +1,582 @@
+{
+  "source": {
+    "repository": "openlfcp/spec",
+    "tag": "mvp-0.4-baseline.1",
+    "commit": "12a8fb2b364ec063c22c169de913054222de7a2b",
+    "records": "test-vectors/lfcp-wire-01/LFCP-IDENTITY-TEST-VECTORS-01.json (Resource X, J0_genesis to I13_owner_expels_dev_c)",
+    "expectations": "test-vectors/identity-01/IDENTITY-PROFILE-TEST-VECTORS-01.json (root_of_corpus, assignee_root_ref)",
+    "warning": "All private keys of the suite are public test fixtures; only public IDs and signed records are copied here."
+  },
+  "principals": {
+    "OWNER": "172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d",
+    "BOB": "3ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5",
+    "CAROL": "a6e402657a505a183a2c2685ecc3a0457fef86d4e251abd48efe943c1282da48",
+    "INVITE": "fd11cff30b5f51be630be47798a656119335d5ef0a41ebc0032335a6b2f6d6ba",
+    "DAVE": "fe0405dc0284aaf3cc638f311954e138bf1d72aea79037bb134b70e5bd40453a",
+    "DEV_A": "0498ff334c7cb0c17105ea7ea2c7f61a9c542ef62a7310b057b1a8438b5dcf9f",
+    "DEV_A2": "75dbe9f413cce3dfe98c024db0cd66c5fb3223cbe8a3c8ba9ae14ec706e3bc73",
+    "DEV_B": "dcb709537a7c66b9d785c9de9b31d1cf1922d09f225e10479c24b302ceb3f9f2",
+    "DEV_R": "73fd10bd7bf5c67759433daf6c60d5c3d76d04b1c655b859f50a92df645d1b74",
+    "DEV_W": "013b81bb2bee1873080936c87a1db0e1e4703ad5594b918054dcab4a043c92ee",
+    "DEV_X": "a9e2b1802b646847f856eb4682b33b4d4a6a60d438a5ce18f55dce5cc79ff769",
+    "PAIR_J": "e5c1f8e321288939f29865fbf667cba16dcc7ad03eb278ba49ef2b618985dcb9",
+    "BRIDGE_O": "e7721c558835119a52ec20ad803216ab05d4359868824e2c069dd805d8ce4f88",
+    "DEV_C": "677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3",
+    "DEV_E": "57a772562f00ec0437eaa43d0c70c7cb1b3634273c9a69c3dd44248b3d0354e9",
+    "DEV_F": "ce48f992fc83d5280a6b00d3dd5355b115bc67323a3b38794fc32173f2677efc",
+    "BRIDGE": "c544bf4b19b625a300b3b12ccd84d08a804e0299e503a78a4bc1179639c6919a"
+  },
+  "records": [
+    {
+      "case": "J0_genesis",
+      "seq": 0,
+      "type": "GENESIS",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da059013fa60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010002f60300045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a500746f72672e6c6663702e746573742e7261772e763101a3005820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d015820f6fb6b8184ca17efdf2ca12486d3ba89fd4253efe9e1ae746fe0f93817c8851a02582053e766cd910b4dbc67f0d850bdcf235402f5e708e85b5223a307f65cb92e4f0a025820ca04728029d426fa1e321064f8bf6e6971d055ebaac58be10a11ac03038db0de0381a300781f7773733a2f2f73796e632d612e6578616d706c652e746573742f76312f7773010002183f04781f7773733a2f2f73796e632d612e6578616d706c652e746573742f76312f77735840682d4d53f1ea7e1729258ec7a150a83064fa52b0b6003c580aba35f5f756b3961ec9a5a5e726b4f617423a33b7aef56fc55060721ae03e4793ef9c8b389cb10d"
+    },
+    {
+      "case": "J1_grant_bob",
+      "seq": 1,
+      "type": "CAPABILITY_GRANT",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058eaa60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010102582052464b4819d1f55e518f61b4c529f30528f34d4144fa643ed8023d669d3dd5c00301045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a300a30058203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c50158201953f4ada1cb4e0f8662108152c82e7e074cbf4859c487461cbe41e5d623e3c2025820b5a22f5f5cbdc3a6f8742ec8b2bc9665d0170478bf5aca7528fdd5eefb94f26c01870102030405060702840102060b5840ad0a89b17e7705ebeb296d74bd4591af0d6d36ef704b986d86e34e812a273e2ee5c375b12dbd1b91be2bbcfb6643c2009c3b180dd4d63a997f9bca8155f7d30a"
+    },
+    {
+      "case": "J2_grant_carol",
+      "seq": 2,
+      "type": "CAPABILITY_GRANT",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058e2a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010202582074af54cef6416eb3aa431a266f2c031055325ad7b5eafda9e4940f9d848478130301045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a300a3005820a6e402657a505a183a2c2685ecc3a0457fef86d4e251abd48efe943c1282da48015820e85e0878a5ef3cac47224c5ad65466d1d9ce8f5da0531bcfd44f4801eca9d862025820f0a5fba7ce3f994d3225a96a6e7a2a93a0f49bdffa27587faabbcf885dc64062018301020502805840093fce13a262bb74550f1a127d6b9f376857be7ea7cf7a7e49fc74aad72a8a0c2a7491466fc0dd68804a40958fb5fd608c947d8fb3638fbb97fa1a556e650d04"
+    },
+    {
+      "case": "I1_device_grant_dev_a",
+      "seq": 3,
+      "type": "DEVICE_GRANT",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da05901c6a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a7501030258206ec5b86817bd322effe3ebd5fd19e577a7e1f581784008d15a7aaedb2590900f0309045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a2005820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d018159012e845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058c087734c4643502d4445564943452d434552542d76315820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da30058200498ff334c7cb0c17105ea7ea2c7f61a9c542ef62a7310b057b1a8438b5dcf9f01582077b3181fb224b802fe4088233316d06b23fc13feedda226be1d0753bf29d73860258202c0c583d927c761600d2773e7b3dc0c7b516a6ac8e37624ea284f61d76b4bb68008b01020304050607080a0c0d8050a97047b6ceb82ae6628d6836990eb2165840befe6b8a73a251eca3755b66a115c5b479e3338b0b4f11cbe130be9fdb7c47f3a7d7243b846e26fcd8a3e4517aad5bdd0c260de98c9a1da8c7abe27ffec2d7015840b4ffcccee9f886e221023ea33ed57f1d957a57584f286753fece1e9f70ac91262541f06a11fdaca1f64aa270dc341e183c3c99ed173c203491987c1018c41507"
+    },
+    {
+      "case": "I2_device_grant_self_dev_b",
+      "seq": 4,
+      "type": "DEVICE_GRANT",
+      "cose_sign1": "845826a20127045820dcb709537a7c66b9d785c9de9b31d1cf1922d09f225e10479c24b302ceb3f9f2a05902efa60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a750104025820657b8d237d5137a308208cac1c154e9648f86dc32fbbeb0a9622839fc09373350309045820dcb709537a7c66b9d785c9de9b31d1cf1922d09f225e10479c24b302ceb3f9f205a2005820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d0182590126845826a201270458200498ff334c7cb0c17105ea7ea2c7f61a9c542ef62a7310b057b1a8438b5dcf9fa058b887734c4643502d4445564943452d434552542d76315820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da3005820dcb709537a7c66b9d785c9de9b31d1cf1922d09f225e10479c24b302ceb3f9f2015820652fee2202a009b43a1c3d3073534d17a1011dd6d925a9097a57cb39d6074a900258203819290612a37b44ae506c6d910e51c604cfce168344e2a1d0d737d3dd3d7c7a00830102038050743db8168bce7e78a1f0c81ab52553b05840b0d786a54558a066eadd90734d9e656161ab9f6f9063a5d195ab3bc86da5967c269e1a86c12fa210258f5d913d726bde9f9b30d37eea89f29feaad018e94bb0159012e845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058c087734c4643502d4445564943452d434552542d76315820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da30058200498ff334c7cb0c17105ea7ea2c7f61a9c542ef62a7310b057b1a8438b5dcf9f01582077b3181fb224b802fe4088233316d06b23fc13feedda226be1d0753bf29d73860258202c0c583d927c761600d2773e7b3dc0c7b516a6ac8e37624ea284f61d76b4bb68008b01020304050607080a0c0d8050a97047b6ceb82ae6628d6836990eb2165840befe6b8a73a251eca3755b66a115c5b479e3338b0b4f11cbe130be9fdb7c47f3a7d7243b846e26fcd8a3e4517aad5bdd0c260de98c9a1da8c7abe27ffec2d70158400db1c7afd163bc1c32de9409c4d2c6d8293140a1d3c6dbda2d98d390c0b0089fd6701d73fecc32e5888185f0ce10899a51875f041d338d02ba8200201530370c"
+    },
+    {
+      "case": "I3_owner_action_by_dev_a",
+      "seq": 5,
+      "type": "CAPABILITY_GRANT",
+      "cose_sign1": "845826a201270458200498ff334c7cb0c17105ea7ea2c7f61a9c542ef62a7310b057b1a8438b5dcf9fa058e0a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a750105025820990854439e917d8c4e57fc89e6f6503a74e4301affefd62fba3f57474e8c5d3b03010458200498ff334c7cb0c17105ea7ea2c7f61a9c542ef62a7310b057b1a8438b5dcf9f05a300a3005820fe0405dc0284aaf3cc638f311954e138bf1d72aea79037bb134b70e5bd40453a015820a2096c36181e774db528037df836760c80c68c2b296235ba9a08a702a4b26118025820439dce2b6ac3e85095e9a40df53565c8dc4a6234001bb7950af2033c36adc34001810102805840a19082562c0f1ceb2156409c966e1952a62004071ef09dc4fcde6b84606ce6c0aff805c5e599998f82071a0aa43afd20509e52e39b68a0002c393e4e7cb6c10a"
+    },
+    {
+      "case": "I4_device_grant_dev_c_bob",
+      "seq": 6,
+      "type": "DEVICE_GRANT",
+      "cose_sign1": "845826a201270458203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a05901c0a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a750106025820d33b34d4b7d155217755a12d9337a51b1624d4883d7cc255f302aba4345c8e6e03090458203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c505a20058203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c50181590128845826a201270458203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a058ba87734c4643502d4445564943452d434552542d763158203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a3005820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3015820ffb0750b7493c63f43193f175d5652364e2d41e0c39abbafe1b00cd5c9e6d6b302582017fb4d6a16eff1cd91e4f9eb3b2f3a1f058023eb1192f5a9802991855465ca2e0085010204050c805084daac2e9ee6bf9dfeef7b37612d2dd65840253e3f4fb25ad0a7862c438c1be2cf9027ce1dcf650b22bec3d3d5b8fe0d74f01d996bdc1976cb496ee2ea554dae3cafed602b1d6a2854a790e5d91319b5c80e584005269a2bfdd800485274032b5e20c4f79b67f3d205729d25ecb72a685395f6482ca4161379ef321017a36c1102d15aefaecd4d73715a5a98f2c59864de063b06"
+    },
+    {
+      "case": "I5_device_grant_dev_e_by_dev_c",
+      "seq": 7,
+      "type": "DEVICE_GRANT",
+      "cose_sign1": "845826a20127045820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3a05902eaa60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a750107025820717b8a7446312e15dd9b7ab42ce2242cb62240c05b9876bf73f494d74842aa3c0309045820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d305a20058203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c50182590127845826a20127045820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3a058b987734c4643502d4445564943452d434552542d763158203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a300582057a772562f00ec0437eaa43d0c70c7cb1b3634273c9a69c3dd44248b3d0354e901582053833cf2da1fd91e8c22992df6bea9c6271beb1dd255979660e98e998d86483d025820ea734160020e67f234f34ea9b2c9aa2be6fe9d15688c8353a0262812125a387600840102050c8050cda82c7d670052e996e0fda2d364d1855840bb1c8ad170720bb620cc57a4b02b44aa83ab18591764e26ea8a33b5224933a6ce68fc70cd5e746d35bc75d98df5ab3a3e6c9ee0f5ea2bd1e2b9ad624f2600304590128845826a201270458203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a058ba87734c4643502d4445564943452d434552542d763158203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a3005820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3015820ffb0750b7493c63f43193f175d5652364e2d41e0c39abbafe1b00cd5c9e6d6b302582017fb4d6a16eff1cd91e4f9eb3b2f3a1f058023eb1192f5a9802991855465ca2e0085010204050c805084daac2e9ee6bf9dfeef7b37612d2dd65840253e3f4fb25ad0a7862c438c1be2cf9027ce1dcf650b22bec3d3d5b8fe0d74f01d996bdc1976cb496ee2ea554dae3cafed602b1d6a2854a790e5d91319b5c80e584091a000b5913682883767afa5123d3888c6890d5d7989c1ee54dce7e1d57966f2ad107e191bc98460a892e72bf4f5c349656f6a0c9cd4ce6d9e577635bc35e102"
+    },
+    {
+      "case": "I6_grant_by_member_device",
+      "seq": 8,
+      "type": "CAPABILITY_GRANT",
+      "cose_sign1": "845826a20127045820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3a0590103a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010802582044be5d59ef8c67d0d7f48df72ec02ff55ea5209d537e574c9e09a2ed217c57350301045820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d305a400a3005820a6e402657a505a183a2c2685ecc3a0457fef86d4e251abd48efe943c1282da48015820e85e0878a5ef3cac47224c5ad65466d1d9ce8f5da0531bcfd44f4801eca9d862025820f0a5fba7ce3f994d3225a96a6e7a2a93a0f49bdffa27587faabbcf885dc64062018102028003582074af54cef6416eb3aa431a266f2c031055325ad7b5eafda9e4940f9d84847813584030fdae29f712704c817efbb4dea4e570ebc96baeca1c0c7d1495632743d12e3468e39c42ed849e4897043c205362e9c52f1130dc038105e7d683566660cd2b08"
+    },
+    {
+      "case": "I7_revoke_covered_by_sibling",
+      "seq": 9,
+      "type": "CAPABILITY_REVOKE",
+      "cose_sign1": "845826a2012704582057a772562f00ec0437eaa43d0c70c7cb1b3634273c9a69c3dd44248b3d0354e9a05893a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a750109025820412673ba033e66f653df7577bc4434b37727c23b012615135fb85c5aa335be7d030204582057a772562f00ec0437eaa43d0c70c7cb1b3634273c9a69c3dd44248b3d0354e905a1005820412673ba033e66f653df7577bc4434b37727c23b012615135fb85c5aa335be7d5840dc840bf73190a24258959339b9e5d104f414d6deb6fde31b16142928cb941519e4caeef538172fc2d49e68f1f94eb19ca86d8afae993a6173a47c4e505ec740f"
+    },
+    {
+      "case": "I8_bridge_grant",
+      "seq": 10,
+      "type": "DEVICE_GRANT",
+      "cose_sign1": "845826a20127045820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3a05901dfa60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010a0258209b24ba4ad3f4971281f6872451bfd47f4a9701ef5ef9df973b05d5fd585e43ad0309045820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d305a20058203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c50181590147845826a201270458203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a058d987734c4643502d4445564943452d434552542d763158203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5a3005820c544bf4b19b625a300b3b12ccd84d08a804e0299e503a78a4bc1179639c6919a015820e57828142c562ac82263c1b3ab868da966ebb58719f2030ca9c76467c8a40c16025820e51a06868cacdbb5d087e11abdcf654f616b044389e2b3bd02dc819d712e9f40018201028158207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75505d2b0c279189518e3e093fed0fb7f7af5840f61f709e0fc760c9666263ec679e84a133c55b21a3e606841097dcb13efb91642b9c8cf1782f9740c28912b3283f05d8cef5d97f66aa0e0e4361ab6ced4f37075840eb7e4bfc9ccc7264ce4f322e6bb1855e1443f6c4f7537d74cfff42dbaa9e139e854ee858c729e78cbfaf8def2bd48fe815e5e60b5f2f67f224cda428c750fa08"
+    },
+    {
+      "case": "I9_device_revoke_dev_a",
+      "seq": 11,
+      "type": "DEVICE_REVOKE",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058b8a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010b0258205011ba59696a6c99c2439bacd429067e5d184832238ccf1f7e798c60e368da38030a045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a3005820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d0158200498ff334c7cb0c17105ea7ea2c7f61a9c542ef62a7310b057b1a8438b5dcf9f02015840a3fce4b4cb34cf1bd632e8ada9d56a79bb7acbc5b3902b1ad26ce4489ccdaf80934c387446655bb108ef7fc44f94262f5b4d5013d7a726d9dab1dbff8540b402"
+    },
+    {
+      "case": "I10_recertify_dev_b",
+      "seq": 12,
+      "type": "DEVICE_GRANT",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da05901bea60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010c025820ff6bfdd988cb1a862d2c0c30e858c80c397d9b9184d0b986409dee7f64f07d8f0309045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a2005820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d0181590126845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058b887734c4643502d4445564943452d434552542d76315820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da3005820dcb709537a7c66b9d785c9de9b31d1cf1922d09f225e10479c24b302ceb3f9f2015820652fee2202a009b43a1c3d3073534d17a1011dd6d925a9097a57cb39d6074a900258203819290612a37b44ae506c6d910e51c604cfce168344e2a1d0d737d3dd3d7c7a00830102038050dc3267a07c110d50b8b6778f5df4656c5840b0b32c69deaec296750b77a3d4ba60bb432a2b032273b447893cb747285db10044051b70db417605785ac82bfa48633992c414ed93aaca2bc1e067fd1922120158405ff29feb1929b28da4a5ac5a8af8ffce7741c2857223fcf1b1e3dc77fb1b64cb3648ee5f2da0b4b2769909bdeba3da9c3a4843870d86499e35c551a1f8c9650d"
+    },
+    {
+      "case": "I11_revoke_root_grant_bob",
+      "seq": 13,
+      "type": "CAPABILITY_REVOKE",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da05893a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010d025820b3887d6d8d4db2969b83e0440ab9c0898027f75d593458601a4ee2af683964480302045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a100582074af54cef6416eb3aa431a266f2c031055325ad7b5eafda9e4940f9d84847813584014a62b96cdad85b0fb55bf73aac654cdf5ab1d3ea5cc0e04668b882ce01103b0afbe54e97efc42d01d205f74da58f5e7d90b5f000d5da9e69b3dd28e68d51203"
+    },
+    {
+      "case": "I12_regrant_bob",
+      "seq": 14,
+      "type": "CAPABILITY_GRANT",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058eaa60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010e025820c43989ffe708dab31df25615c3b2f5da032ce7895e6b241abe8b11a4140535240301045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a300a30058203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c50158201953f4ada1cb4e0f8662108152c82e7e074cbf4859c487461cbe41e5d623e3c2025820b5a22f5f5cbdc3a6f8742ec8b2bc9665d0170478bf5aca7528fdd5eefb94f26c01870102030405060702840102060b5840a288a8037b66a312a9a689d9574a824898e184ec204fc82a9a02709e6ee3076b3c03071928044fd7218db3d0659cc6cbaa12eeaf11a5ad2d90984413bcdb300b"
+    },
+    {
+      "case": "I13_owner_expels_dev_c",
+      "seq": 15,
+      "type": "DEVICE_REVOKE",
+      "cose_sign1": "845826a20127045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121da058b8a60058207f42584879382580a788df2d05961889a6baf873148b746e114c4975414a5a75010f0258201a37e7319cc3e223733ffc6909b606889badedd10aab1dfd1d66a75ff2ddfcf0030a045820172d2fc24d2192ed5703279a49d5db9f7fe8935b0125093976f6e906cd80121d05a30058203ddf22ff145274bcc59c56ffddaab8c123ffea4ac95ff8e9cedbeb788bf0a9c5015820677a1bdf4849dd10af8a29a4ea08c895abc5042f3aedeb49a2d56750511d90d3020258402ad7b7b57fcdd77383af188be32c3fc5c7bc1e617d0127fc4a3b7a4a806ed08b7ae3053defd25214d7b43688c827a173090654ffcd78180d864cb99e81b31407"
+    }
+  ],
+  "rootOf": {
+    "I2": {
+      "records": 5,
+      "expected": {
+        "OWNER": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": false,
+          "active": false
+        },
+        "BOB": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": false,
+          "active": false
+        },
+        "CAROL": {
+          "rootOf": "CAROL",
+          "actsFor": "CAROL",
+          "bound": false,
+          "active": false
+        },
+        "INVITE": {
+          "rootOf": "INVITE",
+          "actsFor": "INVITE",
+          "bound": false,
+          "active": false
+        },
+        "DAVE": {
+          "rootOf": "DAVE",
+          "actsFor": "DAVE",
+          "bound": false,
+          "active": false
+        },
+        "DEV_A": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": true,
+          "active": true
+        },
+        "DEV_A2": {
+          "rootOf": "DEV_A2",
+          "actsFor": "DEV_A2",
+          "bound": false,
+          "active": false
+        },
+        "DEV_B": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": true,
+          "active": true
+        },
+        "DEV_R": {
+          "rootOf": "DEV_R",
+          "actsFor": "DEV_R",
+          "bound": false,
+          "active": false
+        },
+        "DEV_W": {
+          "rootOf": "DEV_W",
+          "actsFor": "DEV_W",
+          "bound": false,
+          "active": false
+        },
+        "DEV_X": {
+          "rootOf": "DEV_X",
+          "actsFor": "DEV_X",
+          "bound": false,
+          "active": false
+        },
+        "PAIR_J": {
+          "rootOf": "PAIR_J",
+          "actsFor": "PAIR_J",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE_O": {
+          "rootOf": "BRIDGE_O",
+          "actsFor": "BRIDGE_O",
+          "bound": false,
+          "active": false
+        },
+        "DEV_C": {
+          "rootOf": "DEV_C",
+          "actsFor": "DEV_C",
+          "bound": false,
+          "active": false
+        },
+        "DEV_E": {
+          "rootOf": "DEV_E",
+          "actsFor": "DEV_E",
+          "bound": false,
+          "active": false
+        },
+        "DEV_F": {
+          "rootOf": "DEV_F",
+          "actsFor": "DEV_F",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE": {
+          "rootOf": "BRIDGE",
+          "actsFor": "BRIDGE",
+          "bound": false,
+          "active": false
+        }
+      }
+    },
+    "I9": {
+      "records": 12,
+      "expected": {
+        "OWNER": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": false,
+          "active": false
+        },
+        "BOB": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": false,
+          "active": false
+        },
+        "CAROL": {
+          "rootOf": "CAROL",
+          "actsFor": "CAROL",
+          "bound": false,
+          "active": false
+        },
+        "INVITE": {
+          "rootOf": "INVITE",
+          "actsFor": "INVITE",
+          "bound": false,
+          "active": false
+        },
+        "DAVE": {
+          "rootOf": "DAVE",
+          "actsFor": "DAVE",
+          "bound": false,
+          "active": false
+        },
+        "DEV_A": {
+          "rootOf": "OWNER",
+          "actsFor": "DEV_A",
+          "bound": true,
+          "active": false
+        },
+        "DEV_A2": {
+          "rootOf": "DEV_A2",
+          "actsFor": "DEV_A2",
+          "bound": false,
+          "active": false
+        },
+        "DEV_B": {
+          "rootOf": "OWNER",
+          "actsFor": "DEV_B",
+          "bound": true,
+          "active": false
+        },
+        "DEV_R": {
+          "rootOf": "DEV_R",
+          "actsFor": "DEV_R",
+          "bound": false,
+          "active": false
+        },
+        "DEV_W": {
+          "rootOf": "DEV_W",
+          "actsFor": "DEV_W",
+          "bound": false,
+          "active": false
+        },
+        "DEV_X": {
+          "rootOf": "DEV_X",
+          "actsFor": "DEV_X",
+          "bound": false,
+          "active": false
+        },
+        "PAIR_J": {
+          "rootOf": "PAIR_J",
+          "actsFor": "PAIR_J",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE_O": {
+          "rootOf": "BRIDGE_O",
+          "actsFor": "BRIDGE_O",
+          "bound": false,
+          "active": false
+        },
+        "DEV_C": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": true,
+          "active": true
+        },
+        "DEV_E": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": true,
+          "active": true
+        },
+        "DEV_F": {
+          "rootOf": "DEV_F",
+          "actsFor": "DEV_F",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": true,
+          "active": true
+        }
+      }
+    },
+    "I11": {
+      "records": 14,
+      "expected": {
+        "OWNER": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": false,
+          "active": false
+        },
+        "BOB": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": false,
+          "active": false
+        },
+        "CAROL": {
+          "rootOf": "CAROL",
+          "actsFor": "CAROL",
+          "bound": false,
+          "active": false
+        },
+        "INVITE": {
+          "rootOf": "INVITE",
+          "actsFor": "INVITE",
+          "bound": false,
+          "active": false
+        },
+        "DAVE": {
+          "rootOf": "DAVE",
+          "actsFor": "DAVE",
+          "bound": false,
+          "active": false
+        },
+        "DEV_A": {
+          "rootOf": "OWNER",
+          "actsFor": "DEV_A",
+          "bound": true,
+          "active": false
+        },
+        "DEV_A2": {
+          "rootOf": "DEV_A2",
+          "actsFor": "DEV_A2",
+          "bound": false,
+          "active": false
+        },
+        "DEV_B": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": true,
+          "active": true
+        },
+        "DEV_R": {
+          "rootOf": "DEV_R",
+          "actsFor": "DEV_R",
+          "bound": false,
+          "active": false
+        },
+        "DEV_W": {
+          "rootOf": "DEV_W",
+          "actsFor": "DEV_W",
+          "bound": false,
+          "active": false
+        },
+        "DEV_X": {
+          "rootOf": "DEV_X",
+          "actsFor": "DEV_X",
+          "bound": false,
+          "active": false
+        },
+        "PAIR_J": {
+          "rootOf": "PAIR_J",
+          "actsFor": "PAIR_J",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE_O": {
+          "rootOf": "BRIDGE_O",
+          "actsFor": "BRIDGE_O",
+          "bound": false,
+          "active": false
+        },
+        "DEV_C": {
+          "rootOf": "BOB",
+          "actsFor": "DEV_C",
+          "bound": true,
+          "active": false
+        },
+        "DEV_E": {
+          "rootOf": "BOB",
+          "actsFor": "DEV_E",
+          "bound": true,
+          "active": false
+        },
+        "DEV_F": {
+          "rootOf": "DEV_F",
+          "actsFor": "DEV_F",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE": {
+          "rootOf": "BOB",
+          "actsFor": "BRIDGE",
+          "bound": true,
+          "active": false
+        }
+      }
+    },
+    "I13": {
+      "records": 16,
+      "expected": {
+        "OWNER": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": false,
+          "active": false
+        },
+        "BOB": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": false,
+          "active": false
+        },
+        "CAROL": {
+          "rootOf": "CAROL",
+          "actsFor": "CAROL",
+          "bound": false,
+          "active": false
+        },
+        "INVITE": {
+          "rootOf": "INVITE",
+          "actsFor": "INVITE",
+          "bound": false,
+          "active": false
+        },
+        "DAVE": {
+          "rootOf": "DAVE",
+          "actsFor": "DAVE",
+          "bound": false,
+          "active": false
+        },
+        "DEV_A": {
+          "rootOf": "OWNER",
+          "actsFor": "DEV_A",
+          "bound": true,
+          "active": false
+        },
+        "DEV_A2": {
+          "rootOf": "DEV_A2",
+          "actsFor": "DEV_A2",
+          "bound": false,
+          "active": false
+        },
+        "DEV_B": {
+          "rootOf": "OWNER",
+          "actsFor": "OWNER",
+          "bound": true,
+          "active": true
+        },
+        "DEV_R": {
+          "rootOf": "DEV_R",
+          "actsFor": "DEV_R",
+          "bound": false,
+          "active": false
+        },
+        "DEV_W": {
+          "rootOf": "DEV_W",
+          "actsFor": "DEV_W",
+          "bound": false,
+          "active": false
+        },
+        "DEV_X": {
+          "rootOf": "DEV_X",
+          "actsFor": "DEV_X",
+          "bound": false,
+          "active": false
+        },
+        "PAIR_J": {
+          "rootOf": "PAIR_J",
+          "actsFor": "PAIR_J",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE_O": {
+          "rootOf": "BRIDGE_O",
+          "actsFor": "BRIDGE_O",
+          "bound": false,
+          "active": false
+        },
+        "DEV_C": {
+          "rootOf": "BOB",
+          "actsFor": "DEV_C",
+          "bound": true,
+          "active": false
+        },
+        "DEV_E": {
+          "rootOf": "BOB",
+          "actsFor": "DEV_E",
+          "bound": true,
+          "active": false
+        },
+        "DEV_F": {
+          "rootOf": "DEV_F",
+          "actsFor": "DEV_F",
+          "bound": false,
+          "active": false
+        },
+        "BRIDGE": {
+          "rootOf": "BOB",
+          "actsFor": "BOB",
+          "bound": true,
+          "active": true
+        }
+      }
+    }
+  },
+  "assignees": {
+    "records": 16,
+    "set": [
+      "p:3LcJU3p8ZrnXhcnemzHRzxki0J8iXhBHnCSzAs6z-fI",
+      "p:Fy0vwk0hku1XAyeaSdXbn3_ok1sBJQk5dvbpBs2AEh0",
+      "p:Pd8i_xRSdLzFnFb_3aq4wSP_6krJX_jpztvreIvwqcU"
+    ],
+    "expected": {
+      "crdt_set": [
+        "p:3LcJU3p8ZrnXhcnemzHRzxki0J8iXhBHnCSzAs6z-fI",
+        "p:Fy0vwk0hku1XAyeaSdXbn3_ok1sBJQk5dvbpBs2AEh0",
+        "p:Pd8i_xRSdLzFnFb_3aq4wSP_6krJX_jpztvreIvwqcU"
+      ],
+      "display_humans": [
+        "OWNER",
+        "BOB"
+      ],
+      "merged": {
+        "OWNER": [
+          "p:3LcJU3p8ZrnXhcnemzHRzxki0J8iXhBHnCSzAs6z-fI",
+          "p:Fy0vwk0hku1XAyeaSdXbn3_ok1sBJQk5dvbpBs2AEh0"
+        ]
+      }
+    }
+  }
+}
