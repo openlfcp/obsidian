@@ -20,6 +20,10 @@ since 0.4.0.
   device.
 - Join tells a device pairing link (`lfcp://pair/…`) from an invitation:
   "This is a link to add a device, not an invitation…", and uses nothing.
+- People, not installations: where someone uses several linked devices,
+  the access list shows them once, their devices inside, and their edits,
+  local name and assignments count for the person, with the device as
+  detail. A local name you give is now the person's, on all their devices.
 
 ## [0.6.0] — 2026-10-31
 
