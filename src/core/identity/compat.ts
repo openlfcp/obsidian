@@ -94,6 +94,12 @@ export interface PairingSectionSource {
   readonly status: (resourceId: string) => Promise<{
     readonly participants: readonly Participant[];
     readonly coordinator: string | null;
+    /**
+     * The validated Control state's sequence; null when there is none (not
+     * stored yet, or forked): then `participants` is empty because nothing
+     * is known, not because no one else is there.
+     */
+    readonly controlSeq: string | null;
   }>;
   /** Whether a server advertises identity-01, when known (READY, W §37). */
   readonly identityServer: (url: string) => boolean | null;
@@ -102,8 +108,9 @@ export interface PairingSectionSource {
 /**
  * The facts of the warning: per Resource, the people other than the
  * reader's (by person, §10: the reader's own devices are not others) and
- * its server's support. A Resource whose status cannot be read is kept,
- * with both not known, never left out.
+ * its server's support. A Resource whose status cannot be read, or whose
+ * status rests on no validated Control state, is kept with its people not
+ * known, never counted as used by no one.
  */
 export async function pairingSections(src: PairingSectionSource): Promise<PairingSection[]> {
   const out: PairingSection[] = [];
@@ -112,7 +119,10 @@ export async function pairingSections(src: PairingSectionSource): Promise<Pairin
       const s = await src.status(r.resourceId);
       out.push({
         name: r.name,
-        others: s.participants.filter((p) => p.invitation === undefined && !p.you).length,
+        others:
+          s.controlSeq === null
+            ? null
+            : s.participants.filter((p) => p.invitation === undefined && !p.you).length,
         identityServer: s.coordinator === null ? null : src.identityServer(s.coordinator),
       });
     } catch {
