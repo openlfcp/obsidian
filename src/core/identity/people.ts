@@ -163,6 +163,22 @@ export function deviceDetail(
 }
 
 /**
+ * An author as one line (§10): the person (its local alias, else its short
+ * ID), then the device detail when a device wrote: "Anna (from abcd-…)".
+ */
+export function authorLabel(
+  people: People,
+  actor: string,
+  aliases: Readonly<Record<string, string>> = {},
+  labels: Readonly<Record<string, string>> = {},
+): string {
+  const { root, device } = authorOf(people, actor);
+  const detail = deviceDetail(device, people.mine(root) ? labels : {});
+  const name = aliases[shortId(root)] ?? shortId(root);
+  return detail === null ? name : `${name} (${detail})`;
+}
+
+/**
  * The local alias of the person `principal` acts for (§10 "Aliases"):
  * aliases are keyed by the root's short ID, so a device shows its person's
  * name, and naming a device's row names its person.

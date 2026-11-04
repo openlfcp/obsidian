@@ -45,6 +45,7 @@ import {
   safeEvent,
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
+import { authorLabel } from "../core/identity/people";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
 import { hideHint } from "../core/pane/hints";
@@ -985,9 +986,11 @@ export default class OpenLfcpPlugin extends Plugin {
           if (fresh.length === 0) return;
           const entry = (await runtime.registry()).find((e) => toHex(e.resourceId) === key);
           const name = entry?.localName ?? unnamedResource(entry?.profile);
+          // The author is the person, the device as detail (IDENTITY-PROFILE-01 §10).
+          const people = await runtime.people(R);
           for (const b of fresh)
             new Notice(
-              `Shared Tasks: edits from ${b.principal.slice(0, 8)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
+              `Shared Tasks: edits from ${authorLabel(people, b.principal)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
             );
         } catch {
           // Reported again on the next event; never a reason to fail sync.

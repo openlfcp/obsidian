@@ -53,7 +53,14 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
-import { type PersonDevice, peopleOf, shortId } from "../identity/people";
+import {
+  authorOf,
+  deviceDetail,
+  type People,
+  type PersonDevice,
+  peopleOf,
+  shortId,
+} from "../identity/people";
 import type { BarrierWatch, IdentityBlock } from "../lfcp/identity-barrier";
 import {
   type BlockedCollaborator,
@@ -296,9 +303,12 @@ export interface ResourceStatus {
    * count and reason codes. Never content.
    */
   readonly blockedCollaborators?: readonly {
+    /** The person (their root, IDENTITY-PROFILE-01 §10), shortened. */
     readonly id: string;
     readonly units: number;
     readonly reasons: readonly string[];
+    /** The devices that wrote them, as detail ("from …", "via …"); empty when only the root's own installation did. */
+    readonly from: readonly string[];
   }[];
 }
 
@@ -323,6 +333,33 @@ export class CollabError extends Error {
     super(message);
     this.name = "CollabError";
   }
+}
+
+/**
+ * Blocked collaborators by person (IDENTITY-PROFILE-01 §10 "Attribution"):
+ * the units of a person's devices count for the person, `rootOf(actor)`,
+ * the devices as detail; in the order of each person's first actor.
+ */
+function blockedByPerson(
+  people: People,
+  blocked: readonly BlockedCollaborator[],
+): NonNullable<ResourceStatus["blockedCollaborators"]> {
+  const byRoot = new Map<string, { units: number; reasons: Set<string>; from: string[] }>();
+  for (const b of blocked) {
+    const { root, device } = authorOf(people, b.principal);
+    const entry = byRoot.get(root) ?? { units: 0, reasons: new Set<string>(), from: [] };
+    entry.units += b.units;
+    for (const r of b.reasons) entry.reasons.add(r);
+    const detail = deviceDetail(device);
+    if (detail !== null && !entry.from.includes(detail)) entry.from.push(detail);
+    byRoot.set(root, entry);
+  }
+  return [...byRoot].map(([root, e]) => ({
+    id: shortId(root),
+    units: e.units,
+    reasons: [...e.reasons].sort(),
+    from: e.from,
+  }));
 }
 
 const hostingKey = (R: ResourceId): string => `collab-hosting:${toHex(R)}`;
@@ -1038,13 +1075,7 @@ export class Collaboration {
       conflicts,
       ...(notApplied === undefined
         ? {}
-        : {
-            blockedCollaborators: notApplied.map((b) => ({
-              id: shortId(b.principal),
-              units: b.units,
-              reasons: b.reasons,
-            })),
-          }),
+        : { blockedCollaborators: blockedByPerson(people, notApplied) }),
     };
   }
 

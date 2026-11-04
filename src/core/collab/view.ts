@@ -213,7 +213,7 @@ export function statusView(s: ResourceStatus): StatusView {
                 : s.blockedCollaborators
                     .map(
                       (b) =>
-                        `${b.id}: ${b.units} change${b.units === 1 ? "" : "s"} (${b.reasons.join(", ")})`,
+                        `${b.id}${b.from.length === 0 ? "" : ` (${b.from.join(", ")})`}: ${b.units} change${b.units === 1 ? "" : "s"} (${b.reasons.join(", ")})`,
                     )
                     .join("; "),
           },
