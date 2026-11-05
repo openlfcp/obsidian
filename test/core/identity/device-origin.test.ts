@@ -10,7 +10,7 @@ import {
   type IdentityFlowOptions,
   syncChain,
 } from "@openlfcp/client";
-import { dataEpoch, type ResourceId, toHex } from "@openlfcp/core";
+import { dataEpoch, generateResourceId, type ResourceId, toHex } from "@openlfcp/core";
 import { InvitationSecret } from "@openlfcp/crypto";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import {
@@ -142,4 +142,54 @@ it("a Read device does not use the invitation: it cannot list the section for th
   expect(joined).toMatchObject({ kind: "refused", code: "NEEDS_WRITER" });
   expect(world.server.chain(Y).records.some((r) => r.body.type === "CAPABILITY_CLAIM")).toBe(false);
   expect(await b.runtime.hasResource(Y)).toBe(false);
+});
+
+it("a section created on a device that is not the first one is the root's, and the root reads it (§7.3)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  const requested = generateResourceId();
+  const create = () =>
+    b.collab.createSectionResource({
+      name: "Field notes",
+      endpoints: [WORLD_URL],
+      coordinatorUrl: WORLD_URL,
+      resourceId: requested,
+    });
+  const X = await create();
+  // Genesis: owned by the root, with the device's certificate chain (field 5), hosted now.
+  const genesis = world.server.chain(X).records[0]?.body;
+  expect(genesis?.type).toBe("GENESIS");
+  if (genesis?.type !== "GENESIS") throw new Error("no Genesis");
+  expect(toHex(genesis.owner.principalId)).toBe(me(a));
+  expect(genesis.deviceChain?.leaf.payload.device.principalId).toBeDefined();
+  expect(toHex(genesis.deviceChain?.leaf.payload.device.principalId ?? new Uint8Array())).toBe(
+    me(b),
+  );
+  // Stored and opened on B as its own section; the same request finds the same section.
+  expect(b.runtime.sectionProfile(X)).toBeDefined();
+  expect(toHex(await create())).toBe(toHex(X));
+  // The root reads it from the package sealed to it at creation, through the roster and the upkeep.
+  expect(
+    world.server.packagesOf(X).some((p) => toHex(p.recipient) === me(a) && p.dataEpoch === 0n),
+  ).toBe(true);
+  expect((await a.service.upkeep()).opened).toEqual(["Field notes"]);
+  expect(a.runtime.sectionProfile(X)).toBeDefined();
+});
+
+it("an Edit device does not create a section for its root: it says so, nothing is made (§7.3)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "edit"));
+  await expect(
+    b.collab.createSectionResource({
+      name: "Field notes",
+      endpoints: [WORLD_URL],
+      coordinatorUrl: WORLD_URL,
+      resourceId: generateResourceId(),
+    }),
+  ).rejects.toMatchObject({ code: "NOT_OWNER_ACTING" });
+  expect(await b.runtime.registry()).toEqual([]);
 });

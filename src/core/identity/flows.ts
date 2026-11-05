@@ -11,6 +11,7 @@ import {
   connectionNetwork,
   createIdentityResource,
   createPairingSession,
+  createResourceAsDevice,
   fetchDeks,
   loadIdentityDocument,
   openPairingSessions,
@@ -30,6 +31,7 @@ import {
 export interface IdentityFlows {
   readonly acceptInvitationAsDevice: typeof acceptInvitationAsDevice;
   readonly createIdentityResource: typeof createIdentityResource;
+  readonly createResourceAsDevice: typeof createResourceAsDevice;
   readonly createPairingSession: typeof createPairingSession;
   readonly resumePairingSession: typeof resumePairingSession;
   readonly openPairingSessions: typeof openPairingSessions;
@@ -54,6 +56,7 @@ export interface IdentityFlows {
 export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   acceptInvitationAsDevice,
   createIdentityResource,
+  createResourceAsDevice,
   createPairingSession,
   resumePairingSession,
   openPairingSessions,

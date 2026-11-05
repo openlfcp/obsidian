@@ -116,6 +116,13 @@ export interface CollabRuntime {
   profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
   writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null>;
   on(listener: (e: SyncEvent) => void): () => void;
+  /** A new shared-sections Resource, made locally (LfcpRuntime.createSectionResource). */
+  createSectionResource?(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+    readonly resourceId?: ResourceId;
+  }): Promise<ResourceId>;
   /** The session phase of a Resource ("CLOSED" when not open). */
   phase(resource: ResourceId): string;
   collaborationContext(): CollaborationContext | null;
@@ -172,7 +179,23 @@ export interface CollabOptions {
 export interface DeviceOrigin {
   /** §7.2: accepts an invitation for the root; `operation` resumes an earlier one. */
   accept(link: string, name: string, operation?: string): Promise<DeviceJoin>;
+  /**
+   * §7.3: creates a shared section owned by the root (Genesis field 5),
+   * hosted now, its key sealed to the root, listed in the roster. The same
+   * `operation` resumes it (the same section).
+   */
+  create(o: {
+    readonly name: string;
+    readonly url: string;
+    readonly operation: string;
+  }): Promise<DeviceCreate>;
 }
+
+/** What a device's creation of a section did. */
+export type DeviceCreate =
+  | { readonly kind: "created"; readonly resourceId: ResourceId; readonly listed: boolean }
+  | { readonly kind: "refused"; readonly code: string; readonly message: string }
+  | { readonly kind: "unavailable"; readonly message: string };
 
 /** What a device's acceptance of an invitation did. */
 export type DeviceJoin =
@@ -818,6 +841,41 @@ export class Collaboration {
       return false;
     const access = await this.#runtime.canWriteSection(R).catch(() => null);
     return access?.reason === "revoked" || access?.reason === "server-refused";
+  }
+
+  /**
+   * The Resource of a new shared section (the section creation's host,
+   * LFCP-02-050). On a device that is not the first one it is its root's
+   * (IDENTITY-PROFILE-01 §7.3): created with the SDK's
+   * createResourceAsDevice (Genesis with the device's chain, hosted now,
+   * the key sealed to the root, the roster entry), under an operation
+   * derived from `resourceId`, so that a resume finds the same section;
+   * its ID is the SDK's, which this returns. Elsewhere it is made locally
+   * as before, under `resourceId`, and hosted later.
+   */
+  async createSectionResource(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+    readonly resourceId: ResourceId;
+  }): Promise<ResourceId> {
+    const device = await this.#o.device();
+    if (device === null) {
+      if (this.#runtime.createSectionResource === undefined)
+        throw new CollabError("UNSUPPORTED_VALUE");
+      return this.#runtime.createSectionResource(options);
+    }
+    if (this.#o.sectionsReadOnly) throw new CollabError("SECTIONS_READ_ONLY", SECTIONS_READ_ONLY);
+    const r = await device.create({
+      name: options.name,
+      url: options.coordinatorUrl,
+      operation: `create-resource.${toHex(options.resourceId).slice(0, 32)}`,
+    });
+    if (r.kind === "refused") throw new CollabError(r.code, r.message);
+    if (r.kind === "unavailable") throw new CollabError("UNAVAILABLE", r.message);
+    // Stored and opened as a section of the roster is; already stored on a resume.
+    await this.openFromRoster(r.resourceId, options.name);
+    return r.resourceId;
   }
 
   /**

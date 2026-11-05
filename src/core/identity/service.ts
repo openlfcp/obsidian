@@ -64,6 +64,7 @@ import { actsFor, DEVICE_KIND } from "@openlfcp/wire";
 import {
   CollabError,
   type Collaboration,
+  type DeviceCreate,
   type DeviceJoin,
   type DeviceOrigin,
 } from "../collab/service";
@@ -1201,7 +1202,60 @@ export class DeviceService {
     const chain = await loadControlChain(c.storage, I);
     if (chain?.kind !== "linear" || bytesEqual(chain.state.owner.principalId, c.principal.id))
       return null;
-    return { accept: (link, name, operation) => this.#acceptAsDevice(link, name, operation) };
+    return {
+      accept: (link, name, operation) => this.#acceptAsDevice(link, name, operation),
+      create: (o) => this.#createAsDevice(o),
+    };
+  }
+
+  /** §7.3 with the SDK's createResourceAsDevice: a section owned by the root, Genesis field 5. */
+  async #createAsDevice(o: {
+    readonly name: string;
+    readonly url: string;
+    readonly operation: string;
+  }): Promise<DeviceCreate> {
+    try {
+      const r = await this.#flows.createResourceAsDevice({
+        ...this.#flow(),
+        dataProfile: SECTIONS_PROFILE_ID,
+        url: o.url,
+        ...(o.name.trim() === "" ? {} : { name: o.name.trim() }),
+        operation: o.operation,
+      });
+      switch (r.kind) {
+        case "created":
+          return { kind: "created", resourceId: r.resource, listed: r.roster };
+        case "incomplete":
+          return { kind: "created", resourceId: r.resource, listed: false };
+        case "not-owner-acting":
+          return {
+            kind: "refused",
+            code: "NOT_OWNER_ACTING",
+            message:
+              "This device cannot create shared sections for you: share it from your first device or a device with Full access.",
+          };
+        case "refused":
+          return {
+            kind: "refused",
+            code: r.code,
+            message: `The server refused the new section (${r.code}).`,
+          };
+        case "conflict":
+          return {
+            kind: "refused",
+            code: "CONTROL_CONFLICT",
+            message: "Your device list has two conflicting versions on the server.",
+          };
+        case "unavailable":
+          return {
+            kind: "unavailable",
+            message:
+              "The server could not be reached: a device makes your shared sections on the server, so sharing finishes when it is reachable.",
+          };
+      }
+    } catch (e) {
+      return { kind: "refused", code: "IDENTITY", message: this.#thrown(e).message };
+    }
   }
 
   /** §7.2 with the SDK's acceptInvitationAsDevice: the claim names the root. */
