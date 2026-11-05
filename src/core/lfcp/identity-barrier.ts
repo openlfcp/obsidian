@@ -66,9 +66,12 @@ export const IDENTITY_BLOCKED_LOCAL =
 /** Resource status's Sync row past a barrier: not offline, not retrying (obsidian#105 R5). */
 export const IDENTITY_SYNC = "Not syncing: this needs a newer version of Shared Tasks";
 
-/** A pairing link pasted where an invitation link goes (IDENTITY-PROFILE-01 §5.2). */
+/**
+ * A pairing link pasted where an invitation link goes (IDENTITY-PROFILE-01
+ * §5.2): it is used by "Pair this device with a link…" (LFCP-04-413).
+ */
 export const PAIRING_LINK_TEXT =
-  "This is a link to add a device, not an invitation. Adding devices comes in a later version of Shared Tasks: update the plugin when it is available, then use the link again. It was not used.";
+  'This is a link to add a device, not an invitation. To make this vault a device of yours, use "Pair this device with a link…" instead. It was not used.';
 
 /** The barrier entry's words, for Resource status and diagnostics (no secret, no content). */
 export const BARRIER_ENTRY_TEXT: Readonly<Record<BarrierEntry, string>> = {
