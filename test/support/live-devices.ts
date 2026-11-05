@@ -10,16 +10,11 @@
 // with LFCP_REQUIRE_LIVE=1 it fails instead.
 
 import type { WebSocketFactory, WebSocketLike } from "@openlfcp/client";
-import {
-  fromBase64url,
-  generateObjectId,
-  type ResourceId,
-  toBase64url,
-  toHex,
-} from "@openlfcp/core";
+import { generateObjectId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { Collaboration } from "../../src/core/collab/service";
 import { DeviceService } from "../../src/core/identity/service";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
+import { Platform } from "../mocks/obsidian";
 import { Device, FakeLocal, sleep } from "./lfcp-env";
 
 /** The platform WebSocket; while `offline`, every socket fails and open ones close. */
@@ -107,36 +102,42 @@ export interface LiveInstallation {
   texts(R: ResourceId): string[];
 }
 
-export interface InstallOptions {
-  /** Obsidian on a phone (V3, ARCH §74): the device flows' platform, sections read-only. */
-  readonly mobile?: boolean;
-}
-
 /** Installations of the plugin against one server; stops them all at the end. */
 export class LiveDevices {
   readonly #running: LfcpRuntime[] = [];
 
   constructor(readonly url: string) {}
 
-  async installation(name: string, o: InstallOptions = {}): Promise<LiveInstallation> {
+  /**
+   * A new installation. On a phone (the mock's Platform.isMobile, as a
+   * test sets it) it is wired as plugin.ts and lfcp-env.ts wire it there:
+   * sections read-only (V3), the device flows' platform "mobile".
+   */
+  async installation(name: string): Promise<LiveInstallation> {
+    const mobile = Platform.isMobile;
     const network = new LiveNetwork();
     const runtime = await LfcpRuntime.start(
       new Device().env(new FakeLocal(), {
         webSocket: network.factory,
         tickMs: 20,
-        ...(o.mobile === true ? { sectionsReadOnly: true } : {}),
+        sectionsReadOnly: mobile,
       }),
     );
     this.#running.push(runtime);
     if (runtime.status.kind !== "ready") throw new Error(`${name}: ${runtime.status.kind}`);
     const me = runtime.status.principalId;
-    const collab = new Collaboration(runtime, { connectTimeoutMs: 5000, sleep, sections: true });
+    const collab = new Collaboration(runtime, {
+      connectTimeoutMs: 5000,
+      sleep,
+      sections: true,
+      sectionsReadOnly: mobile,
+    });
     const service = new DeviceService({
       runtime: () => runtime,
       context: () => runtime.collaborationContext(),
       collab: () => collab,
       defaultServer: () => this.url,
-      platform: o.mobile === true ? "mobile" : "desktop",
+      platform: mobile ? "mobile" : "desktop",
       sections: true,
       sleep,
       requestTimeoutMs: 15_000,
@@ -271,10 +272,12 @@ export async function pairDevice(
   };
 }
 
-/** Polls the new device's request until its result is final (§5.3 steps 8, 11). */
+/** Polls the new device's request until its result is final (§5.3 steps 8, 11), each second. */
 export async function settled(b: LiveInstallation, operation: string) {
   return until(`${b.name}'s pairing result`, async () => {
+    await sleep(1000);
     const v = await b.service.progress(operation);
+    if (process.env.LFCP_LIVE_DEBUG === "1") console.log("PROGRESS", b.name, JSON.stringify(v));
     return v.final ? v : undefined;
   });
 }
