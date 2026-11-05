@@ -67,10 +67,7 @@ import {
   type Stop,
   sessionView,
 } from "./pairing-view";
-import { fingerprintOf, shortId } from "./people";
-
-/** Where the labels of the person's devices are kept between loads (Principal hex → label). */
-export const DEVICE_LABELS_KEY = "identity-device-labels";
+import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
 
 /** What the device flows need of the plugin runtime (LfcpRuntime implements it). */
 export interface DeviceRuntime {
@@ -208,8 +205,7 @@ export class DeviceService {
   }
 
   async #labels(): Promise<Readonly<Record<string, string>>> {
-    const v = await this.#runtime().localState.get(DEVICE_LABELS_KEY);
-    return typeof v === "object" && v !== null ? (v as Record<string, string>) : {};
+    return deviceLabelsOf(await this.#runtime().localState.get(DEVICE_LABELS_KEY));
   }
 
   /** Steps a crash, a refusal or a lost connection left unfinished on this device. */

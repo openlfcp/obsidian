@@ -28,7 +28,7 @@ import type { HostFacts } from "../core/actions/descriptors";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
-import { ALIASES_KEY } from "../core/identity/people";
+import { ALIASES_KEY, DEVICE_LABELS_KEY, deviceLabelsOf } from "../core/identity/people";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { PaneAccessFacts } from "../core/pane/access-facts";
@@ -900,6 +900,8 @@ export class SectionsHost {
               pendingControl: mine.pendingControl.map((p) => p.type),
             },
       aliases,
+      // The reader's own devices by their names in its device list (LFCP-04-413).
+      deviceLabels: deviceLabelsOf(await runtime?.localState.get(DEVICE_LABELS_KEY)),
       connected: runtime?.phase(R) === "LIVE",
       time: (ms) => `at ${new Date(ms).toLocaleTimeString()}`,
     });

@@ -6,8 +6,10 @@ import {
   aliasOf,
   assignedPeople,
   assigneeRef,
+  authorLabel,
   authorOf,
   deviceDetail,
+  deviceLabelsOf,
   fingerprintOf,
   isAssignedTo,
   peopleOf,
@@ -82,6 +84,17 @@ describe("people of a Resource (IDENTITY-PROFILE-01 §10, W §80.1)", () => {
   it("a fingerprint is the §5.2 form", () => {
     expect(fingerprintOf(P("DEV_B"))).toMatch(/^[a-z2-7]{4}(-[a-z2-7]{4}){3}$/);
     expect(fingerprintOf("not hex")).toBe("not hex".slice(0, 8));
+  });
+
+  it("the reader's own device labels name its devices, read as strings only (LFCP-04-413)", () => {
+    const people = peopleOf(stateOfX(), P("DEV_B"));
+    const labels = deviceLabelsOf({ [P("DEV_B")]: "Laptop", [P("DEV_A")]: 7 });
+    expect(labels).toEqual({ [P("DEV_B")]: "Laptop" });
+    expect(deviceLabelsOf(null)).toEqual({});
+    expect(authorLabel(people, P("DEV_B"), {}, labels)).toContain("(from Laptop)");
+    // Another person's device is never named by the reader's labels.
+    const other = peopleOf(stateOfX(), P("BOB"));
+    expect(authorLabel(other, P("DEV_B"), {}, labels)).not.toContain("Laptop");
   });
 
   it("aliases are keyed by the root: a device shows, and names, its person", () => {

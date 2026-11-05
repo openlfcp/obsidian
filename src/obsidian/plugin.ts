@@ -45,7 +45,13 @@ import {
   safeEvent,
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
-import { ALIASES_KEY, aliasesOf, personLabel } from "../core/identity/people";
+import {
+  ALIASES_KEY,
+  aliasesOf,
+  DEVICE_LABELS_KEY,
+  deviceLabelsOf,
+  personLabel,
+} from "../core/identity/people";
 import { DeviceService } from "../core/identity/service";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
@@ -1009,9 +1015,10 @@ export default class OpenLfcpPlugin extends Plugin {
           const people = await runtime.people(R);
           // One notice per person (R3), named as in the access list (R2; review obsidian#106).
           const aliases = aliasesOf(await runtime.localState.get(ALIASES_KEY));
+          const labels = deviceLabelsOf(await runtime.localState.get(DEVICE_LABELS_KEY));
           for (const b of fresh)
             new Notice(
-              `Shared Tasks: edits from ${personLabel(people, b, aliases)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
+              `Shared Tasks: edits from ${personLabel(people, b, aliases, labels)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
             );
         } catch {
           // Reported again on the next event; never a reason to fail sync.
