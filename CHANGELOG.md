@@ -31,6 +31,14 @@ since 0.4.0.
   your devices, and your shared sections open there. "Your devices…" lists
   them and removes one, warning first which devices stop with it. A phone
   still only reads shared sections.
+- A guide to your devices: [docs/guides/devices.md](docs/guides/devices.md).
+
+### Fixed
+
+- A shared section open while you added a device kept syncing: before, it
+  could stay "syncing" and miss the new device's edits until a restart.
+- A removed device asked to be paired again says it was removed and that a
+  new, empty vault is paired instead, not that it can add devices.
 
 ## [0.6.0] — 2026-10-31
 

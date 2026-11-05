@@ -27,11 +27,13 @@
 | [assets/screenshots/06-section-card-light.png](assets/screenshots/06-section-card-light.png) | everyone | README screenshot from real Obsidian 1.14.4 (synthetic notes): the card of a shared section |
 | [guides/user-guide.md](guides/user-guide.md) | everyone | Step-by-step user guide: install, create, share, invite, join, many tasks at once, offline, conflicts, troubleshooting |
 | [guides/shared-sections.md](guides/shared-sections.md) | everyone | Shared sections: share, invite, join and insert, what the marks mean, offline, conflicts, copying, removing access, detaching, repair, limits |
+| [guides/devices.md](guides/devices.md) | everyone | Your devices: add a device with a link and its fingerprint, the access levels, see and remove devices, a lost device, changing access, what collaborators see, known limits |
 | [guides/choosing-a-server.md](guides/choosing-a-server.md) | everyone | Choosing a sync server: the project server wss://sync.openlfcp.org as the default, why the choice is permanent, running your own |
 | [devel/testing/mobile-sections-checklist.md](devel/testing/mobile-sections-checklist.md) | developers, owner | Manual checks of read-only shared sections on one mobile device (LFCP-02-095, V3) |
 | [devel/testing/two-obsidian-beta-check.md](devel/testing/two-obsidian-beta-check.md) | release | One-page manual check of a 0.4 beta on two real Obsidian vaults: invitation, editing together, offline, a conflict, removing access |
 | [devel/testing/two-vault-e2e.md](devel/testing/two-vault-e2e.md) | developers | The two-vault E2E against the real server: running it, what it proves, the harness (LFCP-066) |
 | [devel/testing/pilot-0.3.md](devel/testing/pilot-0.3.md) | developers, release | MVP 0.3 performance budgets (B1–B6) and the human pilot protocol (five pairs, threshold, what is recorded), frozen before any measurement (LFCP-03-006) |
+| [devel/testing/device-scenarios.md](devel/testing/device-scenarios.md) | developers, release | The device scenarios of IDENTITY draft §7.4 against the reference server (LFCP-04-414): running them, older plugins and the old server, the status of each scenario |
 | [devel/testing/security-vertical-slice.md](devel/testing/security-vertical-slice.md) | release | The MVP 0.1 security/privacy release gate (LFCP-071): every security boundary in one live scenario |
 | [devel/testing/load-in-clean-vault.md](devel/testing/load-in-clean-vault.md) | developers | Manual check: load the built plugin in a clean vault |
 | [devel/testing/ime-checklist.md](devel/testing/ime-checklist.md) | release | Manual IME check in a shared note before the first 0.4 beta (the condition of ADR 0001) |
