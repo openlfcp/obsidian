@@ -17,6 +17,11 @@
 // claim's data/read and data/write), then rotates the epoch with a Key
 // Package for the owner only. B gets no later DEK and cannot write.
 //
+// Device phases (19–22, LFCP-04-414): A pairs a fourth vault D as its device
+// through the plugin's device flows, D writes the shared Task, A removes D
+// and rotates; no pairing link or key appears in status, diagnostics or
+// notices. They run before phase 18 (see there).
+//
 // Precise privacy claim: the server never receives application plaintext
 // (private Markdown, Task text), DEKs, private keys or invitation secrets.
 // It does see protocol metadata by design (Resource and Principal IDs,
@@ -75,6 +80,9 @@ import {
   validateControlChain,
 } from "@openlfcp/wire";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Collaboration } from "../../src/core/collab/service";
+import { diagnosticReport } from "../../src/core/diagnostics";
+import { collectDiagnostics } from "../../src/core/diagnostics-collect";
 import { serverBinary } from "../support/e2e-server";
 import { E2EVault, until } from "../support/e2e-vault";
 import { codeName, RawSession } from "../support/security-raw-session";
@@ -101,6 +109,13 @@ Only Vault A knows this. ${PRIVATE_A}
 
 Closing private A text.
 `;
+const PATH_D = `Work/d-${RUN}.md`;
+const NOTE_D = `# Vault D
+
+A's second device.
+
+Insert here.
+`;
 const NOTE_B = `# Vault B
 
 Only Vault B knows this. ${PRIVATE_B}
@@ -112,6 +127,8 @@ let server: SecurityServer;
 let A: E2EVault;
 let B: E2EVault;
 let C: E2EVault;
+/** A's second device, paired in phase 19 (LFCP-04-414). */
+let D: E2EVault | undefined;
 let R: ResourceId;
 let taskId: string;
 let phase = "setup";
@@ -130,7 +147,7 @@ beforeAll(async () => {
 }, 300_000);
 
 afterAll(async () => {
-  for (const v of [A, B, C]) await v?.close().catch(() => undefined);
+  for (const v of [A, B, C, D]) await v?.close().catch(() => undefined);
   await server?.stop();
 });
 
@@ -149,6 +166,12 @@ function ctx(v: E2EVault) {
   return c;
 }
 const me = (v: E2EVault) => ctx(v).principal.signer.descriptor;
+/** The collaboration flows over the vault's runtime (status as the plugin reads it). */
+const collabOf = (v: E2EVault) =>
+  new Collaboration(v.runtime, {
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    sections: true,
+  });
 
 async function chainOf(v: E2EVault) {
   const chain = await loadControlChain(ctx(v).storage, R);
@@ -190,7 +213,9 @@ async function step(name: string, body: () => Promise<void>): Promise<void> {
   try {
     await body();
   } catch (e) {
-    const where = await Promise.all([A, B, C].filter(Boolean).map(context));
+    const where = await Promise.all(
+      [A, B, C, D].filter((v): v is E2EVault => v !== undefined).map(context),
+    );
     throw new Error(
       `${e instanceof Error ? e.message : String(e)}\n--- ${where.join("\n--- ")}\n--- server log (tail, no payloads) ---\n${server.log().slice(-3000)}`,
     );
@@ -896,6 +921,184 @@ describe.skipIf(!live)(
         expect(bOnC.filter((u) => u.dataEpoch === 0n).every((u) => u.accepted)).toBe(true);
       }));
 
+    // LFCP-04-414 (IDENTITY draft §7.5): a person's second device, through the plugin's
+    // device flows (DeviceService: what "Add my other device…", "Pair this device with a
+    // link…" and "Remove device…" call), on the same Resource and server. They run
+    // before phase 18: its forged units, signed with A's key, would leave A's later
+    // honest units outside the frontier the removal's rotation computes (sdk-ts
+    // verifiedFrontier links units it cannot decrypt; reported in LFCP-04-414).
+    it("19. A pairs a new vault D as its device: the link, the same fingerprint on both, Full", () =>
+      step("19 pair a device", async () => {
+        A.plugin.settings.defaultServer = server.url;
+        D = await E2EVault.open("D");
+        watch(D);
+        const a = A.plugin.deviceService();
+        const d = D.plugin.deviceService();
+        if (a === null || d === null) throw new Error("no device service");
+        // The Resource is shared with C: the warning comes first.
+        expect((await a.firstPairingWarning())?.affected).toEqual([`"${NAME}" (1 other person)`]);
+        const session = await a.startSession("A");
+        if (session.kind !== "link" || session.result.kind !== "created")
+          throw new Error(`no link: ${session.kind}`);
+        // The link is a bearer secret: kept for the final rescan, never printed.
+        links.push(session.result.link.reveal());
+        expect(String(session.result.link)).not.toContain("#secret=");
+        expect(JSON.stringify(session.result.link)).not.toContain("#secret=");
+        const requested = await d.request(session.result.link, "D");
+        if (requested.kind !== "requested") throw new Error(requested.message);
+        const review = await until("D's request on A", async () => {
+          const r = await a.requests(session.session);
+          return Array.isArray(r) ? r[0] : undefined;
+        });
+        expect(review.fingerprint).toBe(requested.fingerprint);
+        expect((await a.approve(review, "full")).kind).toBe("done");
+        const done = await until(
+          "the Resource on D",
+          async () => {
+            const v = await d.progress(requested.operation);
+            return v.final ? v : undefined;
+          },
+          60_000,
+        );
+        expect(done.sections).toEqual([{ name: NAME, status: "ready" }]);
+        // Read with the crypto module D's plugin loaded (a restart reloaded it: phase 11).
+        const { exportSecretKeyBytes: exportKey } = await import("@openlfcp/crypto");
+        privateKeys.push({
+          label: "D signing key",
+          bytes: Buffer.from(exportKey(ctx(D).principal.signer.key)),
+        });
+        privateKeys.push({
+          label: "D agreement key",
+          bytes: Buffer.from(exportKey(ctx(D).principal.agreement)),
+        });
+        // A device is not a participant of its own: the Resource lists A with D inside.
+        const owner = (await collabOf(A).status(R)).participants.find(
+          (p) => p.principal === toHex(me(A).principalId),
+        );
+        expect(owner?.devices?.map((x) => x.principal)).toEqual([
+          toHex(me(D as E2EVault).principalId),
+        ]);
+      }));
+
+    it("20. D writes the shared Task as A's device; A and C apply it, authored by A", () =>
+      step("20 write from the device", async () => {
+        const dev = D as E2EVault;
+        await dev.write(PATH_D, NOTE_D);
+        dev.focus(PATH_D, "Insert here.");
+        await until(
+          "the shared Task on D",
+          async () =>
+            (await sharedTask(dev))?.task?.title === `${TASK} after snapshot` ? true : undefined,
+          60_000,
+        );
+        // D holds the Task now: inserted into its note, then edited there.
+        expect(
+          await dev.command("insert-shared-object", [NAME, `${TASK} after snapshot`]),
+        ).toContain("shared task inserted");
+        await dev.editLine(PATH_D, `${TASK} after snapshot`, `${TASK} from D`);
+        for (const v of [A, C])
+          await until(
+            `D's edit on ${v.name}`,
+            async () =>
+              (await sharedTask(v))?.task?.title === `${TASK} from D` ? true : undefined,
+            60_000,
+          );
+        // Signed by D, acting for A (rootOf): one person.
+        const people = await A.runtime.people(R);
+        expect(people.root(toHex(me(dev).principalId))).toBe(toHex(me(A).principalId));
+      }));
+
+    it("21. A removes D: DEVICE_REVOKE, then KEY_EPOCH; C gets the new key, D is refused and has none", () =>
+      step("21 remove and rotate", async () => {
+        const dev = D as E2EVault;
+        const a = A.plugin.deviceService();
+        if (a === null) throw new Error("no device service");
+        const before = (await chainOf(A)).state.epoch.epoch;
+        const removed = await a.remove(toHex(me(dev).principalId), 1n, "D");
+        expect(removed.kind, removed.message).toBe("done");
+        const chain = await chainOf(A);
+        const next = chain.state.epoch.epoch;
+        expect(next).toBe(before + 1n);
+        expect(chain.records.some((r) => r.body.type === "DEVICE_REVOKE")).toBe(true);
+        // The reader C gets the new DEK; D gets none and is refused.
+        await until(
+          "the new DEK on C",
+          async () =>
+            (await dekResolver(ctx(C).storage, ctx(C).secrets, R)(next)) !== undefined
+              ? true
+              : undefined,
+          60_000,
+        );
+        await until(
+          "D refused",
+          () => (dev.runtime.refusal(R)?.code === "AUTHORIZATION_FAILED" ? true : undefined),
+          60_000,
+        );
+        expect(await dekResolver(ctx(dev).storage, ctx(dev).secrets, R)(next)).toBeUndefined();
+        // Against this server (identity-01), D's removal is proven to it.
+        expect(await dev.plugin.deviceService()?.accessStates()).toEqual([
+          { name: NAME, text: "This device was removed from your identity." },
+        ]);
+        // A's next edit (back to the title phase 18 starts from) reaches C in the new epoch, not D.
+        await A.editLine(PATH_A, `${TASK} from D`, `${TASK} after snapshot`);
+        await until(
+          "A's edit on C after the rotation",
+          async () =>
+            (await sharedTask(C))?.task?.title === `${TASK} after snapshot` ? true : undefined,
+          60_000,
+        );
+        expect((await sharedTask(dev))?.task?.title).toBe(`${TASK} from D`);
+      }));
+
+    it("22. no pairing link or device key in status, diagnostics or notices", () =>
+      step("22 device secrets", async () => {
+        const dev = D as E2EVault;
+        const secrets = [
+          ...links
+            .filter((l) => l.startsWith("lfcp://pair/"))
+            .flatMap((l) => [l, l.slice(l.indexOf("#secret=") + 8)]),
+          ...privateKeys.map((k) => k.bytes.toString("hex")),
+          ...privateKeys.map((k) => k.bytes.toString("base64")),
+        ];
+        expect(secrets.length).toBeGreaterThan(2);
+        for (const v of [A, dev]) {
+          const status = JSON.stringify(await collabOf(v).status(R), (_k, x) =>
+            typeof x === "bigint" ? `${x}` : x,
+          );
+          const service = v.plugin.deviceService();
+          const devices = JSON.stringify(await service?.devices());
+          const unfinished = JSON.stringify(await service?.unfinished());
+          const reports = await Promise.all(
+            [false, true].map(async (detailed) =>
+              diagnosticReport(
+                await collectDiagnostics({
+                  runtime: v.runtime,
+                  collab: collabOf(v),
+                  sections: v.plugin.sections,
+                  events: [],
+                  plugin: "0.0.0",
+                  obsidian: "1.13.4",
+                  platform: "linux",
+                  needsRestart: false,
+                }),
+                detailed,
+              ),
+            ),
+          );
+          const notices = v.prompter.notices.join("\n");
+          for (const [where, text] of [
+            ["status", status],
+            ["the device list", devices],
+            ["unfinished steps", unfinished],
+            ["the diagnostics", reports.join("\n")],
+            ["the notices", notices],
+          ] as const)
+            for (const secret of secrets)
+              expect(text.includes(secret), `a secret in ${v.name}'s ${where}`).toBe(false);
+        }
+        expect(server.log()).not.toContain("lfcp://pair/");
+      }));
+
     it("18. the client verifies every server-delivered unit: forged units are refused, not merged", () =>
       step("18 server trust", async () => {
         // SDK through the plugin runtime: A's own key signs two units the server accepts but a
@@ -990,8 +1193,8 @@ describe.skipIf(!live)(
     it("17. final rescan: no Markdown, Task plaintext, DEK, private key or invitation secret on the server", () =>
       step("17 final privacy", async () => {
         const secrets: { label: string; bytes: Buffer }[] = [...privateKeys];
-        expect(secrets).toHaveLength(6);
-        for (const e of [0n, 1n, 2n]) {
+        expect(secrets).toHaveLength(8);
+        for (const e of [0n, 1n, 2n, 3n]) {
           const dek = await dekResolver(ctx(A).storage, ctx(A).secrets, R)(e as DataEpoch);
           if (dek !== undefined)
             secrets.push({
@@ -999,7 +1202,7 @@ describe.skipIf(!live)(
               bytes: Buffer.from(exportSecretKeyBytes(dek)),
             });
         }
-        expect(secrets.filter((s) => s.label.startsWith("DEK"))).toHaveLength(3);
+        expect(secrets.filter((s) => s.label.startsWith("DEK"))).toHaveLength(4);
         for (const link of links) {
           const secret = link.slice(link.indexOf("#secret=") + 8);
           secrets.push({ label: "an invitation secret", bytes: Buffer.from(secret) });
@@ -1016,7 +1219,7 @@ describe.skipIf(!live)(
           for (const s of [...secrets, ...texts])
             expect(p.bytes.includes(s.bytes), `${s.label} in ${p.where}`).toBe(false);
         // The wire carried none of it either (only sealed packages and ciphertext).
-        for (const v of [A, B, C])
+        for (const v of [A, B, C, D as E2EVault])
           for (const f of v.network.frames)
             for (const s of [...secrets, ...texts])
               expect(Buffer.from(f.bytes).includes(s.bytes), `${s.label} on ${v.name}'s wire`).toBe(

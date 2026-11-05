@@ -5,7 +5,9 @@ It runs one scenario that crosses every security boundary:
 
 Principal → Genesis and DEK → invitation and claim → HPKE → authenticated
 session → encrypted Data Units → offline → anti-entropy → restart →
-revocation → epoch rotation → stale-write cutoff → Snapshot → catch-up.
+revocation → epoch rotation → stale-write cutoff → Snapshot → catch-up →
+a second device: pair → write from the device → remove → rotate
+(LFCP-04-414, IDENTITY draft §7.5).
 
 The server must never receive application plaintext at any point.
 **If it fails, OpenLFCP MVP 0.1 is not ready for release.**
@@ -25,9 +27,9 @@ must set it. It takes about 10 seconds once the server is built.
 
 ## Real components, no bypasses
 
-- **Vaults:** three vaults (A, B, C) on the LFCP-066 harness. Each has its
-  own mock app, `secretStorage`, IndexedDB install and Principal, and runs
-  the real plugin.
+- **Vaults:** three vaults (A, B, C) on the LFCP-066 harness, then a fourth
+  (D, A's second device). Each has its own mock app, `secretStorage`,
+  IndexedDB install and Principal, and runs the real plugin.
 - **Server:** the real reference server binary over real WebSockets.
 - **Invitations:** the real invitation and claim flow.
 - **Not used anywhere:** plaintext transport, fake grants, pre-shared
@@ -44,6 +46,10 @@ resolution. Some steps have no UI:
 These steps call the SDK through the plugin runtime
 (`runtime.collaborationContext()`: the vault's own storage, secrets,
 Principal and pooled session), and each test says so.
+
+The device phases (19–22) call the plugin's device flows (`DeviceService`:
+what "Add my other device…", "Pair this device with a link…" and "Remove
+device…" call) without their dialogs.
 
 **Revocation scenario:**
 - The owner revokes B's whole claimed grant (`data/read` and `data/write`).
@@ -69,8 +75,12 @@ Principal and pooled session), and each test says so.
 | 13a/14a Routine rotation | B's offline epoch-0 unit is beyond the cutoff: quarantined, never merged; B re-applies it as a new epoch-1 unit, reusing the removed Automerge sequence (§9, baseline.6), and keeps writing |
 | 13b/14b/15 Revocation | `CAPABILITY_REVOKE` + `KEY_EPOCH` 1 → 2. The server answers B's stale epoch-1 unit `STALE_DATA_EPOCH`; A, given the bytes directly, quarantines them, keeps the evidence and does not merge; B is refused `RESOURCE_OPEN` (`AUTHORIZATION_FAILED`), keeps its item, and has no epoch-2 DEK |
 | 16 Snapshot | A publishes a signed, encrypted Snapshot, then writes more; C joins by a new invitation, loads the Snapshot, catches up beyond its frontier and equals A's full state; Control comes from the chain; earlier-epoch units within their cutoffs stay accepted |
+| 19 Pair a device | The warning before the first pairing names the Resource (shared with C); A's link (a bearer secret, redacted when printed or serialized); D requests with it; the same fingerprint on A and D; A approves Full; D opens the Resource from the roster; A lists D under itself, not as a participant |
+| 20 Write from the device | D inserts the shared Task and edits it; A and C apply the edit; D acts for A (`rootOf`) |
+| 21 Remove and rotate | A removes D (lost): `DEVICE_REVOKE`, then `KEY_EPOCH` to the next epoch; C gets the new DEK, D gets none, is refused (`AUTHORIZATION_FAILED`) and is shown its removal as proven (identity-01); A's next edit reaches C, not D |
+| 22 Device secrets | Neither the pairing link nor its secret, nor any vault's private key, appears in A's or D's Resource status, device list, unfinished steps, diagnostics (plain and detailed) or notices, nor in the server log |
 | 18 Server trust | Two units signed by A that the server accepts: garbage ciphertext, and a correctly encrypted unit framing B's change. C refuses both (`AEAD`, `PROFILE_REJECTED`), merges neither, and A's next edit still reaches C |
-| 17 Final privacy | No marker, DEK of any epoch, private key or invitation secret/link in the server's state, log or `/health`, nor on any vault's wire; client stores hold the authorized Task, never the other vault's Markdown |
+| 17 Final privacy | No marker, DEK of any epoch (0–3), private key (D's too) or invitation or pairing secret/link in the server's state, log or `/health`, nor on any vault's wire; client stores hold the authorized Task, never the other vault's Markdown |
 
 **What the privacy claim covers.** The server never receives application
 plaintext, DEKs, private keys or invitation secrets. It does see protocol
@@ -90,3 +100,14 @@ timing. The test does not assert otherwise.
 **Failure messages** carry the phase, vault, Resource ID, Control Head,
 epoch and Task ID. They never include keys, DEKs, invitation links or
 decrypted test data.
+
+**Order.** The device phases run after phase 16 and before phase 18. Phase
+18's forged units are signed with A's key and accepted by the server; a
+removal's rotation after them computes a frontier (sdk-ts
+`verifiedFrontier`) that leaves A's next honest units outside, which every
+reader had accepted, so readers quarantine them (found in LFCP-04-414,
+reported to sdk-ts).
+
+The slice's server lifts the reference server's limit of new WebSockets per
+IP per minute: every vault connects from 127.0.0.1 and the device flows
+connect per call. It is an abuse limit, not a boundary this slice tests.

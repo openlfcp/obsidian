@@ -68,6 +68,10 @@ export async function startSecurityServer(bin: string): Promise<SecurityServer> 
       `state_dir = ${JSON.stringify(join(dir, "state"))}`,
       `public_urls = [${JSON.stringify(url)}]`,
       "heartbeat_ms = 5000",
+      // Every vault connects from 127.0.0.1, and the device phases (19–22) open a
+      // connection per device flow: the server's new WebSockets per IP per minute
+      // (POST-003, an abuse limit, not a boundary this slice tests) would refuse them.
+      "connections_per_ip_per_minute = 0",
       "",
     ].join("\n"),
   );
