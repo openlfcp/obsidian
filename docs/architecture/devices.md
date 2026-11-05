@@ -111,10 +111,12 @@ accepted the new certificate.
   SDK chose (`requested` keeps the first one). An Edit device is refused.
 - **Reaching the other devices.** The upkeep reads the roster and opens
   every section there this device does not hold and may use (§6 "ready").
-- **The first device's new sections.** Queued for the roster and listed
-  through `RosterWriter` (`src/core/identity/roster.ts`). SDK 0.3.0 has no
-  call for it (SDK 0.3.1, LFCP-04-410d): until then the port answers
-  "unsupported", and the section is shown as "Not on your other devices
+- **The first device's new sections.** Whoever creates or accepts a
+  Resource after the device list exists adds it to the roster (SDK 0.3.1;
+  reconciliation adds none). A section the first device creates or joins
+  is queued and listed with the SDK's `addToRoster` (behind
+  `RosterWriter`, `src/core/identity/roster.ts`), then and at every
+  upkeep; until it is listed, it is shown as "Not on your other devices
   yet" instead of "up to date".
 
 ## New device's side
