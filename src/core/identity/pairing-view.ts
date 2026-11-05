@@ -109,15 +109,13 @@ export function sessionView(r: PairingSessionResult): SessionView {
   }
 }
 
+const MOBILE = /mobile|phone|ios|android/i;
+
 /** The preset offered first for a request (§5.4): Edit for a phone, Service for a service, else Full. */
 export function defaultPreset(review: PairingReview): MaskPreset {
   const offered = (p: MaskPreset) => review.presets.some((o) => o.preset === p && o.offered);
   const wanted: MaskPreset =
-    review.kind === 1
-      ? "service"
-      : /mobile|phone|ios|android/i.test(review.platform ?? "")
-        ? "edit"
-        : "full";
+    review.kind === 1 ? "service" : MOBILE.test(review.platform ?? "") ? "edit" : "full";
   if (offered(wanted)) return wanted;
   return review.presets.find((o) => o.offered)?.preset ?? wanted;
 }
@@ -151,6 +149,12 @@ export function reviewView(review: PairingReview, names: Names): ReviewView {
       service
         ? `${review.label} (service) asks to join ${list(review.requestedScope.map((r) => names.resource(toHex(r))))}; access: read and write.`
         : "A device of yours: it gets every section you have.",
+      // V3 (LFCP-02-095, §10 "Mobile"): a phone does not write shared sections in this version.
+      ...(!service && MOBILE.test(review.platform ?? "")
+        ? [
+            "On a phone, shared sections stay read-only in this version of Shared Tasks, whatever access you give.",
+          ]
+        : []),
     ],
     presets: review.presets
       .filter((p) => (service ? p.preset === "service" : p.preset !== "service"))
