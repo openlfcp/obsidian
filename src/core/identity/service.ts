@@ -608,6 +608,17 @@ export class DeviceService {
       if (!roster.has(toHex(r.resource))) await this.#queueRoster(toHex(r.resource));
   }
 
+  /**
+   * A device flow's section whose roster entry was refused (the SDK's
+   * `incomplete`): queued, so that "Your devices…" shows it and the
+   * upkeep (or Finish now) lists it with addToRoster. The device holds
+   * data/write in the device list, or the flow would not have claimed
+   * or created it (§7.2, §7.3).
+   */
+  async #rosterOwed(resource: ResourceId): Promise<void> {
+    await this.#queueRoster(toHex(resource)).catch(() => undefined);
+  }
+
   /** Adds a section (hex) to the roster queue, read-modify-write: a concurrent change is kept. */
   async #queueRoster(hex: string): Promise<void> {
     await this.#runtime().localState.update(ROSTER_PENDING_KEY, (v) => {
@@ -1397,6 +1408,8 @@ export class DeviceService {
         case "created":
           return { kind: "created", resourceId: r.resource, listed: r.roster };
         case "incomplete":
+          // Made and keyed, but the roster entry was refused: owed, listed by the queue (§7.3).
+          await this.#rosterOwed(r.resource);
           return { kind: "created", resourceId: r.resource, listed: false };
         case "not-owner-acting":
           return {
@@ -1442,6 +1455,8 @@ export class DeviceService {
         case "claimed":
           return { kind: "claimed", resourceId: r.resource, listed: r.roster };
         case "incomplete":
+          // Claimed and keyed, but the roster entry was refused: owed, listed by the queue (§7.2).
+          await this.#rosterOwed(r.resource);
           return { kind: "claimed", resourceId: r.resource, listed: false };
         case "needs-writer":
           return {

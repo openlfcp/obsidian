@@ -373,3 +373,58 @@ it("a section whose roster queue entry was lost is recovered from this device's 
   expect(world.server.chain(X).state.devices.get(me(b))?.registered).toBe(true);
   expect((await b.service.upkeep()).opened).toEqual(["Late"]);
 });
+
+/** The device list's server refuses B's units in the device list (its roster entry), until lifted. */
+function refuseRosterUnits(I: ResourceId) {
+  world.server.fault = (e) =>
+    e.op === "data-unit" && toHex(e.resource) === toHex(I) ? { nack: "QUOTA_EXCEEDED" } : undefined;
+  return () => {
+    world.server.fault = () => undefined;
+  };
+}
+
+it("a device's section whose roster entry was refused is owed, and the upkeep lists it for the root (review #109 P2-1, §7.3)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  const I = await a.service.identity();
+  if (I === undefined) throw new Error("no device list");
+  const lift = refuseRosterUnits(I);
+  const X = await b.collab.createSectionResource({
+    name: "Field notes",
+    endpoints: [WORLD_URL],
+    coordinatorUrl: WORLD_URL,
+    resourceId: generateResourceId(),
+  });
+  // Made and keyed, not listed: owed, and the root does not get it yet.
+  expect((await b.service.unfinished()).find((u) => u.kind === "roster")?.sections).toEqual([
+    "Field notes",
+  ]);
+  expect((await a.service.upkeep()).opened).toEqual([]);
+  lift();
+  await b.service.upkeep();
+  expect((await b.service.unfinished()).filter((u) => u.kind === "roster")).toEqual([]);
+  expect((await a.service.upkeep()).opened).toEqual(["Field notes"]);
+  expect(a.runtime.sectionProfile(X)).toBeDefined();
+});
+
+it("a device's join whose roster entry was refused is owed, and the upkeep lists it for the root (review #109 P2-1, §7.2)", async () => {
+  world = new DeviceWorld();
+  const o = await world.installation();
+  const a = await world.installation();
+  const b = await world.installation();
+  const Y = await o.section("Shared notes");
+  await b.service.progress(await pair(a, b, "full"));
+  const I = await a.service.identity();
+  if (I === undefined) throw new Error("no device list");
+  const link = await invite(o, Y);
+  const lift = refuseRosterUnits(I);
+  expect((await b.collab.join(link, { name: "Shared notes" })).kind).toBe("joined");
+  expect((await b.service.unfinished()).find((u) => u.kind === "roster")?.sections).toEqual([
+    "Shared notes",
+  ]);
+  lift();
+  await b.service.upkeep();
+  expect((await a.service.upkeep()).opened).toEqual(["Shared notes"]);
+});
