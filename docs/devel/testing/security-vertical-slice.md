@@ -78,7 +78,7 @@ device…" call) without their dialogs.
 | 19 Pair a device | The warning before the first pairing names the Resource (shared with C); A's link (a bearer secret, redacted when printed or serialized); D requests with it; the same fingerprint on A and D; A approves Full; D opens the Resource from the roster; A lists D under itself, not as a participant |
 | 20 Write from the device | D inserts the shared Task and edits it; A and C apply the edit; D acts for A (`rootOf`) |
 | 21 Remove and rotate | A removes D (lost): `DEVICE_REVOKE`, then `KEY_EPOCH` to the next epoch; C gets the new DEK, D gets none, is refused (`AUTHORIZATION_FAILED`) and is shown its removal as proven (identity-01); A's next edit reaches C, not D |
-| 22 Device secrets | Every output of the device phases, recorded as they run (the link shown, the request sent, approved, paired, D removed, the end): each vault's Resource status, device list, unfinished steps and access states, the real "Export diagnostics…" report (plain and detailed, also saved as a vault file), the dialogs' views (link, request, review, approval, progress, removal preview and result, D's refusal), notices and every vault file; and the clients' whole console, the server log, `/health` and its stored state. None holds a canary: the pairing link or its secret, any value of any vault's secretStorage, any vault's private key, or a DEK of the Resource or of A's device list (any epoch), as hex, base64 or base64url. A negative control plants secrets in an output and requires the scan to find each one |
+| 22 Device secrets | Every output of the device phases, recorded as they run (the link shown, the request sent, approved, paired, D removed, the end): each vault's Resource status, device list, unfinished steps and access states, the real "Export diagnostics…" report (plain and detailed, also saved as a vault file), the dialogs' views (link, request, review, approval, progress, removal preview and result, D's refusal), notices and every vault file; and the clients' whole console (each call formatted as the console prints it, objects at any depth, and as JSON with every byte array in hex, base64 and base64url), the server log, `/health` and its stored state. None holds a canary: the pairing link or its secret, any value of any vault's secretStorage (as stored, and its decoded bytes), any vault's private key, or a DEK of the Resource or of A's device list (any epoch), as hex, base64 or base64url. A negative control plants secrets in an output and requires the scan to find each one; two more go through the real console capture and must be found: an object holding D's signing key (as bytes, and nested as hex), and the hex of a secret known only through D's secretStorage |
 | 18 Server trust | Two units signed by A that the server accepts: garbage ciphertext, and a correctly encrypted unit framing B's change. C refuses both (`AEAD`, `PROFILE_REJECTED`), merges neither, and A's next edit still reaches C |
 | 17 Final privacy | No marker, DEK of any epoch (0–3), private key (D's too) or invitation or pairing secret/link in the server's state, log or `/health`, nor on any vault's wire, as raw bytes; nor, as hex, base64 or base64url, any of phase 22's canaries (the device list's DEKs and every stored secret included); client stores hold the authorized Task, never the other vault's Markdown |
 
@@ -112,5 +112,9 @@ The slice's server lifts the reference server's limit of new WebSockets per
 IP per minute: every vault connects from 127.0.0.1 and the device flows
 connect per call. It is an abuse limit, not a boundary this slice tests.
 
-**Checked by hand once (LFCP-04-414 review R2):** with D's signing key
-printed to the console in hex just before phase 22, phase 22 fails.
+**Checked by hand (LFCP-04-414 review R2, and #108b R2):** phase 22
+fails with D's signing key printed to the console in hex; with an object
+holding that key left in the console; and with a secret known only
+through D's secretStorage, decoded, printed in hex. With the console
+captured as `String(arg)` the object control fails, and with the slots
+not decoded the slot control finds nothing to plant.

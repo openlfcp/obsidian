@@ -32,6 +32,7 @@
 // phase, vault, Resource ID, Control Head, epoch and non-secret object IDs,
 // never keys, DEKs, the invitation secret or decrypted test data.
 
+import { formatWithOptions } from "node:util";
 import {
   createDataUnit,
   type DataProfileHandler,
@@ -139,6 +140,45 @@ const eventsOf = new Map<string, SyncEvent[]>();
 
 /** Every line the clients printed to the console (all methods), for the device secrets' scan. */
 const consoleLines: string[] = [];
+
+/**
+ * One console call as the scan reads it (review obsidian#108b R2): the text
+ * the real console prints (util.formatWithOptions, objects at any depth,
+ * nothing cut), then the arguments as JSON where every byte array is
+ * written in hex, base64 and base64url, so a key passed in an object or as
+ * bytes is found in the encodings it is looked for in.
+ */
+function consoleText(args: readonly unknown[]): string {
+  const printed = formatWithOptions(
+    {
+      depth: Number.POSITIVE_INFINITY,
+      colors: false,
+      maxArrayLength: Number.POSITIVE_INFINITY,
+      maxStringLength: Number.POSITIVE_INFINITY,
+      breakLength: Number.POSITIVE_INFINITY,
+    },
+    ...args,
+  );
+  const seen = new WeakSet<object>();
+  let structured = "";
+  try {
+    structured = JSON.stringify(args, (_k, v: unknown) => {
+      if (v instanceof Uint8Array) {
+        const b = Buffer.from(v);
+        return `${b.toString("hex")} ${b.toString("base64")} ${b.toString("base64url")}`;
+      }
+      if (typeof v === "bigint") return `${v}`;
+      if (typeof v === "object" && v !== null) {
+        if (seen.has(v)) return "[circular]";
+        seen.add(v);
+      }
+      return v;
+    });
+  } catch (e) {
+    structured = `[not JSON: ${String(e)}]`;
+  }
+  return `${printed}\n${structured}`;
+}
 const consoleOriginal = new Map<string, (...args: unknown[]) => void>();
 
 beforeAll(async () => {
@@ -147,7 +187,7 @@ beforeAll(async () => {
     const original = console[m].bind(console);
     consoleOriginal.set(m, original);
     console[m] = (...args: unknown[]) => {
-      consoleLines.push(args.map((a) => (typeof a === "string" ? a : String(a))).join(" "));
+      consoleLines.push(consoleText(args));
       original(...args);
     };
   }
@@ -221,9 +261,17 @@ async function deviceCanaries(): Promise<{ label: string; text: string }[]> {
     out.push({ label: "the pairing secret", text: link.slice(link.indexOf("#secret=") + 8) });
   }
   for (const v of [A, B, C, D as E2EVault])
-    for (const [id, value] of v.app.secretStorage.values)
+    for (const [id, value] of v.app.secretStorage.values) {
       if (value.length >= 16 && !value.startsWith("{"))
         out.push({ label: `${v.name}'s secret ${id}`, text: value });
+      // A stored secret is "v1:" + base64url of its bytes (src/core/lfcp/secrets.ts):
+      // the bytes themselves are looked for too, in each encoding (review #108b R2).
+      const raw = /^v1:([A-Za-z0-9_-]+)$/.exec(value)?.[1];
+      if (raw !== undefined) {
+        const bytes = Buffer.from(raw, "base64url");
+        if (bytes.length >= 16) out.push(...encodings(`${v.name}'s secret ${id}, decoded`, bytes));
+      }
+    }
   for (const k of privateKeys) out.push(...encodings(k.label, k.bytes));
   const I = await A.plugin.deviceService()?.identity();
   for (const [name, resource] of [
@@ -1207,6 +1255,31 @@ describe.skipIf(!live)(
           expect(
             leaks([{ where: "a planted output", text: `log: ${c.text}.` }], canaries),
           ).toContain(`${c.label} in a planted output`);
+        // Negative controls through the real console capture (review #108b R2): each is
+        // printed, must be found, and is then taken out before the scan below.
+        const before = consoleLines.length;
+        const signing = privateKeys.find((k) => k.label === "D signing key");
+        if (signing === undefined) throw new Error("no D signing key");
+        // (1) An object holding a key, as bytes and nested as hex: printed as the console prints it.
+        console.warn("planted:", { device: { key: Uint8Array.from(signing.bytes) } });
+        console.warn("planted:", { nested: { deeper: { key: signing.bytes.toString("hex") } } });
+        // (2) A secret known only through secretStorage (no other canary has it): its bytes in hex.
+        const slot = canaries.find(
+          (c) =>
+            c.label.startsWith("D's secret ") &&
+            c.label.endsWith(", decoded (hex)") &&
+            !canaries.some((o) => !o.label.startsWith("D's secret ") && o.text === c.text),
+        );
+        if (slot === undefined) throw new Error("no secret of D known only through its slot");
+        console.log(`planted: ${slot.text}`);
+        const planted = consoleLines.splice(before);
+        expect(planted).toHaveLength(3);
+        const found = (i: number) =>
+          leaks([{ where: "the console", text: planted[i] as string }], canaries);
+        expect(found(0)).toContain("D signing key (hex) in the console");
+        expect(found(0)).toContain("D signing key (base64url) in the console");
+        expect(found(1)).toContain("D signing key (hex) in the console");
+        expect(found(2)).toContain(`${slot.label} in the console`);
         expect(outputs.length).toBeGreaterThan(30);
         const health = await server.http("/health");
         const texts = [
