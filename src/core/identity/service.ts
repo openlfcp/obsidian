@@ -85,6 +85,9 @@ import {
   type SessionView,
   type Stop,
   sessionView,
+  type UpkeepIssue,
+  upkeepIssues,
+  upkeepText,
 } from "./pairing-view";
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
 
@@ -152,6 +155,12 @@ export interface UpkeepResult {
   readonly reconciled: boolean;
   /** Each key change the rotation policy made or tried. */
   readonly rotations: readonly RotationOutcome[];
+  /** What reconciliation left unfinished, by Resource: never dropped (I14). */
+  readonly issues: readonly UpkeepIssue[];
+  /** The device list's coordinator could not be reached: nothing was decided on its state. */
+  readonly offline: boolean;
+  /** The whole result in words, the sections by name. */
+  readonly summary: string;
 }
 
 /** Rotation operations the upkeep journals itself (outside the person's roster). */
@@ -404,9 +413,10 @@ export class DeviceService {
     const journal = new OperationJournal(c.storage);
     // The device list is no section: nothing else brings its new records here. It is read
     // from its coordinator before anything is decided (a removal may be recorded there only).
-    await this.#refreshIdentity(flow);
+    let offline = !(await this.#refreshIdentity(flow));
     const local = await this.#localState();
     const rotations: RotationOutcome[] = [];
+    const issues: UpkeepIssue[] = [];
     const covered = new Set<string>();
     let reconciled = false;
     if (local.identity !== null && local.manages) {
@@ -427,8 +437,10 @@ export class DeviceService {
             if (t.status !== "unreachable") covered.add(toHex(t.resource));
             if (t.rotation !== undefined) rotations.push(t.rotation);
           }
+          issues.push(...upkeepIssues(r.targets, r.document, toHex(I.state.resourceId)));
         } catch (e) {
           if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+          offline = true;
         }
       } else for (const hex of local.chains.keys()) covered.add(hex);
     }
@@ -451,7 +463,8 @@ export class DeviceService {
       });
       rotations.push(await this.#rotate(flow, journal, id, chain));
     }
-    return { reconciled, rotations };
+    const result = { reconciled, rotations, issues, offline };
+    return { ...result, summary: upkeepText(result, await this.names()) };
   }
 
   /**
@@ -459,12 +472,12 @@ export class DeviceService {
    * stored as a conflict by the SDK). Unreachable or refused: the stored
    * copy stands, and the next upkeep reads it again.
    */
-  async #refreshIdentity(flow: FlowOptions): Promise<void> {
+  async #refreshIdentity(flow: FlowOptions): Promise<boolean> {
     const c = this.#context();
     const I = await this.identity();
-    if (I === undefined) return;
+    if (I === undefined) return true;
     const stored = await loadControlChain(c.storage, I);
-    if (stored?.kind !== "linear") return;
+    if (stored?.kind !== "linear") return true;
     let channel: IdentityChannel | undefined;
     try {
       channel = await flow.network.connect(
@@ -472,6 +485,7 @@ export class DeviceService {
         stored.state.route.coordinatorUrl,
       );
       await this.#flows.syncChain(c.storage, channel, I);
+      return true;
     } catch (e) {
       if (
         !(
@@ -481,6 +495,7 @@ export class DeviceService {
         )
       )
         throw e;
+      return !(e instanceof IdentityUnavailable);
     } finally {
       channel?.close();
     }

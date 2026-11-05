@@ -232,7 +232,13 @@ describe("Your devices…", () => {
           ],
         }),
         unfinished: async () => [{ kind: "approval", operation: "op1", label: "Tablet" }],
-        upkeep: async () => ({ reconciled: true, rotations: [] }),
+        upkeep: async () => ({
+          reconciled: true,
+          rotations: [],
+          issues: [],
+          offline: false,
+          summary: "Your devices are up to date in every section.",
+        }),
         accessStates: async () => [],
         previewRemoval: async (hex: string) => {
           previews.push(hex);
@@ -316,7 +322,13 @@ describe("Your devices…: what the upkeep owes (review obsidian#107 P1-2, P2-3)
         upkeep: async (force: boolean) => {
           runs.push(force);
           if (runs.length > 1) owed = false;
-          return { reconciled: true, rotations: [] };
+          return {
+            reconciled: true,
+            rotations: [],
+            issues: [],
+            offline: false,
+            summary: "Your devices are up to date in every section.",
+          };
         },
       }),
       () => undefined,

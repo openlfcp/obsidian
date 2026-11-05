@@ -24,7 +24,6 @@ import {
   reviewView,
   severalRequests,
   unfinishedText,
-  upkeepText,
   WAITING_FOR_DEVICE,
 } from "../../core/identity/pairing-view";
 import type { DeviceService, Unfinished } from "../../core/identity/service";
@@ -429,7 +428,7 @@ export class DevicesModal extends Modal {
   async #finish(say: boolean): Promise<void> {
     try {
       const r = await this.service.upkeep(true);
-      if (say) new Notice(`Shared Tasks: ${upkeepText(r)}`);
+      if (say) new Notice(`Shared Tasks: ${r.summary}`);
     } catch (e) {
       if (say) new Notice(`Shared Tasks: ${e instanceof Error ? e.message : String(e)}`);
     }

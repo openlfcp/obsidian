@@ -673,9 +673,13 @@ describe("plugin lifecycle (LFCP-059)", () => {
 
 describe("the device upkeep (LFCP-04-413, review obsidian#107 P1-2)", () => {
   it("runs in the background after start, and not after unload", async () => {
-    const upkeep = vi
-      .spyOn(DeviceService.prototype, "upkeep")
-      .mockResolvedValue({ reconciled: false, rotations: [] });
+    const upkeep = vi.spyOn(DeviceService.prototype, "upkeep").mockResolvedValue({
+      reconciled: false,
+      rotations: [],
+      issues: [],
+      offline: false,
+      summary: "",
+    });
     try {
       const { plugin, host } = await load();
       await ready(plugin);
@@ -697,9 +701,13 @@ describe("the device upkeep, without any section coming live (review obsidian#10
     class Often extends TestPlugin {
       protected override deviceUpkeepEveryMs = 30;
     }
-    const upkeep = vi
-      .spyOn(DeviceService.prototype, "upkeep")
-      .mockResolvedValue({ reconciled: false, rotations: [] });
+    const upkeep = vi.spyOn(DeviceService.prototype, "upkeep").mockResolvedValue({
+      reconciled: false,
+      rotations: [],
+      issues: [],
+      offline: false,
+      summary: "",
+    });
     try {
       const plugin = new Often(new mock.App() as never, manifest as never);
       await plugin.onload();

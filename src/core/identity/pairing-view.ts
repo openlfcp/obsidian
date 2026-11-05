@@ -658,20 +658,106 @@ export function unfinishedText(u: {
   }
 }
 
-/** What a device upkeep did, in one line (§7.1, §8.4). */
-export function upkeepText(r: {
-  readonly reconciled: boolean;
-  readonly rotations: readonly RotationOutcome[];
-}): string {
+/** One thing a reconciliation left unfinished in a Resource (hex), §7.1, §9.2. */
+export interface UpkeepIssue {
+  readonly resource: string;
+  readonly kind:
+    | "refused"
+    | "unreachable"
+    | "unsupported"
+    | "conflict"
+    | "not-authorized"
+    | "keys"
+    | "document";
+  /** The refusal's code or reason, when there is one. */
+  readonly detail?: string;
+}
+
+/**
+ * Every unfinished part of a reconcileDevices result (I14: a refusal is
+ * never dropped): a target not reached, without device support, forked
+ * or not this device's to act on; a record it refused; a key it did not
+ * take; the device list's display data refused or not sent.
+ */
+export function upkeepIssues(
+  targets: readonly {
+    readonly resource: ResourceId;
+    readonly status: string;
+    readonly steps: readonly { readonly state: string }[];
+    readonly keys?: { readonly skipped: readonly { readonly reason: string }[] };
+  }[],
+  document: DocumentWrite,
+  identity: string,
+): UpkeepIssue[] {
+  const out: UpkeepIssue[] = [];
+  for (const t of targets) {
+    const resource = toHex(t.resource);
+    if (
+      t.status === "unreachable" ||
+      t.status === "unsupported" ||
+      t.status === "conflict" ||
+      t.status === "not-authorized"
+    )
+      out.push({ resource, kind: t.status });
+    if (t.steps.some((x) => x.state === "refused" || x.state === "superseded"))
+      out.push({ resource, kind: "refused" });
+    const skipped = t.keys?.skipped ?? [];
+    if (skipped.length > 0)
+      out.push({
+        resource,
+        kind: "keys",
+        detail: [...new Set(skipped.map((x) => x.reason))].join(", "),
+      });
+  }
+  if (document.state === "refused" || document.state === "unreachable")
+    out.push({
+      resource: identity,
+      kind: "document",
+      detail: document.code ?? document.state,
+    });
+  return out;
+}
+
+/** What a device upkeep did, in words (§7.1, §8.4): "up to date" only when nothing is left. */
+export function upkeepText(
+  r: {
+    readonly reconciled: boolean;
+    readonly rotations: readonly RotationOutcome[];
+    readonly issues?: readonly UpkeepIssue[];
+    readonly offline?: boolean;
+  },
+  names?: Names,
+): string {
+  const name = (hex: string) => names?.resource(hex) ?? `section ${hex.slice(0, 8)}`;
+  const issues = r.issues ?? [];
+  const by = (kind: UpkeepIssue["kind"]) =>
+    list([...new Set(issues.filter((i) => i.kind === kind).map((i) => name(i.resource)))]);
+  const has = (kind: UpkeepIssue["kind"]) => issues.some((i) => i.kind === kind);
   const rotated = r.rotations.filter((x) => x.status === "rotated").length;
   const failed = r.rotations.filter(
     (x) =>
       x.status === "refused" || x.status === "unreachable" || x.status === "awaiting-key-holder",
   ).length;
+  const document = issues.find((i) => i.kind === "document");
+  const finished = r.offline !== true && issues.length === 0 && failed === 0;
   const lines = [
-    ...(r.reconciled
-      ? ["Your devices are up to date in every section the server could reach."]
+    ...(r.offline === true
+      ? ["The server of your device list could not be reached: nothing could be finished now."]
       : []),
+    ...(r.reconciled && finished ? ["Your devices are up to date in every section."] : []),
+    ...(has("refused") ? [`Refused by the server in ${by("refused")}.`] : []),
+    ...(has("unreachable") ? [`Not reached, tried again later: ${by("unreachable")}.`] : []),
+    ...(has("unsupported")
+      ? [`On a server without device support, done once it is updated: ${by("unsupported")}.`]
+      : []),
+    ...(has("conflict") ? [`Two conflicting versions on the server: ${by("conflict")}.`] : []),
+    ...(has("not-authorized")
+      ? [`Left to your first device or a Full device: ${by("not-authorized")}.`]
+      : []),
+    ...(has("keys") ? [`A key could not be handed on in ${by("keys")}.`] : []),
+    ...(document === undefined
+      ? []
+      : [`Your device list's names could not be saved (${document.detail ?? "refused"}).`]),
     ...(rotated === 0
       ? []
       : [`Changed the key of ${rotated === 1 ? "1 section" : `${rotated} sections`}.`]),

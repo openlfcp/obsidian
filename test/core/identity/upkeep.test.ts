@@ -6,7 +6,7 @@
 
 import { syncChain } from "@openlfcp/client";
 import { fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
-import { parseKeyPackage, revocationOf } from "@openlfcp/wire";
+import { decodeControlRecord, parseKeyPackage, revocationOf } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
 import { DeviceService } from "../../../src/core/identity/service";
 import { DeviceWorld, type Installation, pair } from "../../support/device-world";
@@ -196,4 +196,31 @@ it("a key the upkeep could not hand to a device after its key change is handed o
   expect(keyOf(latest)).toBe(true);
   expect(epochs(X)).toBe(before + 1);
   expect((await a.service.unfinished()).filter((u) => u.kind === "delivery")).toEqual([]);
+});
+
+it("Finish now does not say up to date when a reachable server refused the registration, or none answered (B3)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  world.server.down.add(toHex(X));
+  await pair(a, b, "edit");
+  world.server.down.delete(toHex(X));
+  world.server.fault = (e) =>
+    e.op === "control" &&
+    toHex(e.resource) === toHex(X) &&
+    decodeControlRecord(e.bytes).body.type === "DEVICE_GRANT"
+      ? { nack: "QUOTA_EXCEEDED" }
+      : undefined;
+  const refused = await a.service.upkeep(true);
+  expect(refused.summary).not.toContain("up to date");
+  expect(refused.summary).toContain('Refused by the server in "Plans".');
+  world.server.fault = () => undefined;
+  world.server.offline = true;
+  const offline = await a.service.upkeep(true);
+  expect(offline.summary).not.toContain("up to date");
+  expect(offline.summary).toContain("could not be reached");
+  world.server.offline = false;
+  const done = await a.service.upkeep(true);
+  expect(done.summary).toContain("up to date");
 });
