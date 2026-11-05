@@ -1,4 +1,4 @@
-// IDENTITY draft §7.4 scenarios 1, 2, 12 and 14 against the reference
+// IDENTITY draft §7.4 scenarios 1, 2, 12 (a new installation) and 14 against the reference
 // server (LFCP-04-414): installations of the plugin pair with a link, open
 // every section of the person's roster, and write as one person.
 
@@ -135,8 +135,10 @@ describe("§7.4 scenario 2: Mac → iPhone (V3)", () => {
   });
 });
 
-describe("§7.4 scenario 12: vault copied to a new machine", () => {
-  it("the copy is a new installation with no key; pairing it goes through the link like any device", async (ctx) => {
+// The copy of a vault itself (its files and data.json on another machine) is
+// test/e2e/vault-copy-device.test.ts; this is the pairing of a new installation.
+describe("§7.4 scenario 12, new installation: pairing a fresh install", () => {
+  it("a new installation has no key of the person; pairing it goes through the link like any device", async (ctx) => {
     const w = await live(ctx);
     const mac = await w.installation("Mac");
     const plans = await mac.section("Plans");
