@@ -38,7 +38,10 @@ since 0.4.0.
 - A shared section open while you added a device kept syncing: before, it
   could stay "syncing" and miss the new device's edits until a restart.
 - A removed device asked to be paired again says it was removed and that a
-  new, empty vault is paired instead, not that it can add devices.
+  new, empty vault is paired instead, not that it can add devices. Also
+  when its pairing was not finished: it no longer waits forever.
+- A copied vault paired as a new device: its notes with shared sections
+  follow them; before, they did not until Obsidian restarted.
 
 ## [0.6.0] — 2026-10-31
 

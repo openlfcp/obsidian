@@ -77,12 +77,15 @@ new, empty vault instead.
 
 **A copied vault is a new device.** If you copy a vault to another
 computer, the copy starts without your keys (they are never inside the
-vault). Pair it like any new device.
+vault). Pair it like any new device; its notes with shared sections then
+follow those sections.
 
 ### A bridge or a bot
 
 A headless bridge (for example, a notes bridge on a server) is paired
-with the `lfcp-node pair` command of `@openlfcp/storage-node`. It names
+with the `lfcp-node pair` command of `@openlfcp/storage-node`. That
+command only pairs: this build has no bridge that reads or writes notes
+yet. It names
 the sections it asks for. On your device you see it as "A service asks to
 join", with its fingerprint and those sections; you may remove sections
 from the list, not add any. A bridge can read and write only those
@@ -185,3 +188,10 @@ worked on:
   device, not to you, and does not reach your other devices.
 - A second device with Full access cannot see the requests of a link
   shown by another device: approve on the device that shows the link.
+- **Many device steps in a row can be refused for a minute.** Each step
+  opens a connection to the sync server, and a server allows about 20 new
+  connections a minute from one network (the project server's default).
+  Adding two devices one after the other and then removing one went over
+  it: the removal said the server "could not be reached" and was not
+  finished. Wait a minute and choose **Try again** (or "Finish now" in
+  "Your devices…").
