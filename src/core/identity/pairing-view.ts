@@ -740,6 +740,7 @@ export function upkeepText(
     readonly issues?: readonly UpkeepIssue[];
     readonly offline?: boolean;
     readonly handedOn?: readonly string[];
+    readonly opened?: readonly string[];
   },
   names?: Names,
 ): string {
@@ -779,6 +780,7 @@ export function upkeepText(
     ...((r.handedOn ?? []).length === 0
       ? []
       : [`Handed on the new key of ${list((r.handedOn ?? []).map(name))}.`]),
+    ...((r.opened ?? []).length === 0 ? [] : [`Opened on this device: ${list(r.opened ?? [])}.`]),
     ...(failed === 0
       ? []
       : [

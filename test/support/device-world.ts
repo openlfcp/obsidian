@@ -2,9 +2,10 @@
 // with the SDK's own identity flows) around one in-memory coordinator
 // with identity-01 (identity-coordinator.ts). Test only (LFCP-04-413).
 
-import { loadControlChain } from "@openlfcp/client";
+import { type IdentityFlowOptions, loadControlChain } from "@openlfcp/client";
 import type { ResourceId } from "@openlfcp/core";
 import { Collaboration } from "../../src/core/collab/service";
+import { identityDocument } from "../../src/core/identity/document";
 import { type IdentityFlows, SDK_IDENTITY_FLOWS } from "../../src/core/identity/flows";
 import { DeviceService } from "../../src/core/identity/service";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
@@ -59,6 +60,20 @@ export class DeviceWorld {
         if (answer.kind !== "ack") throw new Error(`not hosted: ${answer.code}`);
         return R;
       },
+    };
+  }
+
+  /** The SDK's identity flow options of an installation, on this world's coordinator. */
+  flowOf(i: Installation): IdentityFlowOptions {
+    const ctx = i.runtime.collaborationContext();
+    if (ctx === null) throw new Error("not ready");
+    return {
+      installation: { signer: ctx.principal.signer, agreement: ctx.principal.agreement },
+      storage: ctx.storage,
+      secrets: ctx.secrets,
+      network: this.server.network(),
+      now: () => Date.now(),
+      document: identityDocument,
     };
   }
 

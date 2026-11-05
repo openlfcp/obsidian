@@ -163,6 +163,8 @@ export interface UpkeepResult {
   readonly offline: boolean;
   /** Resources (hex) whose new key a key change had left owed, handed on now. */
   readonly handedOn: readonly string[];
+  /** Sections of the person's roster opened on this device now, by name (§6, §7.2, §7.3). */
+  readonly opened: readonly string[];
   /** The whole result in words, the sections by name. */
   readonly summary: string;
 }
@@ -526,8 +528,61 @@ export class DeviceService {
     }
     if (made.some((m) => (m.rotation.keys?.skipped.length ?? 0) > 0))
       await this.#runtime().localState.put(OWED_KEY, owed);
-    const result = { reconciled, rotations, issues, offline, handedOn };
+    // The person's sections this device does not hold yet: created or joined on another of
+    // the person's devices after this one was paired (§6; §7.2 step 4, §7.3 roster entries).
+    const opened = offline ? [] : await this.#openRoster(flow);
+    const result = { reconciled, rotations, issues, offline, handedOn, opened };
     return { ...result, summary: upkeepText(result, await this.names()) };
+  }
+
+  /**
+   * Opens every section of the person's roster this device does not hold
+   * and may use now: registered there, every epoch's key held (the same
+   * evidence as §6 "ready"), its profile one this version opens. A section
+   * not ready yet is left for a later upkeep. Returns the names opened.
+   */
+  async #openRoster(flow: IdentityFlowOptions): Promise<string[]> {
+    const collab = this.#o.collab();
+    const I = await this.identity();
+    if (collab === null || I === undefined) return [];
+    const roster = await this.#identityRoster(flow, I);
+    if (roster === null) return [];
+    const c = this.#context();
+    const here = new Set((await this.#runtime().registry()).map((e) => toHex(e.resourceId)));
+    const opened: string[] = [];
+    for (const [hex, entry] of roster) {
+      if (hex === toHex(I) || here.has(hex) || !this.#profileOk(entry.profile)) continue;
+      const X = fromHex(hex) as ResourceId;
+      let channel: IdentityChannel | undefined;
+      try {
+        channel = await flow.network.connect(flow.installation.signer, entry.coordinator);
+        const chain = await this.#flows.syncChain(c.storage, channel, X);
+        const deks = await this.#flows.fetchDeks(
+          c.storage,
+          c.secrets,
+          channel,
+          chain,
+          flow.installation,
+        );
+        if (![...chain.state.epochs.keys()].every((e) => deks.has(e))) continue;
+        if (await collab.openFromRoster(X, entry.name ?? null))
+          opened.push(entry.name ?? `section ${shortId(hex)}`);
+      } catch (e) {
+        // Not registered here yet, not reachable, or not openable by this version: later.
+        if (
+          !(
+            e instanceof IdentityUnavailable ||
+            e instanceof IdentityRefused ||
+            e instanceof IdentityConflict ||
+            e instanceof CollabError
+          )
+        )
+          throw e;
+      } finally {
+        channel?.close();
+      }
+    }
+    return opened;
   }
 
   /**
@@ -1052,7 +1107,7 @@ export class DeviceService {
             r !== toHex(I) &&
             (payload.kind !== DEVICE_KIND.SERVICE || payload.scope.some((x) => toHex(x) === r)),
         )
-        .map(([r, url]) => ({ resource: fromHex(r) as ResourceId, url }));
+        .map(([r, entry]) => ({ resource: fromHex(r) as ResourceId, url: entry.coordinator }));
       let results: readonly RegistrationResult[] = [];
       try {
         results = (await this.#flows.registerDevice({ ...flow, chain: signed, targets })).results;
@@ -1085,13 +1140,13 @@ export class DeviceService {
 
   /**
    * The roster in the device list, as its coordinator has it: Resource
-   * (hex) → coordinator URL, archived entries left out. Null when it
-   * cannot be read now.
+   * (hex) → its entry, archived entries left out. Null when it cannot be
+   * read now.
    */
   async #identityRoster(
     flow: IdentityFlowOptions,
     I: ResourceId,
-  ): Promise<ReadonlyMap<string, string> | null> {
+  ): Promise<ReadonlyMap<string, RosterEntryValue> | null> {
     const c = this.#context();
     const stored = await loadControlChain(c.storage, I);
     if (stored?.kind !== "linear") return null;
@@ -1109,9 +1164,9 @@ export class DeviceService {
         deks: await this.#flows.fetchDeks(c.storage, c.secrets, channel, chain, flow.installation),
         doc,
       });
-      const out = new Map<string, string>();
+      const out = new Map<string, RosterEntryValue>();
       for (const [ref, entry] of doc.roster())
-        if (entry.archived !== true) out.set(toHex(fromBase64url(ref)), entry.coordinator);
+        if (entry.archived !== true) out.set(toHex(fromBase64url(ref)), entry);
       return out;
     } catch (e) {
       if (
