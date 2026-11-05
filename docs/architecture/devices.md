@@ -69,6 +69,30 @@ notices). When this device manages devices:
   (N8), signed through this device and registered where it may act.
 - Unfinished approvals and removals, from the SDK's journal.
 
+## Upkeep
+
+`DeviceService.upkeep` (§7.1, §8.4; decision I6) runs in the background
+after start and whenever a section comes live (coalesced), and when "Your
+devices…" opens:
+
+- a device that manages the device list runs the SDK's `reconcileDevices`
+  with the rotation policy: revocations and registrations carried into
+  every roster section (a device an approval could not add, its server
+  down or without `identity-01`, is added now), keys sent, and the key of
+  each section with an exposing revocation changed where this device is
+  the rotator (another device retired itself, or was removed by a device
+  that may not change keys);
+- any other section it holds where such a key change is due, typically as
+  its owner, is rotated with `rotateIfExposed`, under an operation the
+  upkeep journals and resumes.
+
+It runs only when the stored chains show work, unless forced. "Your
+devices…" lists what it still owes (a device not added yet, a key not
+changed yet) with **Finish now**. A removal result names every section
+whose key change was refused, unreachable or not passed on, and offers
+**Try again**; re-certify says "re-certified" only once the device list
+accepted the new certificate.
+
 ## New device's side
 
 "Pair this device with a link…" makes this vault a device of the person
@@ -81,7 +105,10 @@ roster gets its §6 status (ready, waiting for keys, waiting to be added,
 not granted, approval not provable here, unreachable, on a server without
 device support); a ready one is stored and opened here
 (`Collaboration.openFromRoster`) and can be inserted into a note as a
-joined section is. Closing keeps the request; the command shows it again.
+joined section is. One that fails to open here is shown as such and tried
+again; the request stays resumable until every section is open. The
+device list itself is its own line, never a section. Closing keeps the
+request; the command shows it again.
 
 A section the server refuses to this device is shown in "Your devices…"
 as "removed from your identity" when the SDK proves it (§8.6), else as
