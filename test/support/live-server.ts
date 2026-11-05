@@ -44,6 +44,8 @@ export interface LiveServer {
 /** Another binary than the default one; `on`: the directory and port of a stopped server (an update). */
 export interface LiveServerOptions {
   readonly bin?: string;
+  /** The server's own per-IP limits (POST-003), not lifted: the gate of LFCP-04-414 R3. */
+  readonly defaultLimits?: boolean;
   readonly on?: { readonly dir: string; readonly port: number };
 }
 
@@ -90,8 +92,9 @@ export async function startLiveServer(o: LiveServerOptions = {}): Promise<LiveSe
         // Every test client is 127.0.0.1: the server's new WebSockets per IP per
         // minute and new Resources per IP per day (POST-003) would refuse a test
         // with several installations (the device flows connect per call), not a client.
-        "connections_per_ip_per_minute = 0",
-        "hosts_per_ip_per_day = 0",
+        ...(o.defaultLimits === true
+          ? []
+          : ["connections_per_ip_per_minute = 0", "hosts_per_ip_per_day = 0"]),
         "",
       ].join("\n"),
     );

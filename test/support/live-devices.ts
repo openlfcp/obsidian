@@ -28,6 +28,12 @@ import { Device, FakeLocal, sleep } from "./lfcp-env";
 export class LiveNetwork {
   readonly #open = new Set<{ close(code?: number, reason?: string): void }>();
   #offline = false;
+  /** WebSockets this installation opened (sessions and device flows alike). */
+  opened = 0;
+  /** Of those, the ones that failed before they opened (refused by the server, e.g. HTTP 429). */
+  failed = 0;
+  /** When each was opened (ms since the epoch). */
+  readonly openedAt: number[] = [];
 
   get offline(): boolean {
     return this.#offline;
@@ -46,6 +52,9 @@ export class LiveNetwork {
     const Ctor = (globalThis as { WebSocket?: new (u: string, p: string[]) => Native }).WebSocket;
     if (Ctor === undefined) throw new Error("no platform WebSocket");
     const inner = new Ctor(url, [...protocols]);
+    this.opened++;
+    this.openedAt.push(Date.now());
+    let connected = false;
     this.#open.add(inner);
     const outer: WebSocketLike = {
       get binaryType() {
@@ -64,10 +73,14 @@ export class LiveNetwork {
       onclose: null,
       onerror: null,
     };
-    inner.onopen = (ev) => outer.onopen?.(ev);
+    inner.onopen = (ev) => {
+      connected = true;
+      outer.onopen?.(ev);
+    };
     inner.onerror = (ev) => outer.onerror?.(ev);
     inner.onmessage = (ev) => outer.onmessage?.(ev);
     inner.onclose = (ev) => {
+      if (!connected) this.failed++;
       this.#open.delete(inner);
       outer.onclose?.(ev);
     };
