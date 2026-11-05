@@ -5,6 +5,10 @@
 // lost the race ("the stored Control Head moved during sync") and the
 // section stayed in CONTROL_SYNC: the new device's edits never arrived.
 // The runtime now opens such a session again from the stored chain.
+//
+// Against a real server the race is likely, not certain: this test is the
+// end-to-end smoke. The regression guard is test/core/lfcp/control-race.test.ts,
+// which makes the race happen every time (review obsidian#108 R6).
 
 import { afterEach, expect, it, vi } from "vitest";
 import {
