@@ -188,10 +188,8 @@ worked on:
   device, not to you, and does not reach your other devices.
 - A second device with Full access cannot see the requests of a link
   shown by another device: approve on the device that shows the link.
-- **Many device steps in a row can be refused for a minute.** Each step
-  opens a connection to the sync server, and a server allows about 20 new
-  connections a minute from one network (the project server's default).
-  Adding two devices one after the other and then removing one went over
-  it: the removal said the server "could not be reached" and was not
-  finished. Wait a minute and choose **Try again** (or "Finish now" in
-  "Your devices…").
+- **Device steps take their time.** Each step opens a connection to the
+  sync server, and a server allows about 20 new connections a minute from
+  one network. Shared Tasks paces them: a step may wait a few seconds for
+  its turn, and an open dialog asks less often the longer it waits (after
+  4, 8 and 15 seconds, then every 30 seconds). **Check now** asks at once.

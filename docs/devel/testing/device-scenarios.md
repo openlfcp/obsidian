@@ -43,21 +43,31 @@ WebSockets per IP per minute, a burst of 20) and fails on any refusal.
 
 ## The server's own limits
 
-`live-devices-limits.test.ts`: one Mac pairs a second Mac and removes it,
-paced as the dialogs pace it (requests and the result asked every 4 s,
-20 s for the person to compare fingerprints). It counts every WebSocket
-the installations open, sessions and device flows alike. Measured: **25
-opened in about 26 s, all within one minute, none refused.** It fits, with
-little room: the bucket holds 20 and refills 20 a minute.
+Each call of a device flow opens its own connection (the SDK's
+`ChannelPool` lives for one call; reuse inside the SDK is a backlog item).
+Before decision I18 the dialogs asked every 4 s, and the same person
+adding **two** devices one after the other (10 s each to compare
+fingerprints), then removing one, opened **33 WebSockets in 25 s; the
+last 5 were refused** (HTTP 429 before opening): the removal preview said
+"The server could not be reached", and the removal ended "not finished".
 
-Not within the limits (measured once, not a test): the same person adding
-**two** devices one after the other (10 s each to compare fingerprints),
-then removing one: **33 WebSockets in 25 s; the last 5 were refused**
-(HTTP 429 before opening). The removal preview said "The server could not
-be reached", and the removal itself ended "not finished" (Try again). A
-removal of a lost device right after pairing others is the case where it
-matters. Each call of a device flow opens its own connection (the SDK's
-`ChannelPool` is per call), and the new device's dialog asks every 4 s.
+Since I18 (`src/core/identity/pacing.ts`):
+
+- the dialogs ask again after 4 s, 8 s, 15 s, then every 30 s, and from
+  the start when the person acts ("Check now", copying or showing the
+  link);
+- every connection the device flows of one installation open takes a
+  token from one bucket shared by all its dialogs (a burst of 8, then 9 a
+  minute); a call waits for its turn instead of being refused.
+
+`live-devices-limits.test.ts` runs that case against the server with its
+defaults (20 new WebSockets per IP per minute, a burst of 20), asking as
+the dialogs ask, with the product's pacing, and fails on any refusal.
+Measured three times alike: **35 WebSockets in 80.5 s, at most 31 within
+any 60 s, none refused, the removal done**; the managing device's flows
+waited 28.6 s in all for their turns. With the fixed 4 s polling and no
+pacing the same test fails (the removal preview: "The server could not be
+reached").
 
 ## Files
 
@@ -66,7 +76,7 @@ matters. Each call of a device flow opens its own connection (the SDK's
 | `test/core/collab/live-device-control.test.ts` | A section open while a device is approved syncs on (the fix it found) |
 | `test/core/collab/live-devices.test.ts` | 1, 2, 12 (a new installation), 14 |
 | `test/e2e/vault-copy-device.test.ts` | 12: a real copy of a vault (the real plugin) |
-| `test/core/collab/live-devices-limits.test.ts` | Pairing and removal within the server's own limits |
+| `test/core/collab/live-devices-limits.test.ts` | Two pairings and a removal within the server's own limits (I18) |
 | `test/core/lfcp/control-race.test.ts` | The race of 1ba1f5a, made certain (no server) |
 | `test/core/collab/live-devices-bridge.test.ts` | 3 |
 | `test/core/collab/live-devices-removal.test.ts` | 4, 5, 10, 13 |

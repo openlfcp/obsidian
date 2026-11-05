@@ -42,6 +42,10 @@ since 0.4.0.
   when its pairing was not finished: it no longer waits forever.
 - A copied vault paired as a new device: its notes with shared sections
   follow them; before, they did not until Obsidian restarted.
+- Adding two devices in a row and then removing one no longer runs into
+  the sync server's limit on connections from one network ("The server
+  could not be reached"): device steps are paced, and the device dialogs
+  ask less often the longer they wait (Check now asks at once).
 
 ## [0.6.0] — 2026-10-31
 

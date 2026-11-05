@@ -32,7 +32,9 @@ plugin calls them and says what each result means.
    secret: a `PairingLinkText`, revealed only by "Show link" or "Copy
    link". An open session is shown again rather than a second one made;
    "Cancel link" ends it.
-4. The dialog asks for requests every 4 s. A request shows its name,
+4. The dialog asks for requests with a backoff (4 s, 8 s, 15 s, then
+   every 30 s; from the start on "Check now", copying or showing the
+   link). A request shows its name,
    platform, the new device's fingerprint to compare with the other
    screen, the presets whose future chain passes (the others with why),
    and for a service its sections, which may be narrowed and not widened.
@@ -69,6 +71,17 @@ notices). When this device manages devices:
   (N8), signed through this device and registered where it may act.
 - Unfinished approvals and removals, from the SDK's journal.
 
+## Pace (decision I18)
+
+Each call of an SDK identity flow opens its own connection, and a sync
+server allows about 20 new connections a minute from one network (the
+reference server's default). `src/core/identity/pacing.ts`: every
+connection the device flows of one installation open takes a token from
+one `ConnectionPacer` (a burst of 8, then 9 a minute), shared by all
+dialogs (one `DeviceService` per runtime); a call waits for its turn
+instead of being refused. The dialogs ask again with `POLL_BACKOFF_MS`.
+Sections' sessions are not paced (one per server, long-lived).
+
 ## Upkeep
 
 `DeviceService.upkeep` (§7.1, §8.4; decision I6) runs in the background
@@ -99,7 +112,8 @@ accepted the new certificate.
 whose device shows the link. A vault that already shares sections under
 its own identity is refused (its Principal is a person in those
 sections). The link field is a password field. The dialog shows this
-device's fingerprint and asks for the result every 4 s; the result comes
+device's fingerprint and asks for the result with the same backoff
+("Check now" asks at once); the result comes
 from the chain only (a timeout is never a decision). Each section of the
 roster gets its §6 status (ready, waiting for keys, waiting to be added,
 not granted, approval not provable here, unreachable, on a server without
