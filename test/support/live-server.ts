@@ -35,7 +35,16 @@ export interface LiveServer {
   readonly pid: number;
   /** The server's temporary directory: its config and state. */
   readonly dir: string;
-  stop(): Promise<void>;
+  /** Its loopback port. */
+  readonly port: number;
+  /** Stops it; `keep` leaves its directory for another server to start on (an update). */
+  stop(keep?: boolean): Promise<void>;
+}
+
+/** Another binary than the default one; `on`: the directory and port of a stopped server (an update). */
+export interface LiveServerOptions {
+  readonly bin?: string;
+  readonly on?: { readonly dir: string; readonly port: number };
 }
 
 /** Why live tests cannot run here, or null when they can. */
@@ -66,27 +75,28 @@ const freePort = (): Promise<number> =>
     });
   });
 
-export async function startLiveServer(): Promise<LiveServer> {
-  const port = await freePort();
-  const dir = mkdtempSync(join(tmpdir(), "lfcp-obsidian-live-"));
+export async function startLiveServer(o: LiveServerOptions = {}): Promise<LiveServer> {
+  const port = o.on?.port ?? (await freePort());
+  const dir = o.on?.dir ?? mkdtempSync(join(tmpdir(), "lfcp-obsidian-live-"));
   const url = `ws://127.0.0.1:${port}/v1/ws`;
-  writeFileSync(
-    join(dir, "server.toml"),
-    [
-      `bind = "127.0.0.1:${port}"`,
-      `state_dir = ${JSON.stringify(join(dir, "state"))}`,
-      `public_urls = [${JSON.stringify(url)}]`,
-      "heartbeat_ms = 5000",
-      // Every test client is 127.0.0.1: the server's new WebSockets per IP per
-      // minute and new Resources per IP per day (POST-003) would refuse a test
-      // with several installations (the device flows connect per call), not a client.
-      "connections_per_ip_per_minute = 0",
-      "hosts_per_ip_per_day = 0",
-      "",
-    ].join("\n"),
-  );
+  if (o.on === undefined)
+    writeFileSync(
+      join(dir, "server.toml"),
+      [
+        `bind = "127.0.0.1:${port}"`,
+        `state_dir = ${JSON.stringify(join(dir, "state"))}`,
+        `public_urls = [${JSON.stringify(url)}]`,
+        "heartbeat_ms = 5000",
+        // Every test client is 127.0.0.1: the server's new WebSockets per IP per
+        // minute and new Resources per IP per day (POST-003) would refuse a test
+        // with several installations (the device flows connect per call), not a client.
+        "connections_per_ip_per_minute = 0",
+        "hosts_per_ip_per_day = 0",
+        "",
+      ].join("\n"),
+    );
   let log = "";
-  const child: ChildProcess = spawn(BIN, ["--config", join(dir, "server.toml")], {
+  const child: ChildProcess = spawn(o.bin ?? BIN, ["--config", join(dir, "server.toml")], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   // Killed, and `dir` removed, even if this test process dies first.
@@ -119,7 +129,8 @@ export async function startLiveServer(): Promise<LiveServer> {
     url,
     pid: child.pid as number,
     dir,
-    stop: async () => {
+    port,
+    stop: async (keep = false) => {
       release();
       if (child.exitCode === null) {
         const exited = new Promise((r) => child.once("exit", r));
@@ -127,7 +138,7 @@ export async function startLiveServer(): Promise<LiveServer> {
         await exited;
       }
       // Windows may hold the database files for a moment after the process exits.
-      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      if (!keep) rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     },
   };
 }
