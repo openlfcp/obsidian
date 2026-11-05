@@ -15,6 +15,7 @@ import type { MaskPreset, PairingLinkText, PairingReview } from "@openlfcp/clien
 import { fromHex, type ResourceId } from "@openlfcp/core";
 import { type App, Modal, Notice } from "obsidian";
 import { type DeviceRow, deviceLine } from "../../core/identity/device-list";
+import { pollDelay } from "../../core/identity/pacing";
 import {
   type ApprovalView,
   KEEP_COPY,
@@ -29,9 +30,6 @@ import {
 import type { DeviceService, Unfinished } from "../../core/identity/service";
 import { returnsFocus } from "./focus-return";
 
-/** How often an open dialog asks the server again (a request, a result). */
-const POLL_MS = 4000;
-
 const clipboard = async (text: string): Promise<void> => {
   const board = (window.navigator as { clipboard?: Clipboard } | undefined)?.clipboard;
   if (board === undefined) throw new Error("no clipboard");
@@ -40,35 +38,58 @@ const clipboard = async (text: string): Promise<void> => {
 
 const buttonRow = (el: HTMLElement): HTMLElement => el.createDiv({ cls: "modal-button-container" });
 
-/** Asks the server again every POLL_MS while its dialog is open (one per dialog). */
+/**
+ * Asks the server again while its dialog is open (one per dialog), with the
+ * backoff of pacing.ts: 4 s, 8 s, 15 s, then every 30 s; from the start
+ * again when the person acts in the dialog (reset).
+ */
 class Poller {
   #timer: number | null = null;
   #closed = false;
   #busy = false;
+  #step: (() => Promise<boolean>) | null = null;
+  /** Questions asked since the last start or user action. */
+  #asked = 0;
 
   /** The dialog was closed: nothing more is asked or drawn. */
   get closed(): boolean {
     return this.#closed;
   }
 
-  /** Runs `step` now and then every POLL_MS until it returns false or the dialog closes. */
+  /** Runs `step` now and then, with the backoff, until it returns false or the dialog closes. */
   run(step: () => Promise<boolean>): void {
     this.stop();
-    const go = async () => {
-      if (this.#closed || this.#busy) return;
-      this.#busy = true;
-      let again = false;
-      try {
-        again = await step();
-      } catch (e) {
-        // An error no result kind describes: said once, and no more asking.
-        new Notice(`Shared Tasks: ${e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        this.#busy = false;
-      }
-      if (again && !this.#closed) this.#timer = window.setTimeout(() => void go(), POLL_MS);
-    };
-    void go();
+    this.#step = step;
+    this.#asked = 0;
+    void this.#go();
+  }
+
+  /** The person acted (Check now, the link copied or shown): ask now, and from 4 s again. */
+  reset(): void {
+    if (this.#closed || this.#step === null) return;
+    this.stop();
+    this.#asked = 0;
+    void this.#go();
+  }
+
+  async #go(): Promise<void> {
+    const step = this.#step;
+    if (this.#closed || this.#busy || step === null) return;
+    this.#busy = true;
+    let again = false;
+    try {
+      again = await step();
+    } catch (e) {
+      // An error no result kind describes: said once, and no more asking.
+      new Notice(`Shared Tasks: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this.#busy = false;
+    }
+    if (!again) this.#step = null;
+    else if (!this.#closed) {
+      const wait = pollDelay(this.#asked++);
+      this.#timer = window.setTimeout(() => void this.#go(), wait);
+    }
   }
 
   stop(): void {
@@ -152,12 +173,14 @@ export class AddDeviceModal extends Modal {
     buttons
       .createEl("button", { text: "Copy link", cls: "mod-cta" })
       .addEventListener("click", () => {
+        this.#poller.reset();
         void this.copy(link.reveal()).then(
           () => new Notice("Shared Tasks: link copied."),
           () => new Notice("Shared Tasks: could not copy; show the link and copy it from there."),
         );
       });
     buttons.createEl("button", { text: "Show link" }).addEventListener("click", () => {
+      this.#poller.reset();
       shown.type = "text";
       shown.value = link.reveal();
       shown.hidden = false;
@@ -166,6 +189,9 @@ export class AddDeviceModal extends Modal {
     buttons.createEl("button", { text: "Cancel link" }).addEventListener("click", () => {
       void this.#cancel();
     });
+    buttons
+      .createEl("button", { text: "Check now" })
+      .addEventListener("click", () => this.#poller.reset());
     this.#status = el.createEl("p", {
       cls: "setting-item-description",
       text: WAITING_FOR_DEVICE,
@@ -654,6 +680,9 @@ export class PairThisDeviceModal extends Modal {
     const headline = el.createEl("p", { text: "Waiting for your other device to approve…" });
     const sections = el.createEl("ul");
     const buttons = buttonRow(el);
+    buttons
+      .createEl("button", { text: "Check now" })
+      .addEventListener("click", () => this.#poller.reset());
     buttons.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
     this.#poller.run(async () => {
       const view = await this.service.progress(operation);

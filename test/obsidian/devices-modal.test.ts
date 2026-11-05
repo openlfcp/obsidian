@@ -6,7 +6,7 @@
 
 import { PairingLinkText, type PairingReview } from "@openlfcp/client";
 import type { PrincipalId } from "@openlfcp/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DeviceRow } from "../../src/core/identity/device-list";
 import type { DeviceService } from "../../src/core/identity/service";
 import OpenLfcpPlugin from "../../src/main";
@@ -433,6 +433,104 @@ describe("Pair this device with a link…", () => {
     expect(el.textContent).toContain("abcd-efgh-ijkl-mnop");
     expect(el.textContent).toContain("Waiting for your other device to approve…");
     m.close();
+  });
+});
+
+describe("the dialogs ask the server again with a backoff (decision I18)", () => {
+  /** Advances the fake clock by `ms` and checks how many questions were asked by then. */
+  const at = async (count: () => number, ms: number, asked: number) => {
+    await vi.advanceTimersByTimeAsync(ms);
+    expect(count()).toBe(asked);
+  };
+
+  it("Pair this device: after 4 s, 8 s, 15 s, then every 30 s; Check now asks at once and starts again", async () => {
+    vi.useFakeTimers();
+    try {
+      let asked = 0;
+      const m = new PairThisDeviceModal(
+        new App() as never,
+        service({
+          openRequest: async () => ({ operation: "rq1", fingerprint: "abcd-efgh-ijkl-mnop" }),
+          progress: async () => {
+            asked++;
+            return {
+              final: false,
+              approved: false,
+              headline: "Waiting for your other device to approve…",
+              sections: [],
+              deviceList: null,
+              paused: false,
+              opened: [],
+            };
+          },
+        }),
+        "Vault",
+      );
+      m.open();
+      const n = () => asked;
+      await at(n, 0, 1);
+      await at(n, 3999, 1);
+      await at(n, 1, 2);
+      await at(n, 7999, 2);
+      await at(n, 1, 3);
+      await at(n, 14_999, 3);
+      await at(n, 1, 4);
+      await at(n, 29_999, 4);
+      await at(n, 1, 5);
+      await at(n, 30_000, 6);
+      // The person acts: asked now, and 4 s later again.
+      button(m.contentEl as unknown as FakeElement, "Check now").click();
+      await at(n, 0, 7);
+      await at(n, 3999, 7);
+      await at(n, 1, 8);
+      // Closed: nothing more.
+      m.close();
+      await at(n, 120_000, 8);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Add my other device: requests asked with the same backoff; copying the link starts it again", async () => {
+    vi.useFakeTimers();
+    try {
+      let asked = 0;
+      const m = new AddDeviceModal(
+        new App() as never,
+        service({
+          startSession: async () => ({
+            kind: "link",
+            session: "s1",
+            result: {
+              kind: "created",
+              session: "s1",
+              pairingDevice: new Uint8Array(32),
+              link: new PairingLinkText("lfcp://pair/x#secret=y"),
+            },
+          }),
+          requests: async () => {
+            asked++;
+            return [];
+          },
+        }),
+        "Desk on computer",
+        async () => undefined,
+      );
+      m.open();
+      const n = () => asked;
+      await at(n, 0, 1);
+      await at(n, 4000, 2);
+      await at(n, 8000, 3);
+      await at(n, 15_000, 4);
+      await at(n, 30_000, 5);
+      button(m.contentEl as unknown as FakeElement, "Copy link").click();
+      await at(n, 0, 6);
+      await at(n, 4000, 7);
+      m.close();
+      await at(n, 120_000, 7);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
