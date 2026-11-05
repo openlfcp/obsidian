@@ -1,9 +1,14 @@
 // LFCP-04-413: the words of the device flows (pairing-view.ts), pure.
 
 import type { PairingReview } from "@openlfcp/client";
-import { generateResourceId, type PrincipalId } from "@openlfcp/core";
+import { generateResourceId, type PrincipalId, toHex } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
-import { defaultPreset, type Names, reviewView } from "../../../src/core/identity/pairing-view";
+import {
+  defaultPreset,
+  type Names,
+  progressView,
+  reviewView,
+} from "../../../src/core/identity/pairing-view";
 
 const names: Names = { resource: () => "Plans", device: (hex) => hex.slice(0, 4) };
 
@@ -64,5 +69,26 @@ describe("the approve dialog's words (§5.3 step 4, §5.4)", () => {
     );
     expect(view.presets.map((p) => p.preset)).toEqual(["service"]);
     expect(view.scope).toHaveLength(1);
+  });
+});
+
+describe("the new device's result (§5.3 step 8, §6)", () => {
+  it("a section this version cannot open says so, and does not keep the pairing waiting", () => {
+    const R = generateResourceId();
+    const view = progressView(
+      {
+        kind: "approved",
+        certificate: {} as never,
+        candidates: [{ resource: R, status: "ready", name: "Board" }],
+        foreignCertificates: 0,
+      },
+      names,
+      "",
+      [{ resource: toHex(R), newerVersion: true, reason: "x" }],
+    );
+    expect(view.sections).toEqual([
+      { name: "Board", status: "needs a newer version of Shared Tasks" },
+    ]);
+    expect(view.final).toBe(true);
   });
 });

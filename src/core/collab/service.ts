@@ -823,16 +823,22 @@ export class Collaboration {
    * A Resource of the person's roster, opened on a device just paired
    * (LFCP-04-413, IDENTITY-PROFILE-01 §5.3 step 11, §6): the device was
    * registered there and holds its keys, and the SDK stored its chain, so
-   * it is stored and opened as a joined one is, without a claim. False
-   * when it is already here; a profile this version cannot open is
-   * NEWER_VERSION_NEEDED.
+   * it is stored and opened as a joined one is, without a claim. One
+   * already stored is opened again (an earlier attempt may have stored it
+   * and failed to open it); false then. A profile this version cannot
+   * open is NEEDS_NEWER_VERSION.
    */
   async openFromRoster(R: ResourceId, name: string | null): Promise<boolean> {
-    if (await this.#runtime.hasResource(R)) return false;
-    const section = await this.#store(R, name ?? "", "A section of yours could not be stored.");
+    const row = await this.#context().storage.resources.get(R);
+    const section =
+      row === undefined
+        ? await this.#store(R, name ?? "", "A section of yours could not be stored.")
+        : row.dataProfile === SECTIONS_PROFILE_ID;
+    if (row !== undefined && !section && row.dataProfile !== PROFILE_ID)
+      throw new CollabError("NEWER_VERSION_NEEDED", NEEDS_NEWER_VERSION);
     if (section) await this.#runtime.openSection(R);
     else await this.#runtime.openResource(R);
-    return true;
+    return row === undefined;
   }
 
   /** Stores a Resource whose chain the SDK stored, with its local name; whether it is a section. */

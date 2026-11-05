@@ -41,7 +41,7 @@ import {
 import { fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
-import type { Collaboration } from "../collab/service";
+import { CollabError, type Collaboration } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
 import { type DeviceRow, deviceRows } from "./device-list";
@@ -55,6 +55,7 @@ import {
   createView,
   type Names,
   OFFLINE,
+  type OpenFailure,
   type ProgressView,
   progressView,
   type RemovalView,
@@ -68,6 +69,9 @@ import {
   sessionView,
 } from "./pairing-view";
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
+
+/** The pairing request of this device until every section it brought is opened here (P2-5). */
+const PAIRING_KEY = "identity-pairing-request";
 
 /** What the device flows need of the plugin runtime (LfcpRuntime implements it). */
 export interface DeviceRuntime {
@@ -599,30 +603,30 @@ export class DeviceService {
 
   /** Why this vault cannot be paired as a device of another installation, or null. */
   async pairRefusal(): Promise<string | null> {
+    if ((await this.openRequest()) !== null) return null;
     if ((await this.identity()) !== undefined)
       return 'This device is already in a device list. Add other devices from here with "Add my other device…".';
-    const open = await new OperationJournal(this.#context().storage).list({
-      kind: "pairing-request",
-      status: "open",
-    });
-    if (open.length > 0) return null;
     if ((await this.#runtime().registry()).length > 0) return NOT_EMPTY;
     return null;
   }
 
-  /** The open request of this device (§9: resumed with its fingerprint), if any. */
+  /**
+   * The request of this device still to finish (§9: resumed with its
+   * fingerprint): an open one, or the last one whose sections are not all
+   * opened here yet (the SDK closes it once every candidate is ready).
+   */
   async openRequest(): Promise<{
     readonly operation: string;
     readonly fingerprint: string;
   } | null> {
-    const op = (
-      await new OperationJournal(this.#context().storage).list({
-        kind: "pairing-request",
-        status: "open",
-      })
-    )[0];
-    if (op === undefined) return null;
-    return { operation: op.id, fingerprint: fingerprintOf(toHex(this.#context().principal.id)) };
+    const journal = new OperationJournal(this.#context().storage);
+    const open = (await journal.list({ kind: "pairing-request", status: "open" }))[0];
+    const kept = await this.#runtime().localState.get(PAIRING_KEY);
+    const id =
+      open?.id ??
+      (typeof kept === "string" && (await journal.get(kept)) !== undefined ? kept : undefined);
+    if (id === undefined) return null;
+    return { operation: id, fingerprint: fingerprintOf(toHex(this.#context().principal.id)) };
   }
 
   /** §5.3 steps 2–3: the request with `link`, labelled `label`; the fingerprint to compare. */
@@ -639,6 +643,7 @@ export class DeviceService {
         platform: this.#o.platform,
         requestedAt: rfc3339(flow.now()),
       });
+      if (r.kind === "requested") await this.#runtime().localState.put(PAIRING_KEY, r.operation);
       return requestView(r);
     } catch (e) {
       return this.#thrown(e);
@@ -663,20 +668,29 @@ export class DeviceService {
       outcome = { kind: "unavailable", reason: this.#thrown(e).message };
     }
     const opened: string[] = [];
+    const failures: OpenFailure[] = [];
     if (outcome.kind === "approved") {
       const collab = this.#o.collab();
       for (const c of outcome.candidates) {
         // The device list (the Identity Resource) is not a section: it is never opened as one.
-        if (c.status !== "ready" || collab === null || toHex(c.resource) === identity) continue;
+        if (c.status !== "ready" || toHex(c.resource) === identity) continue;
         try {
+          if (collab === null) throw new DevicesUnavailable();
           if (await collab.openFromRoster(c.resource, c.name ?? null))
             opened.push(c.name ?? names.resource(toHex(c.resource)));
-        } catch {
-          // A section this version cannot open stays listed as ready; it opens after an update.
+        } catch (e) {
+          failures.push({
+            resource: toHex(c.resource),
+            newerVersion: e instanceof CollabError && e.code === "NEWER_VERSION_NEEDED",
+            reason: reasonText(e),
+          });
         }
       }
     }
-    return { ...progressView(outcome, names, identity), opened };
+    const view = progressView(outcome, names, identity, failures);
+    // The request is resumed (openRequest) until every section it brought is opened here.
+    if (view.final) await this.#runtime().localState.put(PAIRING_KEY, null);
+    return { ...view, opened };
   }
 
   /**

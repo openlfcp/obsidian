@@ -527,12 +527,26 @@ export interface ProgressView {
   readonly deviceList: string | null;
 }
 
+/** A ready section this device could not open here (§5.3 step 11): kept, and tried again. */
+export interface OpenFailure {
+  /** The Resource (hex). */
+  readonly resource: string;
+  /** This version cannot open its kind of data: final until the plugin is updated. */
+  readonly newerVersion: boolean;
+  readonly reason: string;
+}
+
 /**
  * The new device's result. `identity` is the Identity Resource (hex) of
  * the request: a personal device is registered there too, and the SDK
  * lists it among the candidates, but it is not a section.
  */
-export function progressView(o: PairingOutcome, names: Names, identity: string): ProgressView {
+export function progressView(
+  o: PairingOutcome,
+  names: Names,
+  identity: string,
+  failures: readonly OpenFailure[] = [],
+): ProgressView {
   switch (o.kind) {
     case "waiting":
       return {
@@ -562,12 +576,24 @@ export function progressView(o: PairingOutcome, names: Names, identity: string):
     case "approved": {
       const list = o.candidates.find((c) => toHex(c.resource) === identity);
       const candidates = o.candidates.filter((c) => c !== list);
-      const sections = candidates.map((c) => ({
-        name: c.name ?? names.resource(toHex(c.resource)),
-        status: CANDIDATE_TEXT[c.status],
-      }));
+      const failed = new Map(failures.map((f) => [f.resource, f]));
+      const sections = candidates.map((c) => {
+        const f = failed.get(toHex(c.resource));
+        return {
+          name: c.name ?? names.resource(toHex(c.resource)),
+          status:
+            f === undefined
+              ? CANDIDATE_TEXT[c.status]
+              : f.newerVersion
+                ? "needs a newer version of Shared Tasks"
+                : `could not be opened here (${f.reason}), retrying`,
+        };
+      });
+      // A section that could not be opened here is not done: it is tried again.
+      const retrying = failures.some((f) => !f.newerVersion);
       const final =
         o.certificate !== null &&
+        !retrying &&
         o.candidates.every((c) => c.status === "ready" || c.status === "not-granted");
       return {
         final,
@@ -575,9 +601,11 @@ export function progressView(o: PairingOutcome, names: Names, identity: string):
         headline:
           o.certificate === null
             ? "Approved, waiting to be added…"
-            : final
-              ? "Approved. Your sections are on this device."
-              : "Approved. Getting your sections…",
+            : retrying
+              ? "Approved. Some sections could not be opened here yet; trying again."
+              : final
+                ? "Approved. Your sections are on this device."
+                : "Approved. Getting your sections…",
         sections,
         deviceList: list === undefined ? null : CANDIDATE_TEXT[list.status],
       };
