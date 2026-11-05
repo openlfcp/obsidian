@@ -124,6 +124,8 @@ export interface LiveInstallation {
   readonly collab: Collaboration;
   readonly service: DeviceService;
   readonly network: LiveNetwork;
+  /** What it keeps besides IndexedDB: started on again, it is the same installation. */
+  readonly state: InstallationState;
   /** This installation's Principal (hex). */
   readonly me: string;
   /** A new shared section, created and hosted on the server (or `on`), with its local name. */
@@ -150,8 +152,9 @@ export class LiveDevices {
     const network = new LiveNetwork();
     const device = new Device();
     for (const [k, v] of state?.slots ?? []) device.slots.values.set(k, v);
+    const local = state?.local ?? new FakeLocal();
     const runtime = await LfcpRuntime.start(
-      device.env(state?.local ?? new FakeLocal(), {
+      device.env(local, {
         webSocket: network.factory,
         tickMs: 20,
         sectionsReadOnly: mobile,
@@ -190,6 +193,7 @@ export class LiveDevices {
       collab,
       service,
       network,
+      state: { slots: device.slots.values, local },
       me: toHex(me),
       async section(title, on = url) {
         const R = await runtime.createSectionResource({

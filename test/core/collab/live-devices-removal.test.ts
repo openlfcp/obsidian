@@ -3,7 +3,14 @@
 // devices, with what each section's key does and what the removed device
 // sees; a managing device lost with the devices it added; a leaked link.
 
-import { toHex } from "@openlfcp/core";
+import {
+  DataUnitApplier,
+  dekResolver,
+  latestAcceptedOwnUnit,
+  loadControlChain,
+} from "@openlfcp/client";
+import { type ResourceId, toHex } from "@openlfcp/core";
+import { createMessage, parseDataUnit, sealDataUnit } from "@openlfcp/wire";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fingerprintOf } from "../../../src/core/identity/people";
 import {
@@ -17,6 +24,7 @@ import {
   LiveDevices as World,
 } from "../../support/live-devices";
 import { type LiveServer, liveSkipReason, startLiveServer } from "../../support/live-server";
+import { codeName, RawSession } from "../../support/security-raw-session";
 
 vi.setConfig({ testTimeout: 240_000, hookTimeout: 60_000 });
 
@@ -36,6 +44,67 @@ async function live(ctx: { skip(note?: string): never }): Promise<LiveDevices> {
   server = await startLiveServer();
   world = new World(server.url);
   return world;
+}
+
+/** The signed Data Units `who` holds unsent for `R` (its outbound queue), as bytes. */
+async function pendingUnits(who: LiveInstallation, R: ResourceId): Promise<Uint8Array[]> {
+  const c = who.runtime.collaborationContext();
+  if (c === null) throw new Error(`${who.name} is not ready`);
+  return (await c.storage.outbound.list(R))
+    .map((i) => i.bytes)
+    .filter((b) => {
+      try {
+        parseDataUnit(b);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+}
+
+/** `bytes` sent by `who` in one DATA_PUT of its own session: "ACK", or the NACK's code. */
+async function putRaw(who: LiveInstallation, R: ResourceId, bytes: Uint8Array): Promise<string> {
+  const c = who.runtime.collaborationContext();
+  if (c === null) throw new Error(`${who.name} is not ready`);
+  const raw = new RawSession({ url: who.url, signer: c.principal.signer });
+  try {
+    await raw.connect();
+    const put = await raw.request(createMessage("DATA_PUT", { resourceId: R, objects: [bytes] }));
+    return put.type === "NACK" ? codeName(put.body.code) : put.type;
+  } finally {
+    raw.close();
+  }
+}
+
+/**
+ * `bytes` handed to `to` directly, as a server that passed them on would: its
+ * stored chain, its own DEKs and its open section's profile decide (the SDK's
+ * DataUnitApplier, as the runtime's session runs it).
+ */
+async function deliver(to: LiveInstallation, R: ResourceId, bytes: Uint8Array) {
+  const c = to.runtime.collaborationContext();
+  const profile = to.runtime.sectionProfile(R);
+  if (c === null || profile === undefined) throw new Error(`${to.name}: not open`);
+  const chain = await loadControlChain(c.storage, R);
+  if (chain?.kind !== "linear") throw new Error(`${to.name}: no chain`);
+  const applier = new DataUnitApplier({
+    storage: c.storage,
+    dek: dekResolver(c.storage, c.secrets, R),
+    handlers: [
+      {
+        dataProfile: profile.dataProfile,
+        codecFor: (u) => profile.codecFor(u),
+        apply: (u, v) => profile.apply(u, v as never),
+        applyBatch: (units) => profile.applyBatch(units as never),
+        exclude: (ids) => profile.exclude(ids),
+        has: (id) => profile.has(id),
+        reset: () => profile.reset(),
+      },
+    ],
+  });
+  const outcome = await applier.receive(chain, bytes);
+  const row = await c.storage.dataUnits.get(parseDataUnit(bytes).signed.id as never);
+  return { outcome, status: row?.status };
 }
 
 const epochs = async (who: LiveInstallation, R: Parameters<typeof serverChain>[1]) =>
@@ -86,8 +155,46 @@ describe("§7.4 scenario 4: lost device", () => {
     expect(upkeep.rotations.map((r) => r.status)).toContain("rotated");
     expect(await epochs(bob, shared)).toBe(before.shared + 1);
 
-    // The lost device's later edits are refused, and reach nobody.
-    await laptop.write(plans, "after the loss").catch(() => undefined);
+    // The lost device's later edit: made and signed on it, unaware of its removal.
+    const before4 = await pendingUnits(laptop, plans);
+    await laptop.write(plans, "after the loss");
+    const late = (await pendingUnits(laptop, plans)).filter(
+      (b) => !before4.some((x) => toHex(x) === toHex(b)),
+    );
+    expect(late).toHaveLength(1);
+    const lateUnit = parseDataUnit(late[0] as Uint8Array).payload;
+    expect(toHex(lateUnit.actor)).toBe(laptop.me);
+    // The server refuses exactly that unit, sent in a DATA_PUT of the laptop's own session.
+    // It names the head before its removal, in the epoch the key change closed: beyond the
+    // closing frontier, STALE_DATA_EPOCH (draft §4.5, WIRE §19.1).
+    expect(await putRaw(laptop, plans, late[0] as Uint8Array)).toBe("STALE_DATA_EPOCH");
+    // Handed directly to a reader, it is quarantined, not merged.
+    const lateAtMac2 = await deliver(mac2, plans, late[0] as Uint8Array);
+    expect(lateAtMac2.outcome).toMatchObject({ kind: "quarantined", code: "STALE_DATA_EPOCH" });
+    expect(lateAtMac2.status).toBe("quarantined");
+    // A late unit that names the revocation as its Control head (the laptop reads the
+    // chain up to its own removal, W §41), sealed with its key of that epoch.
+    const lc = laptop.runtime.collaborationContext();
+    if (lc === null) throw new Error("laptop not ready");
+    const prefix = await serverChain(laptop, plans);
+    const revoke = [...prefix.records].reverse().find((r) => r.body.type === "DEVICE_REVOKE");
+    if (revoke === undefined) throw new Error("no DEVICE_REVOKE in the laptop's prefix");
+    const dek0 = await dekResolver(lc.storage, lc.secrets, plans)(prefix.state.epoch.epoch);
+    if (dek0 === undefined) throw new Error("no key of that epoch on the laptop");
+    const sealed = sealDataUnit(
+      {
+        resourceId: plans,
+        dataEpoch: prefix.state.epoch.epoch,
+        actorSeq: await lc.storage.actorSequences.reserveNext(plans, lc.principal.id),
+        prevDataUnitId: await latestAcceptedOwnUnit(lc.storage, plans, lc.principal.id),
+        controlHead: revoke.signed.id as never,
+      },
+      new TextEncoder().encode("after the removal, at the revocation"),
+      dek0,
+      lc.principal.signer,
+    );
+    // At or after the DEVICE_REVOKE: AUTHORIZATION_FAILED (draft §4.5).
+    expect(await putRaw(laptop, plans, sealed.bytes)).toBe("AUTHORIZATION_FAILED");
     await until("the server's refusal on the laptop", () =>
       laptop.runtime.refusal(plans)?.code === "AUTHORIZATION_FAILED" ? true : undefined,
     );
@@ -128,7 +235,13 @@ describe("§7.4 scenario 5: offline device caught by revocation", () => {
     );
     // Offline: written, not sent.
     laptop.network.offline = true;
+    const before5 = await pendingUnits(laptop, plans);
     await laptop.write(plans, "offline, beyond the frontier");
+    const offline = (await pendingUnits(laptop, plans)).filter(
+      (b) => !before5.some((x) => toHex(x) === toHex(b)),
+    );
+    expect(offline).toHaveLength(1);
+    const unit = offline[0] as Uint8Array;
     // Removed from the second Mac while offline: the key changes, the frontier excludes it.
     const before = await epochs(mac, plans);
     const removed = await mac2.service.remove(laptop.me, 1n, "Laptop");
@@ -150,17 +263,44 @@ describe("§7.4 scenario 5: offline device caught by revocation", () => {
       { name: "Plans", text: "This device was removed from your identity." },
     ]);
 
-    // Re-applied from another device: the three replicas converge, the offline unit in none.
-    await mac2.write(plans, "offline, beyond the frontier (re-applied)");
+    // The server refuses that unit; a reader handed it directly quarantines it.
+    expect(await putRaw(laptop, plans, unit)).toBe("STALE_DATA_EPOCH");
+    const given = await deliver(bob, plans, unit);
+    expect(given.outcome).toMatchObject({
+      kind: "quarantined",
+      code: "STALE_DATA_EPOCH",
+      reason: "BEYOND_CUTOFF",
+    });
+    expect(given.status).toBe("quarantined");
+
+    // Restarted, the laptop still holds the same unsent unit and its text: nothing deleted.
+    const kept = laptop.texts(plans).find((t) => t === "offline, beyond the frontier");
+    expect(kept).toBeDefined();
+    await laptop.runtime.stop();
+    const again = await w.installation("Laptop", laptop.state);
+    expect(again.me).toBe(laptop.me);
+    expect((await pendingUnits(again, plans)).map(toHex)).toContain(toHex(unit));
+    await again.runtime.openSection(plans);
+    await until("the kept text after the restart", () =>
+      again.texts(plans).includes(kept as string),
+    );
+
+    // Re-applied from another device: the kept text, written again from the second Mac.
+    await mac2.write(plans, kept as string);
     for (const r of [mac, mac2, bob])
-      await until(`${r.name} converged`, () =>
-        r.texts(plans).includes("offline, beyond the frontier (re-applied)"),
-      );
+      await until(`${r.name} converged`, () => r.texts(plans).includes(kept as string));
+    // The offline unit itself is merged nowhere: Bob, who was handed it, keeps it quarantined.
+    const id = parseDataUnit(unit).signed.id;
+    const unitStatus = async (r: LiveInstallation) =>
+      (await r.runtime.collaborationContext()?.storage.dataUnits.get(id as never))?.status;
+    expect(await unitStatus(mac)).toBeUndefined();
+    expect(await unitStatus(mac2)).toBeUndefined();
+    expect(await unitStatus(bob)).toBe("quarantined");
     const seen = [mac, mac2, bob].map((r) => [...r.texts(plans)].sort());
     expect(seen[1]).toEqual(seen[0]);
     expect(seen[2]).toEqual(seen[0]);
     expect(seen[0]).toContain("online, within the frontier");
-    expect(seen[0]).not.toContain("offline, beyond the frontier");
+    expect(seen[0]?.filter((t) => t === kept)).toHaveLength(1);
   });
 });
 
