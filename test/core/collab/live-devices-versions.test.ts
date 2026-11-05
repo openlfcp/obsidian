@@ -195,6 +195,9 @@ describe("§7.4 scenario 7: three generations", () => {
       legacyText,
     );
     expect(legacyText).not.toContain("linked devices");
+    // It shows the section as offline (control sync), not as a chain error.
+    expect(legacyText).toContain("Sync: Offline");
+    expect(legacyText).toContain("(control sync)");
 
     // V_notice restarted: still blocked, from its stored state.
     const state = notice.state;
