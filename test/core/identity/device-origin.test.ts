@@ -21,6 +21,7 @@ import {
   signControlRecord,
 } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
+import { CollabError } from "../../../src/core/collab/service";
 import type { RosterAdd, RosterWriter } from "../../../src/core/identity/roster";
 import { DeviceWorld, type Installation, pair, WORLD_URL } from "../../support/device-world";
 
@@ -269,4 +270,31 @@ it("a section the first device creates after pairing reaches the person's other 
   expect(world.server.chain(X).state.devices.get(me(b))?.registered).toBe(true);
   expect((await b.service.upkeep()).opened).toEqual(["Late"]);
   expect(b.runtime.sectionProfile(X)).toBeDefined();
+});
+
+it("a roster section whose opening failed after its row was stored is opened again by the next upkeep (review #109 P2-5)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  const made = await createResourceAsDevice({
+    ...world.flowOf(b),
+    dataProfile: SECTIONS_PROFILE_ID,
+    url: WORLD_URL,
+    name: "Field notes",
+  });
+  if (made.kind !== "created") throw new Error(JSON.stringify(made));
+  const X = made.resource;
+  const open = a.runtime.openSection.bind(a.runtime);
+  let calls = 0;
+  a.runtime.openSection = (R) => {
+    calls++;
+    return calls === 1 ? Promise.reject(new CollabError("UNAVAILABLE", "closing")) : open(R);
+  };
+  expect((await a.service.upkeep()).opened).toEqual([]);
+  expect(await a.runtime.hasResource(X)).toBe(true);
+  expect(a.runtime.sectionProfile(X)).toBeUndefined();
+  expect((await a.service.upkeep()).opened).toEqual(["Field notes"]);
+  expect(calls).toBe(2);
+  expect(a.runtime.sectionProfile(X)).toBeDefined();
 });

@@ -106,6 +106,8 @@ const PAIRING_KEY = "identity-pairing-request";
 /** What the device flows need of the plugin runtime (LfcpRuntime implements it). */
 export interface DeviceRuntime {
   registry(): Promise<RegistryEntry[]>;
+  /** An open section's profile, undefined while it is not open here (LfcpRuntime.sectionProfile). */
+  sectionProfile?(resource: ResourceId): unknown;
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
@@ -654,7 +656,19 @@ export class DeviceService {
     const roster = await this.#identityRoster(flow, I);
     if (roster === null) return [];
     const c = this.#context();
-    const here = new Set((await this.#runtime().registry()).map((e) => toHex(e.resourceId)));
+    const runtime = this.#runtime();
+    // Done only once open here: a row stored by an attempt that then failed to open is tried
+    // again (openFromRoster opens a stored one again).
+    const here = new Set(
+      (await runtime.registry())
+        .filter(
+          (e) =>
+            e.profile !== SECTIONS_PROFILE_ID ||
+            runtime.sectionProfile === undefined ||
+            runtime.sectionProfile(e.resourceId) !== undefined,
+        )
+        .map((e) => toHex(e.resourceId)),
+    );
     const opened: string[] = [];
     for (const [hex, entry] of roster) {
       if (hex === toHex(I) || here.has(hex) || !this.#profileOk(entry.profile)) continue;
@@ -671,8 +685,8 @@ export class DeviceService {
           flow.installation,
         );
         if (![...chain.state.epochs.keys()].every((e) => deks.has(e))) continue;
-        if (await collab.openFromRoster(X, entry.name ?? null))
-          opened.push(entry.name ?? `section ${shortId(hex)}`);
+        await collab.openFromRoster(X, entry.name ?? null);
+        opened.push(entry.name ?? `section ${shortId(hex)}`);
       } catch (e) {
         // Not registered here yet, not reachable, or not openable by this version: later.
         if (
