@@ -739,6 +739,7 @@ export function upkeepText(
     readonly rotations: readonly RotationOutcome[];
     readonly issues?: readonly UpkeepIssue[];
     readonly offline?: boolean;
+    readonly handedOn?: readonly string[];
   },
   names?: Names,
 ): string {
@@ -775,6 +776,9 @@ export function upkeepText(
     ...(rotated === 0
       ? []
       : [`Changed the key of ${rotated === 1 ? "1 section" : `${rotated} sections`}.`]),
+    ...((r.handedOn ?? []).length === 0
+      ? []
+      : [`Handed on the new key of ${list((r.handedOn ?? []).map(name))}.`]),
     ...(failed === 0
       ? []
       : [

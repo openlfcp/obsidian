@@ -4,12 +4,17 @@
 // DEVICE_REVOKE), and registrations left for later by an approval (§5.3
 // step 10, §7.1).
 
-import { syncChain } from "@openlfcp/client";
+import { deliverKeys, heldDeks, PackageLedger, syncChain } from "@openlfcp/client";
 import { fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
-import { decodeControlRecord, parseKeyPackage, revocationOf } from "@openlfcp/wire";
+import {
+  decodeControlRecord,
+  parseKeyPackage,
+  revocationOf,
+  signControlRecord,
+} from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
 import { DeviceService } from "../../../src/core/identity/service";
-import { DeviceWorld, type Installation, pair } from "../../support/device-world";
+import { DeviceWorld, type Installation, pair, WORLD_URL } from "../../support/device-world";
 
 // Several installations and a coordinator per test, on the real SDK flows: slower than a unit.
 vi.setConfig({ testTimeout: 30_000 });
@@ -223,4 +228,106 @@ it("Finish now does not say up to date when a reachable server refused the regis
   world.server.offline = false;
   const done = await a.service.upkeep(true);
   expect(done.summary).toContain("up to date");
+});
+
+/** The coordinator refuses the package of X's epoch `epoch` for `recipient` (hex), until `lift`. */
+function refusePackage(X: ResourceId, recipient: string, epoch: bigint) {
+  world.server.fault = (e) => {
+    if (e.op !== "key-package" || toHex(e.resource) !== toHex(X)) return undefined;
+    const p = parseKeyPackage(e.bytes).payload;
+    return toHex(p.recipient) === recipient && p.dataEpoch === epoch
+      ? { nack: "QUOTA_EXCEEDED" }
+      : undefined;
+  };
+}
+
+const hasKey = (X: ResourceId, recipient: string, epoch: bigint) =>
+  world.server.packagesOf(X).some((p) => toHex(p.recipient) === recipient && p.dataEpoch === epoch);
+
+it("a new key the server refused to a device during the key change is unfinished, then handed on (C2)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const c = await world.installation();
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  await pair(a, c, "edit");
+  await b.service.remove(me(b), 0n, "Phone");
+  await synced(a, X);
+  const before = epochs(X);
+  const latest = BigInt(before);
+  refusePackage(X, me(c), latest);
+  const first = await a.service.upkeep();
+  expect(epochs(X)).toBe(before + 1);
+  expect(hasKey(X, me(c), latest)).toBe(false);
+  expect(first.summary).not.toContain("up to date");
+  expect(first.summary).toContain('A key could not be handed on in "Plans".');
+  world.server.fault = () => undefined;
+  const second = await a.service.upkeep();
+  expect(hasKey(X, me(c), latest)).toBe(true);
+  expect(epochs(X)).toBe(before + 1);
+  expect(second.summary).not.toContain("could not");
+  expect((await a.service.upkeep(true)).summary).toContain("up to date");
+});
+
+it("an owner without a device list hands on a new key the server refused to another person's device (C1)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation(); // the owner of X: no device list
+  const p = await world.installation(); // another person, with devices B and C
+  const b = await world.installation();
+  const c = await world.installation();
+  const X = await a.section("Plans");
+  const actx = a.runtime.collaborationContext();
+  const pctx = p.runtime.collaborationContext();
+  if (actx === null || pctx === null) throw new Error("not ready");
+  // A grants P read and write in X, and seals X's key to P.
+  const ach = await world.server.network().connect(actx.principal.signer, WORLD_URL);
+  const x0 = await syncChain(actx.storage, ach, X);
+  const grant = signControlRecord(
+    { resourceId: X, controlSeq: x0.state.seq + 1n, prevControlId: x0.state.head },
+    {
+      type: "CAPABILITY_GRANT",
+      subject: pctx.principal.signer.descriptor,
+      abilities: [1n, 2n],
+      delegable: [],
+    },
+    actx.principal.signer,
+  ).bytes;
+  expect((await ach.putControl(X, x0.state.head, grant)).kind).toBe("ack");
+  const x1 = await syncChain(actx.storage, ach, X);
+  await deliverKeys({
+    channel: ach,
+    ledger: new PackageLedger(actx.storage),
+    chain: x1,
+    sender: actx.principal.signer,
+    recipients: [pctx.principal.signer.descriptor],
+    deks: await heldDeks(actx.secrets, x1),
+  });
+  // P holds X, pairs B and C (both registered in X with X's key), then removes B.
+  await synced(p, X);
+  expect(await p.collab.openFromRoster(X, "Plans")).toBe(true);
+  await b.service.progress(await pair(p, b, "edit"));
+  await pair(p, c, "edit");
+  expect((await p.service.remove(me(b), 1n, "Old phone")).kind).not.toBe("stop");
+  // P may not change X's key: A, its owner, does, and the server refuses C's new key.
+  await synced(a, X);
+  const before = epochs(X);
+  const latest = BigInt(before);
+  refusePackage(X, me(c), latest);
+  const first = await a.service.upkeep();
+  expect(epochs(X)).toBe(before + 1);
+  expect(first.reconciled).toBe(false);
+  expect(first.summary).toContain('A key could not be handed on in "Plans".');
+  expect(hasKey(X, me(c), latest)).toBe(false);
+  expect((await a.service.unfinished()).find((u) => u.kind === "handover")?.sections).toEqual([
+    "Plans",
+  ]);
+  // The server recovers: the next ordinary upkeep hands C the key, with no other key change.
+  world.server.fault = () => undefined;
+  const second = await a.service.upkeep();
+  expect(hasKey(X, me(c), latest)).toBe(true);
+  expect(epochs(X)).toBe(before + 1);
+  expect(second.summary).toBe('Handed on the new key of "Plans".');
+  expect((await a.service.unfinished()).filter((u) => u.kind === "handover")).toEqual([]);
+  expect((await a.service.upkeep(true)).summary).toBe("Nothing to finish.");
 });

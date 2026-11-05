@@ -161,12 +161,40 @@ export interface UpkeepResult {
   readonly issues: readonly UpkeepIssue[];
   /** The device list's coordinator could not be reached: nothing was decided on its state. */
   readonly offline: boolean;
+  /** Resources (hex) whose new key a key change had left owed, handed on now. */
+  readonly handedOn: readonly string[];
   /** The whole result in words, the sections by name. */
   readonly summary: string;
 }
 
 /** Rotation operations the upkeep journals itself (outside the person's roster). */
 const UPKEEP = "plugin-upkeep";
+
+/**
+ * Key changes whose new key a server refused to some reader (§8.4, §9.2
+ * Package): the Resource, the SDK operation that made the change (the
+ * upkeep's own, or a reconciliation's), and the readers still owed (hex).
+ * Kept in local state until the same operation hands the key on.
+ */
+const OWED_KEY = "identity-rotation-owed";
+
+interface OwedKey {
+  readonly resource: string;
+  readonly operation: string;
+  readonly recipients: readonly string[];
+}
+
+const owedOf = (v: unknown): OwedKey[] =>
+  Array.isArray(v)
+    ? v.filter(
+        (o): o is OwedKey =>
+          typeof o === "object" &&
+          o !== null &&
+          typeof (o as OwedKey).resource === "string" &&
+          typeof (o as OwedKey).operation === "string" &&
+          Array.isArray((o as OwedKey).recipients),
+      )
+    : [];
 
 /** Thrown when OpenLFCP is not ready (locked, stopped, starting). */
 export class DevicesUnavailable extends Error {
@@ -297,7 +325,13 @@ export class DeviceService {
       .map(([hex]) => names.resource(hex));
     if (keys.length > 0) out.push({ kind: "key", operation: "", label: "", sections: keys });
     const list = local.identity === null ? "" : toHex(local.identity.state.resourceId);
-    for (const [device, resources] of await this.#keysOwed(local))
+    const owedKeys = await this.#keysOwed(local);
+    // And the readers a key change's new key was refused to (another person's devices too).
+    for (const o of owedOf(await this.#runtime().localState.get(OWED_KEY)))
+      for (const r of o.recipients)
+        if (!(owedKeys.get(r) ?? []).includes(o.resource))
+          owedKeys.set(r, [...(owedKeys.get(r) ?? []), o.resource]);
+    for (const [device, resources] of owedKeys)
       out.push({
         kind: "handover",
         operation: "",
@@ -421,6 +455,11 @@ export class DeviceService {
     const issues: UpkeepIssue[] = [];
     const covered = new Set<string>();
     let reconciled = false;
+    // New keys a server refused to a reader after an earlier key change: the same operation
+    // hands them on (§9.1, §9.2 Package), never another key change.
+    const handedOn = await this.#handOver(flow, local, issues);
+    /** Key changes made now, with the operation each is journaled under. */
+    const made: { readonly rotation: RotationOutcome; readonly operation: string }[] = [];
     if (local.identity !== null && local.manages) {
       const I = local.identity;
       const due =
@@ -437,7 +476,10 @@ export class DeviceService {
           reconciled = true;
           for (const t of r.targets) {
             if (t.status !== "unreachable") covered.add(toHex(t.resource));
-            if (t.rotation !== undefined) rotations.push(t.rotation);
+            if (t.rotation !== undefined) {
+              rotations.push(t.rotation);
+              made.push({ rotation: t.rotation, operation: r.operation });
+            }
           }
           issues.push(...upkeepIssues(r.targets, r.document, toHex(I.state.resourceId)));
         } catch (e) {
@@ -451,7 +493,9 @@ export class DeviceService {
       if (op.intent.by !== UPKEEP || typeof op.intent.resource !== "string") continue;
       const chain = local.chains.get(op.intent.resource);
       if (chain === undefined) continue;
-      rotations.push(await this.#rotate(flow, journal, op.id, chain));
+      const rotation = await this.#rotate(flow, journal, op.id, chain);
+      rotations.push(rotation);
+      made.push({ rotation, operation: op.id });
       covered.add(op.intent.resource);
     }
     for (const [hex, chain] of local.chains) {
@@ -463,10 +507,99 @@ export class DeviceService {
         createdAt: flow.now(),
         intent: { by: UPKEEP, resource: hex },
       });
-      rotations.push(await this.#rotate(flow, journal, id, chain));
+      const rotation = await this.#rotate(flow, journal, id, chain);
+      rotations.push(rotation);
+      made.push({ rotation, operation: id });
     }
-    const result = { reconciled, rotations, issues, offline };
+    // A key change whose new key a server refused to a reader is not finished (C1, C2).
+    const owed = owedOf(await this.#runtime().localState.get(OWED_KEY));
+    for (const { rotation, operation } of made) {
+      const skipped = rotation.keys?.skipped ?? [];
+      if (skipped.length === 0) continue;
+      const resource = toHex(rotation.resource);
+      issues.push({
+        resource,
+        kind: "keys",
+        detail: [...new Set(skipped.map((x) => x.reason))].join(", "),
+      });
+      owed.push({ resource, operation, recipients: skipped.map((x) => x.recipient) });
+    }
+    if (made.some((m) => (m.rotation.keys?.skipped.length ?? 0) > 0))
+      await this.#runtime().localState.put(OWED_KEY, owed);
+    const result = { reconciled, rotations, issues, offline, handedOn };
     return { ...result, summary: upkeepText(result, await this.names()) };
+  }
+
+  /**
+   * Hands on the new keys earlier key changes left owed: each owed change
+   * is resumed with rotateIfExposed on its own operation, which sends the
+   * packages its ledger lacks and changes no key. What is still refused or
+   * unreachable stays owed, as an issue. Returns the Resources (hex) whose
+   * keys were all handed on.
+   */
+  async #handOver(
+    flow: FlowOptions,
+    local: {
+      readonly identity: LinearChain | null;
+      readonly chains: ReadonlyMap<string, LinearChain>;
+    },
+    issues: UpkeepIssue[],
+  ): Promise<string[]> {
+    const runtime = this.#runtime();
+    const owed = owedOf(await runtime.localState.get(OWED_KEY));
+    if (owed.length === 0) return [];
+    const done: string[] = [];
+    const still: OwedKey[] = [];
+    for (const o of owed) {
+      const chain =
+        local.chains.get(o.resource) ??
+        (local.identity !== null && toHex(local.identity.state.resourceId) === o.resource
+          ? local.identity
+          : undefined);
+      if (chain === undefined) {
+        still.push(o);
+        continue;
+      }
+      let channel: IdentityChannel | undefined;
+      try {
+        channel = await flow.network.connect(
+          flow.installation.signer,
+          chain.state.route.coordinatorUrl,
+        );
+        const outcome = await this.#flows.rotateIfExposed({
+          ...flow,
+          channel,
+          operation: o.operation,
+          resource: chain.state.resourceId,
+        });
+        const skipped = outcome.keys?.skipped ?? [];
+        if (
+          outcome.status === "unreachable" ||
+          outcome.status === "refused" ||
+          skipped.length > 0
+        ) {
+          still.push(
+            skipped.length > 0 ? { ...o, recipients: skipped.map((x) => x.recipient) } : o,
+          );
+          issues.push({
+            resource: o.resource,
+            kind: "keys",
+            detail:
+              skipped.length > 0
+                ? [...new Set(skipped.map((x) => x.reason))].join(", ")
+                : (outcome.code ?? outcome.status),
+          });
+        } else done.push(o.resource);
+      } catch (e) {
+        if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+        still.push(o);
+        issues.push({ resource: o.resource, kind: "unreachable" });
+      } finally {
+        channel?.close();
+      }
+    }
+    await runtime.localState.put(OWED_KEY, still);
+    return done;
   }
 
   /**
