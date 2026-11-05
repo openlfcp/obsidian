@@ -67,6 +67,7 @@ import { firstPairingWarning, type PairingWarning, pairingSections } from "./com
 import { type DeviceRow, deviceRows } from "./device-list";
 import { identityDocument } from "./document";
 import { type IdentityFlows, SDK_IDENTITY_FLOWS } from "./flows";
+import { ConnectionPacer, DEVICE_FLOW_PACING, type Pacing } from "./pacing";
 import {
   type ApprovalView,
   approvalView,
@@ -119,6 +120,12 @@ export interface DeviceServiceOptions {
   /** How long one server request may take before it reads as "could not be reached". */
   readonly requestTimeoutMs?: number;
   readonly flows?: IdentityFlows;
+  /**
+   * The pace of the connections the device flows open (pacing.ts; decision
+   * I18): DEVICE_FLOW_PACING by default, null for none (an in-memory
+   * coordinator has no per-IP limit).
+   */
+  readonly pacing?: Pacing | null;
   /** A section of the roster was opened here (§5.3 step 11): the notes bound to it follow it. */
   readonly opened?: (resource: ResourceId) => void | Promise<void>;
 }
@@ -218,9 +225,17 @@ export class DeviceService {
   readonly #o: DeviceServiceOptions;
   readonly #flows: IdentityFlows;
 
+  /** One pace for every device flow of this installation, whatever dialog runs it. */
+  readonly pacer: ConnectionPacer | null;
+
   constructor(o: DeviceServiceOptions) {
     this.#o = o;
     this.#flows = o.flows ?? SDK_IDENTITY_FLOWS;
+    const pacing = o.pacing === undefined ? DEVICE_FLOW_PACING : o.pacing;
+    this.pacer =
+      pacing === null
+        ? null
+        : new ConnectionPacer({ ...pacing, now: () => Date.now(), sleep: o.sleep });
   }
 
   #context(): CollaborationContext {
@@ -239,16 +254,27 @@ export class DeviceService {
   #flow(): IdentityFlowOptions {
     const c = this.#context();
     const ms = this.#o.requestTimeoutMs ?? 30_000;
+    const network = this.#flows.connectionNetwork({
+      now: c.now,
+      ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
+      timeout: () => this.#o.sleep(ms),
+    });
+    const pacer = this.pacer;
     return {
       installation: { signer: c.principal.signer, agreement: c.principal.agreement },
       storage: c.storage,
       secrets: c.secrets,
       now: c.now,
-      network: this.#flows.connectionNetwork({
-        now: c.now,
-        ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
-        timeout: () => this.#o.sleep(ms),
-      }),
+      // Every connection a flow opens waits for its turn (decision I18).
+      network:
+        pacer === null
+          ? network
+          : {
+              connect: async (signer, url) => {
+                await pacer.take();
+                return network.connect(signer, url);
+              },
+            },
       document: identityDocument,
     };
   }

@@ -6,6 +6,7 @@ import { loadControlChain } from "@openlfcp/client";
 import type { ResourceId } from "@openlfcp/core";
 import { Collaboration } from "../../src/core/collab/service";
 import { type IdentityFlows, SDK_IDENTITY_FLOWS } from "../../src/core/identity/flows";
+import type { Pacing } from "../../src/core/identity/pacing";
 import { DeviceService } from "../../src/core/identity/service";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
 import { MemoryCoordinator } from "./identity-coordinator";
@@ -25,7 +26,11 @@ export class DeviceWorld {
   readonly server = new MemoryCoordinator();
   readonly #running: LfcpRuntime[] = [];
 
-  async installation(flows: Partial<IdentityFlows> = {}): Promise<Installation> {
+  async installation(
+    flows: Partial<IdentityFlows> = {},
+    /** The device flows' pace (none by default: an in-memory coordinator has no per-IP limit). */
+    pacing: Pacing | null = null,
+  ): Promise<Installation> {
     const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
     this.#running.push(runtime);
     const collab = new Collaboration(runtime, { sleep, connectTimeoutMs: 20, sections: true });
@@ -37,6 +42,7 @@ export class DeviceWorld {
       platform: "desktop",
       sections: true,
       sleep,
+      pacing,
       flows: { ...SDK_IDENTITY_FLOWS, connectionNetwork: () => this.server.network(), ...flows },
     });
     const server = this.server;
