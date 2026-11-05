@@ -720,9 +720,13 @@ export class DeviceService {
   /**
    * Re-certifies devices (hex) with a certificate signed by this device
    * (§8.1: "offers to re-certify the affected devices with a chain through
-   * A or the root"), the same kind, access and scope (N8), registered in
-   * the device list and every section where this device may act. This
-   * device cannot re-certify itself.
+   * A or the root"), the same kind, access and scope (N8). The new
+   * certificate is registered in the device list first: only once it is
+   * accepted there is the device re-certified. Reconciliation then carries
+   * it into every section of the person's roster (§7.1 step 2: a device
+   * registered there with another certificate); a section not reached now
+   * is finished by the device upkeep, a refusal is said. This device
+   * cannot re-certify itself.
    */
   async recertify(devices: readonly string[]): Promise<string> {
     const I = await this.identity();
@@ -745,11 +749,9 @@ export class DeviceService {
     } finally {
       channel?.close();
     }
-    const targets = [
-      { resource: I, url: chain.state.route.coordinatorUrl },
-      ...(await this.#roster()).map((r) => ({ resource: r.resource, url: r.entry.coordinator })),
-    ];
+    const list = [{ resource: I, url: chain.state.route.coordinatorUrl }];
     const lines: string[] = [];
+    const accepted: string[] = [];
     for (const hex of devices) {
       const name = names.device(hex);
       if (hex === toHex(c.principal.id)) {
@@ -765,21 +767,54 @@ export class DeviceService {
       const leaf = leafPayload(binding.root, p.device, p.kind, p.mask, p.scope);
       const feasible = checkIssuance({ chain, issuer: flow.installation.signer, leaf });
       if (!feasible.feasible) {
-        lines.push(`"${name}": cannot be re-certified from this device (${feasible.reason}).`);
+        lines.push(`"${name}" was not re-certified: not from this device (${feasible.reason}).`);
         continue;
       }
       const signed = signChain(chain.state, flow.installation.signer, leaf);
       try {
-        const r = await this.#flows.registerDevice({ ...flow, chain: signed, targets });
-        const later = r.results.filter((x) => x.status !== "registered");
-        lines.push(
-          later.length === 0
-            ? `"${name}" is re-certified.`
-            : `"${name}" is re-certified; later in ${later.map((x) => `"${names.resource(toHex(x.resource))}"`).join(", ")}.`,
-        );
+        const r = await this.#flows.registerDevice({ ...flow, chain: signed, targets: list });
+        const there = r.results[0];
+        if (there?.status === "registered") accepted.push(hex);
+        else
+          lines.push(
+            `"${name}" was not re-certified: ${
+              there?.status === "unreachable" || there?.status === "unsupported"
+                ? "the server of your device list could not be reached"
+                : `your device list refused it (${there?.code ?? there?.status ?? "refused"})`
+            }.`,
+          );
       } catch (e) {
-        lines.push(`"${name}": ${this.#thrown(e).message}`);
+        lines.push(`"${name}" was not re-certified: ${this.#thrown(e).message}`);
       }
+    }
+    if (accepted.length === 0) return lines.join(" ");
+    // §7.1 step 2: the new certificates into every section of the roster.
+    let sections: Awaited<ReturnType<IdentityFlows["reconcileDevices"]>>["targets"] = [];
+    try {
+      sections = (await this.#flows.reconcileDevices(flow)).targets.filter(
+        (t) => toHex(t.resource) !== toHex(I),
+      );
+    } catch (e) {
+      if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+    }
+    for (const hex of accepted) {
+      const step = (t: (typeof sections)[number]) =>
+        t.steps.find((x) => x.step.kind === "register" && toHex(x.step.device) === hex);
+      const refused = sections.filter((t) => {
+        const st = step(t)?.state;
+        return st === "refused" || st === "superseded";
+      });
+      const later = sections.filter((t) => t.status !== "done");
+      const name = names.device(hex);
+      const where = (ts: readonly { readonly resource: ResourceId }[]) =>
+        ts.map((t) => `"${names.resource(toHex(t.resource))}"`).join(", ");
+      lines.push(
+        [
+          `"${name}" is re-certified in your device list.`,
+          ...(later.length === 0 ? [] : [`Not reached yet, done later: ${where(later)}.`]),
+          ...(refused.length === 0 ? [] : [`Refused there: ${where(refused)}.`]),
+        ].join(" "),
+      );
     }
     return lines.join(" ");
   }
