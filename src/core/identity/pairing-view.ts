@@ -374,12 +374,12 @@ export function removalView(p: RevocationPreview, names: Names): RemovalView {
     ...(suspended.length === 0
       ? []
       : [
-          `It also stops: ${list(suspended.map(names.device))}, since it added them. Re-certify them first to keep them working.`,
+          `Devices it added stop too: ${list(suspended.map(names.device))}. Re-certify them first to keep them working.`,
         ]),
     ...(awaiting.length === 0
       ? []
       : [
-          `Their key is changed by your first device or the section's owner, not this device: ${list(awaiting)}. Until then the removed device can still read what it already had.`,
+          `The key of these sections is changed later by your first device or the section's owner, not by this device: ${list(awaiting)}. Until then, the removed device could still read new changes there.`,
         ]),
     ...(later.length === 0 ? [] : [`Not reachable now, removed there later: ${list(later)}.`]),
     "Removing does not delete what it already copied or wrote.",

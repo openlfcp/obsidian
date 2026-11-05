@@ -314,7 +314,7 @@ describe("Add my other device… (O2)", () => {
     expect(view.blocked).toBeNull();
     expect(view.suspended).toEqual([P("DEV_E")]);
     expect(view.lines.join(" ")).toContain(fingerprintOf(P("DEV_E")));
-    expect(view.lines.join(" ")).toContain("not this device");
+    expect(view.lines.join(" ")).toContain("not by this device");
   });
 
   it("a removal that depends on the removed device is blocked before anything (§8.1)", async () => {
