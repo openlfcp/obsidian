@@ -77,6 +77,11 @@ export async function startLiveServer(): Promise<LiveServer> {
       `state_dir = ${JSON.stringify(join(dir, "state"))}`,
       `public_urls = [${JSON.stringify(url)}]`,
       "heartbeat_ms = 5000",
+      // Every test client is 127.0.0.1: the server's new WebSockets per IP per
+      // minute and new Resources per IP per day (POST-003) would refuse a test
+      // with several installations (the device flows connect per call), not a client.
+      "connections_per_ip_per_minute = 0",
+      "hosts_per_ip_per_day = 0",
       "",
     ].join("\n"),
   );
