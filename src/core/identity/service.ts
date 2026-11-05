@@ -41,6 +41,7 @@ import {
   type PairingReview,
   planReconciliation,
   principalOfRef,
+  type RegistrationResult,
   type RosterEntryValue,
   type RotationOutcome,
   readersAt,
@@ -50,6 +51,7 @@ import {
 import {
   bytesEqual,
   dataEpoch,
+  fromBase64url,
   fromHex,
   type PrincipalId,
   type ResourceId,
@@ -58,7 +60,7 @@ import {
 } from "@openlfcp/core";
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
-import { actsFor } from "@openlfcp/wire";
+import { actsFor, DEVICE_KIND } from "@openlfcp/wire";
 import { CollabError, type Collaboration } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
@@ -831,11 +833,12 @@ export class DeviceService {
    * (§8.1: "offers to re-certify the affected devices with a chain through
    * A or the root"), the same kind, access and scope (N8). The new
    * certificate is registered in the device list first: only once it is
-   * accepted there is the device re-certified. Reconciliation then carries
-   * it into every section of the person's roster (§7.1 step 2: a device
-   * registered there with another certificate); a section not reached now
-   * is finished by the device upkeep, a refusal is said. This device
-   * cannot re-certify itself.
+   * accepted there is the device re-certified. It is then registered in
+   * each section the device uses (the roster in the device list; for a
+   * service device its signed scope there), since reconciliation leaves
+   * an active device's other certificate in place; a section not reached
+   * now is said as later, a refusal with its code. This device cannot
+   * re-certify itself.
    */
   async recertify(devices: readonly string[]): Promise<string> {
     const I = await this.identity();
@@ -860,7 +863,7 @@ export class DeviceService {
     }
     const list = [{ resource: I, url: chain.state.route.coordinatorUrl }];
     const lines: string[] = [];
-    const accepted: string[] = [];
+    const accepted: { hex: string; signed: ReturnType<typeof signChain> }[] = [];
     for (const hex of devices) {
       const name = names.device(hex);
       if (hex === toHex(c.principal.id)) {
@@ -883,7 +886,7 @@ export class DeviceService {
       try {
         const r = await this.#flows.registerDevice({ ...flow, chain: signed, targets: list });
         const there = r.results[0];
-        if (there?.status === "registered") accepted.push(hex);
+        if (there?.status === "registered") accepted.push({ hex, signed });
         else
           lines.push(
             `"${name}" was not re-certified: ${
@@ -897,35 +900,97 @@ export class DeviceService {
       }
     }
     if (accepted.length === 0) return lines.join(" ");
-    // §7.1 step 2: the new certificates into every section of the roster.
-    let sections: Awaited<ReturnType<IdentityFlows["reconcileDevices"]>>["targets"] = [];
-    try {
-      sections = (await this.#flows.reconcileDevices(flow)).targets.filter(
-        (t) => toHex(t.resource) !== toHex(I),
-      );
-    } catch (e) {
-      if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
-    }
-    for (const hex of accepted) {
-      const step = (t: (typeof sections)[number]) =>
-        t.steps.find((x) => x.step.kind === "register" && toHex(x.step.device) === hex);
-      const refused = sections.filter((t) => {
-        const st = step(t)?.state;
-        return st === "refused" || st === "superseded";
-      });
-      const later = sections.filter((t) => t.status !== "done");
+    // The same certificate in each section the device uses (the roster in the device list;
+    // a service device's signed scope within it): registered explicitly, since reconciliation
+    // leaves an active device's other certificate in place (§7.1 step 2).
+    const roster = await this.#identityRoster(flow, I);
+    for (const { hex, signed } of accepted) {
       const name = names.device(hex);
-      const where = (ts: readonly { readonly resource: ResourceId }[]) =>
+      if (roster === null) {
+        lines.push(
+          `"${name}" is re-certified in your device list. Its sections could not be reached now: re-certify it again to finish.`,
+        );
+        continue;
+      }
+      const payload = signed.leaf.payload;
+      const targets = [...roster]
+        .filter(
+          ([r]) =>
+            r !== toHex(I) &&
+            (payload.kind !== DEVICE_KIND.SERVICE || payload.scope.some((x) => toHex(x) === r)),
+        )
+        .map(([r, url]) => ({ resource: fromHex(r) as ResourceId, url }));
+      let results: readonly RegistrationResult[] = [];
+      try {
+        results = (await this.#flows.registerDevice({ ...flow, chain: signed, targets })).results;
+      } catch (e) {
+        if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+        results = targets.map((t) => ({ resource: t.resource, status: "unreachable" as const }));
+      }
+      const where = (ts: readonly RegistrationResult[]) =>
         ts.map((t) => `"${names.resource(toHex(t.resource))}"`).join(", ");
+      const refused = results.filter((t) => t.status === "refused" || t.status === "superseded");
+      const later = results.filter(
+        (t) => t.status !== "registered" && t.status !== "refused" && t.status !== "superseded",
+      );
+      const codes = [...new Set(refused.map((t) => t.code ?? t.status))].join(", ");
       lines.push(
         [
           `"${name}" is re-certified in your device list.`,
-          ...(later.length === 0 ? [] : [`Not reached yet, done later: ${where(later)}.`]),
-          ...(refused.length === 0 ? [] : [`Refused there: ${where(refused)}.`]),
+          ...(later.length === 0
+            ? []
+            : // Reconciliation finishes a personal device there; a service device's only path is this.
+              payload.kind === DEVICE_KIND.SERVICE
+              ? [`Not reached yet: ${where(later)}; re-certify it again to finish.`]
+              : [`Not reached yet, done later: ${where(later)}.`]),
+          ...(refused.length === 0 ? [] : [`Refused there: ${where(refused)} (${codes}).`]),
         ].join(" "),
       );
     }
     return lines.join(" ");
+  }
+
+  /**
+   * The roster in the device list, as its coordinator has it: Resource
+   * (hex) → coordinator URL, archived entries left out. Null when it
+   * cannot be read now.
+   */
+  async #identityRoster(
+    flow: IdentityFlowOptions,
+    I: ResourceId,
+  ): Promise<ReadonlyMap<string, string> | null> {
+    const c = this.#context();
+    const stored = await loadControlChain(c.storage, I);
+    if (stored?.kind !== "linear") return null;
+    let channel: IdentityChannel | undefined;
+    try {
+      channel = await flow.network.connect(
+        flow.installation.signer,
+        stored.state.route.coordinatorUrl,
+      );
+      const chain = await this.#flows.syncChain(c.storage, channel, I);
+      const doc = identityDocument(I, chain.state.owner.principalId);
+      await this.#flows.loadIdentityDocument({
+        channel,
+        chain,
+        deks: await this.#flows.fetchDeks(c.storage, c.secrets, channel, chain, flow.installation),
+        doc,
+      });
+      const out = new Map<string, string>();
+      for (const [ref, entry] of doc.roster())
+        if (entry.archived !== true) out.set(toHex(fromBase64url(ref)), entry.coordinator);
+      return out;
+    } catch (e) {
+      if (
+        e instanceof IdentityUnavailable ||
+        e instanceof IdentityRefused ||
+        e instanceof IdentityConflict
+      )
+        return null;
+      throw e;
+    } finally {
+      channel?.close();
+    }
   }
 
   // --- The new device's side (O3) --------------------------------------------
