@@ -664,7 +664,8 @@ export class PairThisDeviceModal extends Modal {
         sections.createEl("li", { text: `Your device list: ${view.deviceList}` });
       for (const s of view.sections) sections.createEl("li", { text: `${s.name}: ${s.status}` });
       for (const name of view.opened) new Notice(`Shared Tasks: "${name}" is on this device now.`);
-      return !view.final;
+      // Final, or waiting for an update of the plugin: no more asking now.
+      return !(view.final || view.paused);
     });
   }
 }

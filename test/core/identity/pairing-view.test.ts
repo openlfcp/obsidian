@@ -73,7 +73,7 @@ describe("the approve dialog's words (§5.3 step 4, §5.4)", () => {
 });
 
 describe("the new device's result (§5.3 step 8, §6)", () => {
-  it("a section this version cannot open says so, and does not keep the pairing waiting", () => {
+  it("a section this version cannot open says so, and keeps the pairing unfinished until an update (B5)", () => {
     const R = generateResourceId();
     const view = progressView(
       {
@@ -89,6 +89,8 @@ describe("the new device's result (§5.3 step 8, §6)", () => {
     expect(view.sections).toEqual([
       { name: "Board", status: "needs a newer version of Shared Tasks" },
     ]);
-    expect(view.final).toBe(true);
+    expect(view.final).toBe(false);
+    expect(view.paused).toBe(true);
+    expect(view.headline).not.toContain("on this device");
   });
 });

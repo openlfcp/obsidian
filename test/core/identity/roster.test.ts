@@ -5,6 +5,7 @@
 
 import { toHex } from "@openlfcp/core";
 import { afterEach, expect, it, vi } from "vitest";
+import { CollabError } from "../../../src/core/collab/service";
 import { DeviceWorld, pair } from "../../support/device-world";
 
 // Several installations and a coordinator per test, on the real SDK flows: slower than a unit.
@@ -70,6 +71,36 @@ it("a section that fails to open here is not success: the request stays resumabl
   const second = await b.service.progress(op);
   expect(second.final).toBe(true);
   expect(second.sections).toEqual([{ name: "Plans", status: "ready" }]);
+  expect(b.runtime.sectionProfile(X)).toBeDefined();
+  expect(await b.service.openRequest()).toBeNull();
+});
+
+it("a section this version cannot open does not end the pairing; after an update it opens (B5)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  const op = await pair(a, b);
+  // This version of the plugin cannot open the section's profile (a newer one can).
+  const open = b.collab.openFromRoster.bind(b.collab);
+  let old = true;
+  b.collab.openFromRoster = (R, name) =>
+    old
+      ? Promise.reject(new CollabError("NEWER_VERSION_NEEDED", "needs a newer version"))
+      : open(R, name);
+  const first = await b.service.progress(op);
+  expect(first.final).toBe(false);
+  expect(first.paused).toBe(true);
+  expect(first.headline).not.toContain("Your sections are on this device");
+  expect(first.sections).toEqual([
+    { name: "Plans", status: "needs a newer version of Shared Tasks" },
+  ]);
+  // Until the update, the request stays to resume (the SDK's operation is done).
+  expect((await b.service.openRequest())?.operation).toBe(op);
+  // Updated: the same request opens the section.
+  old = false;
+  const second = await b.service.progress(op);
+  expect(second.final).toBe(true);
   expect(b.runtime.sectionProfile(X)).toBeDefined();
   expect(await b.service.openRequest()).toBeNull();
 });

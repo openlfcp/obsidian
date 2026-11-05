@@ -553,6 +553,11 @@ export interface ProgressView {
    * device: its own line, never one of the sections. Null until known.
    */
   readonly deviceList: string | null;
+  /**
+   * Not final, and nothing changes until the plugin is updated (a section
+   * this version cannot open): stop asking; the request stays resumable.
+   */
+  readonly paused: boolean;
 }
 
 /** A ready section this device could not open here (§5.3 step 11): kept, and tried again. */
@@ -583,6 +588,7 @@ export function progressView(
         headline: "Waiting for your other device to approve…",
         sections: [],
         deviceList: null,
+        paused: false,
       };
     case "rejected":
       return {
@@ -591,6 +597,7 @@ export function progressView(
         headline: "Your other device rejected this request. Nothing was added.",
         sections: [],
         deviceList: null,
+        paused: false,
       };
     case "unknown":
     case "unavailable":
@@ -600,6 +607,7 @@ export function progressView(
         headline: `Waiting: ${o.reason}. Retrying.`,
         sections: [],
         deviceList: null,
+        paused: false,
       };
     case "approved": {
       const list = o.candidates.find((c) => toHex(c.resource) === identity);
@@ -617,11 +625,14 @@ export function progressView(
                 : `could not be opened here (${f.reason}), retrying`,
         };
       });
-      // A section that could not be opened here is not done: it is tried again.
+      // A section that could not be opened here is not done: it is tried again, or, when this
+      // version cannot open it, after an update (the request is kept until then).
       const retrying = failures.some((f) => !f.newerVersion);
+      const update = failures.some((f) => f.newerVersion);
       const final =
         o.certificate !== null &&
         !retrying &&
+        !update &&
         o.candidates.every((c) => c.status === "ready" || c.status === "not-granted");
       return {
         final,
@@ -631,11 +642,14 @@ export function progressView(
             ? "Approved, waiting to be added…"
             : retrying
               ? "Approved. Some sections could not be opened here yet; trying again."
-              : final
-                ? "Approved. Your sections are on this device."
-                : "Approved. Getting your sections…",
+              : update
+                ? 'Approved. Some sections need a newer version of Shared Tasks: update the plugin, then choose "Pair this device with a link…" again to open them.'
+                : final
+                  ? "Approved. Your sections are on this device."
+                  : "Approved. Getting your sections…",
         sections,
         deviceList: list === undefined ? null : CANDIDATE_TEXT[list.status],
+        paused: update && !retrying,
       };
     }
   }
