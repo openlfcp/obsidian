@@ -344,3 +344,32 @@ it("a section queued while a flush waits for the server stays queued (review #10
   await Promise.all([upkeep, y]);
   expect((await a.service.unfinished()).find((u) => u.kind === "roster")?.sections).toEqual(["Y"]);
 });
+
+it("a section whose roster queue entry was lost is recovered from this device's sections (review #109 P2-3)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  // The first write of the roster queue fails (a storage error) right after the section is made.
+  const put = a.runtime.localState.update.bind(a.runtime.localState);
+  let fail = true;
+  a.runtime.localState.update = (key, change) => {
+    if (fail && key === "identity-roster-pending") {
+      fail = false;
+      return Promise.reject(new Error("storage closing"));
+    }
+    return put(key, change);
+  };
+  const X = await a.collab.createSectionResource({
+    name: "Late",
+    endpoints: [WORLD_URL],
+    coordinatorUrl: WORLD_URL,
+    resourceId: generateResourceId(),
+  });
+  await a.host(X);
+  expect(fail).toBe(false);
+  // The next upkeep finds X missing from the roster, lists it, and adds B there; B opens it.
+  await a.service.upkeep(true);
+  expect(world.server.chain(X).state.devices.get(me(b))?.registered).toBe(true);
+  expect((await b.service.upkeep()).opened).toEqual(["Late"]);
+});

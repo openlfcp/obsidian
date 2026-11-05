@@ -497,6 +497,13 @@ export class DeviceService {
     // New keys a server refused to a reader after an earlier key change: the same operation
     // hands them on (§9.1, §9.2 Package), never another key change.
     const handedOn = await this.#handOver(flow, local, issues);
+    // This device's sections the roster lacks are queued (a queue write a failure cut short,
+    // a device flow whose roster entry was refused), then the queue is listed, before
+    // reconciliation reads the roster (§7.1: it registers the person's devices there).
+    if (!offline) {
+      await this.#recoverRoster(flow);
+      await this.#flushRoster(issues);
+    }
     /** Key changes made now, with the operation each is journaled under. */
     const made: { readonly rotation: RotationOutcome; readonly operation: string }[] = [];
     if (local.identity !== null && local.manages) {
@@ -565,8 +572,6 @@ export class DeviceService {
     }
     if (made.some((m) => (m.rotation.keys?.skipped.length ?? 0) > 0))
       await this.#runtime().localState.put(OWED_KEY, owed);
-    // The first device's new sections into the roster (roster.ts), before anything reads it.
-    if (!offline) await this.#flushRoster(issues);
     // The person's sections this device does not hold yet: created or joined on another of
     // the person's devices after this one was paired (§6; §7.2 step 4, §7.3 roster entries).
     const opened = offline ? [] : await this.#openRoster(flow);
@@ -586,6 +591,21 @@ export class DeviceService {
     if ((await this.identity()) === undefined || (await this.origin()) !== null) return;
     await this.#queueRoster(toHex(resource));
     await this.#flushRoster([]);
+  }
+
+  /**
+   * Queues every section of this device that the roster in the device
+   * list does not have (§5.1 fills it with all of them; I17: whoever
+   * creates or accepts a section after that adds it). Recovers what a
+   * failure between a creation or join and its queue entry left out.
+   */
+  async #recoverRoster(flow: IdentityFlowOptions): Promise<void> {
+    const I = await this.identity();
+    if (I === undefined) return;
+    const roster = await this.#identityRoster(flow, I);
+    if (roster === null) return;
+    for (const r of await this.#roster())
+      if (!roster.has(toHex(r.resource))) await this.#queueRoster(toHex(r.resource));
   }
 
   /** Adds a section (hex) to the roster queue, read-modify-write: a concurrent change is kept. */
