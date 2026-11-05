@@ -5,39 +5,39 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@openlfcp/client': link:../wt-413-sdk/packages/client
-  '@openlfcp/core': link:../wt-413-sdk/packages/core
-  '@openlfcp/crypto': link:../wt-413-sdk/packages/crypto
-  '@openlfcp/shared-objects': link:../wt-413-sdk/packages/shared-objects
-  '@openlfcp/storage': link:../wt-413-sdk/packages/storage
-  '@openlfcp/storage-idb': link:../wt-413-sdk/packages/storage-idb
-  '@openlfcp/wire': link:../wt-413-sdk/packages/wire
+  '@openlfcp/client': link:../wt-413e-sdk/packages/client
+  '@openlfcp/core': link:../wt-413e-sdk/packages/core
+  '@openlfcp/crypto': link:../wt-413e-sdk/packages/crypto
+  '@openlfcp/shared-objects': link:../wt-413e-sdk/packages/shared-objects
+  '@openlfcp/storage': link:../wt-413e-sdk/packages/storage
+  '@openlfcp/storage-idb': link:../wt-413e-sdk/packages/storage-idb
+  '@openlfcp/wire': link:../wt-413e-sdk/packages/wire
 
 importers:
 
   .:
     dependencies:
       '@openlfcp/client':
-        specifier: link:../wt-413-sdk/packages/client
-        version: link:../wt-413-sdk/packages/client
+        specifier: link:../wt-413e-sdk/packages/client
+        version: link:../wt-413e-sdk/packages/client
       '@openlfcp/core':
-        specifier: link:../wt-413-sdk/packages/core
-        version: link:../wt-413-sdk/packages/core
+        specifier: link:../wt-413e-sdk/packages/core
+        version: link:../wt-413e-sdk/packages/core
       '@openlfcp/crypto':
-        specifier: link:../wt-413-sdk/packages/crypto
-        version: link:../wt-413-sdk/packages/crypto
+        specifier: link:../wt-413e-sdk/packages/crypto
+        version: link:../wt-413e-sdk/packages/crypto
       '@openlfcp/shared-objects':
-        specifier: link:../wt-413-sdk/packages/shared-objects
-        version: link:../wt-413-sdk/packages/shared-objects
+        specifier: link:../wt-413e-sdk/packages/shared-objects
+        version: link:../wt-413e-sdk/packages/shared-objects
       '@openlfcp/storage':
-        specifier: link:../wt-413-sdk/packages/storage
-        version: link:../wt-413-sdk/packages/storage
+        specifier: link:../wt-413e-sdk/packages/storage
+        version: link:../wt-413e-sdk/packages/storage
       '@openlfcp/storage-idb':
-        specifier: link:../wt-413-sdk/packages/storage-idb
-        version: link:../wt-413-sdk/packages/storage-idb
+        specifier: link:../wt-413e-sdk/packages/storage-idb
+        version: link:../wt-413e-sdk/packages/storage-idb
       '@openlfcp/wire':
-        specifier: link:../wt-413-sdk/packages/wire
-        version: link:../wt-413-sdk/packages/wire
+        specifier: link:../wt-413e-sdk/packages/wire
+        version: link:../wt-413e-sdk/packages/wire
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.15
