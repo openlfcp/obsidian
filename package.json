@@ -50,13 +50,13 @@
       "esbuild"
     ],
     "overrides": {
-      "@openlfcp/client": "link:../../../openlfcp/sdk-ts/packages/client",
-      "@openlfcp/core": "link:../../../openlfcp/sdk-ts/packages/core",
-      "@openlfcp/crypto": "link:../../../openlfcp/sdk-ts/packages/crypto",
-      "@openlfcp/shared-objects": "link:../../../openlfcp/sdk-ts/packages/shared-objects",
-      "@openlfcp/storage": "link:../../../openlfcp/sdk-ts/packages/storage",
-      "@openlfcp/storage-idb": "link:../../../openlfcp/sdk-ts/packages/storage-idb",
-      "@openlfcp/wire": "link:../../../openlfcp/sdk-ts/packages/wire"
+      "@openlfcp/client": "link:../wt-413-sdk/packages/client",
+      "@openlfcp/core": "link:../wt-413-sdk/packages/core",
+      "@openlfcp/crypto": "link:../wt-413-sdk/packages/crypto",
+      "@openlfcp/shared-objects": "link:../wt-413-sdk/packages/shared-objects",
+      "@openlfcp/storage": "link:../wt-413-sdk/packages/storage",
+      "@openlfcp/storage-idb": "link:../wt-413-sdk/packages/storage-idb",
+      "@openlfcp/wire": "link:../wt-413-sdk/packages/wire"
     }
   }
 }
