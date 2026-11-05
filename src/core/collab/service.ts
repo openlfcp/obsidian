@@ -797,6 +797,46 @@ export class Collaboration {
     name: string,
     stage: (s: JoinStage) => void,
   ): Promise<JoinOutcome> {
+    const section = await this.#store(R, name, "What the invitation shares could not be stored.");
+    await this.#runtime.localState.put(joinNameKey(R), null);
+    const abilities = granted.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`);
+    stage("synchronizing");
+    if (section) await this.#runtime.openSection(R);
+    else await this.#runtime.openResource(R);
+    // Until the session is live, or the connect timeout: joined either way.
+    const until = this.#o.connectTimeoutMs;
+    let waited = 0;
+    for (; this.#runtime.phase(R) !== "LIVE" && waited < until; waited += 50)
+      await this.#o.sleep(50);
+    if (!section) return { kind: "joined", resourceId: R, abilities };
+    // A section is inserted only once ready and fully loaded (LFCP-02-052).
+    stage("loading section");
+    const loaded = () => {
+      const l = this.#runtime.sectionLoad?.(R);
+      return l?.ready === true && l.loaded;
+    };
+    for (; !loaded() && waited < until; waited += 50) await this.#o.sleep(50);
+    return { kind: "joined", resourceId: R, abilities, section: { loaded: loaded() } };
+  }
+
+  /**
+   * A Resource of the person's roster, opened on a device just paired
+   * (LFCP-04-413, IDENTITY-PROFILE-01 §5.3 step 11, §6): the device was
+   * registered there and holds its keys, and the SDK stored its chain, so
+   * it is stored and opened as a joined one is, without a claim. False
+   * when it is already here; a profile this version cannot open is
+   * NEWER_VERSION_NEEDED.
+   */
+  async openFromRoster(R: ResourceId, name: string | null): Promise<boolean> {
+    if (await this.#runtime.hasResource(R)) return false;
+    const section = await this.#store(R, name ?? "", "A section of yours could not be stored.");
+    if (section) await this.#runtime.openSection(R);
+    else await this.#runtime.openResource(R);
+    return true;
+  }
+
+  /** Stores a Resource whose chain the SDK stored, with its local name; whether it is a section. */
+  async #store(R: ResourceId, name: string, failed: string): Promise<boolean> {
     const c = this.#context();
     const profiles = this.#o.sections ? [PROFILE_ID, SECTIONS_PROFILE_ID] : [PROFILE_ID];
     const chain = await loadControlChain(c.storage, R);
@@ -821,8 +861,7 @@ export class Collaboration {
         },
       },
     ]);
-    if (!r.ok)
-      throw new CollabError("UNSUPPORTED_VALUE", "What the invitation shares could not be stored.");
+    if (!r.ok) throw new CollabError("UNSUPPORTED_VALUE", failed);
     // N5: a section joined without a name shows its shared title; a 0.1 collaboration needs one.
     const section = chain.state.dataProfile === SECTIONS_PROFILE_ID;
     const local = name.trim();
@@ -831,25 +870,7 @@ export class Collaboration {
       local !== "" ? local : section ? null : "Shared collaboration",
     );
     await this.#runtime.localState.put(hostingKey(R), "hosted");
-    await this.#runtime.localState.put(joinNameKey(R), null);
-    const abilities = granted.map((a) => ABILITY_NAMES.get(a) ?? `ability ${a}`);
-    stage("synchronizing");
-    if (section) await this.#runtime.openSection(R);
-    else await this.#runtime.openResource(R);
-    // Until the session is live, or the connect timeout: joined either way.
-    const until = this.#o.connectTimeoutMs;
-    let waited = 0;
-    for (; this.#runtime.phase(R) !== "LIVE" && waited < until; waited += 50)
-      await this.#o.sleep(50);
-    if (!section) return { kind: "joined", resourceId: R, abilities };
-    // A section is inserted only once ready and fully loaded (LFCP-02-052).
-    stage("loading section");
-    const loaded = () => {
-      const l = this.#runtime.sectionLoad?.(R);
-      return l?.ready === true && l.loaded;
-    };
-    for (; !loaded() && waited < until; waited += 50) await this.#o.sleep(50);
-    return { kind: "joined", resourceId: R, abilities, section: { loaded: loaded() } };
+    return section;
   }
 
   /** Joins that did not finish: a claim sent and not settled (LFCP-02-110). */
