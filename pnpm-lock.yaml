@@ -11,6 +11,7 @@ overrides:
   '@openlfcp/shared-objects': link:../wt-413-sdk/packages/shared-objects
   '@openlfcp/storage': link:../wt-413-sdk/packages/storage
   '@openlfcp/storage-idb': link:../wt-413-sdk/packages/storage-idb
+  '@openlfcp/storage-node': link:../wt-413-sdk/packages/storage-node
   '@openlfcp/wire': link:../wt-413-sdk/packages/wire
 
 importers:
@@ -51,6 +52,9 @@ importers:
       '@codemirror/view':
         specifier: 6.38.6
         version: 6.38.6
+      '@openlfcp/storage-node':
+        specifier: link:../wt-413-sdk/packages/storage-node
+        version: link:../wt-413-sdk/packages/storage-node
       '@types/node':
         specifier: ^24.19.1
         version: 24.19.1
