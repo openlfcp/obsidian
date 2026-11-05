@@ -144,7 +144,7 @@ export interface Unfinished {
    * removal this device makes; a key this device holds and has not handed
    * to one of the person's devices); `operation` is empty.
    */
-  readonly kind: "approval" | "removal" | "request" | "registration" | "key" | "delivery";
+  readonly kind: "approval" | "removal" | "request" | "registration" | "key" | "handover";
   readonly operation: string;
   readonly label: string;
   /** The sections concerned, by name (registration, key). */
@@ -299,7 +299,7 @@ export class DeviceService {
     const list = local.identity === null ? "" : toHex(local.identity.state.resourceId);
     for (const [device, resources] of await this.#keysOwed(local))
       out.push({
-        kind: "delivery",
+        kind: "handover",
         operation: "",
         label: names.device(device),
         sections: resources.map((r) => (r === list ? "your device list" : names.resource(r))),

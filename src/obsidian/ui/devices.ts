@@ -516,7 +516,7 @@ export class DevicesModal extends Modal {
 
   #unfinished(el: HTMLElement, u: Unfinished): void {
     if (u.kind === "request") return;
-    if (u.kind === "registration" || u.kind === "key" || u.kind === "delivery") {
+    if (u.kind === "registration" || u.kind === "key" || u.kind === "handover") {
       const item = el.createDiv({ cls: "setting-item" });
       item.createDiv({
         cls: "setting-item-info",

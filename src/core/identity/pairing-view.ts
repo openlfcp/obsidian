@@ -657,7 +657,7 @@ export function progressView(
 
 /** What the device upkeep still owes, as "Your devices…" lists it (§7.1, §8.4). */
 export function unfinishedText(u: {
-  readonly kind: "registration" | "key" | "delivery";
+  readonly kind: "registration" | "key" | "handover";
   readonly label: string;
   readonly sections?: readonly string[];
 }): string {
@@ -667,7 +667,7 @@ export function unfinishedText(u: {
       return `"${u.label}" is not added to ${sections} yet.`;
     case "key":
       return `The key of ${sections} is not changed yet after a device was removed.`;
-    case "delivery":
+    case "handover":
       return `"${u.label}" does not have the key of ${sections} from this device yet.`;
   }
 }

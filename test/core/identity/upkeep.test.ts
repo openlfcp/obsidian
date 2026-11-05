@@ -188,14 +188,14 @@ it("a key the upkeep could not hand to a device after its key change is handed o
   const latest = BigInt(before);
   expect(keyOf(latest)).toBe(false);
   // The debt is listed, and the next ordinary upkeep pays it, without another key change.
-  expect((await a.service.unfinished()).find((u) => u.kind === "delivery")?.sections).toEqual([
+  expect((await a.service.unfinished()).find((u) => u.kind === "handover")?.sections).toEqual([
     "Plans",
   ]);
   world.server.fault = () => undefined;
   await a.service.upkeep();
   expect(keyOf(latest)).toBe(true);
   expect(epochs(X)).toBe(before + 1);
-  expect((await a.service.unfinished()).filter((u) => u.kind === "delivery")).toEqual([]);
+  expect((await a.service.unfinished()).filter((u) => u.kind === "handover")).toEqual([]);
 });
 
 it("Finish now does not say up to date when a reachable server refused the registration, or none answered (B3)", async () => {
