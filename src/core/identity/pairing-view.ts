@@ -22,7 +22,7 @@ import type {
   RevokeDeviceResult,
   RotationOutcome,
 } from "@openlfcp/client";
-import { toHex } from "@openlfcp/core";
+import { type ResourceId, toHex } from "@openlfcp/core";
 import { PRESET_LABEL } from "./device-list";
 
 /** Names for what a message mentions: a Resource (hex) by its section name, a device (hex) by its label. */
@@ -415,21 +415,49 @@ export function revokeView(r: RevokeDeviceResult, label: string, names: Names): 
         "self-dependent",
       ]);
       const refused = by(["refused"]);
-      const awaiting = r.results
-        .filter((x) => x.rotation?.status === "awaiting-rotation")
-        .map((x) => names.resource(toHex(x.resource)));
+      const key = (s: RotationOutcome["status"]) =>
+        r.results.filter((x) => x.rotation?.status === s);
+      const named = (xs: readonly { readonly resource: ResourceId }[]) =>
+        list(xs.map((x) => names.resource(toHex(x.resource))));
+      const awaiting = key("awaiting-rotation");
+      // §8.1, §8.4: a key change that did not happen is never hidden behind "Removed".
+      const keyRefused = key("refused");
+      const keyUnreachable = key("unreachable");
+      const keyHolder = key("awaiting-key-holder");
+      const codes = [...new Set(keyRefused.map((x) => x.rotation?.code ?? "refused"))].join(", ");
       const document = documentLine(r.document);
       const lines = [
         `Removed "${label}".`,
         ...(later.length === 0 ? [] : [`Removed there later: ${list(later)}.`]),
         ...(refused.length === 0 ? [] : [`Refused by the server: ${list(refused)}.`]),
+        ...(keyRefused.length === 0
+          ? []
+          : [
+              `The server refused the new key of ${named(keyRefused)} (${codes}): until it is changed, the removed device could still read new changes there.`,
+            ]),
+        ...(keyUnreachable.length === 0
+          ? []
+          : [
+              `The key of ${named(keyUnreachable)} is not changed yet: the server could not be reached.`,
+            ]),
+        ...(keyHolder.length === 0
+          ? []
+          : [`The new key of ${named(keyHolder)} is not passed on to your other devices yet.`]),
         ...(awaiting.length === 0
           ? []
-          : [`Waiting for a key change by your first device or the owner: ${list(awaiting)}.`]),
+          : [
+              `The key of ${named(awaiting)} is changed by your first device or the section's owner, not by this device.`,
+            ]),
       ];
-      return document === null
-        ? { kind: "done", message: lines.join(" ") }
-        : { kind: "retry", operation: r.operation, message: [...lines, document].join(" ") };
+      const unfinished =
+        document !== null || keyRefused.length + keyUnreachable.length + keyHolder.length > 0;
+      return unfinished
+        ? {
+            kind: "retry",
+            operation: r.operation,
+            message: [...lines, ...(document === null ? [] : [document])].join(" "),
+          }
+        : { kind: "done", message: lines.join(" ") };
     }
     case "self-dependent":
       return {
