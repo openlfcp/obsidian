@@ -298,3 +298,49 @@ it("a roster section whose opening failed after its row was stored is opened aga
   expect(calls).toBe(2);
   expect(a.runtime.sectionProfile(X)).toBeDefined();
 });
+
+it("a section queued while a flush waits for the server stays queued (review #109 P2-4)", async () => {
+  world = new DeviceWorld();
+  let release: (r: RosterAdd) => void = () => undefined;
+  let waiting = false;
+  let hold = false;
+  const listed: string[] = [];
+  const roster: RosterWriter = {
+    add: async (resource, entry) => {
+      if (entry.name === "Y") return { kind: "unsupported" };
+      if (hold) {
+        hold = false;
+        waiting = true;
+        return new Promise<RosterAdd>((r) => {
+          release = r;
+        });
+      }
+      listed.push(toHex(resource));
+      return listed.length === 1 ? { kind: "unsupported" } : { kind: "added" };
+    },
+  };
+  const a = await world.installation({}, roster);
+  const b = await world.installation({}, roster);
+  await b.service.progress(await pair(a, b, "full"));
+  const section = (name: string) =>
+    a.collab.createSectionResource({
+      name,
+      endpoints: [WORLD_URL],
+      coordinatorUrl: WORLD_URL,
+      resourceId: generateResourceId(),
+    });
+  await section("X");
+  // The upkeep's flush waits for the server on X; meanwhile Y is made and queued.
+  hold = true;
+  const upkeep = a.service.upkeep(true);
+  for (let i = 0; i < 200 && !waiting; i++) await new Promise((r) => setTimeout(r, 10));
+  expect(waiting).toBe(true);
+  const y = section("Y");
+  const queued = async () =>
+    ((await a.runtime.localState.get("identity-roster-pending")) as string[] | undefined) ?? [];
+  for (let i = 0; i < 200 && (await queued()).length < 2; i++)
+    await new Promise((r) => setTimeout(r, 10));
+  release({ kind: "added" });
+  await Promise.all([upkeep, y]);
+  expect((await a.service.unfinished()).find((u) => u.kind === "roster")?.sections).toEqual(["Y"]);
+});

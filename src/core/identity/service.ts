@@ -111,6 +111,8 @@ export interface DeviceRuntime {
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
+    /** Read-modify-write of one key, one at a time per key (LfcpRuntime.localState.update). */
+    update(key: string, change: (value: unknown) => unknown): Promise<void>;
   };
 }
 
@@ -579,28 +581,60 @@ export class DeviceService {
    */
   async listInRoster(resource: ResourceId): Promise<void> {
     if ((await this.identity()) === undefined || (await this.origin()) !== null) return;
-    const runtime = this.#runtime();
-    const hex = toHex(resource);
-    const queued = hexList(await runtime.localState.get(ROSTER_PENDING_KEY));
-    if (!queued.includes(hex)) await runtime.localState.put(ROSTER_PENDING_KEY, [...queued, hex]);
+    await this.#queueRoster(toHex(resource));
     await this.#flushRoster([]);
   }
 
-  /** Lists every queued section through the roster port; what it cannot list stays queued, as an issue. */
-  async #flushRoster(issues: UpkeepIssue[]): Promise<void> {
+  /** Adds a section (hex) to the roster queue, read-modify-write: a concurrent change is kept. */
+  async #queueRoster(hex: string): Promise<void> {
+    await this.#runtime().localState.update(ROSTER_PENDING_KEY, (v) => {
+      const queued = hexList(v);
+      return queued.includes(hex) ? queued : [...queued, hex];
+    });
+  }
+
+  /** Takes sections (hex) off the roster queue, as it is now: what was queued meanwhile stays. */
+  async #unqueueRoster(done: ReadonlySet<string>): Promise<void> {
+    if (done.size === 0) return;
+    await this.#runtime().localState.update(ROSTER_PENDING_KEY, (v) =>
+      hexList(v).filter((x) => !done.has(x)),
+    );
+  }
+
+  #rosterFlush: Promise<void> = Promise.resolve();
+
+  /**
+   * Lists every queued section through the roster port; what it cannot
+   * list stays queued, as an issue. One flush at a time; each takes off
+   * the queue only what it listed (or what is no longer here), so a
+   * section queued while it waited for the server is never lost.
+   */
+  #flushRoster(issues: UpkeepIssue[]): Promise<void> {
+    const run = () => this.#flushRosterNow(issues);
+    const next = this.#rosterFlush.then(run, run);
+    this.#rosterFlush = next.catch(() => undefined);
+    return next;
+  }
+
+  async #flushRosterNow(issues: UpkeepIssue[]): Promise<void> {
     const runtime = this.#runtime();
     const queued = hexList(await runtime.localState.get(ROSTER_PENDING_KEY));
     if (queued.length === 0) return;
     const entries = new Map((await this.#roster()).map((r) => [toHex(r.resource), r.entry]));
     const writer = this.#o.roster ?? { add: (r, entry) => this.#addToRoster(r, entry) };
-    const still: string[] = [];
+    const done = new Set<string>();
     for (const hex of queued) {
       const entry = entries.get(hex);
       // No longer here (discarded, forgotten): nothing to list.
-      if (entry === undefined) continue;
+      if (entry === undefined) {
+        done.add(hex);
+        continue;
+      }
       const r = await writer.add(fromHex(hex) as ResourceId, entry);
-      if (r.kind === "added") continue;
-      still.push(hex);
+      if (r.kind === "added") {
+        done.add(hex);
+        continue;
+      }
       issues.push({
         resource: hex,
         kind: "roster",
@@ -611,7 +645,7 @@ export class DeviceService {
             : {}),
       });
     }
-    await runtime.localState.put(ROSTER_PENDING_KEY, still);
+    await this.#unqueueRoster(done);
   }
 
   /** The SDK's addToRoster (0.3.1): one durable operation; an entry already there is "added". */
