@@ -1312,10 +1312,15 @@ export default class OpenLfcpPlugin extends Plugin {
   /** Safe events for the diagnostics report (LFCP-02-065), in memory only. */
   readonly #diagnostics = new DiagnosticLog();
 
+  /** The report "Export diagnostics…" shows, copies and saves (plain, or detailed). */
+  async exportDiagnostics(detailed: boolean): Promise<string> {
+    return diagnosticReport(await this.#diagnosticInput(), detailed);
+  }
+
   /** The diagnostics dialog, open; Tab kept in it, focus given back (LFCP-03-022). */
   #openDiagnostics(): void {
     const modal = new DiagnosticsModal(this.app, {
-      report: async (detailed) => diagnosticReport(await this.#diagnosticInput(), detailed),
+      report: (detailed) => this.exportDiagnostics(detailed),
       copy: (text) => navigator.clipboard.writeText(text),
       save: async (text) => {
         const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
