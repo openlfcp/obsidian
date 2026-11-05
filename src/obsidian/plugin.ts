@@ -741,6 +741,8 @@ export default class OpenLfcpPlugin extends Plugin {
     this.#lockRetry = null;
     if (this.#upkeepTimer !== null) window.clearTimeout(this.#upkeepTimer);
     this.#upkeepTimer = null;
+    if (this.#upkeepEvery !== null) window.clearInterval(this.#upkeepEvery);
+    this.#upkeepEvery = null;
     this.changes.close();
     // The next instance of the plugin in this window (a reload: disabled and
     // enabled, a BRAT update) waits for this one to stop and let go of the
@@ -1353,7 +1355,13 @@ export default class OpenLfcpPlugin extends Plugin {
 
   /** How long after start, or after a section came live, the device upkeep runs (coalesced). */
   protected deviceUpkeepDelayMs = 5000;
+  /**
+   * How often the device upkeep runs besides start and live sections: a
+   * removal recorded in the device list only reaches no section (§8.4).
+   */
+  protected deviceUpkeepEveryMs = 10 * 60_000;
   #upkeepTimer: number | null = null;
+  #upkeepEvery: number | null = null;
 
   /**
    * The device upkeep (LFCP-04-413; IDENTITY-PROFILE-01 §7.1, §8.4, decision
@@ -1376,6 +1384,8 @@ export default class OpenLfcpPlugin extends Plugin {
     runtime.on((e) => {
       if (e.type === "resource-state" && e.state === "LIVE") schedule();
     });
+    if (this.#upkeepEvery !== null) window.clearInterval(this.#upkeepEvery);
+    this.#upkeepEvery = window.setInterval(schedule, this.deviceUpkeepEveryMs);
     schedule();
   }
 

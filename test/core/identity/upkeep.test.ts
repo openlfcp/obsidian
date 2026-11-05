@@ -5,8 +5,8 @@
 // step 10, §7.1).
 
 import { syncChain } from "@openlfcp/client";
-import type { ResourceId } from "@openlfcp/core";
-import { toHex } from "@openlfcp/core";
+import { fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
+import { revocationOf } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
 import { DeviceService } from "../../../src/core/identity/service";
 import { DeviceWorld, type Installation, pair } from "../../support/device-world";
@@ -125,4 +125,40 @@ it("a device not added to a section while its server was down is added by the up
   const view = await b.service.progress(op);
   expect(view.sections).toEqual([{ name: "Plans", status: "ready" }]);
   expect(view.final).toBe(true);
+});
+
+it("a removal recorded in the device list only is seen by the next upkeep, which carries it into the section (B1)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  await a.service.upkeep();
+  // B retires itself while X's server is down: the revocation is in the device list only.
+  world.server.down.add(toHex(X));
+  await b.service.remove(me(b), 0n, "Phone");
+  world.server.down.delete(toHex(X));
+  const root = world.server.chain(X).state.owner.principalId;
+  const phone = fromHex(me(b)) as PrincipalId;
+  expect(revocationOf(world.server.chain(X).state, root, phone)).toBeUndefined();
+  const before = epochs(X);
+  // X's session is live again (nothing new in X); the upkeep that follows decides.
+  await synced(a, X);
+  await a.service.upkeep();
+  expect(revocationOf(world.server.chain(X).state, root, phone)).toBeDefined();
+  expect(epochs(X)).toBe(before + 1);
+});
+
+it("with no section at all, the upkeep still changes the device list's key after a self-retirement (B1)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  const I = await a.service.identity();
+  if (I === undefined) throw new Error("no device list");
+  await a.service.upkeep();
+  const before = epochs(I);
+  await b.service.remove(me(b), 0n, "Phone");
+  await a.service.upkeep();
+  expect(epochs(I)).toBe(before + 1);
 });

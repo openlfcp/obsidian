@@ -41,6 +41,7 @@ class TestPlugin extends OpenLfcpPlugin {
   protected override lockRetryMs = 200;
   protected override blockedRetryMs = 20;
   protected override deviceUpkeepDelayMs = 10;
+  protected override deviceUpkeepEveryMs = 60_000;
   /** How many starts were tried (runtimeEnv is asked once per start). */
   starts = 0;
   /** Makes the next starts fail as the runtime's would, with this message. */
@@ -685,6 +686,29 @@ describe("the device upkeep (LFCP-04-413, review obsidian#107 P1-2)", () => {
       await plugin.stopRuntime();
       await new Promise((r) => setTimeout(r, 50));
       expect(upkeep).toHaveBeenCalledTimes(1);
+    } finally {
+      upkeep.mockRestore();
+    }
+  });
+});
+
+describe("the device upkeep, without any section coming live (review obsidian#107b B1)", () => {
+  it("runs again on its own while the plugin runs", async () => {
+    class Often extends TestPlugin {
+      protected override deviceUpkeepEveryMs = 30;
+    }
+    const upkeep = vi
+      .spyOn(DeviceService.prototype, "upkeep")
+      .mockResolvedValue({ reconciled: false, rotations: [] });
+    try {
+      const plugin = new Often(new mock.App() as never, manifest as never);
+      await plugin.onload();
+      await ready(plugin);
+      for (let i = 0; i < 100 && upkeep.mock.calls.length < 3; i++)
+        await new Promise((r) => setTimeout(r, 10));
+      expect(upkeep.mock.calls.length).toBeGreaterThanOrEqual(3);
+      (plugin as unknown as mock.Plugin).unload();
+      await plugin.stopRuntime();
     } finally {
       upkeep.mockRestore();
     }

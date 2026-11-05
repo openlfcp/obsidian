@@ -344,6 +344,9 @@ export class DeviceService {
     const c = this.#context();
     const flow = this.#flow();
     const journal = new OperationJournal(c.storage);
+    // The device list is no section: nothing else brings its new records here. It is read
+    // from its coordinator before anything is decided (a removal may be recorded there only).
+    await this.#refreshIdentity(flow);
     const local = await this.#localState();
     const rotations: RotationOutcome[] = [];
     const covered = new Set<string>();
@@ -390,6 +393,38 @@ export class DeviceService {
       rotations.push(await this.#rotate(flow, journal, id, chain));
     }
     return { reconciled, rotations };
+  }
+
+  /**
+   * The device list's chain as its coordinator has it, stored (a fork is
+   * stored as a conflict by the SDK). Unreachable or refused: the stored
+   * copy stands, and the next upkeep reads it again.
+   */
+  async #refreshIdentity(flow: FlowOptions): Promise<void> {
+    const c = this.#context();
+    const I = await this.identity();
+    if (I === undefined) return;
+    const stored = await loadControlChain(c.storage, I);
+    if (stored?.kind !== "linear") return;
+    let channel: IdentityChannel | undefined;
+    try {
+      channel = await flow.network.connect(
+        flow.installation.signer,
+        stored.state.route.coordinatorUrl,
+      );
+      await this.#flows.syncChain(c.storage, channel, I);
+    } catch (e) {
+      if (
+        !(
+          e instanceof IdentityUnavailable ||
+          e instanceof IdentityRefused ||
+          e instanceof IdentityConflict
+        )
+      )
+        throw e;
+    } finally {
+      channel?.close();
+    }
   }
 
   /** One key change by the rotation policy, under the upkeep's operation `id`. */
