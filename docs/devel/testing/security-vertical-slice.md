@@ -78,9 +78,9 @@ device…" call) without their dialogs.
 | 19 Pair a device | The warning before the first pairing names the Resource (shared with C); A's link (a bearer secret, redacted when printed or serialized); D requests with it; the same fingerprint on A and D; A approves Full; D opens the Resource from the roster; A lists D under itself, not as a participant |
 | 20 Write from the device | D inserts the shared Task and edits it; A and C apply the edit; D acts for A (`rootOf`) |
 | 21 Remove and rotate | A removes D (lost): `DEVICE_REVOKE`, then `KEY_EPOCH` to the next epoch; C gets the new DEK, D gets none, is refused (`AUTHORIZATION_FAILED`) and is shown its removal as proven (identity-01); A's next edit reaches C, not D |
-| 22 Device secrets | Neither the pairing link nor its secret, nor any vault's private key, appears in A's or D's Resource status, device list, unfinished steps, diagnostics (plain and detailed) or notices, nor in the server log |
+| 22 Device secrets | Every output of the device phases, recorded as they run (the link shown, the request sent, approved, paired, D removed, the end): each vault's Resource status, device list, unfinished steps and access states, the real "Export diagnostics…" report (plain and detailed, also saved as a vault file), the dialogs' views (link, request, review, approval, progress, removal preview and result, D's refusal), notices and every vault file; and the clients' whole console, the server log, `/health` and its stored state. None holds a canary: the pairing link or its secret, any value of any vault's secretStorage, any vault's private key, or a DEK of the Resource or of A's device list (any epoch), as hex, base64 or base64url. A negative control plants secrets in an output and requires the scan to find each one |
 | 18 Server trust | Two units signed by A that the server accepts: garbage ciphertext, and a correctly encrypted unit framing B's change. C refuses both (`AEAD`, `PROFILE_REJECTED`), merges neither, and A's next edit still reaches C |
-| 17 Final privacy | No marker, DEK of any epoch (0–3), private key (D's too) or invitation or pairing secret/link in the server's state, log or `/health`, nor on any vault's wire; client stores hold the authorized Task, never the other vault's Markdown |
+| 17 Final privacy | No marker, DEK of any epoch (0–3), private key (D's too) or invitation or pairing secret/link in the server's state, log or `/health`, nor on any vault's wire, as raw bytes; nor, as hex, base64 or base64url, any of phase 22's canaries (the device list's DEKs and every stored secret included); client stores hold the authorized Task, never the other vault's Markdown |
 
 **What the privacy claim covers.** The server never receives application
 plaintext, DEKs, private keys or invitation secrets. It does see protocol
@@ -111,3 +111,6 @@ reported to sdk-ts).
 The slice's server lifts the reference server's limit of new WebSockets per
 IP per minute: every vault connects from 127.0.0.1 and the device flows
 connect per call. It is an abuse limit, not a boundary this slice tests.
+
+**Checked by hand once (LFCP-04-414 review R2):** with D's signing key
+printed to the console in hex just before phase 22, phase 22 fails.

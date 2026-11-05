@@ -137,8 +137,20 @@ const privateKeys: { label: string; bytes: Buffer }[] = [];
 const links: string[] = [];
 const eventsOf = new Map<string, SyncEvent[]>();
 
+/** Every line the clients printed to the console (all methods), for the device secrets' scan. */
+const consoleLines: string[] = [];
+const consoleOriginal = new Map<string, (...args: unknown[]) => void>();
+
 beforeAll(async () => {
   if (!live) return;
+  for (const m of ["log", "info", "warn", "error", "debug"] as const) {
+    const original = console[m].bind(console);
+    consoleOriginal.set(m, original);
+    console[m] = (...args: unknown[]) => {
+      consoleLines.push(args.map((a) => (typeof a === "string" ? a : String(a))).join(" "));
+      original(...args);
+    };
+  }
   server = await startSecurityServer(binary.bin);
   A = await E2EVault.open("A");
   B = await E2EVault.open("B");
@@ -149,7 +161,98 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const v of [A, B, C, D]) await v?.close().catch(() => undefined);
   await server?.stop();
+  for (const [m, original] of consoleOriginal)
+    (console as unknown as Record<string, unknown>)[m] = original;
 });
+
+/**
+ * What the device phases (19–22) show or write, recorded as they run and
+ * checked in phase 22: each vault's Resource status, device list,
+ * unfinished steps, the "Export diagnostics…" report (plain and detailed),
+ * the dialogs' views, notices and vault files (an exported report included).
+ */
+const outputs: { readonly where: string; readonly text: string }[] = [];
+const json = (x: unknown) =>
+  JSON.stringify(x, (_k, v) =>
+    typeof v === "bigint" ? `${v}` : v instanceof Uint8Array ? toHex(v) : v,
+  ) ?? "";
+
+/** Records `v`'s outputs at `when`. */
+async function record(v: E2EVault, when: string): Promise<void> {
+  const at = (what: string) => `${v.name}'s ${what} (${when})`;
+  const service = v.plugin.deviceService();
+  outputs.push({ where: at("status"), text: json(await collabOf(v).status(R).catch(String)) });
+  outputs.push({ where: at("device list"), text: json(await service?.devices()) });
+  outputs.push({ where: at("unfinished steps"), text: json(await service?.unfinished()) });
+  outputs.push({ where: at("access states"), text: json(await service?.accessStates()) });
+  for (const detailed of [false, true])
+    outputs.push({
+      where: at(detailed ? "detailed diagnostics export" : "diagnostics export"),
+      text: await v.plugin.exportDiagnostics(detailed),
+    });
+  outputs.push({
+    where: at("notices"),
+    text: [...v.prompter.notices, ...v.mock.notices].join("\n"),
+  });
+  for (const [path, text] of v.app.vault.files) outputs.push({ where: at(`file ${path}`), text });
+}
+
+/** A secret and its encodings: raw bytes are checked where bytes are; text forms everywhere. */
+function encodings(label: string, bytes: Uint8Array): { label: string; text: string }[] {
+  const b = Buffer.from(bytes);
+  return [
+    { label: `${label} (hex)`, text: b.toString("hex") },
+    { label: `${label} (base64)`, text: b.toString("base64") },
+    { label: `${label} (base64url)`, text: b.toString("base64url") },
+  ];
+}
+
+/**
+ * Every secret of the device phases as text: the pairing link and its
+ * secret; every value in each vault's secretStorage (private keys, local
+ * state keys, DEKs as stored); each vault's private keys and the DEKs of
+ * the Resource and of A's device list, each epoch, in hex, base64 and
+ * base64url.
+ */
+async function deviceCanaries(): Promise<{ label: string; text: string }[]> {
+  const out: { label: string; text: string }[] = [];
+  for (const link of links.filter((l) => l.startsWith("lfcp://pair/"))) {
+    out.push({ label: "the pairing link", text: link });
+    out.push({ label: "the pairing secret", text: link.slice(link.indexOf("#secret=") + 8) });
+  }
+  for (const v of [A, B, C, D as E2EVault])
+    for (const [id, value] of v.app.secretStorage.values)
+      if (value.length >= 16 && !value.startsWith("{"))
+        out.push({ label: `${v.name}'s secret ${id}`, text: value });
+  for (const k of privateKeys) out.push(...encodings(k.label, k.bytes));
+  const I = await A.plugin.deviceService()?.identity();
+  for (const [name, resource] of [
+    ["the Resource", R],
+    ["the device list", I],
+  ] as const) {
+    if (resource === undefined) continue;
+    const chain = await loadControlChain(ctx(A).storage, resource);
+    if (chain?.kind !== "linear") throw new Error(`no chain of ${name}`);
+    for (const e of chain.state.epochs.values()) {
+      const dek = await dekResolver(ctx(A).storage, ctx(A).secrets, resource)(e.epoch);
+      if (dek !== undefined)
+        // dekResolver is this file's SDK: its DEKs are exported by this file's crypto module.
+        out.push(...encodings(`the DEK of ${name}, epoch ${e.epoch}`, exportSecretKeyBytes(dek)));
+    }
+  }
+  return out;
+}
+
+/** Which canaries appear in which texts. */
+function leaks(
+  texts: readonly { readonly where: string; readonly text: string }[],
+  canaries: readonly { readonly label: string; readonly text: string }[],
+): string[] {
+  const found: string[] = [];
+  for (const t of texts)
+    for (const c of canaries) if (t.text.includes(c.text)) found.push(`${c.label} in ${t.where}`);
+  return found;
+}
 
 /** Collects the vault's SyncEvents (again after a restart: a new runtime). */
 function watch(v: E2EVault): void {
@@ -940,26 +1043,40 @@ describe.skipIf(!live)(
         const session = await a.startSession("A");
         if (session.kind !== "link" || session.result.kind !== "created")
           throw new Error(`no link: ${session.kind}`);
+        outputs.push({ where: "A's Add my other device view", text: json(session) });
+        await record(A, "the link shown");
         // The link is a bearer secret: kept for the final rescan, never printed.
         links.push(session.result.link.reveal());
         expect(String(session.result.link)).not.toContain("#secret=");
         expect(JSON.stringify(session.result.link)).not.toContain("#secret=");
         const requested = await d.request(session.result.link, "D");
         if (requested.kind !== "requested") throw new Error(requested.message);
+        outputs.push({ where: "D's Pair this device view", text: json(requested) });
+        outputs.push({
+          where: "D's waiting progress",
+          text: json(await d.progress(requested.operation)),
+        });
+        await record(D, "the request sent");
         const review = await until("D's request on A", async () => {
           const r = await a.requests(session.session);
           return Array.isArray(r) ? r[0] : undefined;
         });
+        outputs.push({ where: "A's request review", text: json(review) });
         expect(review.fingerprint).toBe(requested.fingerprint);
-        expect((await a.approve(review, "full")).kind).toBe("done");
+        const approved = await a.approve(review, "full");
+        outputs.push({ where: "A's approval view", text: json(approved) });
+        expect(approved.kind).toBe("done");
+        await record(A, "approved");
         const done = await until(
           "the Resource on D",
           async () => {
             const v = await d.progress(requested.operation);
+            outputs.push({ where: "D's progress", text: json(v) });
             return v.final ? v : undefined;
           },
           60_000,
         );
+        await record(D, "paired");
         expect(done.sections).toEqual([{ name: NAME, status: "ready" }]);
         // Read with the crypto module D's plugin loaded (a restart reloaded it: phase 11).
         const { exportSecretKeyBytes: exportKey } = await import("@openlfcp/crypto");
@@ -1014,7 +1131,10 @@ describe.skipIf(!live)(
         const a = A.plugin.deviceService();
         if (a === null) throw new Error("no device service");
         const before = (await chainOf(A)).state.epoch.epoch;
+        const preview = await a.previewRemoval(toHex(me(dev).principalId));
+        outputs.push({ where: "A's removal preview", text: json(preview) });
         const removed = await a.remove(toHex(me(dev).principalId), 1n, "D");
+        outputs.push({ where: "A's removal result", text: json(removed) });
         expect(removed.kind, removed.message).toBe("done");
         const chain = await chainOf(A);
         const next = chain.state.epoch.epoch;
@@ -1039,6 +1159,12 @@ describe.skipIf(!live)(
         expect(await dev.plugin.deviceService()?.accessStates()).toEqual([
           { name: NAME, text: "This device was removed from your identity." },
         ]);
+        outputs.push({
+          where: "D's Pair this device refusal",
+          text: json(await dev.plugin.deviceService()?.pairRefusal()),
+        });
+        await record(A, "D removed");
+        await record(dev, "removed");
         // A's next edit (back to the title phase 18 starts from) reaches C in the new epoch, not D.
         await A.editLine(PATH_A, `${TASK} from D`, `${TASK} after snapshot`);
         await until(
@@ -1050,53 +1176,47 @@ describe.skipIf(!live)(
         expect((await sharedTask(dev))?.task?.title).toBe(`${TASK} from D`);
       }));
 
-    it("22. no pairing link or device key in status, diagnostics or notices", () =>
+    it("22. no pairing link, private key, DEK or stored secret in any output of the device phases", () =>
       step("22 device secrets", async () => {
         const dev = D as E2EVault;
-        const secrets = [
-          ...links
-            .filter((l) => l.startsWith("lfcp://pair/"))
-            .flatMap((l) => [l, l.slice(l.indexOf("#secret=") + 8)]),
-          ...privateKeys.map((k) => k.bytes.toString("hex")),
-          ...privateKeys.map((k) => k.bytes.toString("base64")),
-        ];
-        expect(secrets.length).toBeGreaterThan(2);
+        // The exported report, saved as "Export diagnostics…" saves it, is a vault file too.
         for (const v of [A, dev]) {
-          const status = JSON.stringify(await collabOf(v).status(R), (_k, x) =>
-            typeof x === "bigint" ? `${x}` : x,
+          await v.app.vault.create(
+            `diagnostics-${v.name}.txt`,
+            await v.plugin.exportDiagnostics(true),
           );
-          const service = v.plugin.deviceService();
-          const devices = JSON.stringify(await service?.devices());
-          const unfinished = JSON.stringify(await service?.unfinished());
-          const reports = await Promise.all(
-            [false, true].map(async (detailed) =>
-              diagnosticReport(
-                await collectDiagnostics({
-                  runtime: v.runtime,
-                  collab: collabOf(v),
-                  sections: v.plugin.sections,
-                  events: [],
-                  plugin: "0.0.0",
-                  obsidian: "1.13.4",
-                  platform: "linux",
-                  needsRestart: false,
-                }),
-                detailed,
-              ),
-            ),
-          );
-          const notices = v.prompter.notices.join("\n");
-          for (const [where, text] of [
-            ["status", status],
-            ["the device list", devices],
-            ["unfinished steps", unfinished],
-            ["the diagnostics", reports.join("\n")],
-            ["the notices", notices],
-          ] as const)
-            for (const secret of secrets)
-              expect(text.includes(secret), `a secret in ${v.name}'s ${where}`).toBe(false);
+          await record(v, "the end");
         }
-        expect(server.log()).not.toContain("lfcp://pair/");
+        const canaries = await deviceCanaries();
+        const labels = canaries.map((c) => c.label);
+        // What is looked for: the link, its secret, D's keys, the device list's DEK, stored secrets.
+        for (const wanted of [
+          "the pairing link",
+          "the pairing secret",
+          "D signing key (base64url)",
+          "D agreement key (hex)",
+          "the DEK of the device list, epoch 0 (base64)",
+          "the DEK of the Resource, epoch 3 (hex)",
+        ])
+          expect(labels, wanted).toContain(wanted);
+        expect(canaries.some((c) => c.label.startsWith("D's secret "))).toBe(true);
+        // Negative control: the scan finds a secret planted in an output, in each encoding.
+        for (const c of canaries
+          .filter((x) => /\((hex|base64|base64url)\)$/.test(x.label))
+          .slice(0, 3))
+          expect(
+            leaks([{ where: "a planted output", text: `log: ${c.text}.` }], canaries),
+          ).toContain(`${c.label} in a planted output`);
+        expect(outputs.length).toBeGreaterThan(30);
+        const health = await server.http("/health");
+        const texts = [
+          ...outputs,
+          { where: "the clients' console", text: consoleLines.join("\n") },
+          { where: "the server log", text: server.log() },
+          { where: "/health", text: JSON.stringify(health.body) },
+          ...server.stored().map((f) => ({ where: f.file, text: f.bytes.toString("latin1") })),
+        ];
+        expect(leaks(texts, canaries)).toEqual([]);
       }));
 
     it("18. the client verifies every server-delivered unit: forged units are refused, not merged", () =>
@@ -1225,6 +1345,21 @@ describe.skipIf(!live)(
               expect(Buffer.from(f.bytes).includes(s.bytes), `${s.label} on ${v.name}'s wire`).toBe(
                 false,
               );
+        // The same secrets as text (hex, base64, base64url; the device list's DEKs and every
+        // stored secret too): in the server's state, log and /health, and on every wire.
+        const encoded = await deviceCanaries();
+        expect(
+          leaks(
+            [
+              ...places.map((p) => ({ where: p.where, text: p.bytes.toString("latin1") })),
+              ...[A, B, C, D as E2EVault].map((v) => ({
+                where: `${v.name}'s wire`,
+                text: v.network.frames.map((f) => Buffer.from(f.bytes).toString("latin1")).join(""),
+              })),
+            ],
+            encoded,
+          ),
+        ).toEqual([]);
         // Client-local stores do hold the authorized decrypted Task (that is their job), but never
         // the other vault's private Markdown.
         expect(await rootOf(A)).toContain(TASK);
