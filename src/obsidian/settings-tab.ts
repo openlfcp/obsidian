@@ -34,6 +34,13 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         render: (setting) => this.#identity(setting),
       },
       {
+        name: "Your devices",
+        desc: "Use this vault from another device as you: add it with a link, see your devices, remove one you no longer use. A vault that does not share sections yet can instead become a device of yours with a link.",
+        searchable: true,
+        visible: () => status()?.kind === "ready",
+        render: (setting) => this.#devices(setting),
+      },
+      {
         name: "Storage may be cleared",
         desc: "This device did not grant persistent storage. If it clears Shared Tasks' local data, this vault stops writing as its current identity until you create a new one.",
         visible: () => {
@@ -101,6 +108,19 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       this.plugin.settings.defaultServer = value;
     else return;
     await this.plugin.saveSettings();
+  }
+
+  /** LFCP-04-413: the person's devices (IDENTITY-PROFILE-01 §§5–8). */
+  #devices(setting: Setting): void {
+    setting.addButton((button) =>
+      button.setButtonText("Your devices…").onClick(() => this.plugin.openDevices()),
+    );
+    setting.addButton((button) =>
+      button.setButtonText("Add my other device…").onClick(() => void this.plugin.addDevice()),
+    );
+    setting.addButton((button) =>
+      button.setButtonText("Pair this device…").onClick(() => this.plugin.pairThisDevice()),
+    );
   }
 
   /** LFCP-03-021: the pane's hidden tips, and "Show tips again". Warnings are never tips. */

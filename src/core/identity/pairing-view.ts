@@ -33,6 +33,27 @@ export interface Names {
 
 const list = (names: readonly string[]): string => names.map((n) => `"${n}"`).join(", ");
 
+/** The commands, as the texts name them. */
+export const ADD_DEVICE = "Add my other device…";
+export const PAIR_THIS_DEVICE = "Pair this device with a link…";
+
+/** The link's dialog: what to do with it (§5.2: a bearer secret). */
+export const LINK_HELP = `On your other device, open Shared Tasks and choose "${PAIR_THIS_DEVICE}", then paste this link.`;
+
+/** The link's dialog while no request came. */
+export const WAITING_FOR_DEVICE =
+  "Waiting for the other device. Closing this keeps the link working until you cancel it.";
+
+/** The new device's dialog, before the link is pasted. */
+export const PAIR_HELP = `This makes this vault a device of yours. On a device you already use, choose "${ADD_DEVICE}" and paste its link here.`;
+
+/** The device list before the first pairing. */
+export const NO_DEVICES = `This vault has no other devices yet. Use "${ADD_DEVICE}" to add one, or "${PAIR_THIS_DEVICE}" on a new vault to make it a device of another one.`;
+
+/** §8.6: the local copy of a section a device no longer syncs (nothing is deleted). */
+export const KEEP_COPY =
+  'Your notes keep your copy. Use "Copy shared section" to take its text elsewhere.';
+
 /** "this server does not support devices yet" (§5.1 step 1, §6). */
 export const NO_DEVICE_SUPPORT =
   "Your server does not support adding devices yet. Ask its operator to update it, or choose another default server in Settings.";

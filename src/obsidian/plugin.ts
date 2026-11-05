@@ -46,6 +46,7 @@ import {
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
 import { ALIASES_KEY, aliasesOf, personLabel } from "../core/identity/people";
+import { DeviceService } from "../core/identity/service";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
 import { hideHint } from "../core/pane/hints";
@@ -69,6 +70,7 @@ import { sectionPresentationExtension, setShowMetadata } from "./section-present
 import { captureEditor, editorMode } from "./section-target";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
+import { AddDeviceModal, DevicesModal, PairThisDeviceModal } from "./ui/devices";
 import { DiagnosticsModal } from "./ui/diagnostics";
 import { returnsFocus } from "./ui/focus-return";
 import {
@@ -83,6 +85,7 @@ import {
   SharedTasksView,
 } from "./ui/pane-view";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
+import { ConfirmModal } from "./ui/section-card";
 import { inEveryWindow } from "./windows";
 
 /** Apply outcomes after which a collaborator may be blocked. */
@@ -277,6 +280,22 @@ export default class OpenLfcpPlugin extends Plugin {
       id: "repair-moved-ref",
       name: "Repair moved shared task ref",
       callback: () => void this.repairActiveNote(),
+    });
+    // LFCP-04-413: a person's devices (IDENTITY-PROFILE-01 §§5–8).
+    this.addCommand({
+      id: "add-device",
+      name: "Add my other device…",
+      callback: () => void this.addDevice(),
+    });
+    this.addCommand({
+      id: "your-devices",
+      name: "Your devices…",
+      callback: () => this.openDevices(),
+    });
+    this.addCommand({
+      id: "pair-this-device",
+      name: "Pair this device with a link…",
+      callback: () => this.pairThisDevice(),
     });
     this.addSettingTab(new OpenLfcpSettingTab(this.app, this));
     this.#listenToVault();
@@ -1320,6 +1339,73 @@ export default class OpenLfcpPlugin extends Plugin {
       }`,
       needsRestart: this.needsRestart !== null,
     });
+  }
+
+  #devices: { readonly runtime: LfcpRuntime; readonly service: DeviceService } | null = null;
+
+  /** The device flows (LFCP-04-413), or null while the runtime is not running. */
+  deviceService(): DeviceService | null {
+    const runtime = this.runtime;
+    if (runtime === null) return null;
+    if (this.#devices?.runtime !== runtime)
+      this.#devices = {
+        runtime,
+        service: new DeviceService({
+          runtime: () => this.runtime,
+          context: () => this.runtime?.collaborationContext() ?? null,
+          collab: () => this.#collaboration(),
+          defaultServer: () => this.settings.defaultServer,
+          platform: Platform.isMobile ? "mobile" : "desktop",
+          sections: !this.settings.sectionsDisabled,
+          sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+        }),
+      };
+    return this.#devices.service;
+  }
+
+  /** This installation's default device label: the vault and the kind of device. */
+  #deviceLabel(): string {
+    return `${this.app.vault.getName()} on ${Platform.isMobile ? "phone" : "computer"}`;
+  }
+
+  #readyDevices(): DeviceService | null {
+    const service = this.runtime?.status.kind === "ready" ? this.deviceService() : null;
+    if (service === null)
+      new Notice("Shared Tasks: not ready on this device yet. Try again in a moment.");
+    return service;
+  }
+
+  /**
+   * "Add my other device…" (IDENTITY-PROFILE-01 §5.1, §5.3): before the
+   * first pairing, the warning about collaborators on older versions
+   * (LFCP-04-411), then the link and its requests.
+   */
+  async addDevice(): Promise<void> {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    const warning = await service.firstPairingWarning().catch(() => null);
+    if (warning !== null) {
+      const ask = returnsFocus(
+        new ConfirmModal(this.app, warning.title, warning.message, warning.action, false),
+      );
+      ask.open();
+      if (!(await ask.result)) return;
+    }
+    returnsFocus(new AddDeviceModal(this.app, service, this.#deviceLabel())).open();
+  }
+
+  /** "Your devices…": the list, Remove device…, and unfinished steps. */
+  openDevices(): void {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    returnsFocus(new DevicesModal(this.app, service, () => void this.addDevice())).open();
+  }
+
+  /** "Pair this device with a link…" (§5.3 steps 2–3, 8, 11). */
+  pairThisDevice(): void {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    returnsFocus(new PairThisDeviceModal(this.app, service, this.#deviceLabel())).open();
   }
 
   async rotateLocalEncryptionKey(): Promise<void> {
