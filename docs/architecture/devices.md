@@ -93,6 +93,30 @@ whose key change was refused, unreachable or not passed on, and offers
 **Try again**; re-certify says "re-certified" only once the device list
 accepted the new certificate.
 
+## Sections from a device that is not the first one (LFCP-04-413e)
+
+- **Joining (§7.2).** On a device whose device list's root is another
+  installation (`DeviceService.origin`), `Collaboration.join` accepts with
+  the SDK's `acceptInvitationAsDevice`: the claim names the root; the
+  device registers itself, seals the keys to the root (and registers and
+  keys the root's other devices when it may) and lists the section in the
+  roster. A Read device cannot list it and refuses without using the
+  invitation; an acceptance not reached is finished by the same link.
+- **Creating (§7.3).** The section creation's host asks
+  `Collaboration.createSectionResource`, which on such a device uses
+  `createResourceAsDevice`: Genesis owned by the root with the device's
+  chain (field 5), hosted now, the key sealed to the root, the roster
+  entry. Its operation is derived from the creation's requested Resource
+  ID, so a resume finds the same section; the creation follows the ID the
+  SDK chose (`requested` keeps the first one). An Edit device is refused.
+- **Reaching the other devices.** The upkeep reads the roster and opens
+  every section there this device does not hold and may use (§6 "ready").
+- **The first device's new sections.** Queued for the roster and listed
+  through `RosterWriter` (`src/core/identity/roster.ts`). SDK 0.3.0 has no
+  call for it (SDK 0.3.1, LFCP-04-410d): until then the port answers
+  "unsupported", and the section is shown as "Not on your other devices
+  yet" instead of "up to date".
+
 ## New device's side
 
 "Pair this device with a link…" makes this vault a device of the person
