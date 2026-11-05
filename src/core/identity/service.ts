@@ -20,25 +20,31 @@
 
 import {
   checkIssuance,
+  exposingRevocationsSince,
   type FlowOptions,
   type IdentityChannel,
   IdentityConflict,
   type IdentityFlowOptions,
   IdentityRefused,
   IdentityUnavailable,
+  type LinearChain,
   leafPayload,
   loadControlChain,
   localIdentityResource,
   type MaskPreset,
+  mayManageDevices,
   OperationJournal,
   PairingLinkText as PairingLink,
   type PairingLinkText,
   type PairingReview,
+  planReconciliation,
   principalOfRef,
   type RosterEntryValue,
+  type RotationOutcome,
+  rotatorTest,
   signChain,
 } from "@openlfcp/client";
-import { fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
+import { fromHex, type PrincipalId, type ResourceId, secureRandom, toHex } from "@openlfcp/core";
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { CollabError, type Collaboration } from "../collab/service";
@@ -114,10 +120,29 @@ export type DeviceList =
 
 /** A step left unfinished, offered again (§9: resumed, never repeated). */
 export interface Unfinished {
-  readonly kind: "approval" | "removal" | "request";
+  /**
+   * approval, removal, request: an operation of the SDK's journal, resumed
+   * by its own call. registration, key: what the device upkeep finishes
+   * (upkeep: a device not added to sections yet; a key change after a
+   * removal this device makes); `operation` is empty.
+   */
+  readonly kind: "approval" | "removal" | "request" | "registration" | "key";
   readonly operation: string;
   readonly label: string;
+  /** The sections concerned, by name (registration, key). */
+  readonly sections?: readonly string[];
 }
+
+/** What one device upkeep did (§7.1, §8.4). */
+export interface UpkeepResult {
+  /** Reconciliation of the person's device list and roster ran. */
+  readonly reconciled: boolean;
+  /** Each key change the rotation policy made or tried. */
+  readonly rotations: readonly RotationOutcome[];
+}
+
+/** Rotation operations the upkeep journals itself (outside the person's roster). */
+const UPKEEP = "plugin-upkeep";
 
 /** Thrown when OpenLFCP is not ready (locked, stopped, starting). */
 export class DevicesUnavailable extends Error {
@@ -231,7 +256,167 @@ export class DeviceService {
       });
     for (const op of await journal.list({ kind: "pairing-request", status: "open" }))
       out.push({ kind: "request", operation: op.id, label: label(op.intent.label, "this device") });
+    // What reconciliation and the rotation policy still owe, from this device's stored chains.
+    const local = await this.#localState();
+    const pending = new Map<string, string[]>();
+    if (local.identity !== null && local.manages)
+      for (const [hex, chain] of local.chains)
+        for (const step of planReconciliation(local.identity, chain))
+          if (step.kind === "register") {
+            const d = toHex(step.device);
+            pending.set(d, [...(pending.get(d) ?? []), names.resource(hex)]);
+          }
+    for (const [device, sections] of pending)
+      out.push({ kind: "registration", operation: "", label: names.device(device), sections });
+    const keys = [...local.chains]
+      .filter(([, chain]) => this.#rotationDue(chain))
+      .map(([hex]) => names.resource(hex));
+    if (keys.length > 0) out.push({ kind: "key", operation: "", label: "", sections: keys });
     return out;
+  }
+
+  /**
+   * This device's stored chains: the device list (when this device is in
+   * one and manages devices there) and every section of the registry.
+   */
+  async #localState(): Promise<{
+    readonly identity: LinearChain | null;
+    readonly manages: boolean;
+    readonly chains: ReadonlyMap<string, LinearChain>;
+  }> {
+    const c = this.#context();
+    const me = c.principal.id;
+    const I = await this.identity();
+    const stored = I === undefined ? undefined : await loadControlChain(c.storage, I);
+    const identity = stored?.kind === "linear" ? stored : null;
+    const chains = new Map<string, LinearChain>();
+    for (const e of await this.#runtime().registry()) {
+      const chain = await loadControlChain(c.storage, e.resourceId);
+      if (chain?.kind === "linear") chains.set(toHex(e.resourceId), chain);
+    }
+    return {
+      identity,
+      manages:
+        identity !== null && mayManageDevices(identity.state, me, identity.state.owner.principalId),
+      chains,
+    };
+  }
+
+  /** §8.4: an exposing revocation since the current key, and this device may change the key. */
+  #rotationDue(chain: LinearChain): boolean {
+    return (
+      exposingRevocationsSince(chain).length > 0 &&
+      rotatorTest(chain.state, this.#context().principal.id).rotator
+    );
+  }
+
+  #upkeep: Promise<UpkeepResult> | null = null;
+
+  /**
+   * The device upkeep (IDENTITY-PROFILE-01 §7.1, §8.4; decision I6): run
+   * after start, when a section comes live, and from "Your devices…".
+   *
+   * - A device that manages the person's device list reconciles it with
+   *   the SDK (reconcileDevices): revocations and registrations carried
+   *   into every roster section (a device added while a server was down or
+   *   lacked identity-01 is added now), keys sent, and the rotation policy
+   *   applied to each.
+   * - Every other section this device holds where an exposing revocation
+   *   (another person's device removed, or one of the person's removed
+   *   elsewhere) awaits a key change this device may make, typically as
+   *   its owner, is rotated (rotateIfExposed) under an operation the
+   *   upkeep journals; one left unfinished is resumed first.
+   *
+   * Without `force`, reconciliation runs only when the stored chains show
+   * work (pending registrations or revocations, a due key change, an
+   * unfinished registration). One upkeep at a time.
+   */
+  upkeep(force = false): Promise<UpkeepResult> {
+    if (this.#upkeep !== null) return this.#upkeep;
+    const run = this.#runUpkeep(force).finally(() => {
+      this.#upkeep = null;
+    });
+    this.#upkeep = run;
+    return run;
+  }
+
+  async #runUpkeep(force: boolean): Promise<UpkeepResult> {
+    const c = this.#context();
+    const flow = this.#flow();
+    const journal = new OperationJournal(c.storage);
+    const local = await this.#localState();
+    const rotations: RotationOutcome[] = [];
+    const covered = new Set<string>();
+    let reconciled = false;
+    if (local.identity !== null && local.manages) {
+      const I = local.identity;
+      const due =
+        force ||
+        this.#rotationDue(I) ||
+        (await journal.list({ kind: "register-device", status: "open" })).length > 0 ||
+        [...local.chains.values()].some(
+          (x) => planReconciliation(I, x).length > 0 || this.#rotationDue(x),
+        );
+      if (due) {
+        try {
+          const r = await this.#flows.reconcileDevices({ ...flow, rotate: true });
+          reconciled = true;
+          for (const t of r.targets) {
+            if (t.status !== "unreachable") covered.add(toHex(t.resource));
+            if (t.rotation !== undefined) rotations.push(t.rotation);
+          }
+        } catch (e) {
+          if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+        }
+      } else for (const hex of local.chains.keys()) covered.add(hex);
+    }
+    // Rotations an earlier upkeep left unfinished resume from their operation (§9.1).
+    for (const op of await journal.list({ kind: "rotate", status: "open" })) {
+      if (op.intent.by !== UPKEEP || typeof op.intent.resource !== "string") continue;
+      const chain = local.chains.get(op.intent.resource);
+      if (chain === undefined) continue;
+      rotations.push(await this.#rotate(flow, journal, op.id, chain));
+      covered.add(op.intent.resource);
+    }
+    for (const [hex, chain] of local.chains) {
+      if (covered.has(hex) || !this.#rotationDue(chain)) continue;
+      const id = `rotate.${toHex(secureRandom(8))}`;
+      await journal.begin({
+        id,
+        kind: "rotate",
+        createdAt: flow.now(),
+        intent: { by: UPKEEP, resource: hex },
+      });
+      rotations.push(await this.#rotate(flow, journal, id, chain));
+    }
+    return { reconciled, rotations };
+  }
+
+  /** One key change by the rotation policy, under the upkeep's operation `id`. */
+  async #rotate(
+    flow: FlowOptions,
+    journal: OperationJournal,
+    id: string,
+    chain: LinearChain,
+  ): Promise<RotationOutcome> {
+    const resource = chain.state.resourceId;
+    let channel: IdentityChannel | undefined;
+    let outcome: RotationOutcome;
+    try {
+      channel = await flow.network.connect(
+        flow.installation.signer,
+        chain.state.route.coordinatorUrl,
+      );
+      outcome = await this.#flows.rotateIfExposed({ ...flow, channel, operation: id, resource });
+    } catch (e) {
+      if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+      outcome = { resource, status: "unreachable" };
+    } finally {
+      channel?.close();
+    }
+    const open = outcome.status === "unreachable" || outcome.status === "awaiting-key-holder";
+    await journal.setStatus(id, open ? "open" : "done");
+    return outcome;
   }
 
   // --- The managing side (O2) ------------------------------------------------

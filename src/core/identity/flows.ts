@@ -15,12 +15,14 @@ import {
   openPairingSessions,
   pairingRequests,
   previewRevocation,
+  reconcileDevices,
   registerDevice,
   requestPairing,
   resumeApproval,
   resumePairingSession,
   revocationStatus,
   revokeDevice,
+  rotateIfExposed,
   syncChain,
 } from "@openlfcp/client";
 
@@ -36,6 +38,8 @@ export interface IdentityFlows {
   readonly previewRevocation: typeof previewRevocation;
   readonly revokeDevice: typeof revokeDevice;
   readonly registerDevice: typeof registerDevice;
+  readonly reconcileDevices: typeof reconcileDevices;
+  readonly rotateIfExposed: typeof rotateIfExposed;
   readonly requestPairing: typeof requestPairing;
   readonly completePairing: typeof completePairing;
   readonly revocationStatus: typeof revocationStatus;
@@ -57,6 +61,8 @@ export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   previewRevocation,
   revokeDevice,
   registerDevice,
+  reconcileDevices,
+  rotateIfExposed,
   requestPairing,
   completePairing,
   revocationStatus,
