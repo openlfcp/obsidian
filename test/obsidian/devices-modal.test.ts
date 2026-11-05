@@ -232,6 +232,7 @@ describe("Your devices…", () => {
           ],
         }),
         unfinished: async () => [{ kind: "approval", operation: "op1", label: "Tablet" }],
+        upkeep: async () => ({ reconciled: true, rotations: [] }),
         accessStates: async () => [],
         previewRemoval: async (hex: string) => {
           previews.push(hex);
@@ -292,6 +293,51 @@ describe("Your devices…", () => {
     expect(el.textContent).toContain("last copy");
     expect(el.textContent).toContain('"Plans": This device was removed from your identity.');
     expect(el.findAll("button").map((b) => b.text)).toEqual(["Close"]);
+    m.close();
+  });
+});
+
+describe("Your devices…: what the upkeep owes (review obsidian#107 P1-2, P2-3)", () => {
+  it("lists a device not added yet and a key not changed yet, and Finish now runs the upkeep", async () => {
+    const runs: boolean[] = [];
+    let owed = true;
+    const m = new DevicesModal(
+      new App() as never,
+      service({
+        devices: async () => ({ kind: "list", current: true, manages: true, note: null, rows: [] }),
+        unfinished: async () =>
+          owed
+            ? [
+                { kind: "registration", operation: "", label: "Phone", sections: ["Plans"] },
+                { kind: "key", operation: "", label: "", sections: ["Team X"] },
+              ]
+            : [],
+        accessStates: async () => [],
+        upkeep: async (force: boolean) => {
+          runs.push(force);
+          if (runs.length > 1) owed = false;
+          return { reconciled: true, rotations: [] };
+        },
+      }),
+      () => undefined,
+    );
+    m.open();
+    await settle();
+    // Opening the list runs the upkeep once, forced.
+    expect(runs).toEqual([true]);
+    const el = m.contentEl as unknown as FakeElement;
+    expect(el.textContent).toContain('"Phone" is not added to "Plans" yet.');
+    expect(el.textContent).toContain(
+      'The key of "Team X" is not changed yet after a device was removed.',
+    );
+    mock.notices.length = 0;
+    el.findAll("button")
+      .find((b) => b.text === "Finish now")
+      ?.click();
+    await settle();
+    expect(runs).toEqual([true, true]);
+    expect(mock.notices.some((n) => n.includes("up to date"))).toBe(true);
+    expect(el.textContent).not.toContain("is not added to");
     m.close();
   });
 });

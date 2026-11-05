@@ -222,7 +222,7 @@ function rotationLine(r: RotationOutcome): string[] {
   switch (r.status) {
     case "awaiting-rotation":
       return [
-        "Your device list's key changes when your first device or a Full device next opens it.",
+        "Your device list's key is changed by your first device or a Full device, automatically when it next runs Shared Tasks.",
       ];
     case "unreachable":
     case "refused":
@@ -379,7 +379,7 @@ export function removalView(p: RevocationPreview, names: Names): RemovalView {
     ...(awaiting.length === 0
       ? []
       : [
-          `The key of these sections is changed later by your first device or the section's owner, not by this device: ${list(awaiting)}. Until then, the removed device could still read new changes there.`,
+          `The key of these sections is changed by your first device or the section's owner, automatically when it next runs Shared Tasks, not by this device: ${list(awaiting)}. Until then, the removed device could still read new changes there.`,
         ]),
     ...(later.length === 0 ? [] : [`Not reachable now, removed there later: ${list(later)}.`]),
     "Removing does not delete what it already copied or wrote.",
@@ -446,7 +446,7 @@ export function revokeView(r: RevokeDeviceResult, label: string, names: Names): 
         ...(awaiting.length === 0
           ? []
           : [
-              `The key of ${named(awaiting)} is changed by your first device or the section's owner, not by this device.`,
+              `The key of ${named(awaiting)} is changed by your first device or the section's owner, automatically when it next runs Shared Tasks.`,
             ]),
       ];
       const unfinished =
@@ -639,6 +639,44 @@ export function progressView(
       };
     }
   }
+}
+
+/** What the device upkeep still owes, as "Your devices…" lists it (§7.1, §8.4). */
+export function unfinishedText(u: {
+  readonly kind: "registration" | "key";
+  readonly label: string;
+  readonly sections?: readonly string[];
+}): string {
+  const sections = list(u.sections ?? []);
+  return u.kind === "registration"
+    ? `"${u.label}" is not added to ${sections} yet.`
+    : `The key of ${sections} is not changed yet after a device was removed.`;
+}
+
+/** What a device upkeep did, in one line (§7.1, §8.4). */
+export function upkeepText(r: {
+  readonly reconciled: boolean;
+  readonly rotations: readonly RotationOutcome[];
+}): string {
+  const rotated = r.rotations.filter((x) => x.status === "rotated").length;
+  const failed = r.rotations.filter(
+    (x) =>
+      x.status === "refused" || x.status === "unreachable" || x.status === "awaiting-key-holder",
+  ).length;
+  const lines = [
+    ...(r.reconciled
+      ? ["Your devices are up to date in every section the server could reach."]
+      : []),
+    ...(rotated === 0
+      ? []
+      : [`Changed the key of ${rotated === 1 ? "1 section" : `${rotated} sections`}.`]),
+    ...(failed === 0
+      ? []
+      : [
+          `${failed === 1 ? "1 key change" : `${failed} key changes`} could not be made yet; it is tried again.`,
+        ]),
+  ];
+  return lines.length === 0 ? "Nothing to finish." : lines.join(" ");
 }
 
 /** §8.6: why a section no longer syncs on a device that may have been removed. */

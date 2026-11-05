@@ -23,6 +23,8 @@ import {
   PAIR_HELP,
   reviewView,
   severalRequests,
+  unfinishedText,
+  upkeepText,
   WAITING_FOR_DEVICE,
 } from "../../core/identity/pairing-view";
 import type { DeviceService, Unfinished } from "../../core/identity/service";
@@ -419,7 +421,19 @@ export class DevicesModal extends Modal {
   override onOpen(): void {
     this.setTitle("Your devices");
     this.contentEl.createEl("p", { text: "Loading…" });
-    void this.#render();
+    // The list as stored, then what the upkeep finishes now (§7.1, §8.4), then the list again.
+    void this.#render().then(() => this.#finish(false));
+  }
+
+  /** Runs the device upkeep (forced from "Finish now"), then shows the list again. */
+  async #finish(say: boolean): Promise<void> {
+    try {
+      const r = await this.service.upkeep(true);
+      if (say) new Notice(`Shared Tasks: ${upkeepText(r)}`);
+    } catch (e) {
+      if (say) new Notice(`Shared Tasks: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    await this.#render();
   }
 
   async #render(): Promise<void> {
@@ -503,6 +517,21 @@ export class DevicesModal extends Modal {
 
   #unfinished(el: HTMLElement, u: Unfinished): void {
     if (u.kind === "request") return;
+    if (u.kind === "registration" || u.kind === "key") {
+      const item = el.createDiv({ cls: "setting-item" });
+      item.createDiv({
+        cls: "setting-item-info",
+        text: unfinishedText({ kind: u.kind, label: u.label, sections: u.sections ?? [] }),
+      });
+      const button = item
+        .createDiv({ cls: "setting-item-control" })
+        .createEl("button", { text: "Finish now", cls: "mod-cta" });
+      button.addEventListener("click", () => {
+        button.disabled = true;
+        void this.#finish(true);
+      });
+      return;
+    }
     const item = el.createDiv({ cls: "setting-item" });
     item.createDiv({
       cls: "setting-item-info",

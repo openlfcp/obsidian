@@ -739,6 +739,8 @@ export default class OpenLfcpPlugin extends Plugin {
     this.sections?.stop();
     if (this.#lockRetry !== null) window.clearTimeout(this.#lockRetry);
     this.#lockRetry = null;
+    if (this.#upkeepTimer !== null) window.clearTimeout(this.#upkeepTimer);
+    this.#upkeepTimer = null;
     this.changes.close();
     // The next instance of the plugin in this window (a reload: disabled and
     // enabled, a BRAT update) waits for this one to stop and let go of the
@@ -885,6 +887,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.#watchBlocked(runtime);
       this.#watchRefused(runtime);
       this.#watchObjects(runtime);
+      this.#watchDevices(runtime);
       // Pending changes go out and remote ones come in without waiting for a
       // command: every stored Resource is opened (one pooled session per server).
       if (runtime.status.kind === "ready")
@@ -1346,6 +1349,34 @@ export default class OpenLfcpPlugin extends Plugin {
       }`,
       needsRestart: this.needsRestart !== null,
     });
+  }
+
+  /** How long after start, or after a section came live, the device upkeep runs (coalesced). */
+  protected deviceUpkeepDelayMs = 5000;
+  #upkeepTimer: number | null = null;
+
+  /**
+   * The device upkeep (LFCP-04-413; IDENTITY-PROFILE-01 §7.1, §8.4, decision
+   * I6): after start and whenever a section comes live (its chain then
+   * stored as the server has it), reconciliation and the rotation policy
+   * run in the background, one at a time. Failures wait for the next run.
+   */
+  #watchDevices(runtime: LfcpRuntime): void {
+    const run = () => {
+      this.#upkeepTimer = null;
+      if (this.#unloaded || this.runtime !== runtime || runtime.status.kind !== "ready") return;
+      void this.deviceService()
+        ?.upkeep()
+        .catch(() => undefined);
+    };
+    const schedule = () => {
+      if (this.#upkeepTimer === null)
+        this.#upkeepTimer = window.setTimeout(run, this.deviceUpkeepDelayMs);
+    };
+    runtime.on((e) => {
+      if (e.type === "resource-state" && e.state === "LIVE") schedule();
+    });
+    schedule();
   }
 
   #devices: { readonly runtime: LfcpRuntime; readonly service: DeviceService } | null = null;
