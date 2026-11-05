@@ -119,6 +119,8 @@ export interface DeviceServiceOptions {
   /** How long one server request may take before it reads as "could not be reached". */
   readonly requestTimeoutMs?: number;
   readonly flows?: IdentityFlows;
+  /** A section of the roster was opened here (§5.3 step 11): the notes bound to it follow it. */
+  readonly opened?: (resource: ResourceId) => void | Promise<void>;
 }
 
 /** The device list as shown. */
@@ -1241,6 +1243,7 @@ export class DeviceService {
           if (collab === null) throw new DevicesUnavailable();
           if (await collab.openFromRoster(c.resource, c.name ?? null))
             opened.push(c.name ?? names.resource(toHex(c.resource)));
+          await this.#o.opened?.(c.resource);
         } catch (e) {
           failures.push({
             resource: toHex(c.resource),

@@ -184,18 +184,36 @@ export class SoakPeer {
     };
   }
 
-  static async open(name: string, me: string, server: string, seed: number): Promise<SoakPeer> {
+  static async open(
+    name: string,
+    me: string,
+    server: string,
+    seed: number,
+    /** A copied vault: its files and its data.json (the plugin's saved settings). */
+    copy?: { readonly files: ReadonlyMap<string, string>; readonly data: unknown },
+  ): Promise<SoakPeer> {
     if (!server.startsWith("ws://127.0.0.1:")) throw new Error(`not a local server: ${server}`);
     // The vault's data.json: sections on (the mock keeps them off without a
     // DOM; the peer has happy-dom), and never the project server.
     const proto = mock.Plugin.prototype as unknown as {
       loadData: (this: { stored: unknown }) => Promise<unknown>;
     };
+    const data = copy?.data;
     proto.loadData = async function () {
-      return this.stored ?? { sectionsDisabled: false, defaultServer: server, settingsVersion: 2 };
+      return (
+        this.stored ??
+        (data === undefined ? undefined : structuredClone(data)) ?? {
+          sectionsDisabled: false,
+          defaultServer: server,
+          settingsVersion: 2,
+        }
+      );
     };
     // The plugin's own tick (the tests' 20 ms would tick 12.5 times as often).
-    const vault = await E2EVault.open(name, { tickMs: 250 });
+    const vault = await E2EVault.open(name, {
+      tickMs: 250,
+      ...(copy === undefined ? {} : { files: copy.files }),
+    });
     if (vault.plugin.sections === null || vault.plugin.settings.defaultServer !== server)
       throw new Error(`${name}: sections off or another server`);
     const p = new SoakPeer(name, me, vault, server, seed);

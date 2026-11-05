@@ -1411,6 +1411,7 @@ export default class OpenLfcpPlugin extends Plugin {
           platform: Platform.isMobile ? "mobile" : "desktop",
           sections: !this.settings.sectionsDisabled,
           sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+          opened: (R) => this.sections?.sectionArrived(R),
         }),
       };
     return this.#devices.service;
