@@ -21,6 +21,8 @@ export interface Installation {
   readonly service: DeviceService;
   /** A shared section of this installation, hosted on the coordinator. */
   section(name: string): Promise<ResourceId>;
+  /** Hosts a section this installation made locally (what its session does when online). */
+  host(R: ResourceId): Promise<void>;
 }
 
 export class DeviceWorld {
@@ -72,6 +74,14 @@ export class DeviceWorld {
         const answer = await channel.host(chain.records[0]?.signed.bytes as Uint8Array);
         if (answer.kind !== "ack") throw new Error(`not hosted: ${answer.code}`);
         return R;
+      },
+      async host(R) {
+        const ctx = runtime.collaborationContext();
+        const chain = ctx === null ? undefined : await loadControlChain(ctx.storage, R);
+        if (ctx === null || chain?.kind !== "linear") throw new Error("no chain");
+        const channel = await server.network().connect(ctx.principal.signer, WORLD_URL);
+        const answer = await channel.host(chain.records[0]?.signed.bytes as Uint8Array);
+        if (answer.kind !== "ack") throw new Error(`not hosted: ${answer.code}`);
       },
     };
   }

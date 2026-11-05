@@ -1,10 +1,11 @@
-// The SDK's identity flows (@openlfcp/client 0.3.0, IDENTITY-PROFILE-01
+// The SDK's identity flows (@openlfcp/client 0.3.x, IDENTITY-PROFILE-01
 // §§5–9) as one port, so that the device service is tested against the
 // result kinds without a server. The plugin implements no protocol: every
 // record, package and journal phase is the SDK's.
 
 import {
   acceptInvitationAsDevice,
+  addToRoster,
   approvePairing,
   cancelPairing,
   completePairing,
@@ -30,6 +31,7 @@ import {
 
 export interface IdentityFlows {
   readonly acceptInvitationAsDevice: typeof acceptInvitationAsDevice;
+  readonly addToRoster: typeof addToRoster;
   readonly createIdentityResource: typeof createIdentityResource;
   readonly createResourceAsDevice: typeof createResourceAsDevice;
   readonly createPairingSession: typeof createPairingSession;
@@ -55,6 +57,7 @@ export interface IdentityFlows {
 
 export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   acceptInvitationAsDevice,
+  addToRoster,
   createIdentityResource,
   createResourceAsDevice,
   createPairingSession,

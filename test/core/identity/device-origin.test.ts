@@ -249,3 +249,24 @@ it("a section the first device creates after pairing is queued for the roster, a
   });
   expect(calls).toHaveLength(before);
 });
+
+it("a section the first device creates after pairing reaches the person's other device, through addToRoster (item 3)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  const X = await a.collab.createSectionResource({
+    name: "Late",
+    endpoints: [WORLD_URL],
+    coordinatorUrl: WORLD_URL,
+    resourceId: generateResourceId(),
+  });
+  await a.host(X);
+  // Listed in the roster when it was made: nothing owed.
+  expect((await a.service.unfinished()).filter((u) => u.kind === "roster")).toEqual([]);
+  // A's upkeep adds B there and hands it the key (§7.1); B's upkeep opens it.
+  await a.service.upkeep(true);
+  expect(world.server.chain(X).state.devices.get(me(b))?.registered).toBe(true);
+  expect((await b.service.upkeep()).opened).toEqual(["Late"]);
+  expect(b.runtime.sectionProfile(X)).toBeDefined();
+});

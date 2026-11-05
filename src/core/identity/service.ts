@@ -98,7 +98,7 @@ import {
   upkeepText,
 } from "./pairing-view";
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
-import { NO_ROSTER_WRITER, type RosterWriter } from "./roster";
+import type { RosterAdd, RosterWriter } from "./roster";
 
 /** The pairing request of this device until every section it brought is opened here (P2-5). */
 const PAIRING_KEY = "identity-pairing-request";
@@ -126,7 +126,7 @@ export interface DeviceServiceOptions {
   /** How long one server request may take before it reads as "could not be reached". */
   readonly requestTimeoutMs?: number;
   readonly flows?: IdentityFlows;
-  /** Adds the first device's new sections to the roster (roster.ts; SDK 0.3.1). */
+  /** Adds the first device's new sections to the roster (default: the SDK's addToRoster). */
   readonly roster?: RosterWriter;
 }
 
@@ -590,7 +590,7 @@ export class DeviceService {
     const queued = hexList(await runtime.localState.get(ROSTER_PENDING_KEY));
     if (queued.length === 0) return;
     const entries = new Map((await this.#roster()).map((r) => [toHex(r.resource), r.entry]));
-    const writer = this.#o.roster ?? NO_ROSTER_WRITER;
+    const writer = this.#o.roster ?? { add: (r, entry) => this.#addToRoster(r, entry) };
     const still: string[] = [];
     for (const hex of queued) {
       const entry = entries.get(hex);
@@ -610,6 +610,35 @@ export class DeviceService {
       });
     }
     await runtime.localState.put(ROSTER_PENDING_KEY, still);
+  }
+
+  /** The SDK's addToRoster (0.3.1): one durable operation; an entry already there is "added". */
+  async #addToRoster(resource: ResourceId, entry: RosterEntryValue): Promise<RosterAdd> {
+    try {
+      const r = await this.#flows.addToRoster({
+        ...this.#flow(),
+        resource,
+        entry,
+        ...(entry.name === undefined ? {} : { name: entry.name }),
+      });
+      switch (r.kind) {
+        case "added":
+        case "present":
+          return { kind: "added" };
+        case "unavailable":
+          return { kind: "unavailable", reason: r.reason };
+        case "needs-writer":
+          return { kind: "refused", code: "NEEDS_WRITER" };
+        case "document-incomplete":
+          return { kind: "refused", code: r.code };
+        case "conflict":
+          return { kind: "refused", code: "CONTROL_CONFLICT" };
+      }
+    } catch (e) {
+      if (e instanceof IdentityUnavailable) return { kind: "unavailable", reason: e.message };
+      if (e instanceof IdentityConflict) return { kind: "refused", code: "CONTROL_CONFLICT" };
+      throw e;
+    }
   }
 
   /**
