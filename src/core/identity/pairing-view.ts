@@ -643,14 +643,19 @@ export function progressView(
 
 /** What the device upkeep still owes, as "Your devices…" lists it (§7.1, §8.4). */
 export function unfinishedText(u: {
-  readonly kind: "registration" | "key";
+  readonly kind: "registration" | "key" | "delivery";
   readonly label: string;
   readonly sections?: readonly string[];
 }): string {
   const sections = list(u.sections ?? []);
-  return u.kind === "registration"
-    ? `"${u.label}" is not added to ${sections} yet.`
-    : `The key of ${sections} is not changed yet after a device was removed.`;
+  switch (u.kind) {
+    case "registration":
+      return `"${u.label}" is not added to ${sections} yet.`;
+    case "key":
+      return `The key of ${sections} is not changed yet after a device was removed.`;
+    case "delivery":
+      return `"${u.label}" does not have the key of ${sections} from this device yet.`;
+  }
 }
 
 /** What a device upkeep did, in one line (§7.1, §8.4). */

@@ -6,7 +6,7 @@
 
 import { syncChain } from "@openlfcp/client";
 import { fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
-import { revocationOf } from "@openlfcp/wire";
+import { parseKeyPackage, revocationOf } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
 import { DeviceService } from "../../../src/core/identity/service";
 import { DeviceWorld, type Installation, pair } from "../../support/device-world";
@@ -161,4 +161,39 @@ it("with no section at all, the upkeep still changes the device list's key after
   await b.service.remove(me(b), 0n, "Phone");
   await a.service.upkeep();
   expect(epochs(I)).toBe(before + 1);
+});
+
+it("a key the upkeep could not hand to a device after its key change is handed on by the next one (B2)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const c = await world.installation();
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  await pair(a, c, "edit");
+  await b.service.remove(me(b), 0n, "Phone");
+  await synced(a, X);
+  const keyOf = (epoch: bigint) =>
+    world.server.packagesOf(X).some((p) => toHex(p.recipient) === me(c) && p.dataEpoch === epoch);
+  // The coordinator takes the new KEY_EPOCH, then the connection drops on C's package.
+  world.server.fault = (e) =>
+    e.op === "key-package" &&
+    toHex(e.resource) === toHex(X) &&
+    toHex(parseKeyPackage(e.bytes).payload.recipient) === me(c)
+      ? "drop-request"
+      : undefined;
+  const before = epochs(X);
+  await a.service.upkeep();
+  expect(epochs(X)).toBe(before + 1);
+  const latest = BigInt(before);
+  expect(keyOf(latest)).toBe(false);
+  // The debt is listed, and the next ordinary upkeep pays it, without another key change.
+  expect((await a.service.unfinished()).find((u) => u.kind === "delivery")?.sections).toEqual([
+    "Plans",
+  ]);
+  world.server.fault = () => undefined;
+  await a.service.upkeep();
+  expect(keyOf(latest)).toBe(true);
+  expect(epochs(X)).toBe(before + 1);
+  expect((await a.service.unfinished()).filter((u) => u.kind === "delivery")).toEqual([]);
 });

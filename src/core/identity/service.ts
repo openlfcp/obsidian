@@ -22,6 +22,7 @@ import {
   checkIssuance,
   exposingRevocationsSince,
   type FlowOptions,
+  heldDeks,
   type IdentityChannel,
   IdentityConflict,
   type IdentityFlowOptions,
@@ -34,6 +35,7 @@ import {
   type MaskPreset,
   mayManageDevices,
   OperationJournal,
+  PackageLedger,
   PairingLinkText as PairingLink,
   type PairingLinkText,
   type PairingReview,
@@ -41,12 +43,22 @@ import {
   principalOfRef,
   type RosterEntryValue,
   type RotationOutcome,
+  readersAt,
   rotatorTest,
   signChain,
 } from "@openlfcp/client";
-import { fromHex, type PrincipalId, type ResourceId, secureRandom, toHex } from "@openlfcp/core";
+import {
+  bytesEqual,
+  dataEpoch,
+  fromHex,
+  type PrincipalId,
+  type ResourceId,
+  secureRandom,
+  toHex,
+} from "@openlfcp/core";
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
+import { actsFor } from "@openlfcp/wire";
 import { CollabError, type Collaboration } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
@@ -124,9 +136,10 @@ export interface Unfinished {
    * approval, removal, request: an operation of the SDK's journal, resumed
    * by its own call. registration, key: what the device upkeep finishes
    * (upkeep: a device not added to sections yet; a key change after a
-   * removal this device makes); `operation` is empty.
+   * removal this device makes; a key this device holds and has not handed
+   * to one of the person's devices); `operation` is empty.
    */
-  readonly kind: "approval" | "removal" | "request" | "registration" | "key";
+  readonly kind: "approval" | "removal" | "request" | "registration" | "key" | "delivery";
   readonly operation: string;
   readonly label: string;
   /** The sections concerned, by name (registration, key). */
@@ -272,6 +285,51 @@ export class DeviceService {
       .filter(([, chain]) => this.#rotationDue(chain))
       .map(([hex]) => names.resource(hex));
     if (keys.length > 0) out.push({ kind: "key", operation: "", label: "", sections: keys });
+    const list = local.identity === null ? "" : toHex(local.identity.state.resourceId);
+    for (const [device, resources] of await this.#keysOwed(local))
+      out.push({
+        kind: "delivery",
+        operation: "",
+        label: names.device(device),
+        sections: resources.map((r) => (r === list ? "your device list" : names.resource(r))),
+      });
+    return out;
+  }
+
+  /**
+   * §7.1 step 3 by this device's own ledger (§9.5): for each of the
+   * person's devices that reads a Resource of the roster (or the device
+   * list) at its head, the Resources with an epoch whose key this device
+   * holds and has not sent it, by device (hex). A key change accepted
+   * after which a package was lost is owed here until it is sent.
+   */
+  async #keysOwed(local: {
+    readonly identity: LinearChain | null;
+    readonly manages: boolean;
+    readonly chains: ReadonlyMap<string, LinearChain>;
+  }): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (local.identity === null || !local.manages) return out;
+    const c = this.#context();
+    const me = c.principal.id;
+    const root = local.identity.state.owner.principalId;
+    const ledger = new PackageLedger(c.storage);
+    const all = [local.identity, ...local.chains.values()];
+    for (const chain of all) {
+      const deks = await heldDeks(c.secrets, chain);
+      if (deks.size === 0) continue;
+      const R = chain.state.resourceId;
+      for (const reader of readersAt(chain.state)) {
+        const id = reader.principalId;
+        if (bytesEqual(id, me) || !bytesEqual(actsFor(chain.state, id), root)) continue;
+        for (const e of deks.keys())
+          if (!(await ledger.has(R, dataEpoch(BigInt(e)), id))) {
+            const hex = toHex(id);
+            out.set(hex, [...(out.get(hex) ?? []), toHex(R)]);
+            break;
+          }
+      }
+    }
     return out;
   }
 
@@ -359,7 +417,8 @@ export class DeviceService {
         (await journal.list({ kind: "register-device", status: "open" })).length > 0 ||
         [...local.chains.values()].some(
           (x) => planReconciliation(I, x).length > 0 || this.#rotationDue(x),
-        );
+        ) ||
+        (await this.#keysOwed(local)).size > 0;
       if (due) {
         try {
           const r = await this.#flows.reconcileDevices({ ...flow, rotate: true });
