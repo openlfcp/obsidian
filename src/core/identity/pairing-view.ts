@@ -44,6 +44,14 @@ export const LINK_HELP = `On your other device, open Shared Tasks and choose "${
 export const WAITING_FOR_DEVICE =
   "Waiting for the other device. Closing this keeps the link working until you cancel it.";
 
+/**
+ * More than one installation used one link (§5.3 "Concurrency and
+ * failure"): someone else may have it. Each is shown by its fingerprint;
+ * cancelling the link ends every request.
+ */
+export const severalRequests = (n: number): string =>
+  `${n} devices used this link. If you did not send it to each of them, someone else has it: approve only the one whose fingerprint your device shows, or cancel the link and make a new one.`;
+
 /** The new device's dialog, before the link is pasted. */
 export const PAIR_HELP = `This makes this vault a device of yours. On a device you already use, choose "${ADD_DEVICE}" and paste its link here.`;
 

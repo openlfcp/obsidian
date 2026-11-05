@@ -22,6 +22,7 @@ import {
   NO_DEVICES,
   PAIR_HELP,
   reviewView,
+  severalRequests,
   WAITING_FOR_DEVICE,
 } from "../../core/identity/pairing-view";
 import type { DeviceService, Unfinished } from "../../core/identity/service";
@@ -168,8 +169,32 @@ export class AddDeviceModal extends PollingModal {
     }
     const first = reviews[0];
     if (first === undefined) return true;
-    await this.#review(first, null);
+    if (reviews.length === 1) await this.#review(first, null);
+    else this.#requests(reviews);
     return false;
+  }
+
+  /** More than one installation used the link (§5.3 "Concurrency"; e2e 13): each, by fingerprint. */
+  #requests(reviews: readonly PairingReview[]): void {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("p", { text: severalRequests(reviews.length) });
+    for (const r of reviews) {
+      const item = el.createDiv({ cls: "setting-item" });
+      const info = item.createDiv({ cls: "setting-item-info" });
+      info.createDiv({ cls: "setting-item-name", text: r.label });
+      info.createDiv({ cls: "setting-item-description", text: `Fingerprint ${r.fingerprint}` });
+      item
+        .createDiv({ cls: "setting-item-control" })
+        .createEl("button", { text: "Review" })
+        .addEventListener("click", () => void this.#review(r, null));
+    }
+    const buttons = buttonRow(el);
+    buttons
+      .createEl("button", { text: "Cancel link", cls: "mod-warning" })
+      .addEventListener("click", () => {
+        void this.#cancel();
+      });
   }
 
   async #review(review: PairingReview, note: string | null): Promise<void> {

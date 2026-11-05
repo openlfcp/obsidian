@@ -142,6 +142,44 @@ describe("Add my other device…", () => {
     m.close();
   });
 
+  it("two requests on one link: both listed by fingerprint, with a warning, none approved", async () => {
+    const m = new AddDeviceModal(
+      new App() as never,
+      service({
+        startSession: async () => ({
+          kind: "link",
+          session: "s1",
+          result: {
+            kind: "created",
+            session: "s1",
+            pairingDevice: new Uint8Array(32),
+            link: new PairingLinkText("lfcp://pair/x#secret=y"),
+          },
+        }),
+        requests: async () => [
+          review,
+          { ...review, requestKey: "p:def", label: "Unknown", fingerprint: "zzzz-yyyy-xxxx-wwww" },
+        ],
+      }),
+      "Desk",
+    );
+    m.open();
+    await settle();
+    const el = m.contentEl as unknown as FakeElement;
+    expect(el.textContent).toContain("2 devices used this link");
+    expect(el.textContent).toContain("aaaa-bbbb-cccc-dddd");
+    expect(el.textContent).toContain("zzzz-yyyy-xxxx-wwww");
+    expect(el.findAll("button").filter((b) => b.text === "Review")).toHaveLength(2);
+    expect(el.findAll("button").some((b) => b.text === "Approve")).toBe(false);
+    el.findAll("button")
+      .filter((b) => b.text === "Review")[1]
+      ?.click();
+    await settle();
+    expect(el.textContent).toContain("zzzz-yyyy-xxxx-wwww");
+    expect(el.textContent).not.toContain("aaaa-bbbb-cccc-dddd");
+    m.close();
+  });
+
   it("a stop (no device support, offline) is said, with nothing to approve", async () => {
     const m = new AddDeviceModal(
       new App() as never,
