@@ -24,6 +24,13 @@ since 0.4.0.
   the access list shows them once, their devices inside, and their edits,
   local name and assignments count for the person, with the device as
   detail. A local name you give is now the person's, on all their devices.
+- Your devices: "Add my other device…" makes a link to open on another
+  device; you approve it there after comparing a fingerprint on both
+  screens, with an access level (Full, Edit, Read, or Service for a
+  bridge). "Pair this device with a link…" on a new vault makes it one of
+  your devices, and your shared sections open there. "Your devices…" lists
+  them and removes one, warning first which devices stop with it. A phone
+  still only reads shared sections.
 
 ## [0.6.0] — 2026-10-31
 
