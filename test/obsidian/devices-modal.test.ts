@@ -313,6 +313,7 @@ describe("Pair this device with a link…", () => {
           approved: true,
           headline: "Approved. Your sections are on this device.",
           sections: [{ name: "Plans", status: "ready" }],
+          deviceList: "ready",
           opened: ["Plans"],
         }),
       }),
@@ -332,6 +333,7 @@ describe("Pair this device with a link…", () => {
     expect(el.textContent).toContain("abcd-efgh-ijkl-mnop");
     expect(el.textContent).toContain("Approved. Your sections are on this device.");
     expect(el.textContent).toContain("Plans: ready");
+    expect(el.textContent).toContain("Your device list: ready");
     m.close();
   });
 
@@ -361,6 +363,7 @@ describe("Pair this device with a link…", () => {
           approved: false,
           headline: "Waiting for your other device to approve…",
           sections: [],
+          deviceList: null,
           opened: [],
         }),
       }),

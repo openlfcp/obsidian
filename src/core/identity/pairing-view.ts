@@ -520,9 +520,19 @@ export interface ProgressView {
   readonly approved: boolean;
   readonly headline: string;
   readonly sections: readonly { readonly name: string; readonly status: string }[];
+  /**
+   * The person's device list (the Identity Resource, §5.3 step 8) on this
+   * device: its own line, never one of the sections. Null until known.
+   */
+  readonly deviceList: string | null;
 }
 
-export function progressView(o: PairingOutcome, names: Names): ProgressView {
+/**
+ * The new device's result. `identity` is the Identity Resource (hex) of
+ * the request: a personal device is registered there too, and the SDK
+ * lists it among the candidates, but it is not a section.
+ */
+export function progressView(o: PairingOutcome, names: Names, identity: string): ProgressView {
   switch (o.kind) {
     case "waiting":
       return {
@@ -530,6 +540,7 @@ export function progressView(o: PairingOutcome, names: Names): ProgressView {
         approved: false,
         headline: "Waiting for your other device to approve…",
         sections: [],
+        deviceList: null,
       };
     case "rejected":
       return {
@@ -537,6 +548,7 @@ export function progressView(o: PairingOutcome, names: Names): ProgressView {
         approved: false,
         headline: "Your other device rejected this request. Nothing was added.",
         sections: [],
+        deviceList: null,
       };
     case "unknown":
     case "unavailable":
@@ -545,9 +557,12 @@ export function progressView(o: PairingOutcome, names: Names): ProgressView {
         approved: false,
         headline: `Waiting: ${o.reason}. Retrying.`,
         sections: [],
+        deviceList: null,
       };
     case "approved": {
-      const sections = o.candidates.map((c) => ({
+      const list = o.candidates.find((c) => toHex(c.resource) === identity);
+      const candidates = o.candidates.filter((c) => c !== list);
+      const sections = candidates.map((c) => ({
         name: c.name ?? names.resource(toHex(c.resource)),
         status: CANDIDATE_TEXT[c.status],
       }));
@@ -564,6 +579,7 @@ export function progressView(o: PairingOutcome, names: Names): ProgressView {
               ? "Approved. Your sections are on this device."
               : "Approved. Getting your sections…",
         sections,
+        deviceList: list === undefined ? null : CANDIDATE_TEXT[list.status],
       };
     }
   }

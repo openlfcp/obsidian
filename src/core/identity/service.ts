@@ -654,6 +654,8 @@ export class DeviceService {
     operation: string,
   ): Promise<ProgressView & { readonly opened: readonly string[] }> {
     const names = await this.names();
+    const request = await new OperationJournal(this.#context().storage).get(operation);
+    const identity = typeof request?.intent.identity === "string" ? request.intent.identity : "";
     let outcome: Awaited<ReturnType<IdentityFlows["completePairing"]>>;
     try {
       outcome = await this.#flows.completePairing({ ...this.#flow(), operation });
@@ -664,7 +666,8 @@ export class DeviceService {
     if (outcome.kind === "approved") {
       const collab = this.#o.collab();
       for (const c of outcome.candidates) {
-        if (c.status !== "ready" || collab === null) continue;
+        // The device list (the Identity Resource) is not a section: it is never opened as one.
+        if (c.status !== "ready" || collab === null || toHex(c.resource) === identity) continue;
         try {
           if (await collab.openFromRoster(c.resource, c.name ?? null))
             opened.push(c.name ?? names.resource(toHex(c.resource)));
@@ -673,7 +676,7 @@ export class DeviceService {
         }
       }
     }
-    return { ...progressView(outcome, names), opened };
+    return { ...progressView(outcome, names, identity), opened };
   }
 
   /**

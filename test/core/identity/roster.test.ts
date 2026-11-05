@@ -20,3 +20,21 @@ it("a hosted section with only its Genesis is in the roster, and the new device 
   expect(view.sections).toContainEqual({ name: "Plans", status: "ready" });
   expect((await b.runtime.registry()).map((e) => toHex(e.resourceId))).toContain(toHex(X));
 });
+
+it("the device list is not a section: with no section, the new device lists none (P3)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const opened: string[] = [];
+  const open = b.collab.openFromRoster.bind(b.collab);
+  b.collab.openFromRoster = async (R, name) => {
+    opened.push(toHex(R));
+    return open(R, name);
+  };
+  const op = await pair(a, b);
+  const view = await b.service.progress(op);
+  expect(view.sections).toEqual([]);
+  expect(view.deviceList).toBe("ready");
+  expect(opened).toEqual([]);
+  expect(await b.runtime.registry()).toEqual([]);
+});
