@@ -771,6 +771,8 @@ export default class OpenLfcpPlugin extends Plugin {
           sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
           sections: !this.settings.sectionsDisabled,
           sectionsReadOnly: Platform.isMobile,
+          // LFCP-04-413e (§7.2): on a device that is not the first one, a join claims for the root.
+          device: async () => (await this.deviceService()?.origin()) ?? null,
         }),
       };
     return this.#collab.flows;

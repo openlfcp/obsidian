@@ -29,8 +29,15 @@ export class DeviceWorld {
   async installation(flows: Partial<IdentityFlows> = {}): Promise<Installation> {
     const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
     this.#running.push(runtime);
-    const collab = new Collaboration(runtime, { sleep, connectTimeoutMs: 20, sections: true });
-    const service = new DeviceService({
+    let service: DeviceService | null = null;
+    const collab = new Collaboration(runtime, {
+      sleep,
+      connectTimeoutMs: 20,
+      joinTimeoutMs: 200,
+      sections: true,
+      device: async () => (await service?.origin()) ?? null,
+    });
+    service = new DeviceService({
       runtime: () => runtime,
       context: () => runtime.collaborationContext(),
       collab: () => collab,

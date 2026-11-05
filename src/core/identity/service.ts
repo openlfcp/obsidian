@@ -61,7 +61,12 @@ import {
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { actsFor, DEVICE_KIND } from "@openlfcp/wire";
-import { CollabError, type Collaboration } from "../collab/service";
+import {
+  CollabError,
+  type Collaboration,
+  type DeviceJoin,
+  type DeviceOrigin,
+} from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
 import { type DeviceRow, deviceRows } from "./device-list";
@@ -1178,6 +1183,76 @@ export class DeviceService {
       throw e;
     } finally {
       channel?.close();
+    }
+  }
+
+  // --- A device that is not the first one (§7.2, §7.3) -------------------------
+
+  /**
+   * This installation as a device of a person, or null: no device list, or
+   * the first device (the root itself, whose joins and sections are its
+   * own already). Read from the stored device list, offline too.
+   */
+  async origin(): Promise<DeviceOrigin | null> {
+    const c = this.#o.context();
+    if (c === null) return null;
+    const I = await localIdentityResource(c.storage);
+    if (I === undefined) return null;
+    const chain = await loadControlChain(c.storage, I);
+    if (chain?.kind !== "linear" || bytesEqual(chain.state.owner.principalId, c.principal.id))
+      return null;
+    return { accept: (link, name, operation) => this.#acceptAsDevice(link, name, operation) };
+  }
+
+  /** §7.2 with the SDK's acceptInvitationAsDevice: the claim names the root. */
+  async #acceptAsDevice(link: string, name: string, operation?: string): Promise<DeviceJoin> {
+    try {
+      const r = await this.#flows.acceptInvitationAsDevice({
+        ...this.#flow(),
+        link,
+        ...(name.trim() === "" ? {} : { name: name.trim() }),
+        ...(operation === undefined ? {} : { operation }),
+      });
+      switch (r.kind) {
+        case "claimed":
+          return { kind: "claimed", resourceId: r.resource, listed: r.roster };
+        case "incomplete":
+          return { kind: "claimed", resourceId: r.resource, listed: false };
+        case "needs-writer":
+          return {
+            kind: "refused",
+            code: "NEEDS_WRITER",
+            message:
+              "This device only reads your device list, so it cannot accept invitations for you. Accept it on your first device or a device with Full access; the invitation is not used.",
+          };
+        case "invalid-invitation":
+          return {
+            kind: "refused",
+            code: "INVALID_INVITATION",
+            message: "This invitation link does not work.",
+          };
+        case "refused":
+          return {
+            kind: "refused",
+            code: r.code,
+            message: `The server refused the invitation (${r.code}).`,
+          };
+        case "conflict":
+          return {
+            kind: "refused",
+            code: "CONTROL_CONFLICT",
+            message: "The section has two conflicting versions on the server.",
+          };
+        case "unavailable":
+          return {
+            kind: "unavailable",
+            message: "The server could not be reached. Use the same link again to finish joining.",
+            ...(r.operation === undefined ? {} : { operation: r.operation }),
+          };
+      }
+    } catch (e) {
+      const stop = this.#thrown(e);
+      return { kind: "refused", code: "IDENTITY", message: stop.message };
     }
   }
 

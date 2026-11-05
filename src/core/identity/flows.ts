@@ -4,6 +4,7 @@
 // record, package and journal phase is the SDK's.
 
 import {
+  acceptInvitationAsDevice,
   approvePairing,
   cancelPairing,
   completePairing,
@@ -27,6 +28,7 @@ import {
 } from "@openlfcp/client";
 
 export interface IdentityFlows {
+  readonly acceptInvitationAsDevice: typeof acceptInvitationAsDevice;
   readonly createIdentityResource: typeof createIdentityResource;
   readonly createPairingSession: typeof createPairingSession;
   readonly resumePairingSession: typeof resumePairingSession;
@@ -50,6 +52,7 @@ export interface IdentityFlows {
 }
 
 export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
+  acceptInvitationAsDevice,
   createIdentityResource,
   createPairingSession,
   resumePairingSession,
