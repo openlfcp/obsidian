@@ -61,3 +61,29 @@ it("a removed device is told it was removed, not sent to add devices from here (
   expect(refusal).not.toContain("Add my other device");
   expect((await b.service.request("lfcp://pair/unused", "Phone")).kind).toBe("stop");
 });
+
+it("a device removed with its pairing unfinished is told it was removed, and stops waiting (R1)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  const op = await pair(a, b);
+  // One section cannot be reached yet: approved, not finished; the request stays to resume.
+  world.server.down.add(toHex(X));
+  const first = await b.service.progress(op);
+  expect(first).toMatchObject({ approved: true, final: false });
+  expect((await b.service.openRequest())?.operation).toBe(op);
+  expect(await b.service.pairRefusal()).toBeNull();
+  world.server.down.delete(toHex(X));
+  const phone = toHex(b.runtime.collaborationContext()?.principal.id ?? new Uint8Array());
+  expect(await a.service.remove(phone, 1n, "Phone")).toMatchObject({ kind: "done" });
+  // The resumed request ends with the removal, not an endless "Getting your sections…".
+  const after = await b.service.progress(op);
+  expect(after.final).toBe(true);
+  expect(after.headline).toContain("This device was removed from your devices");
+  expect(after.headline).toContain("new, empty vault");
+  // The dialog (openRequest first, then pairRefusal) shows the removal, not the request.
+  expect(await b.service.openRequest()).toBeNull();
+  expect(await b.service.pairRefusal()).toContain("This device was removed from your devices");
+  expect((await b.service.request("lfcp://pair/unused", "Phone")).kind).toBe("stop");
+});

@@ -1133,25 +1133,52 @@ export class DeviceService {
 
   /** Why this vault cannot be paired as a device of another installation, or null. */
   async pairRefusal(): Promise<string | null> {
-    if ((await this.openRequest()) !== null) return null;
-    if ((await this.identity()) !== undefined) {
-      // A removed device reads its device list up to its removal (W §41): it is told so,
-      // not sent to add devices from here (N5: never added back under the same identity).
-      const list = await this.devices().catch(() => null);
-      const mine = list?.kind === "list" ? list.rows.find((r) => r.thisDevice) : undefined;
-      if (mine?.state === "removed") return REMOVED;
-      return 'This device is already in a device list. Add other devices from here with "Add my other device…".';
+    // A removed device is told so first, even with its pairing unfinished (LFCP-04-414 R1).
+    if (await this.#removedHere()) {
+      await this.#runtime().localState.put(PAIRING_KEY, null);
+      return REMOVED;
     }
+    if ((await this.#openRequest()) !== null) return null;
+    if ((await this.identity()) !== undefined)
+      return 'This device is already in a device list. Add other devices from here with "Add my other device…".';
     if ((await this.#runtime().registry()).length > 0) return NOT_EMPTY;
     return null;
+  }
+
+  /**
+   * Whether this device is proven removed from the person's devices: it has
+   * a device list, and the list (read from the server when it answers; a
+   * removed device reads it up to its removal, W §41, else this device's
+   * last copy) shows it removed. N5: never added back under the same
+   * identity, so a request it still has can never finish.
+   */
+  async #removedHere(): Promise<boolean> {
+    if ((await this.identity()) === undefined) return false;
+    const list = await this.devices().catch(() => null);
+    const mine = list?.kind === "list" ? list.rows.find((r) => r.thisDevice) : undefined;
+    return mine?.state === "removed";
   }
 
   /**
    * The request of this device still to finish (§9: resumed with its
    * fingerprint): an open one, or the last one whose sections are not all
    * opened here yet (the SDK closes it once every candidate is ready).
+   * None once this device is proven removed: that request can never finish.
    */
   async openRequest(): Promise<{
+    readonly operation: string;
+    readonly fingerprint: string;
+  } | null> {
+    const open = await this.#openRequest();
+    if (open === null) return null;
+    if (await this.#removedHere()) {
+      await this.#runtime().localState.put(PAIRING_KEY, null);
+      return null;
+    }
+    return open;
+  }
+
+  async #openRequest(): Promise<{
     readonly operation: string;
     readonly fingerprint: string;
   } | null> {
@@ -1224,6 +1251,19 @@ export class DeviceService {
       }
     }
     const view = progressView(outcome, names, identity, failures);
+    // Approved, unfinished, and since removed: it can never finish; asking stops (R1).
+    if (outcome.kind === "approved" && !view.final && (await this.#removedHere())) {
+      await this.#runtime().localState.put(PAIRING_KEY, null);
+      return {
+        final: true,
+        approved: true,
+        headline: REMOVED,
+        sections: [],
+        deviceList: null,
+        paused: false,
+        opened,
+      };
+    }
     // The request is resumed (openRequest) until every section it brought is opened here.
     if (view.final) await this.#runtime().localState.put(PAIRING_KEY, null);
     return { ...view, opened };
