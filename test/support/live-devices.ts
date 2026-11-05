@@ -9,8 +9,15 @@
 // live-server.ts). A test without one skips with its reason (ctx.skip);
 // with LFCP_REQUIRE_LIVE=1 it fails instead.
 
-import type { WebSocketFactory, WebSocketLike } from "@openlfcp/client";
+import {
+  connectionNetwork,
+  type LinearChain,
+  syncChain,
+  type WebSocketFactory,
+  type WebSocketLike,
+} from "@openlfcp/client";
 import { generateObjectId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
+import { InMemoryLfcpStorage } from "@openlfcp/storage";
 import { Collaboration } from "../../src/core/collab/service";
 import { DeviceService } from "../../src/core/identity/service";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
@@ -88,6 +95,8 @@ function failing(): WebSocketLike {
 
 export interface LiveInstallation {
   readonly name: string;
+  /** The server every installation of the test uses. */
+  readonly url: string;
   readonly runtime: LfcpRuntime;
   readonly collab: Collaboration;
   readonly service: DeviceService;
@@ -151,6 +160,7 @@ export class LiveDevices {
     };
     return {
       name,
+      url,
       runtime,
       collab,
       service,
@@ -280,4 +290,28 @@ export async function settled(b: LiveInstallation, operation: string) {
     if (process.env.LFCP_LIVE_DEBUG === "1") console.log("PROGRESS", b.name, JSON.stringify(v));
     return v.final ? v : undefined;
   });
+}
+
+/** `R`'s chain as the server gives it to `who` now (validated; a fresh store, nothing kept). */
+export async function serverChain(who: LiveInstallation, R: ResourceId): Promise<LinearChain> {
+  const c = who.runtime.collaborationContext();
+  if (c === null) throw new Error(`${who.name} is not ready`);
+  const network = connectionNetwork({
+    now: c.now,
+    ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
+    timeout: () => sleep(15_000),
+  });
+  const channel = await network.connect(c.principal.signer, who.url);
+  try {
+    return await syncChain(new InMemoryLfcpStorage(), channel, R);
+  } finally {
+    channel.close();
+  }
+}
+
+/** `who` joins `owner`'s section `R` through an invitation with read and write. */
+export async function invite(owner: LiveInstallation, who: LiveInstallation, R: ResourceId) {
+  const invitation = await owner.collab.invite(R, "read-write");
+  const joined = await who.collab.join(invitation.link.reveal(), { name: `${owner.name}'s` });
+  if (joined.kind !== "joined") throw new Error(`${who.name}: ${JSON.stringify(joined.kind)}`);
 }
