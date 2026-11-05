@@ -1392,10 +1392,8 @@ export default class OpenLfcpPlugin extends Plugin {
     if (service === null) return;
     const warning = await service.firstPairingWarning().catch(() => null);
     if (warning !== null) {
-      const ask = returnsFocus(
-        new ConfirmModal(this.app, warning.title, warning.message, warning.action, false),
-      );
-      ask.open();
+      const ask = new ConfirmModal(this.app, warning.title, warning.message, warning.action, false);
+      returnsFocus(ask).open();
       if (!(await ask.result)) return;
     }
     returnsFocus(new AddDeviceModal(this.app, service, this.#deviceLabel())).open();

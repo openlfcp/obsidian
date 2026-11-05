@@ -39,47 +39,61 @@ const clipboard = async (text: string): Promise<void> => {
 
 const buttonRow = (el: HTMLElement): HTMLElement => el.createDiv({ cls: "modal-button-container" });
 
-/** A modal that asks the server again every POLL_MS while it is open. */
-abstract class PollingModal extends Modal {
+/** Asks the server again every POLL_MS while its dialog is open (one per dialog). */
+class Poller {
   #timer: number | null = null;
   #closed = false;
   #busy = false;
 
-  protected get closed(): boolean {
+  /** The dialog was closed: nothing more is asked or drawn. */
+  get closed(): boolean {
     return this.#closed;
   }
 
-  /** Runs `step` now and then every POLL_MS until it returns false or the modal closes. */
-  protected poll(step: () => Promise<boolean>): void {
-    this.stopPolling();
-    const run = async () => {
+  /** Runs `step` now and then every POLL_MS until it returns false or the dialog closes. */
+  run(step: () => Promise<boolean>): void {
+    this.stop();
+    const go = async () => {
       if (this.#closed || this.#busy) return;
       this.#busy = true;
       let again = false;
       try {
         again = await step();
+      } catch (e) {
+        // An error no result kind describes: said once, and no more asking.
+        new Notice(`Shared Tasks: ${e instanceof Error ? e.message : String(e)}`);
       } finally {
         this.#busy = false;
       }
-      if (again && !this.#closed) this.#timer = window.setTimeout(() => void run(), POLL_MS);
+      if (again && !this.#closed) this.#timer = window.setTimeout(() => void go(), POLL_MS);
     };
-    void run();
+    void go();
   }
 
-  protected stopPolling(): void {
+  stop(): void {
     if (this.#timer !== null) window.clearTimeout(this.#timer);
     this.#timer = null;
   }
 
-  override onClose(): void {
+  close(): void {
     this.#closed = true;
-    this.stopPolling();
-    this.contentEl.empty();
+    this.stop();
   }
 }
 
 /** "Add my other device…": the link, then each request to approve or reject (§5.3 steps 1, 4–10). */
-export class AddDeviceModal extends PollingModal {
+export class AddDeviceModal extends Modal {
+  readonly #poller = new Poller();
+
+  get closed(): boolean {
+    return this.#poller.closed;
+  }
+
+  override onClose(): void {
+    this.#poller.close();
+    this.contentEl.empty();
+  }
+
   #session: string | null = null;
   #link: PairingLinkText | null = null;
   #status: HTMLElement | null = null;
@@ -155,7 +169,7 @@ export class AddDeviceModal extends PollingModal {
       cls: "setting-item-description",
       text: WAITING_FOR_DEVICE,
     });
-    this.poll(() => this.#check());
+    this.#poller.run(() => this.#check());
   }
 
   async #check(): Promise<boolean> {
@@ -166,6 +180,10 @@ export class AddDeviceModal extends PollingModal {
     if (reviews === null) {
       this.#status?.setText("The server could not be reached. Retrying…");
       return true;
+    }
+    if ("kind" in reviews) {
+      this.#message(reviews.message);
+      return false;
     }
     const first = reviews[0];
     if (first === undefined) return true;
@@ -296,7 +314,7 @@ export class AddDeviceModal extends PollingModal {
   async #cancel(reject?: string): Promise<void> {
     const session = this.#session;
     if (session === null) return;
-    this.stopPolling();
+    this.#poller.stop();
     this.#message(reject === undefined ? "Cancelling the link…" : "Rejecting…");
     const view = await this.service.cancel(session, reject);
     if (this.closed) return;
@@ -405,12 +423,26 @@ export class DevicesModal extends Modal {
   }
 
   async #render(): Promise<void> {
-    const [list, unfinished, access] = await Promise.all([
-      this.service.devices(),
-      this.service.unfinished(),
-      this.service.accessStates(),
-    ]);
     const el = this.contentEl;
+    let read: [
+      Awaited<ReturnType<DeviceService["devices"]>>,
+      readonly Unfinished[],
+      Awaited<ReturnType<DeviceService["accessStates"]>>,
+    ];
+    try {
+      read = await Promise.all([
+        this.service.devices(),
+        this.service.unfinished(),
+        this.service.accessStates(),
+      ]);
+    } catch (e) {
+      el.empty();
+      el.createEl("p", {
+        text: `Your devices could not be read: ${e instanceof Error ? e.message : String(e)}`,
+      });
+      return;
+    }
+    const [list, unfinished, access] = read;
     el.empty();
     if (list.kind === "none") {
       el.createEl("p", { text: NO_DEVICES });
@@ -459,9 +491,13 @@ export class DevicesModal extends Modal {
     control
       .createEl("button", { text: "Remove device…", cls: "mod-warning" })
       .addEventListener("click", () => {
-        returnsFocus(
-          new RemoveDeviceModal(this.app, this.service, row, () => void this.#render()),
-        ).open();
+        const remove = new RemoveDeviceModal(
+          this.app,
+          this.service,
+          row,
+          () => void this.#render(),
+        );
+        returnsFocus(remove).open();
       });
   }
 
@@ -493,7 +529,18 @@ export class DevicesModal extends Modal {
 }
 
 /** "Pair this device with a link…": the request, the fingerprint, then the result (§5.3 steps 2–3, 8, 11). */
-export class PairThisDeviceModal extends PollingModal {
+export class PairThisDeviceModal extends Modal {
+  readonly #poller = new Poller();
+
+  get closed(): boolean {
+    return this.#poller.closed;
+  }
+
+  override onClose(): void {
+    this.#poller.close();
+    this.contentEl.empty();
+  }
+
   constructor(
     app: App,
     private readonly service: DeviceService,
@@ -580,7 +627,7 @@ export class PairThisDeviceModal extends PollingModal {
     const sections = el.createEl("ul");
     const buttons = buttonRow(el);
     buttons.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
-    this.poll(async () => {
+    this.#poller.run(async () => {
       const view = await this.service.progress(operation);
       if (this.closed) return false;
       headline.setText(view.headline);

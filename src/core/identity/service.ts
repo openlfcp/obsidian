@@ -349,13 +349,17 @@ export class DeviceService {
     }
   }
 
-  /** The valid requests of a session (§5.3 step 4); null when the server could not be reached. */
-  async requests(session: string): Promise<readonly PairingReview[] | null> {
+  /**
+   * The valid requests of a session (§5.3 step 4); null when the server
+   * could not be reached (asked again later); a stop when the device list
+   * cannot be read (forked, refused).
+   */
+  async requests(session: string): Promise<readonly PairingReview[] | null | Stop> {
     try {
       return await this.#flows.pairingRequests({ ...this.#flow(), session });
     } catch (e) {
       if (e instanceof IdentityUnavailable) return null;
-      throw e;
+      return this.#thrown(e);
     }
   }
 

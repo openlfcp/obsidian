@@ -8,6 +8,7 @@ import {
   type ApprovalResult,
   type CancelResult,
   type CreatedIdentityResource,
+  IdentityConflict,
   IdentityUnavailable,
   PairingLinkText,
   type PairingOutcome,
@@ -179,6 +180,25 @@ describe("Add my other device… (O2)", () => {
     expect(calls.createIdentityResource).toBeUndefined();
     expect(calls.createPairingSession).toBeUndefined();
     expect(calls.resumePairingSession).toHaveLength(1);
+  });
+
+  it("requests: offline is asked again (null); a forked device list stops", async () => {
+    const offline = await (
+      await setup({
+        pairingRequests: () => {
+          throw new IdentityUnavailable("offline");
+        },
+      })
+    ).service.requests("s1");
+    expect(offline).toBeNull();
+    const forked = await (
+      await setup({
+        pairingRequests: () => {
+          throw new IdentityConflict(generateResourceId(), "forked");
+        },
+      })
+    ).service.requests("s1");
+    expect(forked).toMatchObject({ kind: "stop" });
   });
 
   it("approves with the chosen preset and reports what is left for later", async () => {
