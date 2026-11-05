@@ -93,6 +93,16 @@ function failing(): WebSocketLike {
   return socket;
 }
 
+/**
+ * What an installation keeps on its device besides IndexedDB (shared by
+ * every test of the process): its secret slots and its vault-scoped local
+ * store. Starting on another installation's state is updating its plugin.
+ */
+export interface InstallationState {
+  readonly slots: ReadonlyMap<string, string>;
+  readonly local: FakeLocal;
+}
+
 export interface LiveInstallation {
   readonly name: string;
   /** The server every installation of the test uses. */
@@ -103,8 +113,8 @@ export interface LiveInstallation {
   readonly network: LiveNetwork;
   /** This installation's Principal (hex). */
   readonly me: string;
-  /** A new shared section, created and hosted on the server, with its local name. */
-  section(name: string): Promise<ResourceId>;
+  /** A new shared section, created and hosted on the server (or `on`), with its local name. */
+  section(name: string, on?: string): Promise<ResourceId>;
   /** One edit in section `R`: a paragraph `text`, committed and sent as the engine sends it. */
   write(R: ResourceId, text: string): Promise<void>;
   /** The paragraphs of section `R` as this installation's replica holds them. */
@@ -122,11 +132,13 @@ export class LiveDevices {
    * test sets it) it is wired as plugin.ts and lfcp-env.ts wire it there:
    * sections read-only (V3), the device flows' platform "mobile".
    */
-  async installation(name: string): Promise<LiveInstallation> {
+  async installation(name: string, state?: InstallationState): Promise<LiveInstallation> {
     const mobile = Platform.isMobile;
     const network = new LiveNetwork();
+    const device = new Device();
+    for (const [k, v] of state?.slots ?? []) device.slots.values.set(k, v);
     const runtime = await LfcpRuntime.start(
-      new Device().env(new FakeLocal(), {
+      device.env(state?.local ?? new FakeLocal(), {
         webSocket: network.factory,
         tickMs: 20,
         sectionsReadOnly: mobile,
@@ -166,11 +178,11 @@ export class LiveDevices {
       service,
       network,
       me: toHex(me),
-      async section(title) {
+      async section(title, on = url) {
         const R = await runtime.createSectionResource({
           name: title,
-          endpoints: [url],
-          coordinatorUrl: url,
+          endpoints: [on],
+          coordinatorUrl: on,
         });
         await runtime.setLocalName(R, title);
         const hosted = await collab.host(R);
@@ -314,4 +326,150 @@ export async function invite(owner: LiveInstallation, who: LiveInstallation, R: 
   const invitation = await owner.collab.invite(R, "read-write");
   const joined = await who.collab.join(invitation.link.reveal(), { name: `${owner.name}'s` });
   if (joined.kind !== "joined") throw new Error(`${who.name}: ${JSON.stringify(joined.kind)}`);
+}
+
+// --- Older versions of the plugin ---------------------------------------------
+
+/** The parts of an older runtime and Collaboration these tests use (their own SDK types). */
+interface OlderRuntime {
+  readonly status: { readonly kind: string; readonly principalId?: Uint8Array };
+  registry(): Promise<{ readonly resourceId: ResourceId; readonly localName: string | null }[]>;
+  createSectionResource(o: {
+    name: string;
+    endpoints: string[];
+    coordinatorUrl: string;
+  }): Promise<ResourceId>;
+  setLocalName(R: ResourceId, name: string): Promise<void>;
+  openSection(R: ResourceId): Promise<unknown>;
+  sectionProfile(R: ResourceId): Profile | undefined;
+  commitSection(R: ResourceId, intents: unknown[], o: { operationId: string }): Promise<unknown>;
+  phase(R: ResourceId): string;
+  identityBlock?(R: ResourceId): unknown;
+  on(listener: (e: { type: string; code?: string; resourceId?: ResourceId }) => void): () => void;
+  stop(): Promise<void>;
+}
+
+interface OlderCollaboration {
+  host(R: ResourceId): Promise<{ kind: string }>;
+  invite(R: ResourceId, preset: string): Promise<{ link: { reveal(): string } }>;
+  join(uri: string, o: { name: string }): Promise<{ kind: string }>;
+  status(R: ResourceId): Promise<Record<string, unknown>>;
+}
+
+/** An older Shared Tasks from its checkout (built deps installed): its runtime, flows and test env. */
+export interface OlderPlugin {
+  readonly version: string;
+  start(
+    name: string,
+    state?: InstallationState,
+  ): Promise<{
+    readonly name: string;
+    readonly runtime: OlderRuntime;
+    readonly collab: OlderCollaboration;
+    readonly state: InstallationState;
+    section(title: string): Promise<ResourceId>;
+    write(R: ResourceId, text: string): Promise<void>;
+    texts(R: ResourceId): string[];
+  }>;
+}
+
+/**
+ * Loads the plugin at `root` (a checkout of an older version with its
+ * node_modules: its own @openlfcp/* SDK) from its sources, as its tests
+ * run it: LfcpRuntime, Collaboration and its test env (lfcp-env.ts).
+ */
+export async function olderPlugin(
+  version: string,
+  root: string,
+  url: string,
+): Promise<OlderPlugin> {
+  // Its test env imports its own fake-indexeddb/auto, which would replace the
+  // IndexedDB globals: kept as they are, so every version shares one IndexedDB,
+  // as on a device (a database opened before would otherwise get foreign key ranges).
+  const saved = Object.getOwnPropertyNames(globalThis)
+    .filter((k) => k === "indexedDB" || k.startsWith("IDB"))
+    .map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const);
+  const [rt, co, env] = (await Promise.all([
+    import(/* @vite-ignore */ `${root}/src/core/lfcp/runtime.ts`),
+    import(/* @vite-ignore */ `${root}/src/core/collab/service.ts`),
+    import(/* @vite-ignore */ `${root}/test/support/lfcp-env.ts`),
+  ])) as [
+    { LfcpRuntime: { start(env: unknown): Promise<OlderRuntime> } },
+    { Collaboration: new (runtime: OlderRuntime, o: unknown) => OlderCollaboration },
+    {
+      Device: new () => {
+        slots: { values: Map<string, string> };
+        env(local: unknown, extra?: unknown): Record<string, unknown>;
+      };
+      FakeLocal: new () => FakeLocal;
+    },
+  ];
+  for (const [k, d] of saved) if (d !== undefined) Object.defineProperty(globalThis, k, d);
+  return {
+    version,
+    async start(name, state) {
+      const device = new env.Device();
+      for (const [k, v] of state?.slots ?? []) device.slots.values.set(k, v);
+      const local = state?.local ?? new env.FakeLocal();
+      // The platform WebSocket: online.
+      const { webSocket: _offline, ...online } = device.env(local, { tickMs: 20 });
+      const runtime = await rt.LfcpRuntime.start(online);
+      if (runtime.status.kind !== "ready")
+        throw new Error(`${name} (${version}): ${runtime.status.kind}`);
+      const me = runtime.status.principalId;
+      const collab = new co.Collaboration(runtime, {
+        connectTimeoutMs: 5000,
+        sleep,
+        sections: true,
+      });
+      return {
+        name,
+        runtime,
+        collab,
+        state: { slots: device.slots.values, local },
+        async section(title) {
+          const R = await runtime.createSectionResource({
+            name: title,
+            endpoints: [url],
+            coordinatorUrl: url,
+          });
+          await runtime.setLocalName(R, title);
+          const hosted = await collab.host(R);
+          if (hosted.kind !== "hosted") throw new Error(`${title} not hosted: ${hosted.kind}`);
+          await runtime.openSection(R);
+          await runtime.commitSection(
+            R,
+            [{ intent: "section.create", sectionId: generateObjectId(), title, createdBy: me }],
+            { operationId: crypto.randomUUID() },
+          );
+          return R;
+        },
+        async write(R, text) {
+          await runtime.openSection(R);
+          const section = await until(`the section on ${name}`, () => {
+            const profile = runtime.sectionProfile(R);
+            return profile === undefined ? undefined : sectionNode(profile);
+          });
+          await runtime.commitSection(
+            R,
+            [
+              {
+                intent: "paragraph.create",
+                id: generateObjectId(),
+                parent: section,
+                after: null,
+                text,
+                createdBy: me,
+              },
+            ],
+            { operationId: crypto.randomUUID() },
+          );
+        },
+        texts(R) {
+          const profile = runtime.sectionProfile(R);
+          return profile === undefined ? [] : paragraphs(profile);
+        },
+      };
+    },
+  };
 }
