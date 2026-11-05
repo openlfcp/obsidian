@@ -11,22 +11,35 @@
 // refuses this body as MALFORMED, naming the Resource (refusedMalformed).
 // Either way the SDK refuses a barrier record and the Resource is blocked,
 // which is what these tests are about. A valid DEVICE_GRANT is accepted by
-// 0.3.0 and blocks nothing.
+// 0.3.0 and blocks nothing: R1's first barrier is one, so that the SDK
+// refuses the batch at its second record, as 0.2.2 did (review obsidian#107).
 
-import { LFCP_SUBPROTOCOL, type WebSocketFactory, type WebSocketLike } from "@openlfcp/client";
+import {
+  LFCP_SUBPROTOCOL,
+  leafPayload,
+  loadControlChain,
+  signChain,
+  type WebSocketFactory,
+  type WebSocketLike,
+} from "@openlfcp/client";
 import { type ResourceId, toHex } from "@openlfcp/core";
+import { generateAgreementKeyPair, generateSigningKeyPair } from "@openlfcp/crypto";
+import type { LfcpStorage } from "@openlfcp/storage";
 import {
   type AnyMessage,
   createMessage,
   decodeMessage,
   encodeMessage,
   objectId,
+  principalDescriptorFromKeys,
   replyTo,
   type ServerSession,
   type Signer,
   serverReceive,
+  signControlRecord,
   signObject,
   startServerSession,
+  validateControlChain,
   WIRE_PROFILE,
 } from "@openlfcp/wire";
 import { afterEach, describe, expect, it } from "vitest";
@@ -98,19 +111,44 @@ async function started(webSocket: WebSocketFactory) {
 }
 
 describe("identity barrier review follow-up (obsidian#105)", () => {
-  it("R1: a commit with field 2 then a DEVICE_GRANT in one batch is blocked, at the first barrier", async () => {
+  it("R1: a barrier the SDK reads, then one it refuses, in one batch, is blocked at the first barrier", async () => {
     let records: Uint8Array[] = [];
     const server = new ScriptedServer(() => records, 2n);
     const { runtime, signer, section } = await started(server.factory);
     const { R, head } = await section("mixed");
-    const commit = record(R, 1, 6, head, signer);
-    records = [commit, record(R, 2, 9, objectId(commit), signer)];
+    // The first barrier is a valid DEVICE_GRANT, which SDK 0.3.0 reads (SDK 0.2.2 read
+    // the original's commit with field 2 as far as its type, and refused the next record).
+    const stored = await loadControlChain(runtime.storage as LfcpStorage, R);
+    if (stored?.kind !== "linear") throw new Error("no chain");
+    const device = principalDescriptorFromKeys(
+      generateSigningKeyPair(),
+      generateAgreementKeyPair(),
+    );
+    const root = signer.descriptor.principalId;
+    const grant = signControlRecord(
+      { resourceId: R, controlSeq: 1n, prevControlId: head as never },
+      {
+        type: "DEVICE_GRANT",
+        root,
+        chain: signChain(stored.state, signer, leafPayload(root, device, 0, [1n, 2n], [])),
+      },
+      signer,
+    ).bytes;
+    const refused = record(R, 2, 9, objectId(grant), signer);
+    records = [grant, refused];
+    // The SDK's own validator: the first barrier alone passes, and the refusal names the later record.
+    const genesis = stored.records.map((r) => r.signed.bytes);
+    expect(validateControlChain([...genesis, grant]).kind).toBe("linear");
+    const both = validateControlChain([...genesis, grant, refused]);
+    expect(both.kind === "invalid" && toHex(both.recordId ?? new Uint8Array())).toBe(
+      toHex(objectId(refused)),
+    );
     const errors = sdkErrors(runtime);
     await runtime.openSection(R);
     await until(() => runtime.identityBlock(R) !== null);
-    // The SDK refused the batch for the type-9 record it cannot read; the block is at the first barrier.
+    // The SDK refused the batch for its second record; the block is at the first barrier.
     expect(refusedMalformed(errors, R)).toBe(true);
-    expect(runtime.identityBlock(R)).toMatchObject({ entry: "transfer-device", seq: "1" });
+    expect(runtime.identityBlock(R)).toMatchObject({ entry: "device-grant", seq: "1" });
   });
 
   it("R2: LIVE from the sync of the old head does not lift the block of the refused record", async () => {
