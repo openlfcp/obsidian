@@ -183,6 +183,11 @@ export interface CollabOptions {
  * flows implement it (DeviceService).
  */
 export interface DeviceOrigin {
+  /**
+   * The Data Profile of an invitation's Resource, read-only and before any
+   * claim: its chain read as the link's Invitation Principal (W §41).
+   */
+  profile(link: string): Promise<InviteProfile>;
   /** §7.2: accepts an invitation for the root; `operation` resumes an earlier one. */
   accept(link: string, name: string, operation?: string): Promise<DeviceJoin>;
   /**
@@ -201,6 +206,12 @@ export interface DeviceOrigin {
 export type DeviceCreate =
   | { readonly kind: "created"; readonly resourceId: ResourceId; readonly listed: boolean }
   | { readonly kind: "refused"; readonly code: string; readonly message: string }
+  | { readonly kind: "unavailable"; readonly message: string };
+
+/** What an invitation's Resource is, as read before the claim. */
+export type InviteProfile =
+  | { readonly kind: "profile"; readonly profile: string }
+  | { readonly kind: "invalid"; readonly message: string }
   | { readonly kind: "unavailable"; readonly message: string };
 
 /** What a device's acceptance of an invitation did. */
@@ -772,7 +783,8 @@ export class Collaboration {
     }
     // §7.2: a device that is not the first one claims for its root, never as itself.
     const device = await this.#o.device();
-    if (device !== null) return this.#joinAsDevice(R, uri.trim(), options.name, stage, device);
+    if (device !== null)
+      return this.#joinAsDevice(R, uri.trim(), options.name, stage, device, { profiles, wanted });
     await this.#runtime.localState.put(joinNameKey(R), {
       name: options.name,
       url: parseInviteUri(uri.trim()).endpoints[0] ?? "",
@@ -904,9 +916,22 @@ export class Collaboration {
     name: string,
     stage: (s: JoinStage) => void,
     device: DeviceOrigin,
+    filter: { readonly profiles: readonly string[]; readonly wanted: readonly string[] },
   ): Promise<JoinOutcome> {
     const key = joinNameKey(R);
     const kept = (await this.#runtime.localState.get(key)) as JoinRecord | undefined;
+    // The link's Data Profile, read before the claim (as acceptInvitation's dataProfiles):
+    // a link of another kind, or one this version cannot open, is refused unused.
+    stage("validating invitation");
+    const read = await device.profile(uri);
+    if (read.kind === "unavailable")
+      return { kind: "unavailable", message: read.message, resourceId: R };
+    if (read.kind === "invalid")
+      return { kind: "refused", code: "INVALID_INVITATION", message: read.message };
+    if (!filter.wanted.includes(read.profile))
+      return filter.profiles.includes(read.profile)
+        ? { kind: "other-profile", resourceId: R, profile: read.profile }
+        : { kind: "needs-newer-version", resourceId: R };
     stage("claiming capability");
     const r = await device.accept(uri, name, kept?.deviceOperation);
     if (r.kind === "unavailable") {

@@ -60,13 +60,21 @@ import {
 } from "@openlfcp/core";
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
-import { actsFor, DEVICE_KIND } from "@openlfcp/wire";
+import {
+  actsFor,
+  DEVICE_KIND,
+  invitationPrincipal,
+  parseInviteUri,
+  type Signer,
+  validateControlChain,
+} from "@openlfcp/wire";
 import {
   CollabError,
   type Collaboration,
   type DeviceCreate,
   type DeviceJoin,
   type DeviceOrigin,
+  type InviteProfile,
 } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
@@ -1385,6 +1393,7 @@ export class DeviceService {
     if (chain?.kind !== "linear" || bytesEqual(chain.state.owner.principalId, c.principal.id))
       return null;
     return {
+      profile: (link) => this.#inviteProfile(link),
       accept: (link, name, operation) => this.#acceptAsDevice(link, name, operation),
       create: (o) => this.#createAsDevice(o),
     };
@@ -1439,6 +1448,49 @@ export class DeviceService {
       }
     } catch (e) {
       return { kind: "refused", code: "IDENTITY", message: this.#thrown(e).message };
+    }
+  }
+
+  /**
+   * The Data Profile of an invitation's Resource, before any claim: the
+   * chain read from the link's first endpoint as the Invitation Principal
+   * (which may read it: it holds invite/claim, W §41), validated here.
+   * Nothing is written, stored or sent but the read; the link's secret
+   * stays in memory.
+   */
+  async #inviteProfile(link: string): Promise<InviteProfile> {
+    let invitation: ReturnType<typeof parseInviteUri>;
+    try {
+      invitation = parseInviteUri(link);
+    } catch {
+      return { kind: "invalid", message: "This invitation link does not work." };
+    }
+    const secret = invitation.secret;
+    const url = invitation.endpoints[0];
+    if (secret === undefined || url === undefined)
+      return { kind: "invalid", message: "This invitation link does not work." };
+    const invitee: Signer = { key: secret.signingKey, descriptor: invitationPrincipal(secret) };
+    let channel: IdentityChannel | undefined;
+    try {
+      channel = await this.#flow().network.connect(invitee, url);
+      const chain = validateControlChain([...(await channel.control(invitation.resourceId, 0n))]);
+      if (chain.kind !== "linear")
+        return { kind: "invalid", message: "This invitation's section does not validate." };
+      return { kind: "profile", profile: chain.state.dataProfile };
+    } catch (e) {
+      if (e instanceof IdentityUnavailable)
+        return {
+          kind: "unavailable",
+          message: "The server could not be reached. Use the same link again to join.",
+        };
+      if (e instanceof IdentityRefused)
+        return {
+          kind: "invalid",
+          message: "This invitation link does not work: it was used or withdrawn.",
+        };
+      throw e;
+    } finally {
+      channel?.close();
     }
   }
 

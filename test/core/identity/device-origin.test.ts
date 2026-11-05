@@ -9,16 +9,19 @@ import {
   heldDeks,
   type IdentityFlowOptions,
   type RosterEntryValue,
+  storeDek,
   syncChain,
 } from "@openlfcp/client";
 import { dataEpoch, generateResourceId, type ResourceId, toHex } from "@openlfcp/core";
-import { InvitationSecret } from "@openlfcp/crypto";
+import { dekCommitment, generateResourceDEK, InvitationSecret } from "@openlfcp/crypto";
+import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import {
   assembleInviteUri,
   invitationPrincipal,
   sealKeyPackage,
   signControlRecord,
+  validateControlChain,
 } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
 import { CollabError } from "../../../src/core/collab/service";
@@ -427,4 +430,59 @@ it("a device's join whose roster entry was refused is owed, and the upkeep lists
   lift();
   await b.service.upkeep();
   expect((await a.service.upkeep()).opened).toEqual(["Shared notes"]);
+});
+
+const claimed = (R: ResourceId) =>
+  world.server.chain(R).records.some((r) => r.body.type === "CAPABILITY_CLAIM");
+
+it("a device's join refuses a link of another kind before the claim: the invitation is not used (review #109 P2-2)", async () => {
+  world = new DeviceWorld();
+  const o = await world.installation();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  // A 0.1 shared Tasks collaboration, joined where only a section is asked for (the pane's join).
+  const T = await o.runtime.createResource({
+    name: "Old tasks",
+    endpoints: [WORLD_URL],
+    coordinatorUrl: WORLD_URL,
+  });
+  await o.host(T);
+  const joined = await b.collab.join(await invite(o, T), { name: "Old tasks", accept: "sections" });
+  expect(joined).toMatchObject({ kind: "other-profile", profile: PROFILE_ID });
+  expect(claimed(T)).toBe(false);
+  expect(await b.runtime.hasResource(T)).toBe(false);
+});
+
+it("a device's join refuses a section this version cannot open before the claim (review #109 P2-2)", async () => {
+  world = new DeviceWorld();
+  const o = await world.installation();
+  const a = await world.installation();
+  const b = await world.installation();
+  await b.service.progress(await pair(a, b, "full"));
+  // A Resource of a Data Profile this plugin does not know, hosted by O.
+  const f = world.flowOf(o);
+  const U = generateResourceId();
+  const dek = generateResourceDEK();
+  const genesis = signControlRecord(
+    { resourceId: U, controlSeq: 0n, prevControlId: null },
+    {
+      type: "GENESIS",
+      dataProfile: "org.example.unknown.v1",
+      owner: f.installation.signer.descriptor,
+      dekCommitment: dekCommitment(U, dataEpoch(0n), dek),
+      endpoints: [{ url: WORLD_URL, priority: 0n }],
+      coordinatorUrl: WORLD_URL,
+    },
+    f.installation.signer,
+  );
+  const start = validateControlChain([genesis.bytes]);
+  if (start.kind !== "linear") throw new Error("no Genesis");
+  await storeDek(f.storage, f.secrets, start, dataEpoch(0n), dek);
+  const ch = await f.network.connect(f.installation.signer, WORLD_URL);
+  expect((await ch.host(genesis.bytes)).kind).toBe("ack");
+  const joined = await b.collab.join(await invite(o, U), { name: "Unknown" });
+  expect(joined).toMatchObject({ kind: "needs-newer-version" });
+  expect(claimed(U)).toBe(false);
+  expect(await b.runtime.hasResource(U)).toBe(false);
 });
