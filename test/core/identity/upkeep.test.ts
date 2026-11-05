@@ -7,9 +7,12 @@
 import { syncChain } from "@openlfcp/client";
 import type { ResourceId } from "@openlfcp/core";
 import { toHex } from "@openlfcp/core";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { DeviceService } from "../../../src/core/identity/service";
 import { DeviceWorld, type Installation, pair } from "../../support/device-world";
+
+// Several installations and a coordinator per test, on the real SDK flows: slower than a unit.
+vi.setConfig({ testTimeout: 30_000 });
 
 let world: DeviceWorld;
 afterEach(() => world.stop());
