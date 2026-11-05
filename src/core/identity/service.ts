@@ -207,6 +207,9 @@ export class DevicesUnavailable extends Error {
 const NOT_EMPTY =
   "This vault already shares sections under its own identity, so it cannot become a device of another one. Pair a new, empty vault instead.";
 
+const REMOVED =
+  "This device was removed from your devices, so it cannot be added again under its identity. To use it again, pair a new, empty vault from one of your devices.";
+
 const reasonText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export class DeviceService {
@@ -1131,8 +1134,14 @@ export class DeviceService {
   /** Why this vault cannot be paired as a device of another installation, or null. */
   async pairRefusal(): Promise<string | null> {
     if ((await this.openRequest()) !== null) return null;
-    if ((await this.identity()) !== undefined)
+    if ((await this.identity()) !== undefined) {
+      // A removed device reads its device list up to its removal (W §41): it is told so,
+      // not sent to add devices from here (N5: never added back under the same identity).
+      const list = await this.devices().catch(() => null);
+      const mine = list?.kind === "list" ? list.rows.find((r) => r.thisDevice) : undefined;
+      if (mine?.state === "removed") return REMOVED;
       return 'This device is already in a device list. Add other devices from here with "Add my other device…".';
+    }
     if ((await this.#runtime().registry()).length > 0) return NOT_EMPTY;
     return null;
   }

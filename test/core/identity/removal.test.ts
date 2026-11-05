@@ -45,3 +45,19 @@ it("a refused key change is shown, not hidden behind Removed, and Try again fini
   expect(again).toMatchObject({ kind: "done" });
   expect(epochs(world, X)).toBe(before + 1);
 });
+
+it("a removed device is told it was removed, not sent to add devices from here (LFCP-04-414)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  await a.section("Plans");
+  await b.service.progress(await pair(a, b));
+  const phone = toHex(b.runtime.collaborationContext()?.principal.id ?? new Uint8Array());
+  // Still in the list: it adds devices from here.
+  expect(await b.service.pairRefusal()).toContain("already in a device list");
+  expect(await a.service.remove(phone, 0n, "Phone")).toMatchObject({ kind: "done" });
+  const refusal = await b.service.pairRefusal();
+  expect(refusal).toContain("This device was removed from your devices");
+  expect(refusal).not.toContain("Add my other device");
+  expect((await b.service.request("lfcp://pair/unused", "Phone")).kind).toBe("stop");
+});
