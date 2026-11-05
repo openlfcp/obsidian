@@ -7,6 +7,7 @@ import type { ResourceId } from "@openlfcp/core";
 import { Collaboration } from "../../src/core/collab/service";
 import { identityDocument } from "../../src/core/identity/document";
 import { type IdentityFlows, SDK_IDENTITY_FLOWS } from "../../src/core/identity/flows";
+import type { RosterWriter } from "../../src/core/identity/roster";
 import { DeviceService } from "../../src/core/identity/service";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
 import { MemoryCoordinator } from "./identity-coordinator";
@@ -26,7 +27,10 @@ export class DeviceWorld {
   readonly server = new MemoryCoordinator();
   readonly #running: LfcpRuntime[] = [];
 
-  async installation(flows: Partial<IdentityFlows> = {}): Promise<Installation> {
+  async installation(
+    flows: Partial<IdentityFlows> = {},
+    roster?: RosterWriter,
+  ): Promise<Installation> {
     const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
     this.#running.push(runtime);
     let service: DeviceService | null = null;
@@ -36,6 +40,7 @@ export class DeviceWorld {
       joinTimeoutMs: 200,
       sections: true,
       device: async () => (await service?.origin()) ?? null,
+      onNewSection: async (R) => service?.listInRoster(R),
     });
     service = new DeviceService({
       runtime: () => runtime,
@@ -46,6 +51,7 @@ export class DeviceWorld {
       sections: true,
       sleep,
       flows: { ...SDK_IDENTITY_FLOWS, connectionNetwork: () => this.server.network(), ...flows },
+      ...(roster === undefined ? {} : { roster }),
     });
     const server = this.server;
     return {

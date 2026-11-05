@@ -98,6 +98,7 @@ import {
   upkeepText,
 } from "./pairing-view";
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
+import { NO_ROSTER_WRITER, type RosterWriter } from "./roster";
 
 /** The pairing request of this device until every section it brought is opened here (P2-5). */
 const PAIRING_KEY = "identity-pairing-request";
@@ -125,6 +126,8 @@ export interface DeviceServiceOptions {
   /** How long one server request may take before it reads as "could not be reached". */
   readonly requestTimeoutMs?: number;
   readonly flows?: IdentityFlows;
+  /** Adds the first device's new sections to the roster (roster.ts; SDK 0.3.1). */
+  readonly roster?: RosterWriter;
 }
 
 /** The device list as shown. */
@@ -150,7 +153,14 @@ export interface Unfinished {
    * removal this device makes; a key this device holds and has not handed
    * to one of the person's devices); `operation` is empty.
    */
-  readonly kind: "approval" | "removal" | "request" | "registration" | "key" | "handover";
+  readonly kind:
+    | "approval"
+    | "removal"
+    | "request"
+    | "registration"
+    | "key"
+    | "handover"
+    | "roster";
   readonly operation: string;
   readonly label: string;
   /** The sections concerned, by name (registration, key). */
@@ -174,6 +184,12 @@ export interface UpkeepResult {
   /** The whole result in words, the sections by name. */
   readonly summary: string;
 }
+
+/** Sections (hex) the first device made or joined after pairing, waiting to be listed in the roster. */
+const ROSTER_PENDING_KEY = "identity-roster-pending";
+
+const hexList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 
 /** Rotation operations the upkeep journals itself (outside the person's roster). */
 const UPKEEP = "plugin-upkeep";
@@ -332,6 +348,14 @@ export class DeviceService {
       .filter(([, chain]) => this.#rotationDue(chain))
       .map(([hex]) => names.resource(hex));
     if (keys.length > 0) out.push({ kind: "key", operation: "", label: "", sections: keys });
+    const waiting = hexList(await this.#runtime().localState.get(ROSTER_PENDING_KEY));
+    if (waiting.length > 0)
+      out.push({
+        kind: "roster",
+        operation: "",
+        label: "",
+        sections: waiting.map((r) => names.resource(r)),
+      });
     const list = local.identity === null ? "" : toHex(local.identity.state.resourceId);
     const owedKeys = await this.#keysOwed(local);
     // And the readers a key change's new key was refused to (another person's devices too).
@@ -534,11 +558,58 @@ export class DeviceService {
     }
     if (made.some((m) => (m.rotation.keys?.skipped.length ?? 0) > 0))
       await this.#runtime().localState.put(OWED_KEY, owed);
+    // The first device's new sections into the roster (roster.ts), before anything reads it.
+    if (!offline) await this.#flushRoster(issues);
     // The person's sections this device does not hold yet: created or joined on another of
     // the person's devices after this one was paired (§6; §7.2 step 4, §7.3 roster entries).
     const opened = offline ? [] : await this.#openRoster(flow);
     const result = { reconciled, rotations, issues, offline, handedOn, opened };
     return { ...result, summary: upkeepText(result, await this.names()) };
+  }
+
+  /**
+   * A section this installation created or joined (LFCP-04-413e item 3).
+   * On the first device, once the person has a device list, it is queued
+   * for the roster and listed now if it can be; a device that is not the
+   * first one lists its sections through the SDK's flows (§7.2, §7.3), and
+   * without a device list there is no roster yet (its creation lists every
+   * section, §5.1).
+   */
+  async listInRoster(resource: ResourceId): Promise<void> {
+    if ((await this.identity()) === undefined || (await this.origin()) !== null) return;
+    const runtime = this.#runtime();
+    const hex = toHex(resource);
+    const queued = hexList(await runtime.localState.get(ROSTER_PENDING_KEY));
+    if (!queued.includes(hex)) await runtime.localState.put(ROSTER_PENDING_KEY, [...queued, hex]);
+    await this.#flushRoster([]);
+  }
+
+  /** Lists every queued section through the roster port; what it cannot list stays queued, as an issue. */
+  async #flushRoster(issues: UpkeepIssue[]): Promise<void> {
+    const runtime = this.#runtime();
+    const queued = hexList(await runtime.localState.get(ROSTER_PENDING_KEY));
+    if (queued.length === 0) return;
+    const entries = new Map((await this.#roster()).map((r) => [toHex(r.resource), r.entry]));
+    const writer = this.#o.roster ?? NO_ROSTER_WRITER;
+    const still: string[] = [];
+    for (const hex of queued) {
+      const entry = entries.get(hex);
+      // No longer here (discarded, forgotten): nothing to list.
+      if (entry === undefined) continue;
+      const r = await writer.add(fromHex(hex) as ResourceId, entry);
+      if (r.kind === "added") continue;
+      still.push(hex);
+      issues.push({
+        resource: hex,
+        kind: "roster",
+        ...(r.kind === "refused"
+          ? { detail: r.code }
+          : r.kind === "unavailable"
+            ? { detail: r.reason }
+            : {}),
+      });
+    }
+    await runtime.localState.put(ROSTER_PENDING_KEY, still);
   }
 
   /**

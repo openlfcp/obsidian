@@ -8,6 +8,7 @@ import {
   createResourceAsDevice,
   heldDeks,
   type IdentityFlowOptions,
+  type RosterEntryValue,
   syncChain,
 } from "@openlfcp/client";
 import { dataEpoch, generateResourceId, type ResourceId, toHex } from "@openlfcp/core";
@@ -20,6 +21,7 @@ import {
   signControlRecord,
 } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
+import type { RosterAdd, RosterWriter } from "../../../src/core/identity/roster";
 import { DeviceWorld, type Installation, pair, WORLD_URL } from "../../support/device-world";
 
 // Several installations and a coordinator per test, on the real SDK flows: slower than a unit.
@@ -192,4 +194,58 @@ it("an Edit device does not create a section for its root: it says so, nothing i
     }),
   ).rejects.toMatchObject({ code: "NOT_OWNER_ACTING" });
   expect(await b.runtime.registry()).toEqual([]);
+});
+
+it("a section the first device creates after pairing is queued for the roster, and listed through the port (item 3)", async () => {
+  world = new DeviceWorld();
+  const calls: { resource: string; entry: RosterEntryValue }[] = [];
+  let answer: RosterAdd = { kind: "unsupported" };
+  const roster: RosterWriter = {
+    add: async (resource, entry) => {
+      calls.push({ resource: toHex(resource), entry });
+      return answer;
+    },
+  };
+  const a = await world.installation({}, roster);
+  const b = await world.installation({}, roster);
+  await b.service.progress(await pair(a, b, "full"));
+  const X = await a.collab.createSectionResource({
+    name: "Late",
+    endpoints: [WORLD_URL],
+    coordinatorUrl: WORLD_URL,
+    resourceId: generateResourceId(),
+  });
+  expect(calls).toEqual([
+    {
+      resource: toHex(X),
+      entry: {
+        profile: SECTIONS_PROFILE_ID,
+        endpoints: [WORLD_URL],
+        coordinator: WORLD_URL,
+        name: "Late",
+      },
+    },
+  ]);
+  // No SDK call yet: queued, said as unfinished, never "up to date".
+  expect((await a.service.unfinished()).find((u) => u.kind === "roster")?.sections).toEqual([
+    "Late",
+  ]);
+  const waiting = await a.service.upkeep(true);
+  expect(waiting.summary).toContain('Not on your other devices yet: "Late".');
+  expect(waiting.summary).not.toContain("up to date");
+  // Once the call exists, the next upkeep lists it, and nothing waits.
+  answer = { kind: "added" };
+  const listed = await a.service.upkeep(true);
+  expect(calls.map((c) => c.resource)).toEqual([toHex(X), toHex(X), toHex(X)]);
+  expect((await a.service.unfinished()).filter((u) => u.kind === "roster")).toEqual([]);
+  expect(listed.summary).toContain("up to date");
+  // A device's own section is listed by the SDK's flow, never through this port.
+  const before = calls.length;
+  await b.collab.createSectionResource({
+    name: "From B",
+    endpoints: [WORLD_URL],
+    coordinatorUrl: WORLD_URL,
+    resourceId: generateResourceId(),
+  });
+  expect(calls).toHaveLength(before);
 });

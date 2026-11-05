@@ -169,6 +169,12 @@ export interface CollabOptions {
    * list, or the first device, the root itself).
    */
   readonly device?: () => Promise<DeviceOrigin | null>;
+  /**
+   * A section this installation created or joined as itself (not as a
+   * device): the device flows list it in the person's roster, so that
+   * the person's other devices get it (LFCP-04-413e item 3).
+   */
+  readonly onNewSection?: (resource: ResourceId) => Promise<void>;
 }
 
 /**
@@ -436,6 +442,7 @@ export class Collaboration {
       sections: options.sections ?? false,
       sectionsReadOnly: options.sectionsReadOnly ?? false,
       device: options.device ?? (async () => null),
+      onNewSection: options.onNewSection ?? (async () => undefined),
     };
   }
 
@@ -827,7 +834,9 @@ export class Collaboration {
         ...(claimSent ? { claimSent: true as const } : {}),
       };
     }
-    return this.#finishJoin(R, accepted.abilities, options.name, stage);
+    const joined = await this.#finishJoin(R, accepted.abilities, options.name, stage);
+    await this.#listed(R);
+    return joined;
   }
 
   /**
@@ -863,7 +872,9 @@ export class Collaboration {
     if (device === null) {
       if (this.#runtime.createSectionResource === undefined)
         throw new CollabError("UNSUPPORTED_VALUE");
-      return this.#runtime.createSectionResource(options);
+      const R = await this.#runtime.createSectionResource(options);
+      await this.#listed(R);
+      return R;
     }
     if (this.#o.sectionsReadOnly) throw new CollabError("SECTIONS_READ_ONLY", SECTIONS_READ_ONLY);
     const r = await device.create({
@@ -915,6 +926,11 @@ export class Collaboration {
     const root = owner?.state.devices.get(toHex(c.principal.id))?.root;
     const granted = owner === undefined || root === undefined ? [] : abilitiesOf(owner.state, root);
     return this.#finishJoin(R, granted, name, stage);
+  }
+
+  /** A section made or joined as this installation: for the person's roster; never a reason to fail. */
+  async #listed(R: ResourceId): Promise<void> {
+    await this.#o.onNewSection(R).catch(() => undefined);
   }
 
   /** The claimed Resource stored and opened (a section: until it is loaded). */
@@ -1053,8 +1069,11 @@ export class Collaboration {
     });
     const name = record.name;
     switch (settled.kind) {
-      case "claimed":
-        return this.#finishJoin(R, settled.abilities, name, () => undefined);
+      case "claimed": {
+        const joined = await this.#finishJoin(R, settled.abilities, name, () => undefined);
+        await this.#listed(R);
+        return joined;
+      }
       case "not-claimed":
       case "none":
         await this.#runtime.localState.put(joinNameKey(R), null);

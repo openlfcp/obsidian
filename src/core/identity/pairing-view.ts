@@ -657,7 +657,7 @@ export function progressView(
 
 /** What the device upkeep still owes, as "Your devices…" lists it (§7.1, §8.4). */
 export function unfinishedText(u: {
-  readonly kind: "registration" | "key" | "handover";
+  readonly kind: "registration" | "key" | "handover" | "roster";
   readonly label: string;
   readonly sections?: readonly string[];
 }): string {
@@ -667,6 +667,8 @@ export function unfinishedText(u: {
       return `"${u.label}" is not added to ${sections} yet.`;
     case "key":
       return `The key of ${sections} is not changed yet after a device was removed.`;
+    case "roster":
+      return `Not on your other devices yet: ${sections}.`;
     case "handover":
       return `"${u.label}" does not have the key of ${sections} from this device yet.`;
   }
@@ -682,7 +684,9 @@ export interface UpkeepIssue {
     | "conflict"
     | "not-authorized"
     | "keys"
-    | "document";
+    | "document"
+    /** Not listed in the roster yet: the person's other devices do not get it yet. */
+    | "roster";
   /** The refusal's code or reason, when there is one. */
   readonly detail?: string;
 }
@@ -771,6 +775,7 @@ export function upkeepText(
       ? [`Left to your first device or a Full device: ${by("not-authorized")}.`]
       : []),
     ...(has("keys") ? [`A key could not be handed on in ${by("keys")}.`] : []),
+    ...(has("roster") ? [`Not on your other devices yet: ${by("roster")}.`] : []),
     ...(document === undefined
       ? []
       : [`Your device list's names could not be saved (${document.detail ?? "refused"}).`]),
