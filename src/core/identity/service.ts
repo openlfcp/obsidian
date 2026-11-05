@@ -72,8 +72,6 @@ import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./peo
 /** What the device flows need of the plugin runtime (LfcpRuntime implements it). */
 export interface DeviceRuntime {
   registry(): Promise<RegistryEntry[]>;
-  /** A Resource never sent anywhere (a section drafted, never shared): not in the roster. */
-  sectionNeverShared?(resource: ResourceId): Promise<boolean>;
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
@@ -288,14 +286,18 @@ export class DeviceService {
     return profile === PROFILE_ID || (this.#o.sections && profile === SECTIONS_PROFILE_ID);
   }
 
-  /** The roster of a new device list (§5.1 step 2): every shared Resource of this installation. */
+  /**
+   * The roster of a new device list (§5.1 step 2): every Resource of this
+   * installation with a stored chain. A section not hosted yet is listed
+   * too: it reaches the new device once hosted (a discarded draft is no
+   * longer in the registry).
+   */
   async #roster(): Promise<{ resource: ResourceId; entry: RosterEntryValue }[]> {
     const runtime = this.#runtime();
     const storage = this.#context().storage;
     const out: { resource: ResourceId; entry: RosterEntryValue }[] = [];
     for (const e of await runtime.registry()) {
       if (!this.#profileOk(e.profile)) continue;
-      if ((await runtime.sectionNeverShared?.(e.resourceId).catch(() => false)) === true) continue;
       const chain = await loadControlChain(storage, e.resourceId);
       if (chain?.kind !== "linear") continue;
       out.push({
