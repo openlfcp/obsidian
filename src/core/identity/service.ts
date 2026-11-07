@@ -146,6 +146,8 @@ export interface DeviceServiceOptions {
    * coordinator has no per-IP limit).
    */
   readonly pacing?: Pacing | null;
+  /** The pacer's clock (ms): Date.now by default; a test's own, so its pace does not depend on the runner's speed. */
+  readonly pacerNow?: () => number;
   /** A section of the roster was opened here (§5.3 step 11): the notes bound to it follow it. */
   readonly opened?: (resource: ResourceId) => void | Promise<void>;
   /** Adds the first device's new sections to the roster (default: the SDK's addToRoster). */
@@ -272,7 +274,7 @@ export class DeviceService {
     this.pacer =
       pacing === null
         ? null
-        : new ConnectionPacer({ ...pacing, now: () => Date.now(), sleep: o.sleep });
+        : new ConnectionPacer({ ...pacing, now: o.pacerNow ?? (() => Date.now()), sleep: o.sleep });
   }
 
   #context(): CollaborationContext {

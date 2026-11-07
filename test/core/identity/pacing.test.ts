@@ -73,15 +73,19 @@ describe("the device service paces every connection of its flows", () => {
   it("a pairing waits for its turn instead of opening connections at once", async () => {
     const world = new DeviceWorld();
     try {
-      const a = await world.installation({}, { burst: 2, perMinute: 600 });
+      // A clock that stands still: no token comes back with the time the flows
+      // take (on a slow runner 100 ms of work would refill one at 600 a
+      // minute), so every connection beyond the burst waits, whatever the speed.
+      const a = await world.installation({}, { burst: 2, perMinute: 600, now: () => 0 });
       const b = await world.installation();
       await a.section("Plans");
       await b.service.progress(await pair(a, b));
       const pacer = a.service.pacer;
       if (pacer === null) throw new Error("no pacer");
-      // Beyond the burst of two: the managing device's flows waited for their tokens.
+      // Beyond the burst of two: the managing device's flows waited for their
+      // tokens, each one 60/600 s.
       expect(pacer.taken).toBeGreaterThan(2);
-      expect(pacer.waitedMs).toBeGreaterThan(0);
+      expect(pacer.waitedMs).toBe((pacer.taken - 2) * 100);
     } finally {
       await world.stop();
     }

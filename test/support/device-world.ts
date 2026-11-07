@@ -32,8 +32,11 @@ export class DeviceWorld {
 
   async installation(
     flows: Partial<IdentityFlows> = {},
-    /** The device flows' pace (none by default: an in-memory coordinator has no per-IP limit). */
-    pacing: Pacing | null = null,
+    /**
+     * The device flows' pace (none by default: an in-memory coordinator has
+     * no per-IP limit), and the pacer's clock if not the wall clock.
+     */
+    pacing: (Pacing & { readonly now?: () => number }) | null = null,
     roster?: RosterWriter,
   ): Promise<Installation> {
     const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
@@ -55,7 +58,8 @@ export class DeviceWorld {
       platform: "desktop",
       sections: true,
       sleep,
-      pacing,
+      pacing: pacing === null ? null : { burst: pacing.burst, perMinute: pacing.perMinute },
+      ...(pacing?.now === undefined ? {} : { pacerNow: pacing.now }),
       flows: { ...SDK_IDENTITY_FLOWS, connectionNetwork: () => this.server.network(), ...flows },
       ...(roster === undefined ? {} : { roster }),
     });
