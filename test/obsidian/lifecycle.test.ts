@@ -14,6 +14,7 @@ import {
 import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it, vi } from "vitest";
 import { fingerprintOf, shortId } from "../../src/core/identity/people";
+import { DeviceService } from "../../src/core/identity/service";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
@@ -39,6 +40,8 @@ class TestPlugin extends OpenLfcpPlugin {
   /** The background retries of a held lock and of a blocked database, shortened. */
   protected override lockRetryMs = 200;
   protected override blockedRetryMs = 20;
+  protected override deviceUpkeepDelayMs = 10;
+  protected override deviceUpkeepEveryMs = 60_000;
   /** How many starts were tried (runtimeEnv is asked once per start). */
   starts = 0;
   /** Makes the next starts fail as the runtime's would, with this message. */
@@ -665,5 +668,59 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(mock.notices.filter((n) => n.includes("could not start"))).toHaveLength(1);
     (plugin as unknown as mock.Plugin).unload();
     await plugin.stopRuntime();
+  });
+});
+
+describe("the device upkeep (LFCP-04-413, review obsidian#107 P1-2)", () => {
+  it("runs in the background after start, and not after unload", async () => {
+    const upkeep = vi.spyOn(DeviceService.prototype, "upkeep").mockResolvedValue({
+      reconciled: false,
+      rotations: [],
+      issues: [],
+      offline: false,
+      handedOn: [],
+      summary: "",
+    });
+    try {
+      const { plugin, host } = await load();
+      await ready(plugin);
+      for (let i = 0; i < 50 && upkeep.mock.calls.length === 0; i++)
+        await new Promise((r) => setTimeout(r, 10));
+      expect(upkeep).toHaveBeenCalledTimes(1);
+      host.unload();
+      await plugin.stopRuntime();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(upkeep).toHaveBeenCalledTimes(1);
+    } finally {
+      upkeep.mockRestore();
+    }
+  });
+});
+
+describe("the device upkeep, without any section coming live (review obsidian#107b B1)", () => {
+  it("runs again on its own while the plugin runs", async () => {
+    class Often extends TestPlugin {
+      protected override deviceUpkeepEveryMs = 30;
+    }
+    const upkeep = vi.spyOn(DeviceService.prototype, "upkeep").mockResolvedValue({
+      reconciled: false,
+      rotations: [],
+      issues: [],
+      offline: false,
+      handedOn: [],
+      summary: "",
+    });
+    try {
+      const plugin = new Often(new mock.App() as never, manifest as never);
+      await plugin.onload();
+      await ready(plugin);
+      for (let i = 0; i < 100 && upkeep.mock.calls.length < 3; i++)
+        await new Promise((r) => setTimeout(r, 10));
+      expect(upkeep.mock.calls.length).toBeGreaterThanOrEqual(3);
+      (plugin as unknown as mock.Plugin).unload();
+      await plugin.stopRuntime();
+    } finally {
+      upkeep.mockRestore();
+    }
   });
 });

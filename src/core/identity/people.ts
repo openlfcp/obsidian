@@ -37,6 +37,23 @@ export const shortId = (hex: string): string => hex.slice(0, SHORT_ID);
  */
 export const ALIASES_KEY = "identity-aliases";
 
+/**
+ * Where the labels of the reader's own devices are kept (Principal ID hex →
+ * label), as last read from its Identity Resource by the device flows
+ * (LFCP-04-413): display only, used for the reader's own person (§10).
+ */
+export const DEVICE_LABELS_KEY = "identity-device-labels";
+
+/** The device labels, as read from local state (anything else reads as none). */
+export const deviceLabelsOf = (stored: unknown): Readonly<Record<string, string>> =>
+  typeof stored === "object" && stored !== null
+    ? Object.fromEntries(
+        Object.entries(stored as Record<string, unknown>).filter(
+          (e): e is [string, string] => typeof e[1] === "string",
+        ),
+      )
+    : {};
+
 /** The local aliases, as read from local state (anything else reads as none). */
 export const aliasesOf = (stored: unknown): Readonly<Record<string, string>> =>
   typeof stored === "object" && stored !== null ? (stored as Record<string, string>) : {};
