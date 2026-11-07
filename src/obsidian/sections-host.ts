@@ -745,6 +745,29 @@ export class SectionsHost {
     return this.actions.insertSection(this.capture(editor, path));
   }
 
+  /**
+   * A section Resource opened outside the host's own flows: a device's
+   * pairing opens the person's sections from the roster (LFCP-04-414,
+   * IDENTITY-PROFILE-01 §5.3 step 11). It is watched, and every note bound
+   * to it (a copied vault's notes) is passed, as at the start; before, they
+   * followed it only after a restart.
+   */
+  async sectionArrived(resource: ResourceId): Promise<void> {
+    if (this.#runtime === null || this.#stopped) return;
+    await this.#watch(resource);
+    this.registryChanged();
+    const key = toKey(resource);
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const text = await this.app.vault.cachedRead(file);
+      if (!text.includes(SECTION_MARK)) continue;
+      const keys = parseSections(text).sections.map((s) => toKey(s.ref.resourceId));
+      if (!keys.includes(key)) continue;
+      this.#index(file.path, text);
+      this.#heldChecks.found(file.path, keys);
+      this.editor.remoteChanged(file.path, text);
+    }
+  }
+
   async #watch(resource: ResourceId): Promise<void> {
     const runtime = this.#runtime;
     if (runtime === null || this.#watched.has(toKey(resource))) return;

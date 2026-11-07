@@ -31,6 +31,21 @@ since 0.4.0.
   your devices, and your shared sections open there. "Your devices…" lists
   them and removes one, warning first which devices stop with it. A phone
   still only reads shared sections.
+- A guide to your devices: [docs/guides/devices.md](docs/guides/devices.md).
+
+### Fixed
+
+- A shared section open while you added a device kept syncing: before, it
+  could stay "syncing" and miss the new device's edits until a restart.
+- A removed device asked to be paired again says it was removed and that a
+  new, empty vault is paired instead, not that it can add devices. Also
+  when its pairing was not finished: it no longer waits forever.
+- A copied vault paired as a new device: its notes with shared sections
+  follow them; before, they did not until Obsidian restarted.
+- Adding two devices in a row and then removing one no longer runs into
+  the sync server's limit on connections from one network ("The server
+  could not be reached"): device steps are paced, and the device dialogs
+  ask less often the longer they wait (Check now asks at once).
 
 ## [0.6.0] — 2026-10-31
 

@@ -81,6 +81,7 @@ import { firstPairingWarning, type PairingWarning, pairingSections } from "./com
 import { type DeviceRow, deviceRows } from "./device-list";
 import { identityDocument } from "./document";
 import { type IdentityFlows, SDK_IDENTITY_FLOWS } from "./flows";
+import { ConnectionPacer, DEVICE_FLOW_PACING, type Pacing } from "./pacing";
 import {
   type ApprovalView,
   approvalView,
@@ -139,6 +140,16 @@ export interface DeviceServiceOptions {
   /** How long one server request may take before it reads as "could not be reached". */
   readonly requestTimeoutMs?: number;
   readonly flows?: IdentityFlows;
+  /**
+   * The pace of the connections the device flows open (pacing.ts; decision
+   * I18): DEVICE_FLOW_PACING by default, null for none (an in-memory
+   * coordinator has no per-IP limit).
+   */
+  readonly pacing?: Pacing | null;
+  /** The pacer's clock (ms): Date.now by default; a test's own, so its pace does not depend on the runner's speed. */
+  readonly pacerNow?: () => number;
+  /** A section of the roster was opened here (§5.3 step 11): the notes bound to it follow it. */
+  readonly opened?: (resource: ResourceId) => void | Promise<void>;
   /** Adds the first device's new sections to the roster (default: the SDK's addToRoster). */
   readonly roster?: RosterWriter;
 }
@@ -244,15 +255,42 @@ export class DevicesUnavailable extends Error {
 const NOT_EMPTY =
   "This vault already shares sections under its own identity, so it cannot become a device of another one. Pair a new, empty vault instead.";
 
+const REMOVED =
+  "This device was removed from your devices, so it cannot be added again under its identity. To use it again, pair a new, empty vault from one of your devices.";
+
 const reasonText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/**
+ * The SDK's local compare-and-set of a Control Chain lost to another writer
+ * of the same storage (LFCP-04-414c). The flow saves a record the server
+ * ACKed over the chain it read; this device's open session of that Resource
+ * gets the same record from the server and may store it first. The SDK
+ * (0.4.0) then throws, although the stored chain already holds the record.
+ * Its operation is journaled: resumed, it reads the stored chain, finds its
+ * own record committed and goes on (§9.1). Matched by message: the SDK
+ * throws a plain Error here.
+ */
+const storeRace = (e: unknown): boolean =>
+  e instanceof Error && e.message === "the Control Chain was not stored: CONTROL_HEAD_MISMATCH";
+
+/** Resumptions of one operation after a store race, before its error stands. */
+const STORE_RACE_ATTEMPTS = 4;
 
 export class DeviceService {
   readonly #o: DeviceServiceOptions;
   readonly #flows: IdentityFlows;
 
+  /** One pace for every device flow of this installation, whatever dialog runs it. */
+  readonly pacer: ConnectionPacer | null;
+
   constructor(o: DeviceServiceOptions) {
     this.#o = o;
     this.#flows = o.flows ?? SDK_IDENTITY_FLOWS;
+    const pacing = o.pacing === undefined ? DEVICE_FLOW_PACING : o.pacing;
+    this.pacer =
+      pacing === null
+        ? null
+        : new ConnectionPacer({ ...pacing, now: o.pacerNow ?? (() => Date.now()), sleep: o.sleep });
   }
 
   #context(): CollaborationContext {
@@ -271,16 +309,27 @@ export class DeviceService {
   #flow(): IdentityFlowOptions {
     const c = this.#context();
     const ms = this.#o.requestTimeoutMs ?? 30_000;
+    const network = this.#flows.connectionNetwork({
+      now: c.now,
+      ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
+      timeout: () => this.#o.sleep(ms),
+    });
+    const pacer = this.pacer;
     return {
       installation: { signer: c.principal.signer, agreement: c.principal.agreement },
       storage: c.storage,
       secrets: c.secrets,
       now: c.now,
-      network: this.#flows.connectionNetwork({
-        now: c.now,
-        ...(c.webSocket === undefined ? {} : { webSocket: c.webSocket }),
-        timeout: () => this.#o.sleep(ms),
-      }),
+      // Every connection a flow opens waits for its turn (decision I18).
+      network:
+        pacer === null
+          ? network
+          : {
+              connect: async (signer, url) => {
+                await pacer.take();
+                return network.connect(signer, url);
+              },
+            },
       document: identityDocument,
       // W §26.3 rule 7 in a rotation's frontier, per unit (SDK 0.3.2): the plugin's profiles.
       profiles: UNIT_PROFILES,
@@ -1066,17 +1115,40 @@ export class DeviceService {
       });
       return approvalView(r, review.label, await this.names());
     } catch (e) {
+      // The approval is journaled before its first record: resumed from there.
+      const operation = storeRace(e) ? await this.#openApproval(review) : undefined;
+      if (operation !== undefined) return this.finishApproval(operation, review.label);
       return this.#thrown(e);
     }
   }
 
-  /** "Finish": resumes an approval from its next phase (§9.1). */
+  /** The open journaled approval of `review`'s request, the latest if several. */
+  async #openApproval(review: PairingReview): Promise<string | undefined> {
+    const ops = await new OperationJournal(this.#context().storage).list({
+      kind: "pairing-approval",
+      status: "open",
+    });
+    return ops
+      .filter(
+        (op) => op.intent.session === review.session && op.intent.requestKey === review.requestKey,
+      )
+      .sort((x, y) => y.createdAt - x.createdAt)[0]?.id;
+  }
+
+  /**
+   * "Finish": resumes an approval from its next phase (§9.1). A phase that
+   * lost the local store race to an open session (storeRace) is resumed
+   * again: it reads the chain that session stored and goes on from there.
+   */
   async finishApproval(operation: string, label: string): Promise<ApprovalView> {
-    try {
-      const r = await this.#flows.resumeApproval(this.#flow(), operation);
-      return approvalView(r, label, await this.names());
-    } catch (e) {
-      return this.#thrown(e);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const r = await this.#flows.resumeApproval(this.#flow(), operation);
+        return approvalView(r, label, await this.names());
+      } catch (e) {
+        if (storeRace(e) && attempt < STORE_RACE_ATTEMPTS) continue;
+        return this.#thrown(e);
+      }
     }
   }
 
@@ -1552,7 +1624,12 @@ export class DeviceService {
 
   /** Why this vault cannot be paired as a device of another installation, or null. */
   async pairRefusal(): Promise<string | null> {
-    if ((await this.openRequest()) !== null) return null;
+    // A removed device is told so first, even with its pairing unfinished (LFCP-04-414 R1).
+    if (await this.#removedHere()) {
+      await this.#runtime().localState.put(PAIRING_KEY, null);
+      return REMOVED;
+    }
+    if ((await this.#openRequest()) !== null) return null;
     if ((await this.identity()) !== undefined)
       return 'This device is already in a device list. Add other devices from here with "Add my other device…".';
     if ((await this.#runtime().registry()).length > 0) return NOT_EMPTY;
@@ -1560,11 +1637,39 @@ export class DeviceService {
   }
 
   /**
+   * Whether this device is proven removed from the person's devices: it has
+   * a device list, and the list (read from the server when it answers; a
+   * removed device reads it up to its removal, W §41, else this device's
+   * last copy) shows it removed. N5: never added back under the same
+   * identity, so a request it still has can never finish.
+   */
+  async #removedHere(): Promise<boolean> {
+    if ((await this.identity()) === undefined) return false;
+    const list = await this.devices().catch(() => null);
+    const mine = list?.kind === "list" ? list.rows.find((r) => r.thisDevice) : undefined;
+    return mine?.state === "removed";
+  }
+
+  /**
    * The request of this device still to finish (§9: resumed with its
    * fingerprint): an open one, or the last one whose sections are not all
    * opened here yet (the SDK closes it once every candidate is ready).
+   * None once this device is proven removed: that request can never finish.
    */
   async openRequest(): Promise<{
+    readonly operation: string;
+    readonly fingerprint: string;
+  } | null> {
+    const open = await this.#openRequest();
+    if (open === null) return null;
+    if (await this.#removedHere()) {
+      await this.#runtime().localState.put(PAIRING_KEY, null);
+      return null;
+    }
+    return open;
+  }
+
+  async #openRequest(): Promise<{
     readonly operation: string;
     readonly fingerprint: string;
   } | null> {
@@ -1627,6 +1732,7 @@ export class DeviceService {
           if (collab === null) throw new DevicesUnavailable();
           if (await collab.openFromRoster(c.resource, c.name ?? null))
             opened.push(c.name ?? names.resource(toHex(c.resource)));
+          await this.#o.opened?.(c.resource);
         } catch (e) {
           failures.push({
             resource: toHex(c.resource),
@@ -1637,6 +1743,19 @@ export class DeviceService {
       }
     }
     const view = progressView(outcome, names, identity, failures);
+    // Approved, unfinished, and since removed: it can never finish; asking stops (R1).
+    if (outcome.kind === "approved" && !view.final && (await this.#removedHere())) {
+      await this.#runtime().localState.put(PAIRING_KEY, null);
+      return {
+        final: true,
+        approved: true,
+        headline: REMOVED,
+        sections: [],
+        deviceList: null,
+        paused: false,
+        opened,
+      };
+    }
     // The request is resumed (openRequest) until every section it brought is opened here.
     if (view.final) await this.#runtime().localState.put(PAIRING_KEY, null);
     return { ...view, opened };

@@ -210,8 +210,8 @@ it("a section the first device creates after pairing is queued for the roster, a
       return answer;
     },
   };
-  const a = await world.installation({}, roster);
-  const b = await world.installation({}, roster);
+  const a = await world.installation({}, null, roster);
+  const b = await world.installation({}, null, roster);
   await b.service.progress(await pair(a, b, "full"));
   const X = await a.collab.createSectionResource({
     name: "Late",
@@ -322,8 +322,8 @@ it("a section queued while a flush waits for the server stays queued (review #10
       return listed.length === 1 ? { kind: "unsupported" } : { kind: "added" };
     },
   };
-  const a = await world.installation({}, roster);
-  const b = await world.installation({}, roster);
+  const a = await world.installation({}, null, roster);
+  const b = await world.installation({}, null, roster);
   await b.service.progress(await pair(a, b, "full"));
   const section = (name: string) =>
     a.collab.createSectionResource({

@@ -285,8 +285,16 @@ export class E2EVault {
     readonly tickMs = 20,
   ) {}
 
-  static async open(name: string, opts: { readonly tickMs?: number } = {}): Promise<E2EVault> {
+  static async open(
+    name: string,
+    opts: {
+      readonly tickMs?: number;
+      /** The vault's files before the plugin first starts (a copied vault). */
+      readonly files?: ReadonlyMap<string, string>;
+    } = {},
+  ): Promise<E2EVault> {
     const v = new E2EVault(name, opts.tickMs);
+    for (const [path, text] of opts.files ?? []) v.app.vault.files.set(path, text);
     await v.#start(false);
     return v;
   }

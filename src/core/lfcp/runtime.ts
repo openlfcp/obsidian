@@ -2045,8 +2045,29 @@ export class LfcpRuntime {
       this.#engineTrapped(e.message);
     } else if (e.type === "error" && e.resourceId !== undefined) {
       this.#errors.set(toHex(e.resourceId), e.code);
+      if (e.code === "CONTROL_HEAD_MISMATCH") this.#resyncControl(e.resourceId);
     }
     for (const l of this.#listeners) l(e);
+  }
+
+  /**
+   * LFCP-04-414: the device flows (DeviceService: approving a device,
+   * removing one, the upkeep) save a Resource's new Control Records into
+   * the storage its open session reads. A session that loaded the chain
+   * before that save and saved after it is refused ("the stored Control
+   * Head moved during sync") and would stay in CONTROL_SYNC. It is opened
+   * again, from the chain now stored.
+   */
+  #resyncControl(resource: ResourceId): void {
+    const key = toHex(resource);
+    const section = this.#sections.get(key);
+    const opened = this.#opened.get(key);
+    const url = section?.url ?? opened?.url ?? null;
+    const binding = section?.binding ?? opened?.binding;
+    if (url === null || binding === undefined || this.#stopped) return;
+    const client = this.#session(url).client;
+    client.close(resource);
+    client.open(binding);
   }
 
   /** The SDK inputs of the collaboration flows (LFCP-065), or null unless ready. */

@@ -7,6 +7,7 @@ import type { ResourceId } from "@openlfcp/core";
 import { Collaboration } from "../../src/core/collab/service";
 import { identityDocument } from "../../src/core/identity/document";
 import { type IdentityFlows, SDK_IDENTITY_FLOWS } from "../../src/core/identity/flows";
+import type { Pacing } from "../../src/core/identity/pacing";
 import type { RosterWriter } from "../../src/core/identity/roster";
 import { DeviceService } from "../../src/core/identity/service";
 import { LfcpRuntime } from "../../src/core/lfcp/runtime";
@@ -31,6 +32,11 @@ export class DeviceWorld {
 
   async installation(
     flows: Partial<IdentityFlows> = {},
+    /**
+     * The device flows' pace (none by default: an in-memory coordinator has
+     * no per-IP limit), and the pacer's clock if not the wall clock.
+     */
+    pacing: (Pacing & { readonly now?: () => number }) | null = null,
     roster?: RosterWriter,
   ): Promise<Installation> {
     const runtime = await LfcpRuntime.start(new Device().env(new FakeLocal()));
@@ -52,6 +58,8 @@ export class DeviceWorld {
       platform: "desktop",
       sections: true,
       sleep,
+      pacing: pacing === null ? null : { burst: pacing.burst, perMinute: pacing.perMinute },
+      ...(pacing?.now === undefined ? {} : { pacerNow: pacing.now }),
       flows: { ...SDK_IDENTITY_FLOWS, connectionNetwork: () => this.server.network(), ...flows },
       ...(roster === undefined ? {} : { roster }),
     });
