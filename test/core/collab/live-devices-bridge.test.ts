@@ -66,14 +66,34 @@ function pairCli(args: readonly string[], link: string) {
     err += String(d);
   });
   child.stdin?.end(`${link}\n`);
+  let code: number | null | undefined;
   const exited = new Promise<number | null>((r) =>
-    child.once("exit", (code) => {
+    // "close", not "exit": after its output is read to the end.
+    child.once("close", (c) => {
       release();
-      r(code);
+      code = c;
+      r(c);
     }),
   );
-  return { output: () => out, stderr: () => err, exited };
+  return {
+    output: () => out,
+    stderr: () => err,
+    exited,
+    /** The exit code once the command ended, undefined while it runs. */
+    code: () => code,
+  };
 }
+
+/**
+ * The CLI's secret store fsyncs its directory after each write
+ * (FileSecretStore of @openlfcp/storage-node 0.4.0: openSync(dir) then
+ * fsyncSync), which Windows does not allow for a directory: the command
+ * dies creating its installation, before any output (obsidian#108 CI: the
+ * wait for the fingerprint ran out at 60 s on Windows only). Not this
+ * plugin's code; the scenario is skipped on Windows on exactly that
+ * failure, and runs there as soon as the package handles it.
+ */
+const WINDOWS_DIR_FSYNC = /\bE(?:PERM|ISDIR|ACCES)\b[^\n]*\b(?:fsync|open)\b/;
 
 describe("§7.4 scenario 3: the bridge CLI", () => {
   it("pairs headless as a service for two sections; attributed via the bridge; cannot invite, nor open a third section or the device list", async (ctx) => {
@@ -112,7 +132,25 @@ describe("§7.4 scenario 3: the bridge CLI", () => {
       ],
       link,
     );
-    await until("the bridge's fingerprint", () => /Fingerprint: \S+/.test(cli.output()), 60_000);
+    // The CLI prints its fingerprint, then a line on comparing it, then the
+    // request ("Requested: …"), after the request's round trips; each line is
+    // its own write, so a pipe may hand them over apart: the wait is for the
+    // last one. A command that ended before it ends the wait, with what it said.
+    const printed = () => /^Requested: .*\n/m.test(cli.output());
+    await until(
+      "the bridge's fingerprint and request",
+      () => printed() || cli.code() !== undefined,
+      60_000,
+    );
+    if (!printed()) {
+      if (process.platform === "win32" && WINDOWS_DIR_FSYNC.test(cli.stderr()))
+        ctx.skip(
+          `lfcp-node cannot fsync its secret directory on Windows (${WINDOWS_DIR_FSYNC.exec(cli.stderr())?.[0]})`,
+        );
+      throw new Error(
+        `lfcp-node pair ended (${String(cli.code())}) before its request was shown:\n${cli.output()}\n${cli.stderr()}`,
+      );
+    }
     const shown = /Fingerprint: (\S+)/.exec(cli.output())?.[1];
     expect(cli.output()).toContain('"notes bridge" (service) asks to join Notes, Tasks');
     // The link is a bearer secret: never printed.
