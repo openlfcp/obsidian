@@ -679,6 +679,7 @@ describe("the device upkeep (LFCP-04-413, review obsidian#107 P1-2)", () => {
       issues: [],
       offline: false,
       handedOn: [],
+      opened: [],
       summary: "",
     });
     try {
@@ -708,6 +709,7 @@ describe("the device upkeep, without any section coming live (review obsidian#10
       issues: [],
       offline: false,
       handedOn: [],
+      opened: [],
       summary: "",
     });
     try {

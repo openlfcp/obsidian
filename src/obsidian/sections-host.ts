@@ -625,7 +625,9 @@ export class SectionsHost {
         createSectionResource: async (o) => {
           // Its first RESOURCE_OPEN comes before RESOURCE_HOST: a refusal then is expected.
           await expectHosting(runtime.localState, o.resourceId);
-          return runtime.createSectionResource(o);
+          // On a device that is not the first one, the section is its root's (LFCP-04-413e, §7.3).
+          const flows = this.collab();
+          return flows === null ? runtime.createSectionResource(o) : flows.createSectionResource(o);
         },
         openSection: (R) => runtime.openSection(R),
         discard: (R) => runtime.discardUnhosted(R),

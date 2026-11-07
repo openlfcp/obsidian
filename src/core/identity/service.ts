@@ -60,8 +60,22 @@ import {
 } from "@openlfcp/core";
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
-import { actsFor, DEVICE_KIND } from "@openlfcp/wire";
-import { CollabError, type Collaboration } from "../collab/service";
+import {
+  actsFor,
+  DEVICE_KIND,
+  invitationPrincipal,
+  parseInviteUri,
+  type Signer,
+  validateControlChain,
+} from "@openlfcp/wire";
+import {
+  CollabError,
+  type Collaboration,
+  type DeviceCreate,
+  type DeviceJoin,
+  type DeviceOrigin,
+  type InviteProfile,
+} from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
 import { type DeviceRow, deviceRows } from "./device-list";
@@ -93,6 +107,8 @@ import {
   upkeepText,
 } from "./pairing-view";
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
+import { UNIT_PROFILES } from "./profiles";
+import type { RosterAdd, RosterWriter } from "./roster";
 
 /** The pairing request of this device until every section it brought is opened here (P2-5). */
 const PAIRING_KEY = "identity-pairing-request";
@@ -100,9 +116,13 @@ const PAIRING_KEY = "identity-pairing-request";
 /** What the device flows need of the plugin runtime (LfcpRuntime implements it). */
 export interface DeviceRuntime {
   registry(): Promise<RegistryEntry[]>;
+  /** An open section's profile, undefined while it is not open here (LfcpRuntime.sectionProfile). */
+  sectionProfile?(resource: ResourceId): unknown;
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
+    /** Read-modify-write of one key, one at a time per key (LfcpRuntime.localState.update). */
+    update(key: string, change: (value: unknown) => unknown): Promise<void>;
   };
 }
 
@@ -128,6 +148,8 @@ export interface DeviceServiceOptions {
   readonly pacing?: Pacing | null;
   /** A section of the roster was opened here (§5.3 step 11): the notes bound to it follow it. */
   readonly opened?: (resource: ResourceId) => void | Promise<void>;
+  /** Adds the first device's new sections to the roster (default: the SDK's addToRoster). */
+  readonly roster?: RosterWriter;
 }
 
 /** The device list as shown. */
@@ -153,7 +175,14 @@ export interface Unfinished {
    * removal this device makes; a key this device holds and has not handed
    * to one of the person's devices); `operation` is empty.
    */
-  readonly kind: "approval" | "removal" | "request" | "registration" | "key" | "handover";
+  readonly kind:
+    | "approval"
+    | "removal"
+    | "request"
+    | "registration"
+    | "key"
+    | "handover"
+    | "roster";
   readonly operation: string;
   readonly label: string;
   /** The sections concerned, by name (registration, key). */
@@ -172,9 +201,17 @@ export interface UpkeepResult {
   readonly offline: boolean;
   /** Resources (hex) whose new key a key change had left owed, handed on now. */
   readonly handedOn: readonly string[];
+  /** Sections of the person's roster opened on this device now, by name (§6, §7.2, §7.3). */
+  readonly opened: readonly string[];
   /** The whole result in words, the sections by name. */
   readonly summary: string;
 }
+
+/** Sections (hex) the first device made or joined after pairing, waiting to be listed in the roster. */
+const ROSTER_PENDING_KEY = "identity-roster-pending";
+
+const hexList = (v: unknown): string[] =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 
 /** Rotation operations the upkeep journals itself (outside the person's roster). */
 const UPKEEP = "plugin-upkeep";
@@ -276,6 +313,8 @@ export class DeviceService {
               },
             },
       document: identityDocument,
+      // W §26.3 rule 7 in a rotation's frontier, per unit (SDK 0.3.2): the plugin's profiles.
+      profiles: UNIT_PROFILES,
     };
   }
 
@@ -355,6 +394,14 @@ export class DeviceService {
       .filter(([, chain]) => this.#rotationDue(chain))
       .map(([hex]) => names.resource(hex));
     if (keys.length > 0) out.push({ kind: "key", operation: "", label: "", sections: keys });
+    const waiting = hexList(await this.#runtime().localState.get(ROSTER_PENDING_KEY));
+    if (waiting.length > 0)
+      out.push({
+        kind: "roster",
+        operation: "",
+        label: "",
+        sections: waiting.map((r) => names.resource(r)),
+      });
     const list = local.identity === null ? "" : toHex(local.identity.state.resourceId);
     const owedKeys = await this.#keysOwed(local);
     // And the readers a key change's new key was refused to (another person's devices too).
@@ -489,6 +536,13 @@ export class DeviceService {
     // New keys a server refused to a reader after an earlier key change: the same operation
     // hands them on (§9.1, §9.2 Package), never another key change.
     const handedOn = await this.#handOver(flow, local, issues);
+    // This device's sections the roster lacks are queued (a queue write a failure cut short,
+    // a device flow whose roster entry was refused), then the queue is listed, before
+    // reconciliation reads the roster (§7.1: it registers the person's devices there).
+    if (!offline) {
+      await this.#recoverRoster(flow);
+      await this.#flushRoster(issues);
+    }
     /** Key changes made now, with the operation each is journaled under. */
     const made: { readonly rotation: RotationOutcome; readonly operation: string }[] = [];
     if (local.identity !== null && local.manages) {
@@ -557,8 +611,205 @@ export class DeviceService {
     }
     if (made.some((m) => (m.rotation.keys?.skipped.length ?? 0) > 0))
       await this.#runtime().localState.put(OWED_KEY, owed);
-    const result = { reconciled, rotations, issues, offline, handedOn };
+    // The person's sections this device does not hold yet: created or joined on another of
+    // the person's devices after this one was paired (§6; §7.2 step 4, §7.3 roster entries).
+    const opened = offline ? [] : await this.#openRoster(flow);
+    const result = { reconciled, rotations, issues, offline, handedOn, opened };
     return { ...result, summary: upkeepText(result, await this.names()) };
+  }
+
+  /**
+   * A section this installation created or joined (LFCP-04-413e item 3).
+   * On the first device, once the person has a device list, it is queued
+   * for the roster and listed now if it can be; a device that is not the
+   * first one lists its sections through the SDK's flows (§7.2, §7.3), and
+   * without a device list there is no roster yet (its creation lists every
+   * section, §5.1).
+   */
+  async listInRoster(resource: ResourceId): Promise<void> {
+    if ((await this.identity()) === undefined || (await this.origin()) !== null) return;
+    await this.#queueRoster(toHex(resource));
+    await this.#flushRoster([]);
+  }
+
+  /**
+   * Queues every section of this device that the roster in the device
+   * list does not have (§5.1 fills it with all of them; I17: whoever
+   * creates or accepts a section after that adds it). Recovers what a
+   * failure between a creation or join and its queue entry left out.
+   */
+  async #recoverRoster(flow: IdentityFlowOptions): Promise<void> {
+    const I = await this.identity();
+    if (I === undefined) return;
+    const roster = await this.#identityRoster(flow, I);
+    if (roster === null) return;
+    for (const r of await this.#roster())
+      if (!roster.has(toHex(r.resource))) await this.#queueRoster(toHex(r.resource));
+  }
+
+  /**
+   * A device flow's section whose roster entry was refused (the SDK's
+   * `incomplete`): queued, so that "Your devices…" shows it and the
+   * upkeep (or Finish now) lists it with addToRoster. The device holds
+   * data/write in the device list, or the flow would not have claimed
+   * or created it (§7.2, §7.3).
+   */
+  async #rosterOwed(resource: ResourceId): Promise<void> {
+    await this.#queueRoster(toHex(resource)).catch(() => undefined);
+  }
+
+  /** Adds a section (hex) to the roster queue, read-modify-write: a concurrent change is kept. */
+  async #queueRoster(hex: string): Promise<void> {
+    await this.#runtime().localState.update(ROSTER_PENDING_KEY, (v) => {
+      const queued = hexList(v);
+      return queued.includes(hex) ? queued : [...queued, hex];
+    });
+  }
+
+  /** Takes sections (hex) off the roster queue, as it is now: what was queued meanwhile stays. */
+  async #unqueueRoster(done: ReadonlySet<string>): Promise<void> {
+    if (done.size === 0) return;
+    await this.#runtime().localState.update(ROSTER_PENDING_KEY, (v) =>
+      hexList(v).filter((x) => !done.has(x)),
+    );
+  }
+
+  #rosterFlush: Promise<void> = Promise.resolve();
+
+  /**
+   * Lists every queued section through the roster port; what it cannot
+   * list stays queued, as an issue. One flush at a time; each takes off
+   * the queue only what it listed (or what is no longer here), so a
+   * section queued while it waited for the server is never lost.
+   */
+  #flushRoster(issues: UpkeepIssue[]): Promise<void> {
+    const run = () => this.#flushRosterNow(issues);
+    const next = this.#rosterFlush.then(run, run);
+    this.#rosterFlush = next.catch(() => undefined);
+    return next;
+  }
+
+  async #flushRosterNow(issues: UpkeepIssue[]): Promise<void> {
+    const runtime = this.#runtime();
+    const queued = hexList(await runtime.localState.get(ROSTER_PENDING_KEY));
+    if (queued.length === 0) return;
+    const entries = new Map((await this.#roster()).map((r) => [toHex(r.resource), r.entry]));
+    const writer = this.#o.roster ?? { add: (r, entry) => this.#addToRoster(r, entry) };
+    const done = new Set<string>();
+    for (const hex of queued) {
+      const entry = entries.get(hex);
+      // No longer here (discarded, forgotten): nothing to list.
+      if (entry === undefined) {
+        done.add(hex);
+        continue;
+      }
+      const r = await writer.add(fromHex(hex) as ResourceId, entry);
+      if (r.kind === "added") {
+        done.add(hex);
+        continue;
+      }
+      issues.push({
+        resource: hex,
+        kind: "roster",
+        ...(r.kind === "refused"
+          ? { detail: r.code }
+          : r.kind === "unavailable"
+            ? { detail: r.reason }
+            : {}),
+      });
+    }
+    await this.#unqueueRoster(done);
+  }
+
+  /** The SDK's addToRoster (0.3.1): one durable operation; an entry already there is "added". */
+  async #addToRoster(resource: ResourceId, entry: RosterEntryValue): Promise<RosterAdd> {
+    try {
+      const r = await this.#flows.addToRoster({
+        ...this.#flow(),
+        resource,
+        entry,
+        ...(entry.name === undefined ? {} : { name: entry.name }),
+      });
+      switch (r.kind) {
+        case "added":
+        case "present":
+          return { kind: "added" };
+        case "unavailable":
+          return { kind: "unavailable", reason: r.reason };
+        case "needs-writer":
+          return { kind: "refused", code: "NEEDS_WRITER" };
+        case "document-incomplete":
+          return { kind: "refused", code: r.code };
+        case "conflict":
+          return { kind: "refused", code: "CONTROL_CONFLICT" };
+      }
+    } catch (e) {
+      if (e instanceof IdentityUnavailable) return { kind: "unavailable", reason: e.message };
+      if (e instanceof IdentityConflict) return { kind: "refused", code: "CONTROL_CONFLICT" };
+      throw e;
+    }
+  }
+
+  /**
+   * Opens every section of the person's roster this device does not hold
+   * and may use now: registered there, every epoch's key held (the same
+   * evidence as §6 "ready"), its profile one this version opens. A section
+   * not ready yet is left for a later upkeep. Returns the names opened.
+   */
+  async #openRoster(flow: IdentityFlowOptions): Promise<string[]> {
+    const collab = this.#o.collab();
+    const I = await this.identity();
+    if (collab === null || I === undefined) return [];
+    const roster = await this.#identityRoster(flow, I);
+    if (roster === null) return [];
+    const c = this.#context();
+    const runtime = this.#runtime();
+    // Done only once open here: a row stored by an attempt that then failed to open is tried
+    // again (openFromRoster opens a stored one again).
+    const here = new Set(
+      (await runtime.registry())
+        .filter(
+          (e) =>
+            e.profile !== SECTIONS_PROFILE_ID ||
+            runtime.sectionProfile === undefined ||
+            runtime.sectionProfile(e.resourceId) !== undefined,
+        )
+        .map((e) => toHex(e.resourceId)),
+    );
+    const opened: string[] = [];
+    for (const [hex, entry] of roster) {
+      if (hex === toHex(I) || here.has(hex) || !this.#profileOk(entry.profile)) continue;
+      const X = fromHex(hex) as ResourceId;
+      let channel: IdentityChannel | undefined;
+      try {
+        channel = await flow.network.connect(flow.installation.signer, entry.coordinator);
+        const chain = await this.#flows.syncChain(c.storage, channel, X);
+        const deks = await this.#flows.fetchDeks(
+          c.storage,
+          c.secrets,
+          channel,
+          chain,
+          flow.installation,
+        );
+        if (![...chain.state.epochs.keys()].every((e) => deks.has(e))) continue;
+        await collab.openFromRoster(X, entry.name ?? null);
+        opened.push(entry.name ?? `section ${shortId(hex)}`);
+      } catch (e) {
+        // Not registered here yet, not reachable, or not openable by this version: later.
+        if (
+          !(
+            e instanceof IdentityUnavailable ||
+            e instanceof IdentityRefused ||
+            e instanceof IdentityConflict ||
+            e instanceof CollabError
+          )
+        )
+          throw e;
+      } finally {
+        channel?.close();
+      }
+    }
+    return opened;
   }
 
   /**
@@ -1083,7 +1334,7 @@ export class DeviceService {
             r !== toHex(I) &&
             (payload.kind !== DEVICE_KIND.SERVICE || payload.scope.some((x) => toHex(x) === r)),
         )
-        .map(([r, url]) => ({ resource: fromHex(r) as ResourceId, url }));
+        .map(([r, entry]) => ({ resource: fromHex(r) as ResourceId, url: entry.coordinator }));
       let results: readonly RegistrationResult[] = [];
       try {
         results = (await this.#flows.registerDevice({ ...flow, chain: signed, targets })).results;
@@ -1116,13 +1367,13 @@ export class DeviceService {
 
   /**
    * The roster in the device list, as its coordinator has it: Resource
-   * (hex) → coordinator URL, archived entries left out. Null when it
-   * cannot be read now.
+   * (hex) → its entry, archived entries left out. Null when it cannot be
+   * read now.
    */
   async #identityRoster(
     flow: IdentityFlowOptions,
     I: ResourceId,
-  ): Promise<ReadonlyMap<string, string> | null> {
+  ): Promise<ReadonlyMap<string, RosterEntryValue> | null> {
     const c = this.#context();
     const stored = await loadControlChain(c.storage, I);
     if (stored?.kind !== "linear") return null;
@@ -1140,9 +1391,9 @@ export class DeviceService {
         deks: await this.#flows.fetchDeks(c.storage, c.secrets, channel, chain, flow.installation),
         doc,
       });
-      const out = new Map<string, string>();
+      const out = new Map<string, RosterEntryValue>();
       for (const [ref, entry] of doc.roster())
-        if (entry.archived !== true) out.set(toHex(fromBase64url(ref)), entry.coordinator);
+        if (entry.archived !== true) out.set(toHex(fromBase64url(ref)), entry);
       return out;
     } catch (e) {
       if (
@@ -1154,6 +1405,177 @@ export class DeviceService {
       throw e;
     } finally {
       channel?.close();
+    }
+  }
+
+  // --- A device that is not the first one (§7.2, §7.3) -------------------------
+
+  /**
+   * This installation as a device of a person, or null: no device list, or
+   * the first device (the root itself, whose joins and sections are its
+   * own already). Read from the stored device list, offline too.
+   */
+  async origin(): Promise<DeviceOrigin | null> {
+    const c = this.#o.context();
+    if (c === null) return null;
+    const I = await localIdentityResource(c.storage);
+    if (I === undefined) return null;
+    const chain = await loadControlChain(c.storage, I);
+    if (chain?.kind !== "linear" || bytesEqual(chain.state.owner.principalId, c.principal.id))
+      return null;
+    return {
+      profile: (link) => this.#inviteProfile(link),
+      accept: (link, name, operation) => this.#acceptAsDevice(link, name, operation),
+      create: (o) => this.#createAsDevice(o),
+    };
+  }
+
+  /** §7.3 with the SDK's createResourceAsDevice: a section owned by the root, Genesis field 5. */
+  async #createAsDevice(o: {
+    readonly name: string;
+    readonly url: string;
+    readonly operation: string;
+  }): Promise<DeviceCreate> {
+    try {
+      const r = await this.#flows.createResourceAsDevice({
+        ...this.#flow(),
+        dataProfile: SECTIONS_PROFILE_ID,
+        url: o.url,
+        ...(o.name.trim() === "" ? {} : { name: o.name.trim() }),
+        operation: o.operation,
+      });
+      switch (r.kind) {
+        case "created":
+          return { kind: "created", resourceId: r.resource, listed: r.roster };
+        case "incomplete":
+          // Made and keyed, but the roster entry was refused: owed, listed by the queue (§7.3).
+          await this.#rosterOwed(r.resource);
+          return { kind: "created", resourceId: r.resource, listed: false };
+        case "not-owner-acting":
+          return {
+            kind: "refused",
+            code: "NOT_OWNER_ACTING",
+            message:
+              "This device cannot create shared sections for you: share it from your first device or a device with Full access.",
+          };
+        case "refused":
+          return {
+            kind: "refused",
+            code: r.code,
+            message: `The server refused the new section (${r.code}).`,
+          };
+        case "conflict":
+          return {
+            kind: "refused",
+            code: "CONTROL_CONFLICT",
+            message: "Your device list has two conflicting versions on the server.",
+          };
+        case "unavailable":
+          return {
+            kind: "unavailable",
+            message:
+              "The server could not be reached: a device makes your shared sections on the server, so sharing finishes when it is reachable.",
+          };
+      }
+    } catch (e) {
+      return { kind: "refused", code: "IDENTITY", message: this.#thrown(e).message };
+    }
+  }
+
+  /**
+   * The Data Profile of an invitation's Resource, before any claim: the
+   * chain read from the link's first endpoint as the Invitation Principal
+   * (which may read it: it holds invite/claim, W §41), validated here.
+   * Nothing is written, stored or sent but the read; the link's secret
+   * stays in memory.
+   */
+  async #inviteProfile(link: string): Promise<InviteProfile> {
+    let invitation: ReturnType<typeof parseInviteUri>;
+    try {
+      invitation = parseInviteUri(link);
+    } catch {
+      return { kind: "invalid", message: "This invitation link does not work." };
+    }
+    const secret = invitation.secret;
+    const url = invitation.endpoints[0];
+    if (secret === undefined || url === undefined)
+      return { kind: "invalid", message: "This invitation link does not work." };
+    const invitee: Signer = { key: secret.signingKey, descriptor: invitationPrincipal(secret) };
+    let channel: IdentityChannel | undefined;
+    try {
+      channel = await this.#flow().network.connect(invitee, url);
+      const chain = validateControlChain([...(await channel.control(invitation.resourceId, 0n))]);
+      if (chain.kind !== "linear")
+        return { kind: "invalid", message: "This invitation's section does not validate." };
+      return { kind: "profile", profile: chain.state.dataProfile };
+    } catch (e) {
+      if (e instanceof IdentityUnavailable)
+        return {
+          kind: "unavailable",
+          message: "The server could not be reached. Use the same link again to join.",
+        };
+      if (e instanceof IdentityRefused)
+        return {
+          kind: "invalid",
+          message: "This invitation link does not work: it was used or withdrawn.",
+        };
+      throw e;
+    } finally {
+      channel?.close();
+    }
+  }
+
+  /** §7.2 with the SDK's acceptInvitationAsDevice: the claim names the root. */
+  async #acceptAsDevice(link: string, name: string, operation?: string): Promise<DeviceJoin> {
+    try {
+      const r = await this.#flows.acceptInvitationAsDevice({
+        ...this.#flow(),
+        link,
+        ...(name.trim() === "" ? {} : { name: name.trim() }),
+        ...(operation === undefined ? {} : { operation }),
+      });
+      switch (r.kind) {
+        case "claimed":
+          return { kind: "claimed", resourceId: r.resource, listed: r.roster };
+        case "incomplete":
+          // Claimed and keyed, but the roster entry was refused: owed, listed by the queue (§7.2).
+          await this.#rosterOwed(r.resource);
+          return { kind: "claimed", resourceId: r.resource, listed: false };
+        case "needs-writer":
+          return {
+            kind: "refused",
+            code: "NEEDS_WRITER",
+            message:
+              "This device only reads your device list, so it cannot accept invitations for you. Accept it on your first device or a device with Full access; the invitation is not used.",
+          };
+        case "invalid-invitation":
+          return {
+            kind: "refused",
+            code: "INVALID_INVITATION",
+            message: "This invitation link does not work.",
+          };
+        case "refused":
+          return {
+            kind: "refused",
+            code: r.code,
+            message: `The server refused the invitation (${r.code}).`,
+          };
+        case "conflict":
+          return {
+            kind: "refused",
+            code: "CONTROL_CONFLICT",
+            message: "The section has two conflicting versions on the server.",
+          };
+        case "unavailable":
+          return {
+            kind: "unavailable",
+            message: "The server could not be reached. Use the same link again to finish joining.",
+            ...(r.operation === undefined ? {} : { operation: r.operation }),
+          };
+      }
+    } catch (e) {
+      const stop = this.#thrown(e);
+      return { kind: "refused", code: "IDENTITY", message: stop.message };
     }
   }
 

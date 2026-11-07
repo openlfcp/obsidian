@@ -77,6 +77,13 @@ export interface CreationEntry {
   readonly path: string;
   /** The Resource (base64url) and section, chosen before any effect. */
   readonly resource: string;
+  /**
+   * The Resource ID chosen before any effect, when the host made the
+   * Resource under another one (a device creates for its root and the SDK
+   * chooses the ID, LFCP-04-413e §7.3): the host is asked with it again on
+   * a resume, so that it finds the same creation; `resource` is the made one.
+   */
+  readonly requested?: string;
   readonly sectionId: string;
   /** The node IDs, in the preorder of the range's nodes. */
   readonly nodeIds: readonly string[];
@@ -396,7 +403,7 @@ export class SectionCreation {
    */
   async run(entry: CreationEntry, at?: () => string | null): Promise<CreationResult> {
     let e = entry;
-    const R = fromBase64url(e.resource) as ResourceId;
+    let R = fromBase64url(e.resource) as ResourceId;
     if (e.phase === "cancelled") {
       if (e.discarded === "pending") e = await this.#discard(e);
       return { kind: "cancelled", entry: e };
@@ -410,12 +417,19 @@ export class SectionCreation {
       e = await this.#follow(e, at);
       if (!(await this.#bindable(e))) return this.#stale(e);
       const server = this.deps.server();
-      await this.deps.host.createSectionResource({
+      const made = await this.deps.host.createSectionResource({
         name: e.preview.title,
         endpoints: [server],
         coordinatorUrl: server,
-        resourceId: R,
+        resourceId: fromBase64url(e.requested ?? e.resource) as ResourceId,
       });
+      // The host may make it under another ID (a device's section is its root's, §7.3):
+      // journaled before the import, so that everything after goes to the made one.
+      if (toBase64url(made) !== e.resource) {
+        e = { ...e, requested: e.requested ?? e.resource, resource: toBase64url(made) };
+        await this.#save(e);
+        R = made;
+      }
       await this.deps.host.openSection(R);
       let receipt: Receipt | undefined;
       try {

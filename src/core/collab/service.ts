@@ -116,6 +116,13 @@ export interface CollabRuntime {
   profileOf(resource: ResourceId): Promise<SharedObjectsDataProfile>;
   writeIntent(resource: ResourceId, intent: ReplicaIntent): Promise<DataUnitId | null>;
   on(listener: (e: SyncEvent) => void): () => void;
+  /** A new shared-sections Resource, made locally (LfcpRuntime.createSectionResource). */
+  createSectionResource?(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+    readonly resourceId?: ResourceId;
+  }): Promise<ResourceId>;
   /** The session phase of a Resource ("CLOSED" when not open). */
   phase(resource: ResourceId): string;
   collaborationContext(): CollaborationContext | null;
@@ -156,7 +163,64 @@ export interface CollabOptions {
   readonly sections?: boolean;
   /** LFCP-02-095 (V3): sections are read-only on this device, so nobody is invited from it. */
   readonly sectionsReadOnly?: boolean;
+  /**
+   * This installation as a device of a person (LFCP-04-413e,
+   * IDENTITY-PROFILE-01 §7.2, §7.3): null when it is no device (no device
+   * list, or the first device, the root itself).
+   */
+  readonly device?: () => Promise<DeviceOrigin | null>;
+  /**
+   * A section this installation created or joined as itself (not as a
+   * device): the device flows list it in the person's roster, so that
+   * the person's other devices get it (LFCP-04-413e item 3).
+   */
+  readonly onNewSection?: (resource: ResourceId) => Promise<void>;
 }
+
+/**
+ * What a device that is not the first one does instead (§7.2, §7.3): its
+ * joins claim for the root, its new sections are the root's. The device
+ * flows implement it (DeviceService).
+ */
+export interface DeviceOrigin {
+  /**
+   * The Data Profile of an invitation's Resource, read-only and before any
+   * claim: its chain read as the link's Invitation Principal (W §41).
+   */
+  profile(link: string): Promise<InviteProfile>;
+  /** §7.2: accepts an invitation for the root; `operation` resumes an earlier one. */
+  accept(link: string, name: string, operation?: string): Promise<DeviceJoin>;
+  /**
+   * §7.3: creates a shared section owned by the root (Genesis field 5),
+   * hosted now, its key sealed to the root, listed in the roster. The same
+   * `operation` resumes it (the same section).
+   */
+  create(o: {
+    readonly name: string;
+    readonly url: string;
+    readonly operation: string;
+  }): Promise<DeviceCreate>;
+}
+
+/** What a device's creation of a section did. */
+export type DeviceCreate =
+  | { readonly kind: "created"; readonly resourceId: ResourceId; readonly listed: boolean }
+  | { readonly kind: "refused"; readonly code: string; readonly message: string }
+  | { readonly kind: "unavailable"; readonly message: string };
+
+/** What an invitation's Resource is, as read before the claim. */
+export type InviteProfile =
+  | { readonly kind: "profile"; readonly profile: string }
+  | { readonly kind: "invalid"; readonly message: string }
+  | { readonly kind: "unavailable"; readonly message: string };
+
+/** What a device's acceptance of an invitation did. */
+export type DeviceJoin =
+  /** Claimed for the root; the device registered, the root keyed, the roster written (or not yet: `listed`). */
+  | { readonly kind: "claimed"; readonly resourceId: ResourceId; readonly listed: boolean }
+  | { readonly kind: "refused"; readonly code: string; readonly message: string }
+  /** Not reached: the same link (the journaled operation) finishes it. */
+  | { readonly kind: "unavailable"; readonly message: string; readonly operation?: string };
 
 /** Why something needs the network and could not get it, or was refused. */
 export type HostOutcome =
@@ -352,6 +416,8 @@ export const expectHosting = (
 interface JoinRecord {
   readonly name: string;
   readonly url: string;
+  /** A device's acceptance not finished (§7.2): its operation, resumed by the same link. */
+  readonly deviceOperation?: string;
 }
 const joinNameKey = (R: ResourceId): string => `collab-join-name:${toHex(R)}`;
 
@@ -386,6 +452,8 @@ export class Collaboration {
       now: options.now ?? Date.now,
       sections: options.sections ?? false,
       sectionsReadOnly: options.sectionsReadOnly ?? false,
+      device: options.device ?? (async () => null),
+      onNewSection: options.onNewSection ?? (async () => undefined),
     };
   }
 
@@ -713,6 +781,10 @@ export class Collaboration {
         ? { kind: "removed", resourceId: R }
         : { kind: "already-member", resourceId: R };
     }
+    // §7.2: a device that is not the first one claims for its root, never as itself.
+    const device = await this.#o.device();
+    if (device !== null)
+      return this.#joinAsDevice(R, uri.trim(), options.name, stage, device, { profiles, wanted });
     await this.#runtime.localState.put(joinNameKey(R), {
       name: options.name,
       url: parseInviteUri(uri.trim()).endpoints[0] ?? "",
@@ -774,7 +846,9 @@ export class Collaboration {
         ...(claimSent ? { claimSent: true as const } : {}),
       };
     }
-    return this.#finishJoin(R, accepted.abilities, options.name, stage);
+    const joined = await this.#finishJoin(R, accepted.abilities, options.name, stage);
+    await this.#listed(R);
+    return joined;
   }
 
   /**
@@ -788,6 +862,100 @@ export class Collaboration {
       return false;
     const access = await this.#runtime.canWriteSection(R).catch(() => null);
     return access?.reason === "revoked" || access?.reason === "server-refused";
+  }
+
+  /**
+   * The Resource of a new shared section (the section creation's host,
+   * LFCP-02-050). On a device that is not the first one it is its root's
+   * (IDENTITY-PROFILE-01 §7.3): created with the SDK's
+   * createResourceAsDevice (Genesis with the device's chain, hosted now,
+   * the key sealed to the root, the roster entry), under an operation
+   * derived from `resourceId`, so that a resume finds the same section;
+   * its ID is the SDK's, which this returns. Elsewhere it is made locally
+   * as before, under `resourceId`, and hosted later.
+   */
+  async createSectionResource(options: {
+    readonly name: string;
+    readonly endpoints: readonly string[];
+    readonly coordinatorUrl: string;
+    readonly resourceId: ResourceId;
+  }): Promise<ResourceId> {
+    const device = await this.#o.device();
+    if (device === null) {
+      if (this.#runtime.createSectionResource === undefined)
+        throw new CollabError("UNSUPPORTED_VALUE");
+      const R = await this.#runtime.createSectionResource(options);
+      await this.#listed(R);
+      return R;
+    }
+    if (this.#o.sectionsReadOnly) throw new CollabError("SECTIONS_READ_ONLY", SECTIONS_READ_ONLY);
+    const r = await device.create({
+      name: options.name,
+      url: options.coordinatorUrl,
+      operation: `create-resource.${toHex(options.resourceId).slice(0, 32)}`,
+    });
+    if (r.kind === "refused") throw new CollabError(r.code, r.message);
+    if (r.kind === "unavailable") throw new CollabError("UNAVAILABLE", r.message);
+    // Stored and opened as a section of the roster is; already stored on a resume.
+    await this.openFromRoster(r.resourceId, options.name);
+    return r.resourceId;
+  }
+
+  /**
+   * A join on a device of a person (IDENTITY-PROFILE-01 §7.2): the claim
+   * names the root, signed by the Invitation Principal; the device
+   * registers itself, seals the keys to the root (and registers and keys
+   * the root's other devices when it may), and the section is added to the
+   * roster, so the person's other devices get it too. Then the section is
+   * stored and opened here as any joined one. An acceptance not reached is
+   * kept with its operation and finished by the same link.
+   */
+  async #joinAsDevice(
+    R: ResourceId,
+    uri: string,
+    name: string,
+    stage: (s: JoinStage) => void,
+    device: DeviceOrigin,
+    filter: { readonly profiles: readonly string[]; readonly wanted: readonly string[] },
+  ): Promise<JoinOutcome> {
+    const key = joinNameKey(R);
+    const kept = (await this.#runtime.localState.get(key)) as JoinRecord | undefined;
+    // The link's Data Profile, read before the claim (as acceptInvitation's dataProfiles):
+    // a link of another kind, or one this version cannot open, is refused unused.
+    stage("validating invitation");
+    const read = await device.profile(uri);
+    if (read.kind === "unavailable")
+      return { kind: "unavailable", message: read.message, resourceId: R };
+    if (read.kind === "invalid")
+      return { kind: "refused", code: "INVALID_INVITATION", message: read.message };
+    if (!filter.wanted.includes(read.profile))
+      return filter.profiles.includes(read.profile)
+        ? { kind: "other-profile", resourceId: R, profile: read.profile }
+        : { kind: "needs-newer-version", resourceId: R };
+    stage("claiming capability");
+    const r = await device.accept(uri, name, kept?.deviceOperation);
+    if (r.kind === "unavailable") {
+      await this.#runtime.localState.put(key, {
+        name,
+        url: parseInviteUri(uri).endpoints[0] ?? "",
+        ...(r.operation === undefined ? {} : { deviceOperation: r.operation }),
+      } satisfies JoinRecord);
+      return { kind: "unavailable", message: r.message, resourceId: R };
+    }
+    await this.#runtime.localState.put(key, null);
+    if (r.kind === "refused") return { kind: "refused", code: r.code, message: r.message };
+    const c = this.#context();
+    const chain = await loadControlChain(c.storage, R);
+    // The claim granted the root: the abilities shown are the person's.
+    const owner = chain?.kind === "linear" ? chain : undefined;
+    const root = owner?.state.devices.get(toHex(c.principal.id))?.root;
+    const granted = owner === undefined || root === undefined ? [] : abilitiesOf(owner.state, root);
+    return this.#finishJoin(R, granted, name, stage);
+  }
+
+  /** A section made or joined as this installation: for the person's roster; never a reason to fail. */
+  async #listed(R: ResourceId): Promise<void> {
+    await this.#o.onNewSection(R).catch(() => undefined);
   }
 
   /** The claimed Resource stored and opened (a section: until it is loaded). */
@@ -926,8 +1094,11 @@ export class Collaboration {
     });
     const name = record.name;
     switch (settled.kind) {
-      case "claimed":
-        return this.#finishJoin(R, settled.abilities, name, () => undefined);
+      case "claimed": {
+        const joined = await this.#finishJoin(R, settled.abilities, name, () => undefined);
+        await this.#listed(R);
+        return joined;
+      }
       case "not-claimed":
       case "none":
         await this.#runtime.localState.put(joinNameKey(R), null);

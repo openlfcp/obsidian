@@ -295,6 +295,55 @@ describe("creating a shared section", () => {
     expect(Object.keys(snap?.nodes ?? {})).toHaveLength(4);
   });
 
+  it("a host that makes the Resource under its own ID (a device's section, §7.3): the creation follows it, across crashes", async () => {
+    const env = await setup();
+    // As the SDK's createResourceAsDevice under an operation derived from the requested ID:
+    // the same request always finds the same Resource, whose ID the host chose.
+    const made = new Map<string, ResourceId>();
+    const asked: string[] = [];
+    let crashAfterMaking = true;
+    env.deps = {
+      ...env.deps,
+      host: {
+        ...env.deps.host,
+        createSectionResource: async (o) => {
+          asked.push(toBase64url(o.resourceId));
+          const key = toBase64url(o.resourceId);
+          const R = made.get(key) ?? (new Uint8Array(32).fill(200 + made.size) as ResourceId);
+          made.set(key, R);
+          await env.r.createSectionResource({ ...o, resourceId: R });
+          if (crashAfterMaking) {
+            crashAfterMaking = false;
+            throw new Error("crash after the Resource");
+          }
+          return R;
+        },
+      },
+    };
+    const entry = await new SectionCreation(env.deps).prepare("Launch.md", NOTE, env.preview());
+    await expect(new SectionCreation(env.deps).run(entry)).rejects.toThrow(
+      "crash after the Resource",
+    );
+    // The import is lost once after the switch was journaled.
+    env.fail.commit = "before";
+    const [again] = await new SectionCreation(env.deps).unfinished();
+    if (again === undefined) throw new Error("nothing to resume");
+    await expect(new SectionCreation(env.deps).run(again)).rejects.toThrow("connection lost");
+    env.fail.commit = "";
+    const [last] = await new SectionCreation(env.deps).unfinished();
+    if (last === undefined) throw new Error("nothing to resume");
+    const done = await new SectionCreation(env.deps).run(last);
+    expect(done.kind).toBe("hosted");
+    const R = made.get(entry.resource) as ResourceId;
+    // Every run asked with the ID chosen before any effect; one Resource; everything on the made one.
+    expect(asked).toEqual([entry.resource, entry.resource, entry.resource]);
+    expect(done.entry).toMatchObject({ resource: toBase64url(R), requested: entry.resource });
+    expect(await env.sectionResources()).toHaveLength(1);
+    expect(env.hosted).toEqual([toBase64url(R)]);
+    expect(env.port.snapshot(toBase64url(R), entry.sectionId)?.ready).toBe(true);
+    expect(env.files.get("Launch.md")).toContain(toBase64url(R));
+  });
+
   it("a lost ACK: the receipt decides; no receipt, the next run commits the same batch", async () => {
     const env = await setup();
     const creation = new SectionCreation(env.deps);

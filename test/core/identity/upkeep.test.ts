@@ -5,11 +5,12 @@
 // step 10, §7.1).
 
 import { deliverKeys, heldDeks, PackageLedger, syncChain } from "@openlfcp/client";
-import { fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
+import { actorSequence, fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
 import {
   decodeControlRecord,
   parseKeyPackage,
   revocationOf,
+  sealDataUnit,
   signControlRecord,
 } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
@@ -330,4 +331,41 @@ it("an owner without a device list hands on a new key the server refused to anot
   expect(second.summary).toBe('Handed on the new key of "Plans".');
   expect((await a.service.unfinished()).filter((u) => u.kind === "handover")).toEqual([]);
   expect((await a.service.upkeep(true)).summary).toBe("Nothing to finish.");
+});
+
+it("a unit that decrypts but is no valid change of the profile stays out of the rotation frontier (sdk-ts#21)", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  // A unit of A that passes AEAD with the epoch's key, but is not a framed change (W §26.3 rule 7).
+  const actx = a.runtime.collaborationContext();
+  if (actx === null) throw new Error("not ready");
+  const chain = world.server.chain(X);
+  const dek = (await heldDeks(actx.secrets, chain)).get(String(chain.state.epoch.epoch));
+  if (dek === undefined) throw new Error("no key");
+  const junk = sealDataUnit(
+    {
+      resourceId: X,
+      dataEpoch: chain.state.epoch.epoch,
+      actorSeq: actorSequence(1n),
+      prevDataUnitId: null,
+      controlHead: chain.state.head,
+    },
+    new TextEncoder().encode("not a change"),
+    dek,
+    actx.principal.signer,
+  );
+  world.server.inject(X, junk.bytes);
+  // B retires itself; A's upkeep closes X's epoch: the junk unit is not counted as A's data.
+  await b.service.remove(me(b), 0n, "Phone");
+  await synced(a, X);
+  const before = epochs(X);
+  await a.service.upkeep();
+  expect(epochs(X)).toBe(before + 1);
+  const last = world.server.chain(X).records.at(-1)?.body;
+  if (last?.type !== "KEY_EPOCH") throw new Error("no KEY_EPOCH");
+  const mine = last.finalFrontier.find((h) => toHex(h.principalId) === me(a));
+  expect(mine?.contiguous ?? 0n).toBe(0n);
 });
