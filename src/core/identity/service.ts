@@ -260,6 +260,22 @@ const REMOVED =
 
 const reasonText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/**
+ * The SDK's local compare-and-set of a Control Chain lost to another writer
+ * of the same storage (LFCP-04-414c). The flow saves a record the server
+ * ACKed over the chain it read; this device's open session of that Resource
+ * gets the same record from the server and may store it first. The SDK
+ * (0.4.0) then throws, although the stored chain already holds the record.
+ * Its operation is journaled: resumed, it reads the stored chain, finds its
+ * own record committed and goes on (§9.1). Matched by message: the SDK
+ * throws a plain Error here.
+ */
+const storeRace = (e: unknown): boolean =>
+  e instanceof Error && e.message === "the Control Chain was not stored: CONTROL_HEAD_MISMATCH";
+
+/** Resumptions of one operation after a store race, before its error stands. */
+const STORE_RACE_ATTEMPTS = 4;
+
 export class DeviceService {
   readonly #o: DeviceServiceOptions;
   readonly #flows: IdentityFlows;
@@ -1099,17 +1115,40 @@ export class DeviceService {
       });
       return approvalView(r, review.label, await this.names());
     } catch (e) {
+      // The approval is journaled before its first record: resumed from there.
+      const operation = storeRace(e) ? await this.#openApproval(review) : undefined;
+      if (operation !== undefined) return this.finishApproval(operation, review.label);
       return this.#thrown(e);
     }
   }
 
-  /** "Finish": resumes an approval from its next phase (§9.1). */
+  /** The open journaled approval of `review`'s request, the latest if several. */
+  async #openApproval(review: PairingReview): Promise<string | undefined> {
+    const ops = await new OperationJournal(this.#context().storage).list({
+      kind: "pairing-approval",
+      status: "open",
+    });
+    return ops
+      .filter(
+        (op) => op.intent.session === review.session && op.intent.requestKey === review.requestKey,
+      )
+      .sort((x, y) => y.createdAt - x.createdAt)[0]?.id;
+  }
+
+  /**
+   * "Finish": resumes an approval from its next phase (§9.1). A phase that
+   * lost the local store race to an open session (storeRace) is resumed
+   * again: it reads the chain that session stored and goes on from there.
+   */
   async finishApproval(operation: string, label: string): Promise<ApprovalView> {
-    try {
-      const r = await this.#flows.resumeApproval(this.#flow(), operation);
-      return approvalView(r, label, await this.names());
-    } catch (e) {
-      return this.#thrown(e);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const r = await this.#flows.resumeApproval(this.#flow(), operation);
+        return approvalView(r, label, await this.names());
+      } catch (e) {
+        if (storeRace(e) && attempt < STORE_RACE_ATTEMPTS) continue;
+        return this.#thrown(e);
+      }
     }
   }
 
