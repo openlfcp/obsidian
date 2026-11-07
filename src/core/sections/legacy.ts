@@ -19,6 +19,7 @@ import {
   type ScalarField,
   type TaskView,
 } from "@openlfcp/shared-objects";
+import { assignedPeople, type People } from "../identity/people";
 import { type MarkdownProjectionRef, scanRefs } from "../refs";
 import { splitLines } from "../refs/lines";
 import type { NewSectionTask } from "./port";
@@ -32,6 +33,8 @@ export interface LegacySource {
   readonly revision: string;
   /** Local changes of the source not yet sent: the copy shows this device's state. */
   readonly pending: boolean;
+  /** The source's people (LFCP-04-411): assignees are counted by person. Absent: each reference is one. */
+  readonly people?: People;
 }
 
 export interface LegacyTask {
@@ -70,8 +73,16 @@ export interface LegacyPreview {
   readonly choices: readonly LegacyChoice[];
   /** Lines entering the shared boundary for the first time (CM04): not a legacy Task or its ref. */
   readonly newlyShared: readonly string[];
-  /** Assignees copied as values; they get no access (CM12). */
-  readonly assignees: readonly { readonly objectId: string; readonly refs: readonly string[] }[];
+  /**
+   * Assignees copied as values, exactly as written; they get no access
+   * (CM12). `people`: how many humans they are (decision I6: a device's
+   * reference and its root's are one human, IDENTITY-PROFILE-01 §10).
+   */
+  readonly assignees: readonly {
+    readonly objectId: string;
+    readonly refs: readonly string[];
+    readonly people: number;
+  }[];
   /** Sources with local changes not yet sent: the copy reflects this device's state. */
   readonly pendingSources: readonly string[];
   /** For the journal: each source's revision as captured. */
@@ -122,7 +133,7 @@ export function legacyPreflight(
   }));
   const blocks: LegacyBlock[] = [];
   const choices: LegacyChoice[] = [];
-  const assignees: { objectId: string; refs: string[] }[] = [];
+  const assignees: { objectId: string; refs: string[]; people: number }[] = [];
   const pendingSources = new Set<string>();
   const captured: Record<string, string> = {};
   const seen = new Map<string, number[]>();
@@ -157,7 +168,12 @@ export function legacyPreflight(
         choices.push({ code: "CONFLICT", objectId: t.objectId, field, values: f.values });
     }
     const refsOf = Object.keys(task.assignees);
-    if (refsOf.length > 0) assignees.push({ objectId: t.objectId, refs: refsOf });
+    if (refsOf.length > 0)
+      assignees.push({
+        objectId: t.objectId,
+        refs: refsOf,
+        people: s.people === undefined ? refsOf.length : assignedPeople(s.people, refsOf).length,
+      });
     const lines = seen.get(t.objectId) ?? [];
     if (lines.length > 1) choices.push({ code: "REPEATED", objectId: t.objectId, lines });
   }

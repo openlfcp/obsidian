@@ -9,26 +9,26 @@ importers:
   .:
     dependencies:
       '@openlfcp/client':
-        specifier: 0.2.2
-        version: 0.2.2
+        specifier: 0.3.1
+        version: 0.3.1
       '@openlfcp/core':
-        specifier: 0.2.2
-        version: 0.2.2
+        specifier: 0.3.1
+        version: 0.3.1
       '@openlfcp/crypto':
-        specifier: 0.2.2
-        version: 0.2.2
+        specifier: 0.3.1
+        version: 0.3.1
       '@openlfcp/shared-objects':
-        specifier: 0.2.2
-        version: 0.2.2
+        specifier: 0.3.1
+        version: 0.3.1
       '@openlfcp/storage':
-        specifier: 0.2.2
-        version: 0.2.2
+        specifier: 0.3.1
+        version: 0.3.1
       '@openlfcp/storage-idb':
-        specifier: 0.2.2
-        version: 0.2.2
+        specifier: 0.3.1
+        version: 0.3.1
       '@openlfcp/wire':
-        specifier: 0.2.2
-        version: 0.2.2
+        specifier: 0.3.1
+        version: 0.3.1
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.15
@@ -416,39 +416,39 @@ packages:
     resolution: {integrity: sha512-+P9981IiAnVh+rmcubozzVwrEy3XsN/tMhTnvsjV9VDaYpOnNCqWqKo2FLWxbu92YHfjGIlE5XnW175UK+ln+Q==}
     engines: {node: '>= 20.19.0'}
 
-  '@openlfcp/client@0.2.2':
-    resolution: {integrity: sha512-GM0V0knZsLi6qR5EvSudOu6NNTvUANjzZBZ4MNiecGXvWgeakFMIDyALaQbYiBFrufgRH+CrUWcsFNk4rVjkKg==}
+  '@openlfcp/client@0.3.1':
+    resolution: {integrity: sha512-hwm86YVXb0pLnZYyd7UXHkXnCLyT7iwcF/06RPwyUL8IM6IKdt2nf5ajQxDQwbua7I9TfKze+6XU7X3UV294uQ==}
     engines: {node: '>=24'}
 
-  '@openlfcp/core@0.2.2':
-    resolution: {integrity: sha512-HJCd7iBv3J0bVVaCGXbjhSCuTYHm/D6h3UaGleRZm8nTrPlBHTPwFdoMe3HdVzR7qcjwKa2W1Ss7mbPEcaAABg==}
+  '@openlfcp/core@0.3.1':
+    resolution: {integrity: sha512-3DoQTSRGSyBrG+MJQOvFSJxcBCEHZgAyqfXbLc5ux5453yxcE7PsTuYzh1dZ9S5TMYonQ4F8hJn6O+TKJxBWOw==}
     engines: {node: '>=24'}
 
-  '@openlfcp/crypto@0.2.2':
-    resolution: {integrity: sha512-jD5YHNruZSv8gR82ges2bqgab6aMv5hDDiXIifim7ffwySJcmytqsCJxHt/cZUNdoZycBD5M1nA2uiz38gmq5A==}
+  '@openlfcp/crypto@0.3.1':
+    resolution: {integrity: sha512-qgcbucJ76GcZ9DNNhzOdauw7E6Xf6Zq1DQGL5dd67bEG45UpBUWNvznUw9Y4xuReX9efFZZdnzOy8EI5Sv4GLA==}
     engines: {node: '>=24'}
 
-  '@openlfcp/shared-objects@0.2.2':
-    resolution: {integrity: sha512-AclP6R+4Yc0YHw3WWxdkR/Ocq8qcEeofQVb2TcClUoCl6bZM7j5aLtx4+IdLOfkY8WDoM8j91uqikCkQo+qVgA==}
+  '@openlfcp/shared-objects@0.3.1':
+    resolution: {integrity: sha512-q7ohB0CiDkqR7Xq+ikCxuq0lmF4HxrxlLu4ZQVfWCtoXxKl0pJwpwiI+lkquDXoJLgDKhhpABrMhGPoYStCeVQ==}
     engines: {node: '>=24'}
 
-  '@openlfcp/storage-idb@0.2.2':
-    resolution: {integrity: sha512-7bCceE6lUziMU2JH1Z/JZCE8kUbzf2K2GA91h6isQ/IxVAcIS/bVzdgux5GhLr1+9Ji9wvZVJBrB4OfJvHYNDA==}
+  '@openlfcp/storage-idb@0.3.1':
+    resolution: {integrity: sha512-iA92YslRCnKr0Urs49lR4ZB1mYzGluDgdJY2eWBdbVYJiiynyD2mz1gGrpeKmEj3qjDejn+tceEHuKIXAlp6xQ==}
     engines: {node: '>=24'}
 
-  '@openlfcp/storage@0.2.2':
-    resolution: {integrity: sha512-Uwu443zljvn7FE972NzXW/6k3qhxFEzOUkQJnxst0iN5FZ4b+kpfXYXimvw8BtzOnuD2q9hGiap0QnqaIcbdIA==}
+  '@openlfcp/storage@0.3.1':
+    resolution: {integrity: sha512-Gis1nMn0zJZZBvYDd6hG7vvPFEQlgKTH1J0DBoo58VSxE7KsQPFq3ioON2ent3NEs2B2226yF6l1EYgg3jtmsg==}
     engines: {node: '>=24'}
 
-  '@openlfcp/wire@0.2.2':
-    resolution: {integrity: sha512-9/BpbfV0VW8GSv6WrYLx9165fHV5NQD4Q/t62Lc4VQ7O6P2wf9kX3vxLAZaqq4cGPrh2qKkScGySAPbrBQC5bw==}
+  '@openlfcp/wire@0.3.1':
+    resolution: {integrity: sha512-9XfeZVG+zYUqwGR2vS5h1JJTMx/xW2+Ub9ZoF9Hhb0nYZJyjZxgbS0k347tTN5I+AtyCqvAD6i/61n4uptyFyQ==}
     engines: {node: '>=24'}
 
   '@oxc-project/types@0.152.0':
     resolution: {integrity: sha512-oM/5rLBm2tPkg0iBgkH/FOeR3PCDpY19GTgAZjMFM8h9WI9VW7cLgzp6nwtarYKmovavIQZ+Fe/RKX/8C8O/Rw==}
 
-  '@panva/hpke-noble@1.1.7':
-    resolution: {integrity: sha512-PYjl0Oi1vGMvJIRY0zbHC7FsUw+WZLSFhCgL5emcqVePmyC1sREWrPb3r3lUDRnT+AcgLV2JRitunuwQmh0IBA==}
+  '@panva/hpke-noble@1.1.8':
+    resolution: {integrity: sha512-2btKppvJTOsfEjTaTMVJSqQvfld3CQXi7oPa7v0MzbIIJPCcr8PRwrAM1NBcJeqUxYUG6R9N5gjNAAbDOPylrA==}
     peerDependencies:
       hpke: ^1.0.0
 
@@ -1190,8 +1190,8 @@ packages:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
 
-  hpke@1.1.7:
-    resolution: {integrity: sha512-wQGOBpFBFlP2h7euuLuey8yJGUtJ+c8D/ohPxtTQqpICItFtHDpbXk2B29xfUpIFPn0miS9TJVObFGAeEZzDJA==}
+  hpke@1.1.8:
+    resolution: {integrity: sha512-SYkH+rlJWclHv/GIrs2PB24B3rEaQr8rIRIpcCd1RIki3ZFck+c3tUukm6gR9k2MQ/LUJ8Gt5JQhaGfkBGaJsg==}
 
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
@@ -2240,54 +2240,54 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@openlfcp/client@0.2.2':
+  '@openlfcp/client@0.3.1':
     dependencies:
-      '@openlfcp/core': 0.2.2
-      '@openlfcp/crypto': 0.2.2
-      '@openlfcp/storage': 0.2.2
-      '@openlfcp/wire': 0.2.2
+      '@openlfcp/core': 0.3.1
+      '@openlfcp/crypto': 0.3.1
+      '@openlfcp/storage': 0.3.1
+      '@openlfcp/wire': 0.3.1
 
-  '@openlfcp/core@0.2.2': {}
+  '@openlfcp/core@0.3.1': {}
 
-  '@openlfcp/crypto@0.2.2':
+  '@openlfcp/crypto@0.3.1':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
-      '@openlfcp/core': 0.2.2
-      '@panva/hpke-noble': 1.1.7(hpke@1.1.7)
-      hpke: 1.1.7
+      '@openlfcp/core': 0.3.1
+      '@panva/hpke-noble': 1.1.8(hpke@1.1.8)
+      hpke: 1.1.8
 
-  '@openlfcp/shared-objects@0.2.2':
+  '@openlfcp/shared-objects@0.3.1':
     dependencies:
       '@automerge/automerge': 3.5.0
-      '@openlfcp/core': 0.2.2
-      '@openlfcp/crypto': 0.2.2
+      '@openlfcp/core': 0.3.1
+      '@openlfcp/crypto': 0.3.1
       fflate: 0.8.3
 
-  '@openlfcp/storage-idb@0.2.2':
+  '@openlfcp/storage-idb@0.3.1':
     dependencies:
-      '@openlfcp/core': 0.2.2
-      '@openlfcp/storage': 0.2.2
+      '@openlfcp/core': 0.3.1
+      '@openlfcp/storage': 0.3.1
 
-  '@openlfcp/storage@0.2.2':
+  '@openlfcp/storage@0.3.1':
     dependencies:
-      '@openlfcp/core': 0.2.2
+      '@openlfcp/core': 0.3.1
 
-  '@openlfcp/wire@0.2.2':
+  '@openlfcp/wire@0.3.1':
     dependencies:
-      '@openlfcp/core': 0.2.2
-      '@openlfcp/crypto': 0.2.2
+      '@openlfcp/core': 0.3.1
+      '@openlfcp/crypto': 0.3.1
 
   '@oxc-project/types@0.152.0': {}
 
-  '@panva/hpke-noble@1.1.7(hpke@1.1.7)':
+  '@panva/hpke-noble@1.1.8(hpke@1.1.8)':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
       '@noble/post-quantum': 0.7.1
-      hpke: 1.1.7
+      hpke: 1.1.8
 
   '@pkgr/core@0.1.2': {}
 
@@ -3263,7 +3263,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hpke@1.1.7: {}
+  hpke@1.1.8: {}
 
   ignore@5.3.2: {}
 

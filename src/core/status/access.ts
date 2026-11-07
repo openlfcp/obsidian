@@ -1,9 +1,13 @@
 // Who has access to a shared section, as the card shows it (LFCP-02-060,
 // OBSIDIAN-SHARED-SECTIONS-UX-01 §6 "Access list", §7; SI14, SI15, SI18).
-// Pure. Only the validated Control state speaks: identities are device
-// Principals (a local alias is a label of this device, never a verified
-// name), invitations and pending changes are not access, and an unknown or
-// stale view says so instead of listing an authoritative membership.
+// Pure. Only the validated Control state speaks: identities are people,
+// one row per root with its devices inside (IDENTITY-PROFILE-01 §10,
+// LFCP-04-411; a local alias is a label of this device for a root, never a
+// verified name), invitations and pending changes are not access, and an
+// unknown or stale view says so instead of listing an authoritative
+// membership.
+
+import { fingerprintOf, type PersonDevice } from "../identity/people";
 
 export interface AccessParticipant {
   /** Public Principal ID, shortened: the identity detail shown with an alias. */
@@ -15,6 +19,8 @@ export interface AccessParticipant {
   readonly abilities: readonly string[];
   /** An Invitation Principal: not anyone's access until claimed. */
   readonly invitation?: { readonly used: string; readonly limit: string };
+  /** The person's devices registered in this section; absent for a root without devices. */
+  readonly devices?: readonly (PersonDevice & { readonly you: boolean })[];
 }
 
 /** This vault's own access state (the SDK's AccessState, the parts shown). */
@@ -34,8 +40,13 @@ export interface MyAccess {
 export interface AccessInput {
   readonly participants: readonly AccessParticipant[];
   readonly mine: MyAccess | null;
-  /** Local aliases by Principal ID: labels of this device only. */
+  /** Local aliases by a root's short Principal ID: labels of this device only. */
   readonly aliases: Readonly<Record<string, string>>;
+  /**
+   * The reader's own devices' labels by Principal ID (hex), from its
+   * Identity Resource (§10); any other device is shown by its fingerprint.
+   */
+  readonly deviceLabels?: Readonly<Record<string, string>>;
   readonly connected: boolean;
   /** How a validation time reads ("at 14:02"). */
   readonly time: (ms: number) => string;
@@ -53,6 +64,63 @@ export interface AccessRow {
   readonly you: boolean;
   /** Removing this identity's access may be offered (by our abilities; not ourselves, not the owner). */
   readonly removable: boolean;
+  /**
+   * The person's installations here, the first one (the root's own) first:
+   * empty for a person without devices. "Remove access…" acts on the person
+   * (W §17.3); removing one device is not offered here.
+   */
+  readonly devices: readonly AccessDeviceRow[];
+}
+
+/** One installation of a person, inside its row. */
+export interface AccessDeviceRow {
+  readonly principal: string;
+  /** "This device", the reader's label for one of its own devices, or the device fingerprint. */
+  readonly label: string;
+  /** What it is, and why it does not act here when it does not. */
+  readonly detail: string;
+  readonly you: boolean;
+}
+
+const DEVICE_STATUS: Readonly<Record<PersonDevice["status"], string | null>> = {
+  active: null,
+  suspended: "suspended: a device that added it was removed",
+  removed: "removed",
+  inactive: "no access while its person has none",
+};
+
+const DEVICE_KIND: Readonly<Record<PersonDevice["kind"], string>> = {
+  personal: "device",
+  service: "service device (a bridge or bot)",
+  pairing: "pairing",
+  other: "device of a newer kind",
+};
+
+/** A person's installations as rows: its own (the root's) first, then each registered device. */
+function deviceRows(
+  p: AccessParticipant,
+  me: string | null,
+  labels: Readonly<Record<string, string>>,
+): AccessDeviceRow[] {
+  const devices = p.devices ?? [];
+  if (devices.length === 0) return [];
+  const row = (principal: string, fingerprint: string, detail: string): AccessDeviceRow => ({
+    principal,
+    label: principal === me ? "This device" : (labels[principal] ?? fingerprint),
+    detail,
+    you: principal === me,
+  });
+  return [
+    row(p.principal, fingerprintOf(p.principal), "first device"),
+    ...devices.map((d) => {
+      const status = DEVICE_STATUS[d.status];
+      return row(
+        d.principal,
+        d.fingerprint,
+        status === null ? DEVICE_KIND[d.kind] : `${DEVICE_KIND[d.kind]}, ${status}`,
+      );
+    }),
+  ];
 }
 
 export interface AccessView {
@@ -106,6 +174,12 @@ export function accessView(input: AccessInput): AccessView {
       : mine?.allowed === false && (mine.reason === "revoked" || mine.reason === "not-member")
         ? "access removed"
         : null;
+  // This installation: the device row marked "you", or the person's own when it has no devices.
+  const me =
+    input.participants.flatMap((p) => p.devices ?? []).find((d) => d.you)?.principal ??
+    input.participants.find((p) => p.you)?.principal ??
+    null;
+  const labels = input.deviceLabels ?? {};
   const rows: AccessRow[] = unknown
     ? []
     : input.participants
@@ -125,6 +199,7 @@ export function accessView(input: AccessInput): AccessView {
                   : "can read",
           you: p.you,
           removable: mayRevoke && !p.you && !p.owner,
+          devices: deviceRows(p, me, p.you ? labels : {}),
         }));
   const invitations = unknown
     ? []

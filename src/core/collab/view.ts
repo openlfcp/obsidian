@@ -10,7 +10,7 @@
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { BARRIER_ENTRY_TEXT, IDENTITY_SYNC, identityBlocked } from "../lfcp/identity-barrier";
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
-import type { ResourceStatus } from "./service";
+import type { Participant, ResourceStatus } from "./service";
 
 export interface StatusRow {
   readonly label: string;
@@ -113,15 +113,26 @@ export function refusalNotice(
   return `Shared Tasks: "${noticeName(name)}" stopped syncing. ${refusalText(refusal, profile, false)}. Your tasks stay on this device; see "Resource status".`;
 }
 
+/** A person's devices in Resource status: fingerprints, with this device and those that do not act marked. */
+function devicesText(p: Participant): string {
+  if (p.devices === undefined || p.devices.length === 0) return "";
+  const list = p.devices.map(
+    (d) =>
+      `${d.fingerprint}${d.you ? " (this device)" : ""}${d.kind === "service" ? " (service)" : ""}${d.status === "active" ? "" : ` (${d.status})`}`,
+  );
+  return ` (devices: ${list.join(", ")})`;
+}
+
 export function statusView(s: ResourceStatus): StatusView {
   const section = s.profile === SECTIONS_PROFILE_ID;
   const you = s.participants.find((p) => p.you);
   const owner = s.participants.find((p) => p.owner);
+  // One entry per person (IDENTITY-PROFILE-01 §10), its devices after it.
   const people = s.participants
     .filter((p) => p.invitation === undefined)
     .map(
       (p) =>
-        `${p.id}${p.you ? " (you)" : ""}: ${p.owner ? "owner" : p.abilities.join(", ") || "no access"}`,
+        `${p.id}${p.you ? " (you)" : ""}: ${p.owner ? "owner" : p.abilities.join(", ") || "no access"}${devicesText(p)}`,
     );
   const invitations = s.participants
     .filter((p) => p.invitation !== undefined)
@@ -202,7 +213,7 @@ export function statusView(s: ResourceStatus): StatusView {
                 : s.blockedCollaborators
                     .map(
                       (b) =>
-                        `${b.id}: ${b.units} change${b.units === 1 ? "" : "s"} (${b.reasons.join(", ")})`,
+                        `${b.id}${b.from.length === 0 ? "" : ` (${b.from.join(", ")})`}: ${b.units} change${b.units === 1 ? "" : "s"} (${b.reasons.join(", ")})`,
                     )
                     .join("; "),
           },

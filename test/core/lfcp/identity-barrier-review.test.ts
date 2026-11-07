@@ -1,24 +1,45 @@
 // LFCP-04-406 review follow-up (obsidian#105, R1–R3, B1–B2), against the
-// real runtime and SDK 0.2.2 with a scripted server: a barrier behind
-// another barrier in one batch, a refusal followed by LIVE from the sync of
-// the old head, a barrier for a Resource the session never opened, or still
-// opens, while another Resource's barrier is refused, records of an
-// earlier connection after a reconnect, and a late RESOURCE_OPENED (C1).
+// real runtime and SDK with a scripted server: a barrier behind another
+// barrier in one batch, a refusal followed by LIVE from the sync of the old
+// head, a barrier for a Resource the session never opened, or still opens,
+// while another Resource's barrier is refused, records of an earlier
+// connection after a reconnect, and a late RESOURCE_OPENED (C1).
+//
+// The barrier records here are type 9 with the body {0: h''}: not a valid
+// DEVICE_GRANT. SDK 0.2.2 refused type 9 as reserved ("Control Record type 9
+// is reserved", naming no Resource); SDK 0.3.0 reads types 9 and 10 and
+// refuses this body as MALFORMED, naming the Resource (refusedMalformed).
+// Either way the SDK refuses a barrier record and the Resource is blocked,
+// which is what these tests are about. A valid DEVICE_GRANT is accepted by
+// 0.3.0 and blocks nothing: R1's first barrier is one, so that the SDK
+// refuses the batch at its second record, as 0.2.2 did (review obsidian#107).
 
-import { LFCP_SUBPROTOCOL, type WebSocketFactory, type WebSocketLike } from "@openlfcp/client";
+import {
+  LFCP_SUBPROTOCOL,
+  leafPayload,
+  loadControlChain,
+  signChain,
+  type WebSocketFactory,
+  type WebSocketLike,
+} from "@openlfcp/client";
 import { type ResourceId, toHex } from "@openlfcp/core";
+import { generateAgreementKeyPair, generateSigningKeyPair } from "@openlfcp/crypto";
+import type { LfcpStorage } from "@openlfcp/storage";
 import {
   type AnyMessage,
   createMessage,
   decodeMessage,
   encodeMessage,
   objectId,
+  principalDescriptorFromKeys,
   replyTo,
   type ServerSession,
   type Signer,
   serverReceive,
+  signControlRecord,
   signObject,
   startServerSession,
+  validateControlChain,
   WIRE_PROFILE,
 } from "@openlfcp/wire";
 import { afterEach, describe, expect, it } from "vitest";
@@ -43,6 +64,30 @@ function record(R: ResourceId, seq: number, type: 6 | 9 | 31, prev: Uint8Array, 
   ).bytes;
 }
 
+interface SdkError {
+  readonly code: string;
+  readonly message: string;
+  readonly resource: string | null;
+}
+
+/** The SDK's errors on a runtime, as they come. */
+function sdkErrors(runtime: LfcpRuntime): SdkError[] {
+  const errors: SdkError[] = [];
+  runtime.on((e) => {
+    if (e.type === "error")
+      errors.push({
+        code: e.code,
+        message: e.message,
+        resource: e.resourceId === undefined ? null : toHex(e.resourceId),
+      });
+  });
+  return errors;
+}
+
+/** The SDK refused `R`'s records as malformed: SDK 0.3.0's refusal of this type-9 body. */
+const refusedMalformed = (errors: readonly SdkError[], R: ResourceId): boolean =>
+  errors.some((e) => e.code === "MALFORMED_MESSAGE" && e.resource === toHex(R));
+
 async function until(check: () => boolean): Promise<void> {
   for (let i = 0; i < 300; i++) {
     if (check()) return;
@@ -66,22 +111,44 @@ async function started(webSocket: WebSocketFactory) {
 }
 
 describe("identity barrier review follow-up (obsidian#105)", () => {
-  it("R1: a commit with field 2 then a DEVICE_GRANT in one batch is blocked, at the first barrier", async () => {
+  it("R1: a barrier the SDK reads, then one it refuses, in one batch, is blocked at the first barrier", async () => {
     let records: Uint8Array[] = [];
     const server = new ScriptedServer(() => records, 2n);
     const { runtime, signer, section } = await started(server.factory);
     const { R, head } = await section("mixed");
-    const commit = record(R, 1, 6, head, signer);
-    records = [commit, record(R, 2, 9, objectId(commit), signer)];
-    const errors: string[] = [];
-    runtime.on((e) => {
-      if (e.type === "error") errors.push(e.message);
-    });
+    // The first barrier is a valid DEVICE_GRANT, which SDK 0.3.0 reads (SDK 0.2.2 read
+    // the original's commit with field 2 as far as its type, and refused the next record).
+    const stored = await loadControlChain(runtime.storage as LfcpStorage, R);
+    if (stored?.kind !== "linear") throw new Error("no chain");
+    const device = principalDescriptorFromKeys(
+      generateSigningKeyPair(),
+      generateAgreementKeyPair(),
+    );
+    const root = signer.descriptor.principalId;
+    const grant = signControlRecord(
+      { resourceId: R, controlSeq: 1n, prevControlId: head as never },
+      {
+        type: "DEVICE_GRANT",
+        root,
+        chain: signChain(stored.state, signer, leafPayload(root, device, 0, [1n, 2n], [])),
+      },
+      signer,
+    ).bytes;
+    const refused = record(R, 2, 9, objectId(grant), signer);
+    records = [grant, refused];
+    // The SDK's own validator: the first barrier alone passes, and the refusal names the later record.
+    const genesis = stored.records.map((r) => r.signed.bytes);
+    expect(validateControlChain([...genesis, grant]).kind).toBe("linear");
+    const both = validateControlChain([...genesis, grant, refused]);
+    expect(both.kind === "invalid" && toHex(both.recordId ?? new Uint8Array())).toBe(
+      toHex(objectId(refused)),
+    );
+    const errors = sdkErrors(runtime);
     await runtime.openSection(R);
     await until(() => runtime.identityBlock(R) !== null);
-    // The SDK's parser refused type 9 before it read the commit's body.
-    expect(errors.some((m) => m.includes("type 9 is reserved"))).toBe(true);
-    expect(runtime.identityBlock(R)).toMatchObject({ entry: "transfer-device", seq: "1" });
+    // The SDK refused the batch for its second record; the block is at the first barrier.
+    expect(refusedMalformed(errors, R)).toBe(true);
+    expect(runtime.identityBlock(R)).toMatchObject({ entry: "device-grant", seq: "1" });
   });
 
   it("R2: LIVE from the sync of the old head does not lift the block of the refused record", async () => {
@@ -234,17 +301,16 @@ describe("identity barrier review follow-up (obsidian#105)", () => {
       (await runtime.storage?.control.head(B))?.head ?? new Uint8Array(),
       signer,
     );
-    const errors: string[] = [];
-    runtime.on((e) => {
-      if (e.type === "error") errors.push(e.message);
-    });
+    const errors = sdkErrors(runtime);
     const a = A;
     const b = B;
     await runtime.openSection(a);
     await until(() => runtime.phase(a) === "OPENING");
     await runtime.openSection(b);
-    await until(() => errors.some((x) => x.includes("type 9")));
+    await until(() => refusedMalformed(errors, b));
     await until(() => runtime.identityBlock(b) !== null);
+    // A's batch came while A was OPENING: the SDK ignored it, and B's refusal is B's alone.
+    expect(refusedMalformed(errors, a)).toBe(false);
     expect(runtime.identityBlock(a)).toBeNull();
     releaseA();
     await until(() => runtime.phase(a) === "LIVE");
@@ -299,19 +365,16 @@ describe("identity barrier review follow-up (obsidian#105)", () => {
       old = record(r, 1, 31, prev, signer);
       if (toHex(objectId(old)) < toHex(objectId(grant))) break;
     }
-    const errors: string[] = [];
-    runtime.on((e) => {
-      if (e.type === "error") errors.push(e.message);
-    });
+    const errors = sdkErrors(runtime);
     await runtime.openSection(r);
-    await until(() => errors.some((x) => x.includes("type 31")));
+    await until(() => errors.some((x) => x.message.includes("type 31")));
     expect(runtime.identityBlock(r)).toBeNull();
     const client = runtime.collaborationContext()?.session(URL);
     if (client === undefined) throw new Error("no session");
     await client.stop();
     second = true;
     client.start();
-    await until(() => errors.some((x) => x.includes("type 9")));
+    await until(() => refusedMalformed(errors, r));
     await until(() => runtime.identityBlock(r) !== null);
     expect(runtime.identityBlock(r)).toMatchObject({ entry: "device-grant", seq: "1" });
   });
@@ -365,10 +428,7 @@ describe("identity barrier review follow-up (obsidian#105)", () => {
     R = r;
     head = (await runtime.storage?.control.head(r))?.head ?? new Uint8Array();
     grant = record(r, 1, 9, head, signer);
-    const errors: string[] = [];
-    runtime.on((e) => {
-      if (e.type === "error") errors.push(e.message);
-    });
+    const errors = sdkErrors(runtime);
     await runtime.openSection(r);
     await until(() => runtime.phase(r) === "LIVE");
     const client = runtime.collaborationContext()?.session(URL);
@@ -379,7 +439,7 @@ describe("identity barrier review follow-up (obsidian#105)", () => {
     await until(() => late !== undefined);
     // The SDK's own request timeout (15 s) sends RESOURCE_OPEN again; only its tick is advanced.
     client.tick(Date.now() + 16_000);
-    await until(() => errors.some((x) => x.includes("type 9")));
+    await until(() => refusedMalformed(errors, r));
     await client.idle();
     await sleep(80);
     expect(opens).toBe(2);

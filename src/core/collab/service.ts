@@ -53,6 +53,13 @@ import {
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import { principalKeySecretRef } from "@openlfcp/storage";
 import { ABILITY_NAMES, abilitiesOf, parseInviteUri } from "@openlfcp/wire";
+import {
+  blockedByPerson,
+  deviceDetail,
+  type PersonDevice,
+  peopleOf,
+  shortId,
+} from "../identity/people";
 import type { BarrierWatch, IdentityBlock } from "../lfcp/identity-barrier";
 import {
   type BlockedCollaborator,
@@ -241,15 +248,24 @@ export type JoinOutcome =
     };
 
 export interface Participant {
-  /** Public Principal ID, shortened for display. */
+  /** Public Principal ID, shortened for display: a person's root (IDENTITY-PROFILE-01 §10). */
   readonly id: string;
-  /** The full Principal ID (hex), to act on this identity (060). */
+  /** The full Principal ID (hex), to act on this identity (060): "Remove access…" acts on the root. */
   readonly principal: string;
+  /** The reader's person: this installation's root, whichever of its devices reads. */
   readonly you: boolean;
   readonly owner: boolean;
   readonly abilities: readonly string[];
   /** For an Invitation Principal: claims used of the limit. */
   readonly invitation?: { readonly used: string; readonly limit: string };
+  /** The person's devices registered in this Resource (W §7.2); absent for a root without devices. */
+  readonly devices?: readonly ParticipantDevice[];
+}
+
+/** A device of a participant (IDENTITY-PROFILE-01 §10 "Access list"): shown inside its person's row. */
+export interface ParticipantDevice extends PersonDevice {
+  /** This installation. */
+  readonly you: boolean;
 }
 
 export interface ConflictSummary {
@@ -286,9 +302,12 @@ export interface ResourceStatus {
    * count and reason codes. Never content.
    */
   readonly blockedCollaborators?: readonly {
+    /** The person (their root, IDENTITY-PROFILE-01 §10), shortened. */
     readonly id: string;
     readonly units: number;
     readonly reasons: readonly string[];
+    /** The devices that wrote them, as detail ("from …", "via …"); empty when only the root's own installation did. */
+    readonly from: readonly string[];
   }[];
 }
 
@@ -315,8 +334,6 @@ export class CollabError extends Error {
   }
 }
 
-const SHORT = 8;
-const short = (hex: string): string => hex.slice(0, SHORT);
 const hostingKey = (R: ResourceId): string => `collab-hosting:${toHex(R)}`;
 
 /**
@@ -941,22 +958,32 @@ export class Collaboration {
     const chain = await loadControlChain(c.storage, R);
     const state = chain?.kind === "linear" ? chain.state : null;
     const me = toHex(c.principal.id);
+    const people = peopleOf(state, me);
     const participants: Participant[] = [];
     if (state !== null) {
       const subjects = new Map<string, Participant>();
       const ownerId = toHex(state.owner.principalId);
+      // One row per person (§10): owners and grant subjects are roots (W §80.1
+      // role exclusivity), each with the devices registered for it here.
+      const devices = (root: string): Partial<Participant> => {
+        const list = people.devices(root);
+        return list.length === 0
+          ? {}
+          : { devices: list.map((d) => Object.freeze({ ...d, you: d.principal === me })) };
+      };
       const add = (hex: string, extra: Partial<Participant> = {}) => {
         const abilities = abilitiesOf(
           state,
           state.principals.get(hex)?.principalId ?? state.owner.principalId,
         );
         subjects.set(hex, {
-          id: short(hex),
+          id: shortId(hex),
           principal: hex,
-          you: hex === me,
+          you: people.mine(hex),
           owner: hex === ownerId,
           abilities:
             hex === ownerId ? ["owner"] : abilities.map((a) => ABILITY_NAMES.get(a) ?? String(a)),
+          ...devices(hex),
           ...extra,
         });
       };
@@ -967,11 +994,12 @@ export class Collaboration {
         if (subjects.has(hex)) continue;
         const holds = abilitiesOf(state, g.subject).map((a) => ABILITY_NAMES.get(a) ?? String(a));
         subjects.set(hex, {
-          id: short(hex),
+          id: shortId(hex),
           principal: hex,
-          you: hex === me,
+          you: people.mine(hex),
           owner: false,
           abilities: holds,
+          ...devices(hex),
           ...(g.claimLimit === null
             ? {}
             : { invitation: { used: String(g.claimsUsed), limit: String(g.claimLimit) } }),
@@ -1020,10 +1048,11 @@ export class Collaboration {
       ...(notApplied === undefined
         ? {}
         : {
-            blockedCollaborators: notApplied.map((b) => ({
-              id: short(b.principal),
+            blockedCollaborators: blockedByPerson(people, notApplied).map((b) => ({
+              id: shortId(b.root),
               units: b.units,
               reasons: b.reasons,
+              from: b.devices.flatMap((d) => deviceDetail(d) ?? []),
             })),
           }),
     };
