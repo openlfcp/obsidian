@@ -10,6 +10,11 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-11-07
+
+Ready for linked devices, which a later version adds.
+Notes: [docs/releases/0.6.1.md](docs/releases/0.6.1.md).
+
 ### Added
 
 - Ready for linked devices (one person, several devices), which a later
