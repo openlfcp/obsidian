@@ -106,7 +106,7 @@ import {
   upkeepText,
 } from "./pairing-view";
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
-import { PROFILE_CODECS } from "./profiles";
+import { UNIT_PROFILES } from "./profiles";
 import type { RosterAdd, RosterWriter } from "./roster";
 
 /** The pairing request of this device until every section it brought is opened here (P2-5). */
@@ -282,8 +282,8 @@ export class DeviceService {
         timeout: () => this.#o.sleep(ms),
       }),
       document: identityDocument,
-      // W §26.3 rule 7 in a rotation's frontier (SDK 0.3.1): the plugin's profiles.
-      dataProfiles: PROFILE_CODECS,
+      // W §26.3 rule 7 in a rotation's frontier, per unit (SDK 0.3.2): the plugin's profiles.
+      profiles: UNIT_PROFILES,
     };
   }
 
