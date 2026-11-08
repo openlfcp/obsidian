@@ -19,6 +19,7 @@
 // never logged, stored or put in a notice. Journals hold none (§9.8).
 
 import {
+  ChannelPool,
   checkIssuance,
   exposingRevocationsSince,
   type FlowOptions,
@@ -35,6 +36,7 @@ import {
   type MaskPreset,
   mayManageDevices,
   OperationJournal,
+  type OutstandingDelivery,
   PackageLedger,
   PairingLinkText as PairingLink,
   type PairingLinkText,
@@ -244,6 +246,17 @@ const owedOf = (v: unknown): OwedKey[] =>
       )
     : [];
 
+/** This device's stored chains (#localState). */
+interface LocalState {
+  /** The device list's chain, when this device has one and it is not forked. */
+  readonly identity: LinearChain | null;
+  /** The device list, when its chain is forked (§9.7): nothing is sealed on its behalf. */
+  readonly conflict: ResourceId | null;
+  /** This device manages devices in the device list. */
+  readonly manages: boolean;
+  readonly chains: ReadonlyMap<string, LinearChain>;
+}
+
 /** Thrown when OpenLFCP is not ready (locked, stopped, starting). */
 export class DevicesUnavailable extends Error {
   constructor() {
@@ -427,6 +440,14 @@ export class DeviceService {
       for (const r of o.recipients)
         if (!(owedKeys.get(r) ?? []).includes(o.resource))
           owedKeys.set(r, [...(owedKeys.get(r) ?? []), o.resource]);
+    // And the readers a committed key change still owes its new key, by the SDK's journal:
+    // kept across a restart, until every one has it (§9.1, §9.5).
+    for (const o of await this.#outstanding(local))
+      for (const r of o.recipients) {
+        const hex = toHex(o.resource);
+        if (!(owedKeys.get(r) ?? []).includes(hex))
+          owedKeys.set(r, [...(owedKeys.get(r) ?? []), hex]);
+      }
     for (const [device, resources] of owedKeys)
       out.push({
         kind: "handover",
@@ -444,11 +465,7 @@ export class DeviceService {
    * holds and has not sent it, by device (hex). A key change accepted
    * after which a package was lost is owed here until it is sent.
    */
-  async #keysOwed(local: {
-    readonly identity: LinearChain | null;
-    readonly manages: boolean;
-    readonly chains: ReadonlyMap<string, LinearChain>;
-  }): Promise<Map<string, string[]>> {
+  async #keysOwed(local: LocalState): Promise<Map<string, string[]>> {
     const out = new Map<string, string[]>();
     if (local.identity === null || !local.manages) return out;
     const c = this.#context();
@@ -478,16 +495,17 @@ export class DeviceService {
    * This device's stored chains: the device list (when this device is in
    * one and manages devices there) and every section of the registry.
    */
-  async #localState(): Promise<{
-    readonly identity: LinearChain | null;
-    readonly manages: boolean;
-    readonly chains: ReadonlyMap<string, LinearChain>;
-  }> {
+  async #localState(): Promise<LocalState> {
     const c = this.#context();
     const me = c.principal.id;
     const I = await this.identity();
     const stored = I === undefined ? undefined : await loadControlChain(c.storage, I);
-    const identity = stored?.kind === "linear" ? stored : null;
+    // A fork of the device list (§9.7) is stored as a conflict: no linear chain to act on.
+    const forked =
+      I !== undefined &&
+      ((await c.storage.control.conflict(I)) !== undefined ||
+        (stored !== undefined && stored.kind !== "linear"));
+    const identity = stored?.kind === "linear" && !forked ? stored : null;
     const chains = new Map<string, LinearChain>();
     for (const e of await this.#runtime().registry()) {
       const chain = await loadControlChain(c.storage, e.resourceId);
@@ -495,10 +513,24 @@ export class DeviceService {
     }
     return {
       identity,
+      conflict: forked ? I : null,
       manages:
         identity !== null && mayManageDevices(identity.state, me, identity.state.owner.principalId),
       chains,
     };
+  }
+
+  /**
+   * IDENTITY-PROFILE-01 §7.1 step 1: the device list every key change and
+   * hand-over of this device seals by, so that nothing goes to a device
+   * the person removed, even where a section still counts it as active.
+   * None without a device list (a key change still works); while the
+   * device list is forked (§9.7) nothing is sealed: IdentityConflict.
+   */
+  #deliveryIdentity(local: LocalState): { readonly identityChain?: LinearChain } {
+    if (local.conflict !== null)
+      throw new IdentityConflict(local.conflict, "the device list is forked (§9.7)");
+    return local.identity === null ? {} : { identityChain: local.identity };
   }
 
   /** §8.4: an exposing revocation since the current key, and this device may change the key. */
@@ -551,9 +583,13 @@ export class DeviceService {
     const issues: UpkeepIssue[] = [];
     const covered = new Set<string>();
     let reconciled = false;
+    // Key changes committed earlier whose new key is still owed (a crash after the change, a
+    // dropped connection or a refusal while handing it on), whichever operation made them:
+    // resumed by the SDK from its journal (§9.1, §9.5), never another key change.
+    const resumed = await this.#resumeDeliveries(flow, local, issues);
     // New keys a server refused to a reader after an earlier key change: the same operation
     // hands them on (§9.1, §9.2 Package), never another key change.
-    const handedOn = await this.#handOver(flow, local, issues);
+    const handedOn = [...new Set([...resumed, ...(await this.#handOver(flow, local, issues))])];
     // This device's sections the roster lacks are queued (a queue write a failure cut short,
     // a device flow whose roster entry was refused), then the queue is listed, before
     // reconciliation reads the roster (§7.1: it registers the person's devices there).
@@ -596,7 +632,7 @@ export class DeviceService {
       if (op.intent.by !== UPKEEP || typeof op.intent.resource !== "string") continue;
       const chain = local.chains.get(op.intent.resource);
       if (chain === undefined) continue;
-      const rotation = await this.#rotate(flow, journal, op.id, chain);
+      const rotation = await this.#rotate(flow, journal, op.id, chain, local);
       rotations.push(rotation);
       made.push({ rotation, operation: op.id });
       covered.add(op.intent.resource);
@@ -610,7 +646,7 @@ export class DeviceService {
         createdAt: flow.now(),
         intent: { by: UPKEEP, resource: hex },
       });
-      const rotation = await this.#rotate(flow, journal, id, chain);
+      const rotation = await this.#rotate(flow, journal, id, chain, local);
       rotations.push(rotation);
       made.push({ rotation, operation: id });
     }
@@ -837,14 +873,7 @@ export class DeviceService {
    * unreachable stays owed, as an issue. Returns the Resources (hex) whose
    * keys were all handed on.
    */
-  async #handOver(
-    flow: FlowOptions,
-    local: {
-      readonly identity: LinearChain | null;
-      readonly chains: ReadonlyMap<string, LinearChain>;
-    },
-    issues: UpkeepIssue[],
-  ): Promise<string[]> {
+  async #handOver(flow: FlowOptions, local: LocalState, issues: UpkeepIssue[]): Promise<string[]> {
     const runtime = this.#runtime();
     const owed = owedOf(await runtime.localState.get(OWED_KEY));
     if (owed.length === 0) return [];
@@ -866,8 +895,11 @@ export class DeviceService {
           flow.installation.signer,
           chain.state.route.coordinatorUrl,
         );
+        // The device list's removals hold for the retry too (§7.1 step 1).
+        const identity = this.#deliveryIdentity(local);
         const outcome = await this.#flows.rotateIfExposed({
           ...flow,
+          ...identity,
           channel,
           operation: o.operation,
           resource: chain.state.resourceId,
@@ -893,13 +925,66 @@ export class DeviceService {
       } catch (e) {
         if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
         still.push(o);
-        issues.push({ resource: o.resource, kind: "unreachable" });
+        issues.push({
+          resource: o.resource,
+          kind: e instanceof IdentityConflict ? "conflict" : "unreachable",
+        });
       } finally {
         channel?.close();
       }
     }
     await runtime.localState.put(OWED_KEY, still);
     return done;
+  }
+
+  /** The SDK's committed key changes whose new key is still owed, by this device's state. */
+  async #outstanding(local: LocalState): Promise<readonly OutstandingDelivery[]> {
+    const c = this.#context();
+    return this.#flows.outstandingDeliveries({
+      storage: c.storage,
+      installation: { signer: c.principal.signer, agreement: c.principal.agreement },
+      ...(local.identity === null ? {} : { identityChain: local.identity }),
+    });
+  }
+
+  /**
+   * Hands on what committed key changes still owe (the SDK's delivery
+   * marks, §9.1, §9.5): resumeRotations sends the missing packages to the
+   * readers of every person, through the device list's removals, and
+   * changes no key. Suspended while the device list is forked (§9.7).
+   * What is still owed stays listed in "Your devices…" and is an issue.
+   * Returns the Resources (hex) whose new key is now with every reader.
+   */
+  async #resumeDeliveries(
+    flow: FlowOptions,
+    local: LocalState,
+    issues: UpkeepIssue[],
+  ): Promise<string[]> {
+    const owed = await this.#outstanding(local);
+    if (owed.length === 0) return [];
+    const resources = [...new Set(owed.map((o) => toHex(o.resource)))];
+    if (local.conflict !== null) {
+      for (const resource of resources) issues.push({ resource, kind: "conflict" });
+      return [];
+    }
+    const pool = new ChannelPool(flow.network);
+    try {
+      await this.#flows.resumeRotations({ ...flow, ...this.#deliveryIdentity(local), pool });
+    } catch (e) {
+      if (
+        !(
+          e instanceof IdentityUnavailable ||
+          e instanceof IdentityRefused ||
+          e instanceof IdentityConflict
+        )
+      )
+        throw e;
+    } finally {
+      pool.closeAll();
+    }
+    const still = new Set((await this.#outstanding(local)).map((o) => toHex(o.resource)));
+    for (const resource of still) issues.push({ resource, kind: "keys" });
+    return resources.filter((r) => !still.has(r));
   }
 
   /**
@@ -942,16 +1027,25 @@ export class DeviceService {
     journal: OperationJournal,
     id: string,
     chain: LinearChain,
+    local: LocalState,
   ): Promise<RotationOutcome> {
     const resource = chain.state.resourceId;
     let channel: IdentityChannel | undefined;
     let outcome: RotationOutcome;
     try {
+      // The device list's removals hold for every key change of this device (§7.1 step 1).
+      const identity = this.#deliveryIdentity(local);
       channel = await flow.network.connect(
         flow.installation.signer,
         chain.state.route.coordinatorUrl,
       );
-      outcome = await this.#flows.rotateIfExposed({ ...flow, channel, operation: id, resource });
+      outcome = await this.#flows.rotateIfExposed({
+        ...flow,
+        ...identity,
+        channel,
+        operation: id,
+        resource,
+      });
     } catch (e) {
       if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
       outcome = { resource, status: "unreachable" };
