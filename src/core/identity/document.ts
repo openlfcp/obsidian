@@ -44,5 +44,13 @@ export const identityDocument: IdentityDocumentFactory = (
     devices: () => map(replica.validate().devices),
     requests: () => map(replica.validate().requests),
     origins: (table, key) => replica.origins(table, key),
+    // §7.1 step 4, §8.2 (sdk-ts 0.5.0): a retired entry's flag field by field. Every
+    // concurrent value of `revoked` is seen, and marking a device removed writes the flag
+    // alone, so a concurrent rename of it stays a conflict instead of being resolved.
+    retirement: {
+      revokedValues: (key) => replica.fieldValues("devices", key, "revoked"),
+      write: (author, intents, retire) =>
+        identityCodec.encode(replica.write(writer(author), intents, { retire })),
+    },
   };
 };

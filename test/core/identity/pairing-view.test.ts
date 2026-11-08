@@ -8,6 +8,9 @@ import {
   type Names,
   progressView,
   reviewView,
+  revokeView,
+  SESSION_NO_DEVICE_SUPPORT,
+  sessionView,
 } from "../../../src/core/identity/pairing-view";
 
 const names: Names = { resource: () => "Plans", device: (hex) => hex.slice(0, 4) };
@@ -92,5 +95,43 @@ describe("the new device's result (§5.3 step 8, §6)", () => {
     expect(view.final).toBe(false);
     expect(view.paused).toBe(true);
     expect(view.headline).not.toContain("on this device");
+  });
+});
+
+describe("sdk-ts 0.5.0 outcomes (IDENTITY-PROFILE-01 §6, §8.4)", () => {
+  it("a pairing session on a server without device support stops honestly, with no link", () => {
+    expect(sessionView({ kind: "unsupported", reason: "no identity-01" })).toEqual({
+      kind: "stop",
+      message: SESSION_NO_DEVICE_SUPPORT,
+    });
+    // A resumed session (it names one) reads the same: nothing was sent.
+    expect(sessionView({ kind: "unsupported", session: "s", reason: "no identity-01" })).toEqual({
+      kind: "stop",
+      message: SESSION_NO_DEVICE_SUPPORT,
+    });
+    expect(SESSION_NO_DEVICE_SUPPORT).toContain("nothing was changed");
+  });
+
+  it("a section where the removal was not needed counts as done and is not named", () => {
+    const I = generateResourceId();
+    const bound = generateResourceId();
+    const other = generateResourceId();
+    const label = (hex: string) =>
+      hex === toHex(bound) ? "Bound" : hex === toHex(other) ? "Elsewhere" : "List";
+    const view = revokeView(
+      {
+        kind: "revoked",
+        operation: "op",
+        results: [
+          { resource: I, revoke: "revoked" },
+          { resource: bound, revoke: "revoked" },
+          { resource: other, revoke: "not-relevant" },
+        ],
+        document: { state: "committed-own" },
+      },
+      "Laptop",
+      { resource: label, device: (hex) => hex.slice(0, 4) },
+    );
+    expect(view).toEqual({ kind: "done", message: 'Removed "Laptop".' });
   });
 });

@@ -10,6 +10,21 @@ since 0.4.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pairing a device no longer adds a record to every shared section. A
+  section keeps a limited number of such records, and enough pairings could
+  use them all up: a device removed later could then not be revoked in that
+  section. Removing a device still revokes it in every section it was added
+  to; a section where it could never act needs no record and is not named.
+- Removing a device keeps a name conflict: when two of your devices renamed
+  it at the same time, both names stay for you to choose from, instead of
+  one being kept by the removal. This holds when "Finish now" completes a
+  removal too.
+- "Add my other device…" on a device list whose server no longer supports
+  devices says so, makes no link and sends that server nothing; before, it
+  tried to add the link there anyway.
+
 ## [0.7.0] — 2026-11-08
 
 Linked devices: one person, several devices. Add a device with a link and
