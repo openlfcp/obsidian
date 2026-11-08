@@ -118,11 +118,12 @@ export const LOCK_MESSAGES: Readonly<Record<LockReason, string>> = {
  * (pairing needs a running one: its keys and database), so it is two
  * steps: a new identity in the settings (never made without the user
  * asking), then "Pair this device with a link…" with a link from "Add my
- * other device…" on a device that syncs. A new identity alone is someone
+ * other device…" on the first device or one with Full access (a device
+ * that only syncs may not add devices). A new identity alone is someone
  * else, without the earlier sections: said, never implied otherwise.
  */
 export function lockedText(reason: LockReason): string {
-  return `Shared Tasks can't open its local data on this device. ${LOCK_MESSAGES[reason]} Your notes are not affected. To get your shared sections here again, add this device to your identity in two steps: create a new identity in the Shared Tasks settings, then run "Pair this device with a link…" with a link from "Add my other device…" on a device of yours that syncs. A new identity on its own is a separate person, without your earlier sections.`;
+  return `Shared Tasks can't open its local data on this device. ${LOCK_MESSAGES[reason]} Your notes are not affected. To get your shared sections here again, add this device to your identity in two steps: create a new identity in the Shared Tasks settings, then run "Pair this device with a link…" with a link from "Add my other device…" on your first device or another with Full access. A new identity on its own is a separate person, without your earlier sections.`;
 }
 
 /** The local Principal: public identity plus its keys (never shown or exported). */

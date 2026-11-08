@@ -192,7 +192,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       identity.setDesc(
         status.reason === "lock-held"
           ? `Writing is paused. ${status.message} Close other windows on this vault, or restart Obsidian.`
-          : `Writing is paused. ${status.message} Your notes are not affected. To get your shared sections here again, add this device to your identity in two steps: 1. Create a new identity here (an empty start on this device; it can't be paired while locked). 2. On a device of yours that syncs, run "Add my other device…"; here, run "Pair this device with a link…". A new identity on its own is a separate person, without your earlier sections: collaborators then need to invite it again.`,
+          : `Writing is paused. ${status.message} Your notes are not affected. To get your shared sections here again, add this device to your identity in two steps: 1. Create a new identity here (an empty start on this device; it can't be paired while locked). 2. On your first device, or another with Full access, run "Add my other device…"; here, run "Pair this device with a link…". A new identity on its own is a separate person, without your earlier sections: collaborators then need to invite it again.`,
       );
       if (status.reason !== "lock-held")
         identity.addButton((button) =>

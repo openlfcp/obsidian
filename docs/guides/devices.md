@@ -92,9 +92,9 @@ it is. It takes two steps, and nothing is reset until you ask:
 
 1. In Settings → Shared Tasks, choose **Create a new identity**. This is
    an empty start on this device; your notes don't change.
-2. On a device of yours that syncs, run **"Add my other device…"**; on
-   this one, run **"Pair this device with a link…"** and go on as in
-   steps 4 to 6 above.
+2. On your first device, or another with Full access, run **"Add my
+   other device…"**; on this one, run **"Pair this device with a
+   link…"** and go on as in steps 4 to 6 above.
 
 Your shared sections then open there again, as you. A new identity on its
 own, without step 2, is a separate person: it has none of your earlier

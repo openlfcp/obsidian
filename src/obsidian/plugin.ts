@@ -131,7 +131,7 @@ export const LOCK_HELD_ADVICE =
 
 /** After "Create a new identity": the second step back to the person's sections. */
 export const NEW_IDENTITY_NEXT =
-  'this device now has a new, empty identity. To get your shared sections here, run "Pair this device with a link…" now, with a link from "Add my other device…" on a device of yours that syncs. Without that, this device is a separate person: collaborators would need to invite it again.';
+  'this device now has a new, empty identity. To get your shared sections here, run "Pair this device with a link…" now, with a link from "Add my other device…" on your first device or another with Full access. Without that, this device is a separate person: collaborators would need to invite it again.';
 
 export default class OpenLfcpPlugin extends Plugin {
   override settings: Settings = normalizeSettings(undefined);

@@ -181,7 +181,7 @@ describe("install (LFCP-059)", () => {
       expect(text, reason).toContain("Your notes are not affected.");
       // Pairing comes after a new identity: a locked install can't be paired itself.
       expect(text, reason).toMatch(
-        /two steps: create a new identity in the Shared Tasks settings, then run "Pair this device with a link…" with a link from "Add my other device…" on a device of yours that syncs\./,
+        /two steps: create a new identity in the Shared Tasks settings, then run "Pair this device with a link…" with a link from "Add my other device…" on your first device or another with Full access\./,
       );
       // A new identity alone is someone else: never implied to bring the sections back.
       expect(text, reason).toContain(
