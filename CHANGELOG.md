@@ -10,6 +10,11 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-08
+
+Fixes for linked devices from the final review of the specification.
+Notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md).
+
 ### Fixed
 
 - Pairing a device no longer adds a record to every shared section. A
