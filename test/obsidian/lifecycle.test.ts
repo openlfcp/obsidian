@@ -556,12 +556,15 @@ describe("plugin lifecycle (LFCP-059)", () => {
     const plugin = new TestPlugin(app as never, manifest as never);
     // What the plugin tells its sections host (the host itself needs a DOM: sections.test).
     const told: [string | null, boolean][] = [];
-    plugin.sectionsStub = new Proxy({} as Record<string, unknown>, {
-      get: (_t, name) =>
-        name === "unavailable"
-          ? (message: string | null, recover = false) => told.push([message, recover])
-          : () => Promise.resolve(),
-    });
+    plugin.sectionsStub = new Proxy<Record<string, unknown>>(
+      {},
+      {
+        get: (_t, name) =>
+          name === "unavailable"
+            ? (message: string | null, recover = false) => told.push([message, recover])
+            : () => Promise.resolve(),
+      },
+    );
     await plugin.onload();
     const r = await plugin.whenRuntimeStarted();
     expect(r?.status).toMatchObject({ kind: "locked", reason: "marker-missing" });
@@ -641,12 +644,15 @@ describe("plugin lifecycle (LFCP-059)", () => {
     const second = new TestPlugin(app as never, manifest as never);
     second.device = first.plugin.device;
     const told: [string | null, boolean][] = [];
-    second.sectionsStub = new Proxy({} as Record<string, unknown>, {
-      get: (_t, name) =>
-        name === "unavailable"
-          ? (message: string | null, recover = false) => told.push([message, recover])
-          : () => Promise.resolve(),
-    });
+    second.sectionsStub = new Proxy<Record<string, unknown>>(
+      {},
+      {
+        get: (_t, name) =>
+          name === "unavailable"
+            ? (message: string | null, recover = false) => told.push([message, recover])
+            : () => Promise.resolve(),
+      },
+    );
     await second.onload();
     expect((await second.whenRuntimeStarted())?.status).toMatchObject({
       kind: "locked",

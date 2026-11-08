@@ -94,7 +94,7 @@ describe("obsidian#104: a synced vault locked on this device", () => {
     if (requested.kind !== "requested") throw new Error(requested.message);
     const review = await until("the phone's request on the Mac", async () => {
       const r = await a.requests(session.session);
-      return Array.isArray(r) ? r[0] : undefined;
+      return r === null || "kind" in r ? undefined : r[0];
     });
     expect(review.fingerprint).toBe(requested.fingerprint);
     expect((await a.approve(review, "full")).kind).toBe("done");

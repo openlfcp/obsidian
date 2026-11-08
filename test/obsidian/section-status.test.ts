@@ -118,7 +118,7 @@ describe("a section's badge while Shared Tasks cannot run on this device", () =>
     for (const set of state.facet(EditorView.decorations))
       if (typeof set !== "function")
         set.between(0, state.doc.length, (_f, _t, d) => {
-          const w = d.spec.widget as {
+          const w = (d.spec as { widget?: unknown }).widget as {
             badge?: { state: string; icon: string | null; tooltip: string };
           };
           if (w?.badge !== undefined)
