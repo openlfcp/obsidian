@@ -21,6 +21,7 @@
 import type { ActionId } from "../actions/catalog";
 import { ACCESS_HELD, REPAIR_HELD } from "../actions/descriptors";
 import type { ProblemTarget } from "../actions/dispatcher";
+import { IDENTITY_BLOCKED } from "../lfcp/identity-barrier";
 import { sectionKey } from "../sections/context";
 import type { RecoveryItem } from "../sections/recovery";
 import { type KeyedRepair, restoreText } from "../sections/repair";
@@ -155,6 +156,9 @@ export const accessProblemId = (
   c: Extract<Condition, { kind: "access" | "server-refused" }>,
 ): string => (c.kind === "access" ? `access:${c.access}` : `server-refused:${c.code}`);
 
+/** The row of a section past an identity barrier (LFCP-04-406). */
+export const NEWER_VERSION_PROBLEM_ID = "newer-version";
+
 /** A server's refusal on the surface; its code is the details card's. */
 export const SERVER_REFUSED_TEXT = "The sync server refused this section.";
 
@@ -201,7 +205,16 @@ function accessProblems(v: StatusView): PaneProblem[] {
               ? "This vault's access, as checked with the server"
               : "This vault's access, as this device last verified it";
       out.push({ id: accessProblemId(c), category: "access", text, source, action, ref: null });
-    } else if (c.kind === "server-refused")
+    } else if (c.kind === "newer-version")
+      out.push({
+        id: NEWER_VERSION_PROBLEM_ID,
+        category: "access",
+        text: `${IDENTITY_BLOCKED}.`,
+        source: "This version of Shared Tasks",
+        action,
+        ref: null,
+      });
+    else if (c.kind === "server-refused")
       out.push({
         id: accessProblemId(c),
         category: "access",

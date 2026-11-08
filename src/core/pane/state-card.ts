@@ -19,7 +19,12 @@ import {
   type StatusView,
 } from "../status/reducer";
 import { STATUS_ICONS } from "./icons";
-import { accessProblemId, heldProblemId, SERVER_REFUSED_TEXT } from "./problems";
+import {
+  accessProblemId,
+  heldProblemId,
+  NEWER_VERSION_PROBLEM_ID,
+  SERVER_REFUSED_TEXT,
+} from "./problems";
 
 /** How a card or a row reads at a glance: a problem, work under way, quiet, or fine. */
 export type FaceTone = "ok" | "problem" | "busy" | "muted" | "info";
@@ -54,6 +59,7 @@ const PROBLEM_KINDS: ReadonlySet<Condition["kind"]> = new Set([
   "save-failed",
   "access",
   "server-refused",
+  "newer-version",
   "invalid-profile",
   "stale-work",
   "rejected",
@@ -83,6 +89,7 @@ const AS_VERIFIED = " As last verified; it may have changed.";
 const HELD_SPEAKS: ReadonlySet<Condition["kind"] | undefined> = new Set([
   "access",
   "server-refused",
+  "newer-version",
   "source",
   "rejected",
   undefined,
@@ -133,6 +140,8 @@ function problemFace(v: StatusView, c: Condition | undefined): SectionFace {
             accessProblemId(c),
           )
         : face(warn("Not accepted"), SERVER_REFUSED_TEXT, accessProblemId(c));
+    case "newer-version":
+      return face(warn("Update needed"), first, NEWER_VERSION_PROBLEM_ID);
     case "invalid-profile":
       return face(warn("Not valid"), first);
     case "rejected":

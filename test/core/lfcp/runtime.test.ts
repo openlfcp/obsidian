@@ -598,13 +598,13 @@ describe("LfcpRuntime (LFCP-059)", () => {
       { principal: hex(0x11), units: 2, reasons: ["ACTOR_EQUIVOCATION"] },
       { principal: hex(0x22), units: 1, reasons: ["INVALID_AUTOMERGE_BYTES"] },
     ]);
-    expect((await r.newlyBlocked(R)).map((b) => b.principal)).toEqual([hex(0x11), hex(0x22)]);
+    expect((await r.newlyBlocked(R)).map((b) => b.root)).toEqual([hex(0x11), hex(0x22)]);
     expect(await r.newlyBlocked(R)).toEqual([]); // reported once
     // Held for longer than HELD_BLOCKED_MS: now 0x33 counts too.
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       vi.setSystemTime(Date.now() + HELD_BLOCKED_MS + 1);
-      expect((await r.newlyBlocked(R)).map((b) => [b.principal, b.reasons])).toEqual([
+      expect((await r.newlyBlocked(R)).map((b) => [b.root, b.reasons])).toEqual([
         [hex(0x33), ["PREV_MISMATCH"]],
         [hex(0x44), ["PROFILE_HELD"]],
       ]);

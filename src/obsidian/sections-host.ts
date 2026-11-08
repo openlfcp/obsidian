@@ -28,6 +28,7 @@ import type { HostFacts } from "../core/actions/descriptors";
 import { type Collaboration, expectHosting } from "../core/collab/service";
 import type { KeptCandidate, SectionFacts } from "../core/diagnostics";
 import { keptCandidates, saveFailedConditions } from "../core/diagnostics-collect";
+import { ALIASES_KEY, DEVICE_LABELS_KEY, deviceLabelsOf } from "../core/identity/people";
 import type { LfcpRuntime } from "../core/lfcp/runtime";
 import { portRefusal, SdkSectionPort } from "../core/lfcp/section-port";
 import { PaneAccessFacts } from "../core/pane/access-facts";
@@ -627,7 +628,9 @@ export class SectionsHost {
         createSectionResource: async (o) => {
           // Its first RESOURCE_OPEN comes before RESOURCE_HOST: a refusal then is expected.
           await expectHosting(runtime.localState, o.resourceId);
-          return runtime.createSectionResource(o);
+          // On a device that is not the first one, the section is its root's (LFCP-04-413e, §7.3).
+          const flows = this.collab();
+          return flows === null ? runtime.createSectionResource(o) : flows.createSectionResource(o);
         },
         openSection: (R) => runtime.openSection(R),
         discard: (R) => runtime.discardUnhosted(R),
@@ -743,6 +746,29 @@ export class SectionsHost {
    */
   insertSection(editor: Editor, path: string): Promise<void> {
     return this.actions.insertSection(this.capture(editor, path));
+  }
+
+  /**
+   * A section Resource opened outside the host's own flows: a device's
+   * pairing opens the person's sections from the roster (LFCP-04-414,
+   * IDENTITY-PROFILE-01 §5.3 step 11). It is watched, and every note bound
+   * to it (a copied vault's notes) is passed, as at the start; before, they
+   * followed it only after a restart.
+   */
+  async sectionArrived(resource: ResourceId): Promise<void> {
+    if (this.#runtime === null || this.#stopped) return;
+    await this.#watch(resource);
+    this.registryChanged();
+    const key = toKey(resource);
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const text = await this.app.vault.cachedRead(file);
+      if (!text.includes(SECTION_MARK)) continue;
+      const keys = parseSections(text).sections.map((s) => toKey(s.ref.resourceId));
+      if (!keys.includes(key)) continue;
+      this.#index(file.path, text);
+      this.#heldChecks.found(file.path, keys);
+      this.editor.remoteChanged(file.path, text);
+    }
   }
 
   async #watch(resource: ResourceId): Promise<void> {
@@ -895,7 +921,7 @@ export class SectionsHost {
       .catch(() => undefined);
     const runtime = this.#runtime;
     const mine = await runtime?.sectionAccessState(R).catch(() => undefined);
-    const aliases = ((await runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>;
+    const aliases = ((await runtime?.localState.get(ALIASES_KEY)) ?? {}) as Record<string, string>;
     const access = accessView({
       participants: status?.participants ?? [],
       mine:
@@ -911,6 +937,8 @@ export class SectionsHost {
               pendingControl: mine.pendingControl.map((p) => p.type),
             },
       aliases,
+      // The reader's own devices by their names in its device list (LFCP-04-413).
+      deviceLabels: deviceLabelsOf(await runtime?.localState.get(DEVICE_LABELS_KEY)),
       connected: runtime?.phase(R) === "LIVE",
       time: (ms) => `at ${new Date(ms).toLocaleTimeString()}`,
     });
@@ -1300,6 +1328,8 @@ export class SectionsHost {
             (await runtime.storage?.outbound.list(R))?.filter((i) => i.kind === "data-unit")
               .length ?? 0,
           refusal: runtime.refusal(R)?.code ?? null,
+          // LFCP-04-406: past an identity barrier, kept across restarts.
+          newerVersion: runtime.identityBlock(R) !== null,
           // LFCP-03-005: connecting and failed only from the session's own transitions.
           transport: runtime.transport(R),
           // LFCP-03-003: a note with the section not checked yet may hold edits.
@@ -1576,10 +1606,10 @@ export class SectionsHost {
       resolveRecovery: (key, item, choice) => this.#resolveRecovery(key, item, choice),
       commands: () => this.commands(),
       aliases: async () =>
-        ((await this.#runtime?.localState.get(ALIASES)) ?? {}) as Record<string, string>,
+        ((await this.#runtime?.localState.get(ALIASES_KEY)) ?? {}) as Record<string, string>,
       setAlias: async (id, name) => {
         if (this.#runtime === null) return false;
-        await this.#runtime.localState.update(ALIASES, (v) => {
+        await this.#runtime.localState.update(ALIASES_KEY, (v) => {
           const all = { ...((v ?? {}) as Record<string, string>) };
           if (name.trim() === "") delete all[id];
           else all[id] = name.trim();
@@ -1591,16 +1621,17 @@ export class SectionsHost {
         const runtime = this.#runtime;
         if (runtime === null) return null;
         const r = await runtime.revokeSectionAccess(R, fromHex(principal) as PrincipalId);
-        return r.kind === "refused"
-          ? { kind: "refused", reason: r.reason }
-          : {
-              kind: "queued",
-              rotated: r.epoch !== null,
-              remainingPaths: r.remainingPaths.map((p) => ({
-                issuer: toHex(p.issuer),
-                abilities: p.abilities,
-              })),
-            };
+        if (r.kind === "refused") return { kind: "refused", reason: r.reason };
+        // A grant issued from a device is its person's (IDENTITY-PROFILE-01 §10).
+        const people = await runtime.people(R).catch(() => null);
+        return {
+          kind: "queued",
+          rotated: r.epoch !== null,
+          remainingPaths: r.remainingPaths.map((p) => ({
+            issuer: people?.root(toHex(p.issuer)) ?? toHex(p.issuer),
+            abilities: p.abilities,
+          })),
+        };
       },
     };
   }
@@ -1650,7 +1681,14 @@ export class SectionsHost {
     const replica = (await runtime.profileOf(R)).replica;
     const view = replica.task(objectId);
     const pending = ((await runtime.storage?.outbound.list(R)) ?? []).length > 0;
-    return view === undefined ? undefined : { view, revision: replica.heads().join(","), pending };
+    if (view === undefined) return undefined;
+    const people = await runtime.people(R).catch(() => undefined);
+    return {
+      view,
+      revision: replica.heads().join(","),
+      pending,
+      ...(people === undefined ? {} : { people }),
+    };
   }
 
   /** The vault changed: notes with sections are indexed and reconciled when closed. */
@@ -1736,9 +1774,6 @@ const DATA_EVENTS: ReadonlySet<string> = new Set([
   "epoch-reconciled",
   "key-blocked",
 ]);
-
-/** Local aliases of identities (Principal ID → label), in the plugin's local state. */
-const ALIASES = "identity-aliases";
 
 const fromKey64 = (hex: string): ResourceId => fromHex(hex) as ResourceId;
 

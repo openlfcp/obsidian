@@ -17,6 +17,11 @@
 // claim's data/read and data/write), then rotates the epoch with a Key
 // Package for the owner only. B gets no later DEK and cannot write.
 //
+// Device phases (19–22, LFCP-04-414): A pairs a fourth vault D as its device
+// through the plugin's device flows, D writes the shared Task, A removes D
+// and rotates; no pairing link or key appears in status, diagnostics or
+// notices. They run before phase 18 (see there).
+//
 // Precise privacy claim: the server never receives application plaintext
 // (private Markdown, Task text), DEKs, private keys or invitation secrets.
 // It does see protocol metadata by design (Resource and Principal IDs,
@@ -27,6 +32,7 @@
 // phase, vault, Resource ID, Control Head, epoch and non-secret object IDs,
 // never keys, DEKs, the invitation secret or decrypted test data.
 
+import { formatWithOptions } from "node:util";
 import {
   createDataUnit,
   type DataProfileHandler,
@@ -75,6 +81,9 @@ import {
   validateControlChain,
 } from "@openlfcp/wire";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Collaboration } from "../../src/core/collab/service";
+import { diagnosticReport } from "../../src/core/diagnostics";
+import { collectDiagnostics } from "../../src/core/diagnostics-collect";
 import { serverBinary } from "../support/e2e-server";
 import { E2EVault, until } from "../support/e2e-vault";
 import { codeName, RawSession } from "../support/security-raw-session";
@@ -101,6 +110,13 @@ Only Vault A knows this. ${PRIVATE_A}
 
 Closing private A text.
 `;
+const PATH_D = `Work/d-${RUN}.md`;
+const NOTE_D = `# Vault D
+
+A's second device.
+
+Insert here.
+`;
 const NOTE_B = `# Vault B
 
 Only Vault B knows this. ${PRIVATE_B}
@@ -112,6 +128,8 @@ let server: SecurityServer;
 let A: E2EVault;
 let B: E2EVault;
 let C: E2EVault;
+/** A's second device, paired in phase 19 (LFCP-04-414). */
+let D: E2EVault | undefined;
 let R: ResourceId;
 let taskId: string;
 let phase = "setup";
@@ -120,8 +138,59 @@ const privateKeys: { label: string; bytes: Buffer }[] = [];
 const links: string[] = [];
 const eventsOf = new Map<string, SyncEvent[]>();
 
+/** Every line the clients printed to the console (all methods), for the device secrets' scan. */
+const consoleLines: string[] = [];
+
+/**
+ * One console call as the scan reads it (review obsidian#108b R2): the text
+ * the real console prints (util.formatWithOptions, objects at any depth,
+ * nothing cut), then the arguments as JSON where every byte array is
+ * written in hex, base64 and base64url, so a key passed in an object or as
+ * bytes is found in the encodings it is looked for in.
+ */
+function consoleText(args: readonly unknown[]): string {
+  const printed = formatWithOptions(
+    {
+      depth: Number.POSITIVE_INFINITY,
+      colors: false,
+      maxArrayLength: Number.POSITIVE_INFINITY,
+      maxStringLength: Number.POSITIVE_INFINITY,
+      breakLength: Number.POSITIVE_INFINITY,
+    },
+    ...args,
+  );
+  const seen = new WeakSet<object>();
+  let structured = "";
+  try {
+    structured = JSON.stringify(args, (_k, v: unknown) => {
+      if (v instanceof Uint8Array) {
+        const b = Buffer.from(v);
+        return `${b.toString("hex")} ${b.toString("base64")} ${b.toString("base64url")}`;
+      }
+      if (typeof v === "bigint") return `${v}`;
+      if (typeof v === "object" && v !== null) {
+        if (seen.has(v)) return "[circular]";
+        seen.add(v);
+      }
+      return v;
+    });
+  } catch (e) {
+    structured = `[not JSON: ${String(e)}]`;
+  }
+  return `${printed}\n${structured}`;
+}
+const consoleOriginal = new Map<string, (...args: unknown[]) => void>();
+
 beforeAll(async () => {
   if (!live) return;
+  for (const m of ["log", "info", "warn", "error", "debug"] as const) {
+    const original = console[m].bind(console);
+    consoleOriginal.set(m, original);
+    console[m] = (...args: unknown[]) => {
+      consoleLines.push(consoleText(args));
+      original(...args);
+    };
+  }
   server = await startSecurityServer(binary.bin);
   A = await E2EVault.open("A");
   B = await E2EVault.open("B");
@@ -130,9 +199,108 @@ beforeAll(async () => {
 }, 300_000);
 
 afterAll(async () => {
-  for (const v of [A, B, C]) await v?.close().catch(() => undefined);
+  for (const v of [A, B, C, D]) await v?.close().catch(() => undefined);
   await server?.stop();
+  for (const [m, original] of consoleOriginal)
+    (console as unknown as Record<string, unknown>)[m] = original;
 });
+
+/**
+ * What the device phases (19–22) show or write, recorded as they run and
+ * checked in phase 22: each vault's Resource status, device list,
+ * unfinished steps, the "Export diagnostics…" report (plain and detailed),
+ * the dialogs' views, notices and vault files (an exported report included).
+ */
+const outputs: { readonly where: string; readonly text: string }[] = [];
+const json = (x: unknown) =>
+  JSON.stringify(x, (_k, v) =>
+    typeof v === "bigint" ? `${v}` : v instanceof Uint8Array ? toHex(v) : v,
+  ) ?? "";
+
+/** Records `v`'s outputs at `when`. */
+async function record(v: E2EVault, when: string): Promise<void> {
+  const at = (what: string) => `${v.name}'s ${what} (${when})`;
+  const service = v.plugin.deviceService();
+  outputs.push({ where: at("status"), text: json(await collabOf(v).status(R).catch(String)) });
+  outputs.push({ where: at("device list"), text: json(await service?.devices()) });
+  outputs.push({ where: at("unfinished steps"), text: json(await service?.unfinished()) });
+  outputs.push({ where: at("access states"), text: json(await service?.accessStates()) });
+  for (const detailed of [false, true])
+    outputs.push({
+      where: at(detailed ? "detailed diagnostics export" : "diagnostics export"),
+      text: await v.plugin.exportDiagnostics(detailed),
+    });
+  outputs.push({
+    where: at("notices"),
+    text: [...v.prompter.notices, ...v.mock.notices].join("\n"),
+  });
+  for (const [path, text] of v.app.vault.files) outputs.push({ where: at(`file ${path}`), text });
+}
+
+/** A secret and its encodings: raw bytes are checked where bytes are; text forms everywhere. */
+function encodings(label: string, bytes: Uint8Array): { label: string; text: string }[] {
+  const b = Buffer.from(bytes);
+  return [
+    { label: `${label} (hex)`, text: b.toString("hex") },
+    { label: `${label} (base64)`, text: b.toString("base64") },
+    { label: `${label} (base64url)`, text: b.toString("base64url") },
+  ];
+}
+
+/**
+ * Every secret of the device phases as text: the pairing link and its
+ * secret; every value in each vault's secretStorage (private keys, local
+ * state keys, DEKs as stored); each vault's private keys and the DEKs of
+ * the Resource and of A's device list, each epoch, in hex, base64 and
+ * base64url.
+ */
+async function deviceCanaries(): Promise<{ label: string; text: string }[]> {
+  const out: { label: string; text: string }[] = [];
+  for (const link of links.filter((l) => l.startsWith("lfcp://pair/"))) {
+    out.push({ label: "the pairing link", text: link });
+    out.push({ label: "the pairing secret", text: link.slice(link.indexOf("#secret=") + 8) });
+  }
+  for (const v of [A, B, C, D as E2EVault])
+    for (const [id, value] of v.app.secretStorage.values) {
+      if (value.length >= 16 && !value.startsWith("{"))
+        out.push({ label: `${v.name}'s secret ${id}`, text: value });
+      // A stored secret is "v1:" + base64url of its bytes (src/core/lfcp/secrets.ts):
+      // the bytes themselves are looked for too, in each encoding (review #108b R2).
+      const raw = /^v1:([A-Za-z0-9_-]+)$/.exec(value)?.[1];
+      if (raw !== undefined) {
+        const bytes = Buffer.from(raw, "base64url");
+        if (bytes.length >= 16) out.push(...encodings(`${v.name}'s secret ${id}, decoded`, bytes));
+      }
+    }
+  for (const k of privateKeys) out.push(...encodings(k.label, k.bytes));
+  const I = await A.plugin.deviceService()?.identity();
+  for (const [name, resource] of [
+    ["the Resource", R],
+    ["the device list", I],
+  ] as const) {
+    if (resource === undefined) continue;
+    const chain = await loadControlChain(ctx(A).storage, resource);
+    if (chain?.kind !== "linear") throw new Error(`no chain of ${name}`);
+    for (const e of chain.state.epochs.values()) {
+      const dek = await dekResolver(ctx(A).storage, ctx(A).secrets, resource)(e.epoch);
+      if (dek !== undefined)
+        // dekResolver is this file's SDK: its DEKs are exported by this file's crypto module.
+        out.push(...encodings(`the DEK of ${name}, epoch ${e.epoch}`, exportSecretKeyBytes(dek)));
+    }
+  }
+  return out;
+}
+
+/** Which canaries appear in which texts. */
+function leaks(
+  texts: readonly { readonly where: string; readonly text: string }[],
+  canaries: readonly { readonly label: string; readonly text: string }[],
+): string[] {
+  const found: string[] = [];
+  for (const t of texts)
+    for (const c of canaries) if (t.text.includes(c.text)) found.push(`${c.label} in ${t.where}`);
+  return found;
+}
 
 /** Collects the vault's SyncEvents (again after a restart: a new runtime). */
 function watch(v: E2EVault): void {
@@ -149,6 +317,12 @@ function ctx(v: E2EVault) {
   return c;
 }
 const me = (v: E2EVault) => ctx(v).principal.signer.descriptor;
+/** The collaboration flows over the vault's runtime (status as the plugin reads it). */
+const collabOf = (v: E2EVault) =>
+  new Collaboration(v.runtime, {
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    sections: true,
+  });
 
 async function chainOf(v: E2EVault) {
   const chain = await loadControlChain(ctx(v).storage, R);
@@ -190,7 +364,9 @@ async function step(name: string, body: () => Promise<void>): Promise<void> {
   try {
     await body();
   } catch (e) {
-    const where = await Promise.all([A, B, C].filter(Boolean).map(context));
+    const where = await Promise.all(
+      [A, B, C, D].filter((v): v is E2EVault => v !== undefined).map(context),
+    );
     throw new Error(
       `${e instanceof Error ? e.message : String(e)}\n--- ${where.join("\n--- ")}\n--- server log (tail, no payloads) ---\n${server.log().slice(-3000)}`,
     );
@@ -896,6 +1072,226 @@ describe.skipIf(!live)(
         expect(bOnC.filter((u) => u.dataEpoch === 0n).every((u) => u.accepted)).toBe(true);
       }));
 
+    // LFCP-04-414 (IDENTITY draft §7.5): a person's second device, through the plugin's
+    // device flows (DeviceService: what "Add my other device…", "Pair this device with a
+    // link…" and "Remove device…" call), on the same Resource and server. They run
+    // before phase 18: its forged units, signed with A's key, would leave A's later
+    // honest units outside the frontier the removal's rotation computes (sdk-ts
+    // verifiedFrontier links units it cannot decrypt; reported in LFCP-04-414).
+    it("19. A pairs a new vault D as its device: the link, the same fingerprint on both, Full", () =>
+      step("19 pair a device", async () => {
+        A.plugin.settings.defaultServer = server.url;
+        D = await E2EVault.open("D");
+        watch(D);
+        const a = A.plugin.deviceService();
+        const d = D.plugin.deviceService();
+        if (a === null || d === null) throw new Error("no device service");
+        // The Resource is shared with C: the warning comes first.
+        expect((await a.firstPairingWarning())?.affected).toEqual([`"${NAME}" (1 other person)`]);
+        const session = await a.startSession("A");
+        if (session.kind !== "link" || session.result.kind !== "created")
+          throw new Error(`no link: ${session.kind}`);
+        outputs.push({ where: "A's Add my other device view", text: json(session) });
+        await record(A, "the link shown");
+        // The link is a bearer secret: kept for the final rescan, never printed.
+        links.push(session.result.link.reveal());
+        expect(String(session.result.link)).not.toContain("#secret=");
+        expect(JSON.stringify(session.result.link)).not.toContain("#secret=");
+        const requested = await d.request(session.result.link, "D");
+        if (requested.kind !== "requested") throw new Error(requested.message);
+        outputs.push({ where: "D's Pair this device view", text: json(requested) });
+        outputs.push({
+          where: "D's waiting progress",
+          text: json(await d.progress(requested.operation)),
+        });
+        await record(D, "the request sent");
+        const review = await until("D's request on A", async () => {
+          const r = await a.requests(session.session);
+          return Array.isArray(r) ? r[0] : undefined;
+        });
+        outputs.push({ where: "A's request review", text: json(review) });
+        expect(review.fingerprint).toBe(requested.fingerprint);
+        const approved = await a.approve(review, "full");
+        outputs.push({ where: "A's approval view", text: json(approved) });
+        expect(approved.kind).toBe("done");
+        await record(A, "approved");
+        const done = await until(
+          "the Resource on D",
+          async () => {
+            const v = await d.progress(requested.operation);
+            outputs.push({ where: "D's progress", text: json(v) });
+            return v.final ? v : undefined;
+          },
+          60_000,
+        );
+        await record(D, "paired");
+        expect(done.sections).toEqual([{ name: NAME, status: "ready" }]);
+        // Read with the crypto module D's plugin loaded (a restart reloaded it: phase 11).
+        const { exportSecretKeyBytes: exportKey } = await import("@openlfcp/crypto");
+        privateKeys.push({
+          label: "D signing key",
+          bytes: Buffer.from(exportKey(ctx(D).principal.signer.key)),
+        });
+        privateKeys.push({
+          label: "D agreement key",
+          bytes: Buffer.from(exportKey(ctx(D).principal.agreement)),
+        });
+        // A device is not a participant of its own: the Resource lists A with D inside.
+        const owner = (await collabOf(A).status(R)).participants.find(
+          (p) => p.principal === toHex(me(A).principalId),
+        );
+        expect(owner?.devices?.map((x) => x.principal)).toEqual([
+          toHex(me(D as E2EVault).principalId),
+        ]);
+      }));
+
+    it("20. D writes the shared Task as A's device; A and C apply it, authored by A", () =>
+      step("20 write from the device", async () => {
+        const dev = D as E2EVault;
+        await dev.write(PATH_D, NOTE_D);
+        dev.focus(PATH_D, "Insert here.");
+        await until(
+          "the shared Task on D",
+          async () =>
+            (await sharedTask(dev))?.task?.title === `${TASK} after snapshot` ? true : undefined,
+          60_000,
+        );
+        // D holds the Task now: inserted into its note, then edited there.
+        expect(
+          await dev.command("insert-shared-object", [NAME, `${TASK} after snapshot`]),
+        ).toContain("shared task inserted");
+        await dev.editLine(PATH_D, `${TASK} after snapshot`, `${TASK} from D`);
+        for (const v of [A, C])
+          await until(
+            `D's edit on ${v.name}`,
+            async () =>
+              (await sharedTask(v))?.task?.title === `${TASK} from D` ? true : undefined,
+            60_000,
+          );
+        // Signed by D, acting for A (rootOf): one person.
+        const people = await A.runtime.people(R);
+        expect(people.root(toHex(me(dev).principalId))).toBe(toHex(me(A).principalId));
+      }));
+
+    it("21. A removes D: DEVICE_REVOKE, then KEY_EPOCH; C gets the new key, D is refused and has none", () =>
+      step("21 remove and rotate", async () => {
+        const dev = D as E2EVault;
+        const a = A.plugin.deviceService();
+        if (a === null) throw new Error("no device service");
+        const before = (await chainOf(A)).state.epoch.epoch;
+        const preview = await a.previewRemoval(toHex(me(dev).principalId));
+        outputs.push({ where: "A's removal preview", text: json(preview) });
+        const removed = await a.remove(toHex(me(dev).principalId), 1n, "D");
+        outputs.push({ where: "A's removal result", text: json(removed) });
+        expect(removed.kind, removed.message).toBe("done");
+        const chain = await chainOf(A);
+        const next = chain.state.epoch.epoch;
+        expect(next).toBe(before + 1n);
+        expect(chain.records.some((r) => r.body.type === "DEVICE_REVOKE")).toBe(true);
+        // The reader C gets the new DEK; D gets none and is refused.
+        await until(
+          "the new DEK on C",
+          async () =>
+            (await dekResolver(ctx(C).storage, ctx(C).secrets, R)(next)) !== undefined
+              ? true
+              : undefined,
+          60_000,
+        );
+        await until(
+          "D refused",
+          () => (dev.runtime.refusal(R)?.code === "AUTHORIZATION_FAILED" ? true : undefined),
+          60_000,
+        );
+        expect(await dekResolver(ctx(dev).storage, ctx(dev).secrets, R)(next)).toBeUndefined();
+        // Against this server (identity-01), D's removal is proven to it.
+        expect(await dev.plugin.deviceService()?.accessStates()).toEqual([
+          { name: NAME, text: "This device was removed from your identity." },
+        ]);
+        outputs.push({
+          where: "D's Pair this device refusal",
+          text: json(await dev.plugin.deviceService()?.pairRefusal()),
+        });
+        await record(A, "D removed");
+        await record(dev, "removed");
+        // A's next edit (back to the title phase 18 starts from) reaches C in the new epoch, not D.
+        await A.editLine(PATH_A, `${TASK} from D`, `${TASK} after snapshot`);
+        await until(
+          "A's edit on C after the rotation",
+          async () =>
+            (await sharedTask(C))?.task?.title === `${TASK} after snapshot` ? true : undefined,
+          60_000,
+        );
+        expect((await sharedTask(dev))?.task?.title).toBe(`${TASK} from D`);
+      }));
+
+    it("22. no pairing link, private key, DEK or stored secret in any output of the device phases", () =>
+      step("22 device secrets", async () => {
+        const dev = D as E2EVault;
+        // The exported report, saved as "Export diagnostics…" saves it, is a vault file too.
+        for (const v of [A, dev]) {
+          await v.app.vault.create(
+            `diagnostics-${v.name}.txt`,
+            await v.plugin.exportDiagnostics(true),
+          );
+          await record(v, "the end");
+        }
+        const canaries = await deviceCanaries();
+        const labels = canaries.map((c) => c.label);
+        // What is looked for: the link, its secret, D's keys, the device list's DEK, stored secrets.
+        for (const wanted of [
+          "the pairing link",
+          "the pairing secret",
+          "D signing key (base64url)",
+          "D agreement key (hex)",
+          "the DEK of the device list, epoch 0 (base64)",
+          "the DEK of the Resource, epoch 3 (hex)",
+        ])
+          expect(labels, wanted).toContain(wanted);
+        expect(canaries.some((c) => c.label.startsWith("D's secret "))).toBe(true);
+        // Negative control: the scan finds a secret planted in an output, in each encoding.
+        for (const c of canaries
+          .filter((x) => /\((hex|base64|base64url)\)$/.test(x.label))
+          .slice(0, 3))
+          expect(
+            leaks([{ where: "a planted output", text: `log: ${c.text}.` }], canaries),
+          ).toContain(`${c.label} in a planted output`);
+        // Negative controls through the real console capture (review #108b R2): each is
+        // printed, must be found, and is then taken out before the scan below.
+        const before = consoleLines.length;
+        const signing = privateKeys.find((k) => k.label === "D signing key");
+        if (signing === undefined) throw new Error("no D signing key");
+        // (1) An object holding a key, as bytes and nested as hex: printed as the console prints it.
+        console.warn("planted:", { device: { key: Uint8Array.from(signing.bytes) } });
+        console.warn("planted:", { nested: { deeper: { key: signing.bytes.toString("hex") } } });
+        // (2) A secret known only through secretStorage (no other canary has it): its bytes in hex.
+        const slot = canaries.find(
+          (c) =>
+            c.label.startsWith("D's secret ") &&
+            c.label.endsWith(", decoded (hex)") &&
+            !canaries.some((o) => !o.label.startsWith("D's secret ") && o.text === c.text),
+        );
+        if (slot === undefined) throw new Error("no secret of D known only through its slot");
+        console.log(`planted: ${slot.text}`);
+        const planted = consoleLines.splice(before);
+        expect(planted).toHaveLength(3);
+        const found = (i: number) =>
+          leaks([{ where: "the console", text: planted[i] as string }], canaries);
+        expect(found(0)).toContain("D signing key (hex) in the console");
+        expect(found(0)).toContain("D signing key (base64url) in the console");
+        expect(found(1)).toContain("D signing key (hex) in the console");
+        expect(found(2)).toContain(`${slot.label} in the console`);
+        expect(outputs.length).toBeGreaterThan(30);
+        const health = await server.http("/health");
+        const texts = [
+          ...outputs,
+          { where: "the clients' console", text: consoleLines.join("\n") },
+          { where: "the server log", text: server.log() },
+          { where: "/health", text: JSON.stringify(health.body) },
+          ...server.stored().map((f) => ({ where: f.file, text: f.bytes.toString("latin1") })),
+        ];
+        expect(leaks(texts, canaries)).toEqual([]);
+      }));
+
     it("18. the client verifies every server-delivered unit: forged units are refused, not merged", () =>
       step("18 server trust", async () => {
         // SDK through the plugin runtime: A's own key signs two units the server accepts but a
@@ -990,8 +1386,8 @@ describe.skipIf(!live)(
     it("17. final rescan: no Markdown, Task plaintext, DEK, private key or invitation secret on the server", () =>
       step("17 final privacy", async () => {
         const secrets: { label: string; bytes: Buffer }[] = [...privateKeys];
-        expect(secrets).toHaveLength(6);
-        for (const e of [0n, 1n, 2n]) {
+        expect(secrets).toHaveLength(8);
+        for (const e of [0n, 1n, 2n, 3n]) {
           const dek = await dekResolver(ctx(A).storage, ctx(A).secrets, R)(e as DataEpoch);
           if (dek !== undefined)
             secrets.push({
@@ -999,7 +1395,7 @@ describe.skipIf(!live)(
               bytes: Buffer.from(exportSecretKeyBytes(dek)),
             });
         }
-        expect(secrets.filter((s) => s.label.startsWith("DEK"))).toHaveLength(3);
+        expect(secrets.filter((s) => s.label.startsWith("DEK"))).toHaveLength(4);
         for (const link of links) {
           const secret = link.slice(link.indexOf("#secret=") + 8);
           secrets.push({ label: "an invitation secret", bytes: Buffer.from(secret) });
@@ -1016,12 +1412,27 @@ describe.skipIf(!live)(
           for (const s of [...secrets, ...texts])
             expect(p.bytes.includes(s.bytes), `${s.label} in ${p.where}`).toBe(false);
         // The wire carried none of it either (only sealed packages and ciphertext).
-        for (const v of [A, B, C])
+        for (const v of [A, B, C, D as E2EVault])
           for (const f of v.network.frames)
             for (const s of [...secrets, ...texts])
               expect(Buffer.from(f.bytes).includes(s.bytes), `${s.label} on ${v.name}'s wire`).toBe(
                 false,
               );
+        // The same secrets as text (hex, base64, base64url; the device list's DEKs and every
+        // stored secret too): in the server's state, log and /health, and on every wire.
+        const encoded = await deviceCanaries();
+        expect(
+          leaks(
+            [
+              ...places.map((p) => ({ where: p.where, text: p.bytes.toString("latin1") })),
+              ...[A, B, C, D as E2EVault].map((v) => ({
+                where: `${v.name}'s wire`,
+                text: v.network.frames.map((f) => Buffer.from(f.bytes).toString("latin1")).join(""),
+              })),
+            ],
+            encoded,
+          ),
+        ).toEqual([]);
         // Client-local stores do hold the authorized decrypted Task (that is their job), but never
         // the other vault's private Markdown.
         expect(await rootOf(A)).toContain(TASK);

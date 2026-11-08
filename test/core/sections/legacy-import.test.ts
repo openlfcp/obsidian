@@ -6,17 +6,19 @@
 // a changed source note, a crash, cancel and a non-destructive rollback
 // (CM05–CM07, CM13, CM14).
 
-import { type ResourceId, toBase64url } from "@openlfcp/core";
+import { fromHex, principalId, type ResourceId, toBase64url } from "@openlfcp/core";
 import type { Task, TaskView } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { afterEach, describe, expect, it } from "vitest";
 import { taskAt } from "../../../src/core/collab";
 import { Collaboration } from "../../../src/core/collab/service";
+import { peopleOf } from "../../../src/core/identity/people";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { SdkSectionPort } from "../../../src/core/lfcp/section-port";
 import { type CreationDeps, SectionCreation } from "../../../src/core/sections/create";
 import { applyChanges } from "../../../src/core/sections/engine";
 import {
+  importedTask,
   type LegacySource,
   legacyPreflight,
   legacyStrip,
@@ -25,6 +27,7 @@ import {
 import { parseSections } from "../../../src/core/sections/parser";
 import { newSectionTask } from "../../../src/core/sections/task-fields";
 import { Device, FakeLocal, sleep } from "../../support/lfcp-env";
+import { P, stateOfX, X } from "../identity/x-chain";
 
 const R0 = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
 const ID = (n: number) => `0192e4a0-0000-7000-8000-${n.toString(16).padStart(12, "0")}`;
@@ -128,9 +131,26 @@ describe("the import preflight (053)", () => {
       revision: "h",
       pending: false,
     }));
-    expect(p.assignees).toEqual([{ objectId: ID(1), refs: ["principal:abc"] }]);
+    expect(p.assignees).toEqual([{ objectId: ID(1), refs: ["principal:abc"], people: 1 }]);
     expect(p.choices).toEqual([{ code: "REPEATED", objectId: ID(1), lines: [1, 3] }]);
     expect(missingChoices(p, { copies: [ID(1)] })).toEqual([]);
+  });
+
+  it("I6: assignees count by person; the copy keeps every reference as written", () => {
+    // Resource X at I13: DEV_B is a device of OWNER (IDENTITY-PROFILE-01 vector assignee_root_ref).
+    const set = Object.fromEntries(X.assignees.set.map((r) => [r, true]));
+    const source = view({ id: ID(1), assignees: set as never });
+    const md = note(`- [ ] A ${ref(ID(1))}`);
+    const p = legacyPreflight(md, range(md), () => ({
+      view: source,
+      revision: "h",
+      pending: false,
+      people: peopleOf(stateOfX(X.assignees.records), P("CAROL")),
+    }));
+    expect(p.assignees).toEqual([{ objectId: ID(1), refs: X.assignees.set, people: 2 }]);
+    // No device reference is rewritten to its root by the import.
+    const copy = importedTask(source, ID(2), principalId(fromHex(P("CAROL"))));
+    expect(Object.keys(copy.assignees as object).sort()).toEqual([...X.assignees.set].sort());
   });
 
   it("CM13: strips child and inline refs, nothing else", () => {

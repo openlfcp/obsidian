@@ -44,6 +44,7 @@ import {
   LfcpError,
   type PrincipalId,
   type ResourceId,
+  resourceId,
   toHex,
 } from "@openlfcp/core";
 import {
@@ -76,8 +77,18 @@ import {
   type SecretStore,
 } from "@openlfcp/storage";
 import { signControlRecord, validateControlChain } from "@openlfcp/wire";
+import { type BlockedPerson, blockedByPerson, type People, peopleOf } from "../identity/people";
 import type { DiscardResult } from "../sections/create";
 import { historyRows } from "./history";
+import {
+  type BarrierWatch,
+  barrierRefusedBySdk,
+  type IdentityBlock,
+  IdentityBlocks,
+  type RefusedBatch,
+  SessionBarriers,
+  watchControlBatch,
+} from "./identity-barrier";
 import {
   createInstall,
   databaseName,
@@ -89,7 +100,7 @@ import {
   type LockReason,
   openInstall,
 } from "./install";
-import { LIVENESS, type LivenessOptions, LivenessProbe } from "./liveness";
+import { LIVENESS, type LivenessOptions, LivenessProbe, tapMessages } from "./liveness";
 import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
 import { type RestartableReconnect, restartableReconnect } from "./reconnect";
 import { listenerErrorClass, lossNoise, sdkErrorClass } from "./sdk-errors";
@@ -372,6 +383,8 @@ interface Pooled {
   readonly reconnect: RestartableReconnect;
   /** What its transport did last (transport.ts, LFCP-03-005). */
   readonly transport: TransportTracker;
+  /** The barrier batches it brought and the SDK's refusals of them (LFCP-04-406). */
+  readonly barriers: SessionBarriers;
 }
 
 interface Opened {
@@ -439,6 +452,11 @@ export class LfcpRuntime {
   readonly #resourceOpening = new Map<string, Promise<OpenResource>>();
   readonly #phases = new Map<string, ResourcePhase>();
   readonly #errors = new Map<string, string>();
+  /** Resources past an identity barrier this version cannot read (LFCP-04-406, WIRE §100.1). */
+  readonly #identity = new IdentityBlocks(
+    () => (this.#stopped ? null : this.localState),
+    () => this.#env.timers.now(),
+  );
   /** Terminal refusals by the server (POST-017), per Resource. */
   readonly #refusals = new Map<string, ResourceRefusal>();
   /** Resources whose access the client is recovering (LFCP-02-106). */
@@ -538,6 +556,7 @@ export class LfcpRuntime {
     runtime.upgradedLocalData = before === true && install.storage !== null;
     await runtime.#moveNamesOutOfLabels();
     await runtime.#forgetDiscarded().catch(() => undefined);
+    await runtime.#identity.load().catch(() => undefined);
     return runtime;
   }
 
@@ -1140,18 +1159,37 @@ export class LfcpRuntime {
   }
 
   /**
-   * The blocked collaborators of `resource` not reported before, and
-   * records them as reported (in local state, so a restart does not report
-   * them again): one notice per Resource and collaborator.
+   * The people of `resource` (LFCP-04-411, IDENTITY-PROFILE-01 §10): who
+   * each Principal is as a person, from the stored, validated Control
+   * state; every Principal is its own person while none is stored or the
+   * chain has forked.
    */
-  async newlyBlocked(resource: ResourceId): Promise<BlockedCollaborator[]> {
+  async people(resource: ResourceId): Promise<People> {
+    const { storage, principal } = this.#ready();
+    const chain = await loadControlChain(storage, resource);
+    return peopleOf(chain?.kind === "linear" ? chain.state : null, toHex(principal.id));
+  }
+
+  /**
+   * The people whose edits of `resource` cannot be applied, not reported
+   * before, and records them as reported (in local state, so a restart does
+   * not report them again): one notice per Resource and person
+   * (IDENTITY-PROFILE-01 §10; review obsidian#106 R3). The marks are root
+   * IDs: a Principal no chain binds is its own root, so marks kept before
+   * devices keep their meaning. A further installation of a person already
+   * reported raises no new notice (Resource status lists it); a Principal
+   * reported before a chain bound it is reported once more under its
+   * person, if that person was not.
+   */
+  async newlyBlocked(resource: ResourceId): Promise<BlockedPerson[]> {
     const blocked = await this.blockedCollaborators(resource);
     if (blocked.length === 0) return [];
-    let fresh: BlockedCollaborator[] = [];
+    const persons = blockedByPerson(await this.people(resource), blocked);
+    let fresh: BlockedPerson[] = [];
     await this.localState.update(`blocked-reported:${toHex(resource)}`, (value) => {
       const reported = new Set((value ?? []) as string[]);
-      fresh = blocked.filter((b) => !reported.has(b.principal));
-      for (const b of fresh) reported.add(b.principal);
+      fresh = persons.filter((p) => !reported.has(p.root));
+      for (const p of fresh) reported.add(p.root);
       return [...reported].sort();
     });
     return fresh;
@@ -1855,10 +1893,19 @@ export class LfcpRuntime {
     // ACKs). The items themselves are in storage, per Resource.
     const reconnect = restartableReconnect();
     const liveness = this.#env.liveness ?? LIVENESS;
+    // LFCP-04-406: the Resources open on this session (its own resource-state
+    // events), whose Control Records are read for a barrier before the SDK.
+    const open = new Set<string>();
+    const barriers = new SessionBarriers((resource) => open.has(resource));
     const probe = new LivenessProbe(
-      () => this.#env.webSocket ?? platformWebSocket(),
+      () => (url, protocols) => {
+        // A new connection: the SDK starts over (every Resource reopens), so do the barriers.
+        barriers.connection();
+        return (this.#env.webSocket ?? platformWebSocket())(url, protocols);
+      },
       () => this.#env.timers.now(),
       liveness,
+      (data) => barriers.frame(data),
     );
     const client = new SyncClient({
       url,
@@ -1890,6 +1937,20 @@ export class LfcpRuntime {
       if (e.type === "connection") transport.connection(e.state);
       if (e.type === "connection" && e.state === "DISCONNECTED")
         disconnectedAt = this.#env.timers.now();
+      if (e.type === "resource-state") {
+        if (e.state === "CLOSED") {
+          open.delete(toHex(e.resourceId));
+          barriers.closed(toHex(e.resourceId));
+        } else open.add(toHex(e.resourceId));
+      }
+      // LFCP-04-406: the SDK refused a batch with a barrier record this session brought.
+      if (e.type === "error")
+        for (const refused of barriers.refused({
+          code: e.code,
+          message: e.message,
+          ...(e.resourceId === undefined ? {} : { resource: toHex(e.resourceId) }),
+        }))
+          void this.#barrierRefused(refused).catch(() => undefined);
       // The end of an ordinary connection loss is not an error event (beta.9 check).
       if (
         e.type === "error" &&
@@ -1948,7 +2009,7 @@ export class LfcpRuntime {
       },
       this.#env.tickMs ?? 250,
     );
-    const created: Pooled = { client, stopDriver, unsubscribe, reconnect, transport };
+    const created: Pooled = { client, stopDriver, unsubscribe, reconnect, transport, barriers };
     this.#pool.set(url, created);
     return created;
   }
@@ -1963,6 +2024,8 @@ export class LfcpRuntime {
       if (e.state === "LIVE") {
         this.#errors.delete(key);
         this.#refusals.delete(key);
+        // Its chain validated, up to its stored head: a block lifts only past its barrier.
+        void this.#identityValidated(e.resourceId).catch(() => undefined);
         // A later refusal of this collaboration is news again.
         void this.localState
           .update(`refused-reported:${key}`, () => undefined)
@@ -1982,8 +2045,29 @@ export class LfcpRuntime {
       this.#engineTrapped(e.message);
     } else if (e.type === "error" && e.resourceId !== undefined) {
       this.#errors.set(toHex(e.resourceId), e.code);
+      if (e.code === "CONTROL_HEAD_MISMATCH") this.#resyncControl(e.resourceId);
     }
     for (const l of this.#listeners) l(e);
+  }
+
+  /**
+   * LFCP-04-414: the device flows (DeviceService: approving a device,
+   * removing one, the upkeep) save a Resource's new Control Records into
+   * the storage its open session reads. A session that loaded the chain
+   * before that save and saved after it is refused ("the stored Control
+   * Head moved during sync") and would stay in CONTROL_SYNC. It is opened
+   * again, from the chain now stored.
+   */
+  #resyncControl(resource: ResourceId): void {
+    const key = toHex(resource);
+    const section = this.#sections.get(key);
+    const opened = this.#opened.get(key);
+    const url = section?.url ?? opened?.url ?? null;
+    const binding = section?.binding ?? opened?.binding;
+    if (url === null || binding === undefined || this.#stopped) return;
+    const client = this.#session(url).client;
+    client.close(resource);
+    client.open(binding);
   }
 
   /** The SDK inputs of the collaboration flows (LFCP-065), or null unless ready. */
@@ -1995,7 +2079,22 @@ export class LfcpRuntime {
       secrets: i.secrets,
       principal: i.principal,
       now: () => this.#env.timers.now(),
-      ...(this.#env.webSocket === undefined ? {} : { webSocket: this.#env.webSocket }),
+      // LFCP-04-406: a join's own connection is watched too. Nothing of the
+      // Resource is stored yet: a barrier the SDK cannot get past from the
+      // Genesis on is one the join can never claim past.
+      webSocket: (url, protocols) => {
+        const join = new SessionBarriers(() => true, false);
+        return tapMessages((this.#env.webSocket ?? platformWebSocket())(url, protocols), (data) =>
+          watchControlBatch(data, (b) => {
+            join.batch(b);
+            if (
+              b.records.some((r) => r.entry !== null) &&
+              barrierRefusedBySdk(b.resource, [], join.received(b.resource)) !== null
+            )
+              this.#identity.joinSeen(b.resource);
+          }),
+        );
+      },
       session: (url) => this.#session(url).client,
     };
   }
@@ -2019,6 +2118,51 @@ export class LfcpRuntime {
   /** The server's refusal of a Resource for good (POST-017), until it opens again; null when none. */
   refusal(resource: ResourceId): ResourceRefusal | null {
     return this.#refusals.get(toHex(resource)) ?? null;
+  }
+
+  /**
+   * The Resource is past an identity barrier this version cannot read
+   * (LFCP-04-406, WIRE §100.1): where it is blocked and by what, kept
+   * across restarts; null when it is not.
+   */
+  identityBlock(resource: ResourceId): IdentityBlock | null {
+    return this.#identity.get(toHex(resource));
+  }
+
+  /**
+   * Resolves when a barrier record of `resource` arrives from a server (a
+   * join that cannot validate the chain it fetches); `cancel` forgets it.
+   */
+  barrierSeen(resource: ResourceId): BarrierWatch {
+    return this.#identity.whenSeen(toHex(resource));
+  }
+
+  /**
+   * The SDK refused a batch of `key` with a barrier record: the block is
+   * recorded when the same SDK, from the stored chain, cannot get past that
+   * barrier (validateControlChain), at the stored head.
+   */
+  async #barrierRefused(refused: RefusedBatch): Promise<void> {
+    const storage = this.#install.storage;
+    if (storage === null) return;
+    const key = refused.resource;
+    const stored = await loadControlChain(storage, resourceId(fromHex(key)));
+    if (stored === undefined || stored.kind !== "linear") return;
+    const barrier = barrierRefusedBySdk(
+      key,
+      stored.records.map((r) => r.signed.bytes),
+      refused.received,
+    );
+    if (barrier === null) return;
+    await this.#identity.block(key, barrier, toHex(stored.state.head));
+  }
+
+  /** A session of `resource` went LIVE: its validated chain reaches the stored head. */
+  async #identityValidated(resource: ResourceId): Promise<void> {
+    const head = await this.#install.storage?.control.head(resource);
+    if (head === undefined) return;
+    for (const p of this.#pool.values()) p.barriers.validated(toHex(resource), head.controlSeq);
+    await this.#identity.validated(toHex(resource), head.controlSeq);
   }
 
   /**

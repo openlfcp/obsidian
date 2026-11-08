@@ -23,6 +23,69 @@ since 0.4.0.
   (`Runtime: locked (marker-missing)`), logs `runtime-locked` instead of
   `runtime-ready` for it, and names an iPhone or iPad `mobile-ios`.
 
+## [0.7.1] — 2026-11-08
+
+Fixes for linked devices from the final review of the specification.
+Notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md).
+
+### Fixed
+
+- Pairing a device no longer adds a record to every shared section. A
+  section keeps a limited number of such records, and enough pairings could
+  use them all up: a device removed later could then not be revoked in that
+  section. Removing a device still revokes it in every section it was added
+  to; a section where it could never act needs no record and is not named.
+- Removing a device keeps a name conflict: when two of your devices renamed
+  it at the same time, both names stay for you to choose from, instead of
+  one being kept by the removal. This holds when "Finish now" completes a
+  removal too.
+- "Add my other device…" on a device list whose server no longer supports
+  devices says so, makes no link and sends that server nothing; before, it
+  tried to add the link there anyway.
+
+## [0.7.0] — 2026-11-08
+
+Linked devices: one person, several devices. Add a device with a link and
+a fingerprint check, see your devices, remove one.
+Notes: [docs/releases/0.7.0.md](docs/releases/0.7.0.md).
+
+### Added
+
+- People, not installations: where someone uses several linked devices,
+  the access list shows them once, their devices inside, and their edits,
+  local name and assignments count for the person, with the device as
+  detail. A local name you give is now the person's, on all their devices.
+- Your devices: "Add my other device…" makes a link to open on another
+  device; you approve it there after comparing a fingerprint on both
+  screens, with an access level (Full, Edit, Read, or Service for a
+  bridge). "Pair this device with a link…" on a new vault makes it one of
+  your devices, and your shared sections open there. "Your devices…" lists
+  them and removes one, warning first which devices stop with it. A phone
+  still only reads shared sections.
+- Any of your devices with Full access shares a section, accepts an
+  invitation and creates sections for you: they are yours on all your
+  devices, and sections you create later reach your other devices too.
+- Device steps are paced to stay within the sync server's limit on
+  connections from one network; the device dialogs ask less often the
+  longer they wait (Check now asks at once).
+- A guide to your devices: [docs/guides/devices.md](docs/guides/devices.md).
+
+## [0.6.1] — 2026-11-07
+
+Ready for linked devices, which a later version adds.
+Notes: [docs/releases/0.6.1.md](docs/releases/0.6.1.md).
+
+### Added
+
+- Ready for linked devices (one person, several devices), which a later
+  version adds: a shared section where someone added or removed a device
+  stops syncing with "This section now uses a person's linked devices…
+  Update the plugin", kept across restarts, instead of a generic error or
+  endless loading. Its copy stays readable; edits made here wait on this
+  device.
+- Join tells a device pairing link (`lfcp://pair/…`) from an invitation:
+  "This is a link to add a device, not an invitation…", and uses nothing.
+
 ## [0.6.0] — 2026-10-31
 
 The Shared Tasks pane is redrawn: icons at the top, one card for the place

@@ -558,6 +558,7 @@ unknown, never as zero.
 | Access `refused` | "The sync server no longer accepts changes from this vault for this section." | "Offline"; "Your access was removed" |
 | Access `not-member` | "This vault is not a member of this section." | "Your access was removed" |
 | Access `revoked` | "Your access to this section was removed. Your local copy stays." | "not a member" |
+| Condition `newer-version` (past an identity barrier, LFCP-04-406, WIRE §100.1) | The word "Update needed"; "This section now uses a person's linked devices, which this version of Shared Tasks does not support. Update the plugin in Settings → Community plugins to keep syncing it."; in Details also "Your copy stays readable on this device; edits you make here wait on this device and are not sent until you update."; in Resource status "Blocked at head <H>…, by record #<n>" | "Offline"; "Connecting"; "Loading"; "Current"; a chain error code on the surface |
 | `connection` "offline", `connectionQualifier` "lost" or "not-syncing" | "Offline: local updates wait on this device." | "failed" |
 | `connection` "offline", `connectionQualifier` "no-evidence" (no session reported a transition yet, or there is none) | "Not checked with the server yet. Local updates wait on this device."; the label "Not checked with the server yet; local updates will wait" when it is the first condition (LFCP-03-013) | "Offline"; "failed" |
 | `connection` "offline", `connectionQualifier` "network-offline" | "Offline (no network): local updates wait on this device." | "failed"; "The server is down" |
@@ -696,7 +697,12 @@ preview (MARKDOWN-SECTIONS-01 §8).
 - **I6. Join errors from real evidence.** Malformed link, link already used,
   removed from the section, needs a newer version, refused by the server,
   offline, and result unknown (the claim was sent) are each told apart. The
-  text says "expired" only when the server reports it.
+  text says "expired" only when the server reports it. A pairing link
+  (`lfcp://pair/…`, IDENTITY-PROFILE-01 §5.2) is told apart before
+  anything is parsed or sent: "This is a link to add a device, not an
+  invitation…" (LFCP-04-406). A join that meets a chain past an identity
+  barrier before its claim stops then and says "needs a newer version",
+  the link unused.
 - **I7. An unknown claim is reconciled.** It resumes with the same link and
   the same claim. It is never retried as a new join.
 - **I8. Share and invite are one journey in the pane** (LFCP-03-014). With

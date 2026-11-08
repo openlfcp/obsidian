@@ -25,6 +25,8 @@ export async function storeBlocked(
     readonly seq: bigint;
     readonly status: DataUnitStatus;
     readonly detail?: string;
+    /** The author, instead of collaborator(who) (a fixture Principal). */
+    readonly actor?: PrincipalId;
   }[],
 ): Promise<void> {
   const r = await storage.commit(
@@ -34,7 +36,7 @@ export async function storeBlocked(
         unitId: dataUnitId(new Uint8Array(32).fill(u.n)),
         resourceId: R,
         dataEpoch: dataEpoch(0n),
-        actor: collaborator(u.who),
+        actor: u.actor ?? collaborator(u.who),
         actorSeq: actorSequence(u.seq),
         prevDataUnitId: null,
         controlHead: controlRecordId(new Uint8Array(32).fill(9)),

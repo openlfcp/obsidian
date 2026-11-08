@@ -46,6 +46,14 @@ import {
   safeEvent,
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
+import {
+  ALIASES_KEY,
+  aliasesOf,
+  DEVICE_LABELS_KEY,
+  deviceLabelsOf,
+  personLabel,
+} from "../core/identity/people";
+import { DeviceService } from "../core/identity/service";
 import { lockedText } from "../core/lfcp/install";
 import { LfcpRuntime, type RuntimeEnv, startFailure } from "../core/lfcp/runtime";
 import { sdkErrorClass } from "../core/lfcp/sdk-errors";
@@ -70,6 +78,7 @@ import { sectionPresentationExtension, setShowMetadata } from "./section-present
 import { captureEditor, editorMode } from "./section-target";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
+import { AddDeviceModal, DevicesModal, PairThisDeviceModal } from "./ui/devices";
 import { DiagnosticsModal } from "./ui/diagnostics";
 import { returnsFocus } from "./ui/focus-return";
 import {
@@ -84,6 +93,7 @@ import {
   SharedTasksView,
 } from "./ui/pane-view";
 import { ObsidianNotes, ObsidianPrompter } from "./ui/prompter";
+import { ConfirmModal } from "./ui/section-card";
 import { inEveryWindow } from "./windows";
 
 /** Apply outcomes after which a collaborator may be blocked. */
@@ -278,6 +288,22 @@ export default class OpenLfcpPlugin extends Plugin {
       id: "repair-moved-ref",
       name: "Repair moved shared task ref",
       callback: () => void this.repairActiveNote(),
+    });
+    // LFCP-04-413: a person's devices (IDENTITY-PROFILE-01 §§5–8).
+    this.addCommand({
+      id: "add-device",
+      name: "Add my other device…",
+      callback: () => void this.addDevice(),
+    });
+    this.addCommand({
+      id: "your-devices",
+      name: "Your devices…",
+      callback: () => this.openDevices(),
+    });
+    this.addCommand({
+      id: "pair-this-device",
+      name: "Pair this device with a link…",
+      callback: () => this.pairThisDevice(),
     });
     this.addSettingTab(new OpenLfcpSettingTab(this.app, this));
     this.#listenToVault();
@@ -715,6 +741,10 @@ export default class OpenLfcpPlugin extends Plugin {
     this.sections?.stop();
     if (this.#lockRetry !== null) window.clearTimeout(this.#lockRetry);
     this.#lockRetry = null;
+    if (this.#upkeepTimer !== null) window.clearTimeout(this.#upkeepTimer);
+    this.#upkeepTimer = null;
+    if (this.#upkeepEvery !== null) window.clearInterval(this.#upkeepEvery);
+    this.#upkeepEvery = null;
     this.changes.close();
     // The next instance of the plugin in this window (a reload: disabled and
     // enabled, a BRAT update) waits for this one to stop and let go of the
@@ -743,6 +773,10 @@ export default class OpenLfcpPlugin extends Plugin {
           sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
           sections: !this.settings.sectionsDisabled,
           sectionsReadOnly: Platform.isMobile,
+          // LFCP-04-413e (§7.2): on a device that is not the first one, a join claims for the root.
+          device: async () => (await this.deviceService()?.origin()) ?? null,
+          // Item 3: the first device's new sections go to the person's roster.
+          onNewSection: async (R) => this.deviceService()?.listInRoster(R),
         }),
       };
     return this.#collab.flows;
@@ -878,6 +912,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.#watchBlocked(runtime);
       this.#watchRefused(runtime);
       this.#watchObjects(runtime);
+      this.#watchDevices(runtime);
       // Pending changes go out and remote ones come in without waiting for a
       // command: every stored Resource is opened (one pooled session per server).
       if (runtime.status.kind === "ready")
@@ -1019,9 +1054,14 @@ export default class OpenLfcpPlugin extends Plugin {
           if (fresh.length === 0) return;
           const entry = (await runtime.registry()).find((e) => toHex(e.resourceId) === key);
           const name = entry?.localName ?? unnamedResource(entry?.profile);
+          // The author is the person, the device as detail (IDENTITY-PROFILE-01 §10).
+          const people = await runtime.people(R);
+          // One notice per person (R3), named as in the access list (R2; review obsidian#106).
+          const aliases = aliasesOf(await runtime.localState.get(ALIASES_KEY));
+          const labels = deviceLabelsOf(await runtime.localState.get(DEVICE_LABELS_KEY));
           for (const b of fresh)
             new Notice(
-              `Shared Tasks: edits from ${b.principal.slice(0, 8)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
+              `Shared Tasks: edits from ${personLabel(people, b, aliases, labels)} in "${name}" can't be applied (${b.reasons.join(", ")}). See "Resource status".`,
             );
         } catch {
           // Reported again on the next event; never a reason to fail sync.
@@ -1310,10 +1350,15 @@ export default class OpenLfcpPlugin extends Plugin {
   /** Safe events for the diagnostics report (LFCP-02-065), in memory only. */
   readonly #diagnostics = new DiagnosticLog();
 
+  /** The report "Export diagnostics…" shows, copies and saves (plain, or detailed). */
+  async exportDiagnostics(detailed: boolean): Promise<string> {
+    return diagnosticReport(await this.#diagnosticInput(), detailed);
+  }
+
   /** The diagnostics dialog, open; Tab kept in it, focus given back (LFCP-03-022). */
   #openDiagnostics(): void {
     const modal = new DiagnosticsModal(this.app, {
-      report: async (detailed) => diagnosticReport(await this.#diagnosticInput(), detailed),
+      report: (detailed) => this.exportDiagnostics(detailed),
       copy: (text) => navigator.clipboard.writeText(text),
       save: async (text) => {
         const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
@@ -1337,6 +1382,108 @@ export default class OpenLfcpPlugin extends Plugin {
       platform: platformName(Platform),
       needsRestart: this.needsRestart !== null,
     });
+  }
+
+  /** How long after start, or after a section came live, the device upkeep runs (coalesced). */
+  protected deviceUpkeepDelayMs = 5000;
+  /**
+   * How often the device upkeep runs besides start and live sections: a
+   * removal recorded in the device list only reaches no section (§8.4).
+   */
+  protected deviceUpkeepEveryMs = 10 * 60_000;
+  #upkeepTimer: number | null = null;
+  #upkeepEvery: number | null = null;
+
+  /**
+   * The device upkeep (LFCP-04-413; IDENTITY-PROFILE-01 §7.1, §8.4, decision
+   * I6): after start and whenever a section comes live (its chain then
+   * stored as the server has it), reconciliation and the rotation policy
+   * run in the background, one at a time. Failures wait for the next run.
+   */
+  #watchDevices(runtime: LfcpRuntime): void {
+    const run = () => {
+      this.#upkeepTimer = null;
+      if (this.#unloaded || this.runtime !== runtime || runtime.status.kind !== "ready") return;
+      void this.deviceService()
+        ?.upkeep()
+        .catch(() => undefined);
+    };
+    const schedule = () => {
+      if (this.#upkeepTimer === null)
+        this.#upkeepTimer = window.setTimeout(run, this.deviceUpkeepDelayMs);
+    };
+    runtime.on((e) => {
+      if (e.type === "resource-state" && e.state === "LIVE") schedule();
+    });
+    if (this.#upkeepEvery !== null) window.clearInterval(this.#upkeepEvery);
+    this.#upkeepEvery = window.setInterval(schedule, this.deviceUpkeepEveryMs);
+    schedule();
+  }
+
+  #devices: { readonly runtime: LfcpRuntime; readonly service: DeviceService } | null = null;
+
+  /** The device flows (LFCP-04-413), or null while the runtime is not running. */
+  deviceService(): DeviceService | null {
+    const runtime = this.runtime;
+    if (runtime === null) return null;
+    if (this.#devices?.runtime !== runtime)
+      this.#devices = {
+        runtime,
+        service: new DeviceService({
+          runtime: () => this.runtime,
+          context: () => this.runtime?.collaborationContext() ?? null,
+          collab: () => this.#collaboration(),
+          defaultServer: () => this.settings.defaultServer,
+          platform: Platform.isMobile ? "mobile" : "desktop",
+          sections: !this.settings.sectionsDisabled,
+          sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
+          opened: (R) => this.sections?.sectionArrived(R),
+        }),
+      };
+    return this.#devices.service;
+  }
+
+  /** This installation's default device label: the vault and the kind of device. */
+  #deviceLabel(): string {
+    return `${this.app.vault.getName()} on ${Platform.isMobile ? "phone" : "computer"}`;
+  }
+
+  #readyDevices(): DeviceService | null {
+    const service = this.runtime?.status.kind === "ready" ? this.deviceService() : null;
+    if (service === null)
+      new Notice("Shared Tasks: not ready on this device yet. Try again in a moment.");
+    return service;
+  }
+
+  /**
+   * "Add my other device…" (IDENTITY-PROFILE-01 §5.1, §5.3): before the
+   * first pairing, the warning about collaborators on older versions
+   * (LFCP-04-411), then the link and its requests.
+   */
+  async addDevice(): Promise<void> {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    const warning = await service.firstPairingWarning().catch(() => null);
+    if (warning !== null) {
+      const ask = new ConfirmModal(this.app, warning.title, warning.message, warning.action, false);
+      returnsFocus(ask).open();
+      if (!(await ask.result)) return;
+    }
+    returnsFocus(new AddDeviceModal(this.app, service, this.#deviceLabel())).open();
+  }
+
+  /** "Your devices…": the list, Remove device…, and unfinished steps. */
+  openDevices(): void {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    returnsFocus(new DevicesModal(this.app, service, () => void this.addDevice())).open();
+  }
+
+  /** "Pair this device with a link…" (§5.3 steps 2–3, 8, 11). */
+  pairThisDevice(): void {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    returnsFocus(new PairThisDeviceModal(this.app, service, this.#deviceLabel())).open();
   }
 
   async rotateLocalEncryptionKey(): Promise<void> {

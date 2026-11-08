@@ -27,8 +27,16 @@ describe("the installed SDK", () => {
       "shared-objects",
       "storage",
       "storage-idb",
+      // Node only, for the bridge test (lfcp-node pair, LFCP-04-414): never a dependency.
+      "storage-node",
       "wire",
     ]);
+  });
+
+  it("has storage-node only as a test dependency", () => {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8"));
+    expect(Object.keys(pkg.dependencies)).not.toContain("@openlfcp/storage-node");
+    expect(Object.keys(pkg.devDependencies)).toContain("@openlfcp/storage-node");
   });
 
   it("imports no Obsidian API in any built file", () => {

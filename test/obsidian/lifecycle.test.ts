@@ -3,7 +3,7 @@
 // are the mock's, IndexedDB is fake-indexeddb, the network is offline.
 
 import "fake-indexeddb/auto";
-import { toBase64url, toHex } from "@openlfcp/core";
+import { fromHex, principalId, toBase64url, toHex } from "@openlfcp/core";
 import {
   complete,
   createTask,
@@ -13,6 +13,8 @@ import {
 } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it, vi } from "vitest";
+import { fingerprintOf, shortId } from "../../src/core/identity/people";
+import { DeviceService } from "../../src/core/identity/service";
 import { lockedText } from "../../src/core/lfcp/install";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { HeldChecks } from "../../src/core/status/held-checks";
@@ -20,8 +22,10 @@ import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
 import OpenLfcpPlugin, { LOCK_HELD_ADVICE } from "../../src/obsidian/plugin";
 import { SectionsHost } from "../../src/obsidian/sections-host";
+import { P } from "../core/identity/x-chain";
 import * as mock from "../mocks/obsidian";
 import { collaborator, storeBlocked } from "../support/blocked-units";
+import { storeX } from "../support/identity-resource";
 import { Device } from "../support/lfcp-env";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -37,6 +41,8 @@ class TestPlugin extends OpenLfcpPlugin {
   /** The background retries of a held lock and of a blocked database, shortened. */
   protected override lockRetryMs = 200;
   protected override blockedRetryMs = 20;
+  protected override deviceUpkeepDelayMs = 10;
+  protected override deviceUpkeepEveryMs = 60_000;
   /** How many starts were tried (runtimeEnv is asked once per start). */
   starts = 0;
   /** Makes the next starts fail as the runtime's would, with this message. */
@@ -420,6 +426,82 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await third.plugin.stopRuntime();
   });
 
+  it("names the author of blocked edits by the person's saved alias, the device as detail (review obsidian#106 R2)", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const runtime = first.plugin.runtime;
+    if (runtime === null) throw new Error("no runtime");
+    // Resource X: DEV_B is a device of OWNER, whom this device named "Olga" (aliases by root).
+    const R = await storeX(runtime);
+    await runtime.setLocalName(R, "Team X");
+    await runtime.localState.update("identity-aliases", () => ({ [shortId(P("OWNER"))]: "Olga" }));
+    await storeBlocked(runtime.storage as LfcpStorage, R, [
+      { n: 1, who: 0, seq: 1n, status: "equivocation", actor: principalId(fromHex(P("DEV_B"))) },
+    ]);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    mock.notices.length = 0;
+    const second = await load(app, first.host.stored);
+    await ready(second.plugin);
+    for (let i = 0; i < 50; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      await second.plugin.blockedChecks;
+    }
+    expect(mock.notices.filter((n) => n.includes('"Team X"'))).toEqual([
+      `Shared Tasks: edits from Olga (from ${fingerprintOf(P("DEV_B"))}) in "Team X" can't be applied (ACTOR_EQUIVOCATION). See "Resource status".`,
+    ]);
+    second.host.unload();
+    await second.plugin.stopRuntime();
+  });
+
+  it("notifies once per person, not once per installation, also for a device blocked later (review obsidian#106 R3)", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const runtime = first.plugin.runtime;
+    if (runtime === null) throw new Error("no runtime");
+    const R = await storeX(runtime);
+    await runtime.setLocalName(R, "Team X");
+    await runtime.localState.update("identity-aliases", () => ({ [shortId(P("OWNER"))]: "Olga" }));
+    const actor = (label: string) => principalId(fromHex(P(label)));
+    // OWNER writes from its root installation and from DEV_B: one person.
+    await storeBlocked(runtime.storage as LfcpStorage, R, [
+      { n: 1, who: 0, seq: 1n, status: "equivocation", actor: actor("OWNER") },
+      { n: 2, who: 0, seq: 1n, status: "equivocation", actor: actor("DEV_B") },
+    ]);
+    const notices = () => mock.notices.filter((n) => n.includes('"Team X"'));
+    const settled = async (plugin: OpenLfcpPlugin) => {
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+        await plugin.blockedChecks;
+      }
+    };
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    mock.notices.length = 0;
+    const second = await load(app, first.host.stored);
+    await ready(second.plugin);
+    await settled(second.plugin);
+    expect(notices()).toEqual([
+      `Shared Tasks: edits from Olga (from ${fingerprintOf(P("DEV_B"))}) in "Team X" can't be applied (ACTOR_EQUIVOCATION). See "Resource status".`,
+    ]);
+    // Later, a third installation of the same person (DEV_A, revoked since): no second notice.
+    const later = second.plugin.runtime;
+    if (later === null) throw new Error("no runtime");
+    await storeBlocked(later.storage as LfcpStorage, R, [
+      { n: 3, who: 0, seq: 1n, status: "equivocation", actor: actor("DEV_A") },
+    ]);
+    second.host.unload();
+    await second.plugin.stopRuntime();
+    const third = await load(app, second.host.stored);
+    await ready(third.plugin);
+    await settled(third.plugin);
+    expect(notices()).toHaveLength(1);
+    third.host.unload();
+    await third.plugin.stopRuntime();
+  });
+
   it("reloaded in the same window: the new instance waits for the old one to stop, and runs", async () => {
     const app = new mock.App();
     const first = await load(app);
@@ -653,5 +735,61 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(mock.notices.filter((n) => n.includes("could not start"))).toHaveLength(1);
     (plugin as unknown as mock.Plugin).unload();
     await plugin.stopRuntime();
+  });
+});
+
+describe("the device upkeep (LFCP-04-413, review obsidian#107 P1-2)", () => {
+  it("runs in the background after start, and not after unload", async () => {
+    const upkeep = vi.spyOn(DeviceService.prototype, "upkeep").mockResolvedValue({
+      reconciled: false,
+      rotations: [],
+      issues: [],
+      offline: false,
+      handedOn: [],
+      opened: [],
+      summary: "",
+    });
+    try {
+      const { plugin, host } = await load();
+      await ready(plugin);
+      for (let i = 0; i < 50 && upkeep.mock.calls.length === 0; i++)
+        await new Promise((r) => setTimeout(r, 10));
+      expect(upkeep).toHaveBeenCalledTimes(1);
+      host.unload();
+      await plugin.stopRuntime();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(upkeep).toHaveBeenCalledTimes(1);
+    } finally {
+      upkeep.mockRestore();
+    }
+  });
+});
+
+describe("the device upkeep, without any section coming live (review obsidian#107b B1)", () => {
+  it("runs again on its own while the plugin runs", async () => {
+    class Often extends TestPlugin {
+      protected override deviceUpkeepEveryMs = 30;
+    }
+    const upkeep = vi.spyOn(DeviceService.prototype, "upkeep").mockResolvedValue({
+      reconciled: false,
+      rotations: [],
+      issues: [],
+      offline: false,
+      handedOn: [],
+      opened: [],
+      summary: "",
+    });
+    try {
+      const plugin = new Often(new mock.App() as never, manifest as never);
+      await plugin.onload();
+      await ready(plugin);
+      for (let i = 0; i < 100 && upkeep.mock.calls.length < 3; i++)
+        await new Promise((r) => setTimeout(r, 10));
+      expect(upkeep.mock.calls.length).toBeGreaterThanOrEqual(3);
+      (plugin as unknown as mock.Plugin).unload();
+      await plugin.stopRuntime();
+    } finally {
+      upkeep.mockRestore();
+    }
   });
 });

@@ -81,6 +81,15 @@ export class SectionCardModal extends Modal {
               cls: "openlfcp-card-row-action mod-warning",
               attr: { "aria-label": `Remove access for ${row.label}` },
             }).addEventListener("click", () => this.rowActions.remove?.(row.principal, row.label));
+          // One row per person; their installations inside (IDENTITY-PROFILE-01 §10).
+          if (row.devices.length > 0) {
+            const devices = li.createEl("ul", {
+              cls: "openlfcp-card-devices",
+              attr: { "aria-label": `Devices of ${row.label}` },
+            });
+            for (const d of row.devices)
+              devices.createEl("li", { text: `${d.label} · ${d.detail}` });
+          }
         }
         if (access.removeNote !== null)
           el.createEl("p", { text: access.removeNote, cls: "setting-item-description" });
@@ -130,7 +139,7 @@ export class SectionCardModal extends Modal {
   }
 }
 
-/** A local name for an identity: a label of this device only, never sent or verified. */
+/** A local name for a person (their root, IDENTITY-PROFILE-01 §10): a label of this device only, never sent or verified. */
 export class AliasModal extends Modal {
   #done: (name: string | null) => void = () => undefined;
   #value: string | null = null;
@@ -146,9 +155,9 @@ export class AliasModal extends Modal {
   }
 
   override onOpen(): void {
-    this.setTitle("Name this identity on this device");
+    this.setTitle("Name this person on this device");
     this.contentEl.createEl("p", {
-      text: "A local label to recognise this identity. Only this device sees it; it is not a verified name. Leave it empty to remove it.",
+      text: "A local label to recognise this person, on all of their devices. Only this device sees it; it is not a verified name. Leave it empty to remove it.",
       cls: "setting-item-description",
     });
     const input = this.contentEl.createEl("input", { type: "text", value: this.current });

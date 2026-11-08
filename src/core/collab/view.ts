@@ -8,8 +8,9 @@
 // is whoever created the collaboration (or received it by transfer).
 
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
+import { BARRIER_ENTRY_TEXT, IDENTITY_SYNC, identityBlocked } from "../lfcp/identity-barrier";
 import { NEEDS_NEWER_VERSION } from "../lfcp/runtime";
-import type { ResourceStatus } from "./service";
+import type { Participant, ResourceStatus } from "./service";
 
 export interface StatusRow {
   readonly label: string;
@@ -112,15 +113,26 @@ export function refusalNotice(
   return `Shared Tasks: "${noticeName(name)}" stopped syncing. ${refusalText(refusal, profile, false)}. Your tasks stay on this device; see "Resource status".`;
 }
 
+/** A person's devices in Resource status: fingerprints, with this device and those that do not act marked. */
+function devicesText(p: Participant): string {
+  if (p.devices === undefined || p.devices.length === 0) return "";
+  const list = p.devices.map(
+    (d) =>
+      `${d.fingerprint}${d.you ? " (this device)" : ""}${d.kind === "service" ? " (service)" : ""}${d.status === "active" ? "" : ` (${d.status})`}`,
+  );
+  return ` (devices: ${list.join(", ")})`;
+}
+
 export function statusView(s: ResourceStatus): StatusView {
   const section = s.profile === SECTIONS_PROFILE_ID;
   const you = s.participants.find((p) => p.you);
   const owner = s.participants.find((p) => p.owner);
+  // One entry per person (IDENTITY-PROFILE-01 §10), its devices after it.
   const people = s.participants
     .filter((p) => p.invitation === undefined)
     .map(
       (p) =>
-        `${p.id}${p.you ? " (you)" : ""}: ${p.owner ? "owner" : p.abilities.join(", ") || "no access"}`,
+        `${p.id}${p.you ? " (you)" : ""}: ${p.owner ? "owner" : p.abilities.join(", ") || "no access"}${devicesText(p)}`,
     );
   const invitations = s.participants
     .filter((p) => p.invitation !== undefined)
@@ -132,13 +144,15 @@ export function statusView(s: ResourceStatus): StatusView {
     {
       label: "Sync",
       value:
-        s.state === "recovering"
-          ? SYNC.recovering
-          : s.refusal === null
-            ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
-            : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
-              ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
-              : refusalText(s.refusal, s.profile),
+        s.identityBlock !== undefined
+          ? IDENTITY_SYNC
+          : s.state === "recovering"
+            ? SYNC.recovering
+            : s.refusal === null
+              ? `${SYNC[s.state]} (${s.phase.toLowerCase().replace(/_/g, " ")})`
+              : s.hosting === "pending" && s.refusal.code === "RESOURCE_NOT_HOSTED"
+                ? `Not hosted yet on ${s.refusal.url}: host it from here to start syncing`
+                : refusalText(s.refusal, s.profile),
     },
     {
       label: "Hosting",
@@ -170,6 +184,15 @@ export function statusView(s: ResourceStatus): StatusView {
           ? "(none)"
           : `${s.controlHead.slice(0, 16)}… (#${s.controlSeq ?? "?"})`,
     },
+    ...(s.identityBlock === undefined
+      ? []
+      : [
+          {
+            // WIRE §100.1: "blocked at head H by an unsupported record".
+            label: "Blocked at",
+            value: `${s.identityBlock.head === null ? "no validated head" : `head ${s.identityBlock.head.slice(0, 16)}…`}, by record #${s.identityBlock.seq} (${s.identityBlock.recordId.slice(0, 16)}…): ${BARRIER_ENTRY_TEXT[s.identityBlock.entry]}`,
+          },
+        ]),
     { label: "Data Epoch", value: s.dataEpoch ?? "(unknown)" },
     { label: "Waiting to send", value: String(s.pendingOutbound) },
     {
@@ -190,7 +213,7 @@ export function statusView(s: ResourceStatus): StatusView {
                 : s.blockedCollaborators
                     .map(
                       (b) =>
-                        `${b.id}: ${b.units} change${b.units === 1 ? "" : "s"} (${b.reasons.join(", ")})`,
+                        `${b.id}${b.from.length === 0 ? "" : ` (${b.from.join(", ")})`}: ${b.units} change${b.units === 1 ? "" : "s"} (${b.reasons.join(", ")})`,
                     )
                     .join("; "),
           },
@@ -200,9 +223,11 @@ export function statusView(s: ResourceStatus): StatusView {
     title: s.localName ?? (section ? "Shared section" : "Collaboration"),
     banner: s.blocked
       ? `This ${resourceNoun(s.profile)}'s history has forked (control conflict). It is NOT in sync: sharing, invitations and other changes to who can access it are blocked until the owner resolves it.`
-      : s.state === "unsupported"
-        ? `${NEEDS_NEWER_VERSION}. Its data stays on this device, untouched.`
-        : null,
+      : s.identityBlock !== undefined
+        ? `${identityBlocked(resourceNoun(s.profile))}. Its data stays readable on this device.`
+        : s.state === "unsupported"
+          ? `${NEEDS_NEWER_VERSION}. Its data stays on this device, untouched.`
+          : null,
     rows,
   };
 }

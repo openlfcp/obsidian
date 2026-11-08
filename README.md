@@ -278,6 +278,24 @@ and the value to keep; both notes then show it.
   and completion. Some Tasks tokens (🔁 🛫 ➕ ❌ 🔼) stay local to your
   note; the share preview shows them.
 
+### Linked devices (coming next)
+
+A later version of Shared Tasks lets one person use several devices
+(another computer, a phone) under one identity: a device is added with a
+`lfcp://pair/…` link. This version does not add devices yet, but it knows
+what they look like:
+
+- When someone in a shared section adds or removes a device, this version
+  stops syncing that section and says "This section now uses a person's
+  linked devices… Update the plugin". Your copy stays readable, and edits
+  you make wait on this device. The message stays after a restart, until
+  you update. Older versions (0.6.0 and before) stop syncing such a
+  section too, but show only a generic error or keep loading.
+- A pasted `lfcp://pair/…` link is not an invitation: Join says so and
+  uses nothing.
+
+Update everyone who shares sections with you before anyone adds a device.
+
 ## Limitations
 
 Beta software. **Not for data you need to protect yet.**
