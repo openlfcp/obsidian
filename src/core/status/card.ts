@@ -393,17 +393,34 @@ export function sectionCard(input: CardInput): SectionCard {
  * loading" notice in its place. `unavailable`: why Shared Tasks cannot run
  * on this device (its local data locked, another instance holding it), said
  * first: the section will not load until that changes.
+ *
+ * Its facts are only what is known: the sync queue and the access were not
+ * read, so they are unknown, never "no local changes waiting" or "you can
+ * edit" (a locked install can still hold changes it did not send).
  */
 export function notLoadedCard(
   input: Pick<CardInput, "title" | "resource" | "sectionId">,
   unavailable: string | null,
 ): SectionCard {
   const card = sectionCard({ ...input, view: unknownStatus() });
+  const facts =
+    unavailable === null
+      ? [
+          "Changes from this device waiting to sync: not checked yet.",
+          "Not checked with the server yet.",
+          "Your access to this section: not checked yet.",
+        ]
+      : [
+          "Changes from this device waiting to sync: unknown while Shared Tasks is not available on this device.",
+          "Not checked with the server.",
+          "Your access to this section: unknown while Shared Tasks is not available on this device.",
+        ];
   return unavailable === null
-    ? card
+    ? { ...card, facts }
     : {
         ...card,
         status: "Not available on this device",
+        facts,
         problems: [unavailable, ...card.problems],
       };
 }
