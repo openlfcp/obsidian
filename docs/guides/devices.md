@@ -164,7 +164,7 @@ want. What the old device wrote stays in the history as yours.
 - **Older versions stop syncing.** Adding your first device changes each
   section you share so that your devices can open it. A collaborator on
   Shared Tasks 0.6.0 or earlier stops syncing that section (0.6.0 shows
-  it as offline); a slightly older version says "This section now uses a
+  it as offline); Shared Tasks 0.6.1 says "This section now uses a
   person's linked devices… Update the plugin". After they update, it
   syncs again, with nothing lost on their side. Tell your collaborators
   before you add your first device.
@@ -177,15 +177,6 @@ want. What the old device wrote stays in the history as yours.
 
 ## 7. Known limits in this build
 
-These were found by the end-to-end tests of this build and are being
-worked on:
-
-- A section you **create after pairing** does not reach your other
-  devices yet. Sections you had when you added a device do.
-- An invitation **accepted on a device other than your first** joins that
-  device as a separate person. Accept invitations on your first device.
-- A section **created on a device other than your first** belongs to that
-  device, not to you, and does not reach your other devices.
 - A second device with Full access cannot see the requests of a link
   shown by another device: approve on the device that shows the link.
 - **Device steps take their time.** Each step opens a connection to the
@@ -193,3 +184,5 @@ worked on:
   one network. Shared Tasks paces them: a step may wait a few seconds for
   its turn, and an open dialog asks less often the longer it waits (after
   4, 8 and 15 seconds, then every 30 seconds). **Check now** asks at once.
+- **`lfcp-node pair` does not start on Windows**: storing the bridge's
+  keys fails there. Pair a bridge from Linux or macOS.
