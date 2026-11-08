@@ -41,6 +41,7 @@ import {
   PairingLinkText as PairingLink,
   type PairingLinkText,
   type PairingReview,
+  pendingDekRef,
   planReconciliation,
   principalOfRef,
   type RegistrationResult,
@@ -421,9 +422,14 @@ export class DeviceService {
           }
     for (const [device, sections] of pending)
       out.push({ kind: "registration", operation: "", label: names.device(device), sections });
-    const keys = [...local.chains]
-      .filter(([, chain]) => this.#rotationDue(chain))
-      .map(([hex]) => names.resource(hex));
+    // Due key changes, and those committed or sent whose key still waits in its pending slot.
+    const pendingKeys = await this.#pendingRotations();
+    const keys = [
+      ...new Set([
+        ...[...local.chains].filter(([, chain]) => this.#rotationDue(chain)).map(([hex]) => hex),
+        ...pendingKeys,
+      ]),
+    ].map((hex) => names.resource(hex));
     if (keys.length > 0) out.push({ kind: "key", operation: "", label: "", sections: keys });
     const waiting = hexList(await this.#runtime().localState.get(ROSTER_PENDING_KEY));
     if (waiting.length > 0)
@@ -949,6 +955,27 @@ export class DeviceService {
     return done;
   }
 
+  /**
+   * Resources (hex) of the key changes journaled here whose new key still
+   * waits in its pending slot (§9.1): the KEY_EPOCH was sent, and may be
+   * committed, but the key is not adopted yet. Whatever became of the
+   * operation (a refused read closes nothing), they stay owed until the
+   * SDK resumes them.
+   */
+  async #pendingRotations(): Promise<string[]> {
+    const c = this.#context();
+    const out = new Set<string>();
+    for (const op of await new OperationJournal(c.storage).list())
+      for (const p of op.phases) {
+        if (p.kind !== "rotate" || (p.state !== "pending" && p.state !== "committed-own")) continue;
+        const key = await c.secrets.get(pendingDekRef(fromHex(p.resource) as ResourceId, op.id));
+        if (key === undefined) continue;
+        key.fill(0);
+        out.add(p.resource);
+      }
+    return [...out];
+  }
+
   /** The SDK's committed key changes whose new key is still owed, by this device's state. */
   async #outstanding(local: LocalState): Promise<readonly OutstandingDelivery[]> {
     const c = this.#context();
@@ -972,9 +999,15 @@ export class DeviceService {
     local: LocalState,
     issues: UpkeepIssue[],
   ): Promise<string[]> {
-    const owed = await this.#outstanding(local);
-    if (owed.length === 0) return [];
-    const resources = [...new Set(owed.map((o) => toHex(o.resource)))];
+    // Owed: marked deliveries, and key changes whose committed key may still wait in their
+    // pending slot (a lost answer to the KEY_EPOCH): both are resumed by the SDK (§9.1).
+    const owedNow = async () =>
+      new Set([
+        ...(await this.#outstanding(local)).map((o) => toHex(o.resource)),
+        ...(await this.#pendingRotations()),
+      ]);
+    const resources = [...(await owedNow())];
+    if (resources.length === 0) return [];
     if (local.conflict !== null) {
       for (const resource of resources) issues.push({ resource, kind: "conflict" });
       return [];
@@ -1004,7 +1037,7 @@ export class DeviceService {
           kind: o.code === "CONTROL_CONFLICT" ? "conflict" : "unreachable",
         });
     }
-    const still = new Set((await this.#outstanding(local)).map((o) => toHex(o.resource)));
+    const still = await owedNow();
     for (const resource of still) issues.push(failed.get(resource) ?? { resource, kind: "keys" });
     return resources.filter((r) => !still.has(r));
   }
@@ -1054,6 +1087,9 @@ export class DeviceService {
     const resource = chain.state.resourceId;
     let channel: IdentityChannel | undefined;
     let outcome: RotationOutcome;
+    // A refused read (unhosted, access revoked, rate limited) is reported, and decides
+    // nothing: the key change may be committed with its key still pending (§9.1).
+    let readRefused = false;
     try {
       // The device list's removals hold for every key change of this device (§7.1 step 1).
       const identity = this.#deliveryIdentity(local);
@@ -1069,16 +1105,17 @@ export class DeviceService {
         resource,
       });
     } catch (e) {
-      if (e instanceof IdentityRefused)
-        // The coordinator refuses this device's read (unhosted, access revoked): reported.
+      if (e instanceof IdentityRefused) {
+        readRefused = true;
         outcome = { resource, status: "refused", code: e.code };
-      else if (e instanceof IdentityUnavailable || e instanceof IdentityConflict)
+      } else if (e instanceof IdentityUnavailable || e instanceof IdentityConflict)
         outcome = { resource, status: "unreachable" };
       else throw e;
     } finally {
       channel?.close();
     }
-    const open = outcome.status === "unreachable" || outcome.status === "awaiting-key-holder";
+    const open =
+      readRefused || outcome.status === "unreachable" || outcome.status === "awaiting-key-holder";
     await journal.setStatus(id, open ? "open" : "done");
     return outcome;
   }

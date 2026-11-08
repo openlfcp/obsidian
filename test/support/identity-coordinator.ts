@@ -64,6 +64,8 @@ export class MemoryCoordinator {
   /** Resources (hex) whose coordinator does not answer. */
   readonly down = new Set<string>();
   fault: (e: UploadEvent) => Fault | undefined = () => undefined;
+  /** A NACK code answering this Resource's RESOURCE_OPEN and CONTROL_GET (e.g. RATE_LIMITED), or none. */
+  readFault: (resource: ResourceId) => string | undefined = () => undefined;
   readonly uploads: UploadEvent[] = [];
 
   chain(resource: ResourceId): LinearChain {
@@ -181,6 +183,8 @@ export class MemoryCoordinator {
         ),
       open: async (r): Promise<OpenAnswer> => {
         reach(r);
+        const refusedOpen = this.readFault(r);
+        if (refusedOpen !== undefined) return { kind: "nack", code: refusedOpen };
         if (this.offline) throw new IdentityUnavailable("offline");
         const h = hosted(r);
         if (h === undefined) return { kind: "nack", code: "RESOURCE_NOT_HOSTED" };
@@ -213,6 +217,9 @@ export class MemoryCoordinator {
       },
       control: async (r, start) => {
         reach(r);
+        const refusedGet = this.readFault(r);
+        if (refusedGet !== undefined)
+          throw new IdentityRefused(refusedGet, "CONTROL_GET was refused");
         if (this.offline) throw new IdentityUnavailable("offline");
         const h = hosted(r);
         // A NACK, as the connection network reports it (CONTROL_GET of W §45).
