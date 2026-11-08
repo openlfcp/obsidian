@@ -74,7 +74,7 @@ async function share(
     recipients: [ctxOf(subject).principal.signer.descriptor],
     deks: await heldDeks(o.secrets, x1),
   });
-  return grant.recordId as ControlRecordId;
+  return grant.recordId;
 }
 
 /** `i` changes R's key under operation `operation`; the new key to `owed` (hex) is not sent. */
