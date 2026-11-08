@@ -31,7 +31,7 @@ import type { RegistryRow, RegistrySnapshot } from "../sections/registry-view";
 import { keyedRepairs } from "../sections/repair";
 import { preflight, proposeRange, type SharePolicy, shareMessages } from "../sections/share";
 import { type ShareScope, shareScope, type TargetCapture } from "../sections/target";
-import { type StatusView, statusView } from "../status/reducer";
+import { type StatusView, unknownStatus } from "../status/reducer";
 import { flowAction, stageOf } from "./flows";
 import type {
   PaneAction,
@@ -45,6 +45,9 @@ import type {
   PaneSelection,
 } from "./model";
 import { type NoteRepairs, type PaneProblem, paneProblems } from "./problems";
+
+/** Moved to the reducer (the card's not-loaded view reads it too); kept here for the pane's callers. */
+export { unknownStatus };
 
 /**
  * What the access list (AccessView, the card's) says of a section, for the
@@ -147,28 +150,6 @@ const OFF: PaneRegistry = {
   unplaced: null,
   rows: [],
 };
-
-/**
- * The status of a section whose status this device has not computed yet:
- * the reducer's own view of "no evidence" (loading, access unknown, no
- * connection seen). Never healthy, never a denial.
- */
-export function unknownStatus(): StatusView {
-  return statusView({
-    session: "",
-    revision: 0,
-    replica: "not-loaded",
-    access: "unknown",
-    pendingControl: [],
-    connection: "offline",
-    connectionQualifier: "no-evidence",
-    catchUp: "not-started",
-    problems: [],
-    batches: [],
-    acceptanceEvidence: "unavailable",
-    projections: [],
-  });
-}
 
 function registryOf(
   s: RegistrySnapshot | null,

@@ -34,8 +34,13 @@ const disabled = (reason: string): Availability => ({ kind: "disabled", reason }
 
 /** The host's running state, as every surface and the executor see it. */
 export interface HostFacts {
-  /** Why the plugin cannot run here (another instance holds the vault's data), or null. */
+  /**
+   * Why the plugin cannot run here (another instance holds the vault's data,
+   * its local data is locked, its start failed), or null.
+   */
   readonly unavailable: string | null;
+  /** The way out of `unavailable` is in the settings (a new identity after a lock). */
+  readonly recoverInSettings?: boolean;
   /** The runtime has not started yet. */
   readonly starting: boolean;
   /** V3: sections are read-only on this device (no new section, no access change). */
@@ -293,8 +298,12 @@ const RULES: Readonly<Record<ActionId, Rule>> = {
   "continue-flow": (d) =>
     d.flow?.outcome === "unfinished" || (d.f.unfinished?.length ?? 0) > 0 ? ENABLED : HIDDEN,
   "open-for-editing": (d) => (d.reading ? ENABLED : HIDDEN),
-  // Setup incomplete; or the share preview's sync server, changed only in the settings (LFCP-03-014).
-  "open-settings": (d) => (d.f.setup || sharing(d) ? ENABLED : HIDDEN),
+  // Setup incomplete; or the share preview's sync server, changed only in the settings (LFCP-03-014);
+  // or local data locked on this device, whose way out (a new identity) is in the settings.
+  "open-settings": (d) =>
+    d.f.setup || sharing(d) || (d.host.unavailable !== null && d.host.recoverInSettings === true)
+      ? ENABLED
+      : HIDDEN,
   // D10: an action that does not apply here is hidden, not disabled.
   "copy-readable": (d) => (inSection(d) ? ENABLED : HIDDEN),
   // The section at the cursor of the captured note, every binding kept: pasted, another copy of it.

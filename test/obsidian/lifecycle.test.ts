@@ -13,13 +13,15 @@ import {
 } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it, vi } from "vitest";
+import { PAIR_HELP } from "../../src/core/identity/pairing-view";
 import { fingerprintOf, shortId } from "../../src/core/identity/people";
 import { DeviceService } from "../../src/core/identity/service";
+import { lockedText } from "../../src/core/lfcp/install";
 import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
-import OpenLfcpPlugin, { LOCK_HELD_ADVICE } from "../../src/obsidian/plugin";
+import OpenLfcpPlugin, { LOCK_HELD_ADVICE, NEW_IDENTITY_NEXT } from "../../src/obsidian/plugin";
 import { SectionsHost } from "../../src/obsidian/sections-host";
 import { P } from "../core/identity/x-chain";
 import * as mock from "../mocks/obsidian";
@@ -50,7 +52,10 @@ class TestPlugin extends OpenLfcpPlugin {
     if (this.stopDelayMs > 0) await new Promise((r) => setTimeout(r, this.stopDelayMs));
     await super.stopRuntime();
   }
+  /** Stands in for the sections host from the first start on (null: none, as without a DOM). */
+  sectionsStub: object | null = null;
   protected override runtimeEnv(): RuntimeEnv {
+    if (this.sectionsStub !== null) this.sections = this.sectionsStub as never;
     this.starts++;
     const fail = this.failWith;
     // The real Obsidian mapping, with counted timers and an offline socket.
@@ -516,6 +521,162 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await second.stopRuntime();
   });
 
+  it("a vault whose secrets are gone starts locked: the report says why, not 'ready'", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (the marker with them).
+    app.secretStorage = new mock.SecretStorage();
+    const { plugin, host } = await load(app);
+    const r = await plugin.whenRuntimeStarted();
+    expect(r?.status).toMatchObject({ kind: "locked", reason: "marker-missing" });
+    mock.modals.length = 0;
+    host.commands.find((c) => c.id === "export-diagnostics")?.callback?.();
+    const modal = mock.modals[0] as unknown as { contentEl: mock.FakeElement };
+    for (let i = 0; i < 40 && !modal.contentEl.textContent.includes("Runtime:"); i++)
+      await sleep(10);
+    const report = modal.contentEl.textContent;
+    expect(report).toContain("Runtime: locked (marker-missing)");
+    expect(report).toMatch(/runtime-locked reason=marker-missing/);
+    expect(report).not.toContain("runtime-ready");
+    host.unload();
+    await plugin.stopRuntime();
+  });
+
+  it("local data locked (secrets gone): the sections say why; a new identity, asked for, runs again", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (the install marker with them).
+    app.secretStorage = new mock.SecretStorage();
+    const plugin = new TestPlugin(app as never, manifest as never);
+    // What the plugin tells its sections host (the host itself needs a DOM: sections.test).
+    const told: [string | null, boolean][] = [];
+    plugin.sectionsStub = new Proxy<Record<string, unknown>>(
+      {},
+      {
+        get: (_t, name) =>
+          name === "unavailable"
+            ? (message: string | null, recover = false) => told.push([message, recover])
+            : () => Promise.resolve(),
+      },
+    );
+    await plugin.onload();
+    const r = await plugin.whenRuntimeStarted();
+    expect(r?.status).toMatchObject({ kind: "locked", reason: "marker-missing" });
+    expect(told).toEqual([[lockedText("marker-missing"), true]]);
+    // Nothing was reset by itself: the settings' button makes the new identity.
+    await plugin.createNewIdentity();
+    expect((await plugin.whenRuntimeStarted())?.status.kind).toBe("ready");
+    expect(told.at(-1)).toEqual([null, false]);
+    (plugin as unknown as mock.Plugin).unload();
+    await plugin.stopRuntime();
+  });
+
+  it("a locked vault can't be paired yet: the device commands say the two steps; after a new identity it can", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (as on a phone whose data was cleared).
+    app.secretStorage = new mock.SecretStorage();
+    // The pairing dialog's default device name reads the vault's name (not in the mock vault).
+    (app.vault as unknown as { getName: () => string }).getName = () => "Notes";
+    const { plugin, host } = await load(app);
+    expect((await plugin.whenRuntimeStarted())?.status).toMatchObject({
+      kind: "locked",
+      reason: "marker-missing",
+    });
+    const command = (id: string) => host.commands.find((c) => c.id === id)?.callback?.();
+    // The settings: why, and the two steps (a new identity, then pairing), never "the same access" alone.
+    const tab = host.settingTabs[0] as mock.PluginSettingTab;
+    tab.display();
+    const identity = () =>
+      tab.containerEl.settings.find((s) => s.name === "Identity on this device");
+    expect(identity()?.desc).toContain("two steps");
+    expect(identity()?.desc).toContain('run "Pair this device with a link…"');
+    expect(identity()?.desc).toContain('run "Add my other device…"');
+    expect(identity()?.desc).toContain("A new identity on its own is a separate person");
+    expect(identity()?.button?.text).toBe("Create a new identity");
+    // Each device command says why and what to do, never "try again in a moment".
+    vi.stubGlobal("activeDocument", { activeElement: null });
+    try {
+      for (const id of ["pair-this-device", "add-device", "your-devices"]) {
+        mock.notices.length = 0;
+        mock.modals.length = 0;
+        command(id);
+        await sleep(0);
+        expect(mock.notices, id).toEqual([`Shared Tasks: ${lockedText("marker-missing")}`]);
+        expect(mock.modals, id).toEqual([]);
+      }
+      // Step 1, asked for in the settings: a new, empty identity, and the next step said.
+      mock.notices.length = 0;
+      await identity()?.button?.onClickHandler();
+      expect((await plugin.whenRuntimeStarted())?.status.kind).toBe("ready");
+      expect(mock.notices).toEqual([`Shared Tasks: ${NEW_IDENTITY_NEXT}`]);
+      expect(identity()?.desc).toMatch(/^Ready\./);
+      // Step 2: this vault can now be paired (nothing of the old install is in it).
+      expect(await plugin.deviceService()?.pairRefusal()).toBeNull();
+      mock.notices.length = 0;
+      mock.modals.length = 0;
+      command("pair-this-device");
+      const modal = mock.modals.at(-1) as unknown as { contentEl: mock.FakeElement } | undefined;
+      for (let i = 0; i < 40 && !modal?.contentEl.textContent.includes(PAIR_HELP); i++)
+        await sleep(10);
+      expect(mock.notices).toEqual([]);
+      expect(modal?.contentEl.textContent).toContain(PAIR_HELP);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    host.unload();
+    await plugin.stopRuntime();
+  });
+
+  it("another instance holding the vault's data: no new identity offered anywhere, only what to do", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const second = new TestPlugin(app as never, manifest as never);
+    second.device = first.plugin.device;
+    const told: [string | null, boolean][] = [];
+    second.sectionsStub = new Proxy<Record<string, unknown>>(
+      {},
+      {
+        get: (_t, name) =>
+          name === "unavailable"
+            ? (message: string | null, recover = false) => told.push([message, recover])
+            : () => Promise.resolve(),
+      },
+    );
+    await second.onload();
+    expect((await second.whenRuntimeStarted())?.status).toMatchObject({
+      kind: "locked",
+      reason: "lock-held",
+    });
+    // The surfaces: what to do, and no way out in the settings (recoverInSettings false),
+    // on the first start and on each retry while the other instance holds the data.
+    expect(told.length).toBeGreaterThan(0);
+    for (const t of told) expect(t).toEqual([`Shared Tasks: ${LOCK_HELD_ADVICE}`, false]);
+    const host = second as unknown as mock.Plugin;
+    const tab = host.settingTabs[0] as mock.PluginSettingTab;
+    tab.display();
+    const identity = tab.containerEl.settings.find((s) => s.name === "Identity on this device");
+    expect(identity?.button).toBeUndefined();
+    expect(identity?.desc).not.toContain("new identity");
+    mock.notices.length = 0;
+    host.commands.find((c) => c.id === "pair-this-device")?.callback?.();
+    expect(mock.notices).toEqual([`Shared Tasks: ${LOCK_HELD_ADVICE}`]);
+    host.unload();
+    await second.stopRuntime();
+    first.host.unload();
+    await first.plugin.stopRuntime();
+  });
+
   it("another instance holding the vault's data: paused, and said what to do", async () => {
     const app = new mock.App();
     const first = await load(app);
@@ -538,7 +699,7 @@ describe("plugin lifecycle (LFCP-059)", () => {
     await first.plugin.stopRuntime();
   });
 
-  it("a section's card, while another instance holds the vault's data, says so, not 'still loading'", async () => {
+  it("a section's card, while another instance holds the vault's data, opens and says so, not 'still loading'", async () => {
     const host = new SectionsHost(
       new mock.App() as never,
       () => undefined,
@@ -549,10 +710,61 @@ describe("plugin lifecycle (LFCP-059)", () => {
     );
     host.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
     mock.notices.length = 0;
-    await host.openCard("x#y", "Plan");
-    expect(mock.notices).toEqual([
-      "Shared Tasks: another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
-    ]);
+    mock.modals.length = 0;
+    // The card remembers where focus was, to give it back (Obsidian's activeDocument).
+    vi.stubGlobal("activeDocument", { activeElement: null });
+    try {
+      await host.openCard("AAAAAAAAAAAAAAAAAAAAAA#y", "Plan");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(mock.notices).toEqual([]);
+    const card = (mock.modals.at(-1) as unknown as { contentEl: mock.FakeElement }).contentEl;
+    expect(card.textContent).toContain("Not available on this device");
+    expect(card.textContent).toContain(
+      "another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.",
+    );
+  });
+
+  it("a card opened while starting follows the host: locked, held by another window, running again", async () => {
+    const host = new SectionsHost(
+      new mock.App() as never,
+      () => undefined,
+      () => "child-line",
+      () => "local",
+      () => null,
+      () => "wss://sync.example/v1/ws",
+    );
+    mock.modals.length = 0;
+    vi.stubGlobal("activeDocument", { activeElement: null });
+    try {
+      // Opened before the start finished: no status yet, the host not known to be down.
+      await host.openCard("AAAAAAAAAAAAAAAAAAAAAA#y", "Plan");
+      expect(mock.modals).toHaveLength(1);
+      const card = (mock.modals[0] as unknown as { contentEl: mock.FakeElement }).contentEl;
+      expect(card.textContent).toContain("Loading shared section");
+      // The start finds the local data locked: the open card says so, and why, by itself.
+      host.unavailable(lockedText("marker-missing"), true);
+      await vi.waitFor(() => expect(card.textContent).toContain("Not available on this device"));
+      expect(card.textContent).toContain(
+        "This device's Shared Tasks secrets for this vault are missing.",
+      );
+      expect(card.textContent).not.toContain("Loading shared section");
+      expect(card.textContent).not.toContain("No local changes waiting.");
+      // Another window holding the data instead: its advice, no new identity.
+      host.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
+      await vi.waitFor(() =>
+        expect(card.textContent).toContain("Close other windows on this vault"),
+      );
+      expect(card.textContent).not.toContain("new identity");
+      // Running again: loading until its status comes, the same card throughout.
+      host.unavailable(null);
+      await vi.waitFor(() => expect(card.textContent).toContain("Loading shared section"));
+      expect(card.textContent).not.toContain("Not available on this device");
+      expect(mock.modals).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("deleting a note not checked for held edits yet recomputes the statuses (no lasting 'Checking…')", async () => {

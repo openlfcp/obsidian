@@ -10,6 +10,33 @@ since 0.4.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- When Shared Tasks can't open its local data on a device (its secrets or
+  database gone, records that disagree), the pane, the section card, the
+  section list, the badge in the note and the status bar say so and why,
+  instead of loading forever. They name the way back to your sections in
+  two steps, since such a device can't be paired as it is: "Create a new
+  identity" in the settings, then "Pair this device with a link…" with a
+  link from "Add my other device…" on your first device or another with
+  Full access. A new identity on its own is said to be a separate person,
+  without your earlier sections. The pane offers "Open settings"; nothing
+  is reset by itself. After a new identity, Shared Tasks runs again
+  without a restart and says the next step. A guide:
+  [a synced vault on another device](docs/guides/devices.md#2-add-a-device).
+- "Add my other device…", "Your devices…" and "Pair this device with a
+  link…" on such a device say why and what to do, instead of "Try again
+  in a moment"; with another window holding the vault's data, they say to
+  close it.
+- "Open details" opens the section's card while it is still loading, or
+  while Shared Tasks can't run, with what is known: whether changes wait
+  to sync and your access are said to be unknown, not checked. An open
+  card follows when Shared Tasks turns out unable to run, or runs again,
+  and gains its buttons (Invite, Resource status) once its section loads.
+- The diagnostics report gives the reason of a locked runtime
+  (`Runtime: locked (marker-missing)`), logs `runtime-locked` instead of
+  `runtime-ready` for it, and names an iPhone or iPad `mobile-ios`.
+
 ## [0.7.1] — 2026-11-08
 
 Fixes for linked devices from the final review of the specification.

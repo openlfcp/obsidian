@@ -9,6 +9,9 @@ import {
   INSTALL_KEY,
   type Install,
   InstallLockedError,
+  LOCK_MESSAGES,
+  type LockReason,
+  lockedText,
   openInstall,
 } from "../../../src/core/lfcp/install";
 import { markerSlotId } from "../../../src/core/lfcp/secrets";
@@ -167,5 +170,23 @@ describe("install (LFCP-059)", () => {
     expect(local.values.get(INSTALL_KEY)).toBe(fresh.installId);
     fresh.storage.close();
     expect((await openInstall(device.env(local))).kind).toBe("ready");
+  });
+
+  it("every lock but lock-held says why, and the two steps back to the person's sections", () => {
+    const reasons = Object.keys(LOCK_MESSAGES) as LockReason[];
+    expect(reasons).toHaveLength(7);
+    for (const reason of reasons.filter((r) => r !== "lock-held")) {
+      const text = lockedText(reason);
+      expect(text, reason).toContain(LOCK_MESSAGES[reason]);
+      expect(text, reason).toContain("Your notes are not affected.");
+      // Pairing comes after a new identity: a locked install can't be paired itself.
+      expect(text, reason).toMatch(
+        /two steps: create a new identity in the Shared Tasks settings, then run "Pair this device with a link…" with a link from "Add my other device…" on your first device or another with Full access\./,
+      );
+      // A new identity alone is someone else: never implied to bring the sections back.
+      expect(text, reason).toContain(
+        "A new identity on its own is a separate person, without your earlier sections.",
+      );
+    }
   });
 });

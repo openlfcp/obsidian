@@ -8,6 +8,7 @@
 // this host cannot run is off with its reason, never a dead button.
 
 import { describe, expect, it } from "vitest";
+import { lockedText } from "../../../src/core/lfcp/install";
 import {
   hostPane,
   hostPaneFacts,
@@ -552,5 +553,75 @@ describe("pane host facts (LFCP-03-012)", () => {
     expect(texts.join("\n")).not.toMatch(
       /protocol|click the link|opens? (the )?link|wizard|setup/i,
     );
+  });
+
+  it("local data locked on this device: why, the settings' way out, never 'Loading' forever", () => {
+    const why = lockedText("marker-missing");
+    const locked = {
+      unavailable: why,
+      recoverInSettings: true,
+      starting: true,
+      readOnly: true,
+      server: true,
+    };
+    // The sections never load: the registry is still "loading", no status is known.
+    const loading = registry({ status: "loading", rows: [], sections: null });
+    const m = paneModel(
+      hostPaneFacts({ note: note(5), registry: loading, status: () => undefined, host: locked }),
+    );
+    expect(m.card).toMatchObject({
+      status: { word: "Not available", tone: "problem" },
+      fact: why,
+      problem: true,
+    });
+    expect(m.card.fact).toContain("This device's Shared Tasks secrets for this vault are missing.");
+    expect(m.primary).toMatchObject({ id: "open-settings", enabled: true });
+    expect(m.card.secondary).toMatchObject({ id: "open-details", enabled: true });
+    expect(m.sections.summary).toBe(why);
+    // Every header action says why it is off.
+    for (const a of m.header) expect(a).toMatchObject({ enabled: false, reason: why });
+    expect(paneTexts(m).join("\n")).not.toMatch(/Loading|Reading the shared sections/);
+
+    // Every lock but lock-held: the same surfaces, its own reason, the settings' way out.
+    for (const reason of [
+      "state-missing",
+      "database-missing",
+      "mismatch",
+      "keys-missing",
+      "database-behind",
+    ] as const) {
+      const text = lockedText(reason);
+      const each = paneModel(
+        hostPaneFacts({
+          note: note(5),
+          registry: loading,
+          status: () => undefined,
+          host: { ...locked, unavailable: text },
+        }),
+      );
+      expect(each.card, reason).toMatchObject({ status: { word: "Not available" }, fact: text });
+      expect(each.primary, reason).toMatchObject({ id: "open-settings", enabled: true });
+      expect(each.sections.summary, reason).toBe(text);
+    }
+
+    // Another instance holding the data passes by itself: said, no settings to open.
+    const held = paneModel(
+      hostPaneFacts({
+        note: note(5),
+        registry: loading,
+        status: () => undefined,
+        host: {
+          ...locked,
+          unavailable: "Shared Tasks: another instance.",
+          recoverInSettings: false,
+        },
+      }),
+    );
+    expect(held.card).toMatchObject({
+      status: { word: "Not available" },
+      fact: "another instance.",
+    });
+    expect(held.primary).toBeNull();
+    expect(held.sections.summary).toBe("another instance.");
   });
 });

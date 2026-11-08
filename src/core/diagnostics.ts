@@ -60,6 +60,8 @@ export interface DiagnosticInput {
   readonly obsidian: string;
   readonly platform: string;
   readonly runtime: string;
+  /** Why a locked runtime is locked (a LockReason code), when it is. */
+  readonly runtimeReason?: string | null;
   /** The runtime's local encryption summary line ("Local encryption: …"), or null. */
   readonly localEncryption: string | null;
   readonly resources: readonly ResourceFacts[];
@@ -154,13 +156,43 @@ export function redact(text: string, detailed: boolean): string {
   return out;
 }
 
+/** What Obsidian's Platform says about the device (an iPhone or iPad also reads as macOS). */
+export interface PlatformFlags {
+  readonly isMobileApp: boolean;
+  readonly isIosApp: boolean;
+  readonly isAndroidApp: boolean;
+  readonly isMacOS: boolean;
+  readonly isWin: boolean;
+  readonly isLinux: boolean;
+}
+
+/** "desktop-macos", "mobile-ios", …: the app's kind, then its OS (the mobile apps first). */
+export function platformName(p: PlatformFlags): string {
+  const os = p.isIosApp
+    ? "ios"
+    : p.isAndroidApp
+      ? "android"
+      : p.isMacOS
+        ? "macos"
+        : p.isWin
+          ? "windows"
+          : p.isLinux
+            ? "linux"
+            : "other";
+  return `${p.isMobileApp ? "mobile" : "desktop"}-${os}`;
+}
+
 /** The report as plain text (LFCP-02-065): safe by default, identifiers only when `detailed`. */
 export function diagnosticReport(input: DiagnosticInput, detailed: boolean): string {
   const lines: string[] = [
     "Shared Tasks diagnostics",
     `Generated: ${iso(input.generatedAt)}`,
     `Plugin: ${code(input.plugin)} · Obsidian: ${code(input.obsidian)} · Platform: ${code(input.platform)}`,
-    `Runtime: ${code(input.runtime)}`,
+    `Runtime: ${code(input.runtime)}${
+      input.runtimeReason === null || input.runtimeReason === undefined
+        ? ""
+        : ` (${code(input.runtimeReason)})`
+    }`,
     input.localEncryption ?? "Local encryption: unknown",
     detailed
       ? "Includes identifiers and server addresses (chosen in the preview)."

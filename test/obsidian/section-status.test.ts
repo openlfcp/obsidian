@@ -3,16 +3,19 @@
 // section problem", like a valid section.
 
 import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import { formatBoundary, parseSectionRef, type SectionRef } from "../../src/core/sections/grammar";
 import type { HeldEdits } from "../../src/core/status/held";
 import { statusView } from "../../src/core/status/reducer";
 import {
+  badgeOf,
   readOnlyRanges,
   sectionAtLine,
   sectionKey,
   sectionProblems,
   sectionStatusExtension,
+  setSectionsUnavailable,
 } from "../../src/obsidian/section-status";
 
 const R = "yMMEHNHocAnDmj_loC9IErjKJzPzqmwBF1MNTPw8wkE";
@@ -104,5 +107,52 @@ describe("held edits and read-only sections in the editor (F-04)", () => {
     const live = EditorState.create({ doc: md, extensions: ext.extension });
     const after = live.update({ changes: { from: at, insert: "x" }, userEvent: "input.type" });
     expect(after.state.doc.toString()).toBe(md);
+  });
+});
+
+describe("a section's badge while Shared Tasks cannot run on this device", () => {
+  const md = lines("## Launch", start, "- [ ] One", end);
+  /** The heading badges the extension draws now: their state, icon and tooltip. */
+  const badges = (state: EditorState) => {
+    const out: { state: string; icon: string | null; tooltip: string }[] = [];
+    for (const set of state.facet(EditorView.decorations))
+      if (typeof set !== "function")
+        set.between(0, state.doc.length, (_f, _t, d) => {
+          const w = (d.spec as { widget?: unknown }).widget as {
+            badge?: { state: string; icon: string | null; tooltip: string };
+          };
+          if (w?.badge !== undefined)
+            out.push({ state: w.badge.state, icon: w.badge.icon, tooltip: w.badge.tooltip });
+        });
+    return out;
+  };
+
+  it("says it is not available, never a spinner that does not end; back to loading once it runs", () => {
+    expect(badgeOf("Launch", undefined).icon).toBe("loading");
+    expect(badgeOf("Launch", undefined, "locked")).toMatchObject({
+      state: "ATTENTION",
+      icon: "error",
+      tooltip: "Shared Tasks is not available on this device",
+    });
+    let down: string | null = "locked";
+    const ext = sectionStatusExtension(
+      () => new Map(),
+      () => undefined,
+      () => undefined,
+      () => down,
+    );
+    const live = EditorState.create({ doc: md, extensions: ext.extension });
+    expect(badges(live)).toEqual([
+      {
+        state: "ATTENTION",
+        icon: "error",
+        tooltip: "Shared Tasks is not available on this device",
+      },
+    ]);
+    down = null;
+    const running = live.update({ effects: setSectionsUnavailable.of(null) }).state;
+    expect(badges(running).map((b) => b.icon)).toEqual(["loading"]);
+    const lockedAgain = running.update({ effects: setSectionsUnavailable.of("locked") }).state;
+    expect(badges(lockedAgain).map((b) => b.icon)).toEqual(["error"]);
   });
 });
