@@ -10,6 +10,11 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-11-08
+
+Locked-device explanations and recovery through pairing.
+Notes: [docs/releases/0.7.2.md](docs/releases/0.7.2.md).
+
 ### Fixed
 
 - When Shared Tasks can't open its local data on a device (its secrets or
