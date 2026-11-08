@@ -80,6 +80,33 @@ computer, the copy starts without your keys (they are never inside the
 vault). Pair it like any new device; its notes with shared sections then
 follow those sections.
 
+**A synced vault on another device.** A vault synced through iCloud,
+Obsidian Sync, Git or a similar service brings your notes to the other
+device, never Shared Tasks' keys or local data. The first time, Shared
+Tasks starts there as a new device: pair it as above. If its local data
+on that device is later lost or no longer matches (a phone can clear an
+app's storage, for example), Shared Tasks says so instead of loading: the
+pane, a section's details and its badge say "can't open its local data on
+this device", with the reason. A device in that state can't be paired as
+it is. It takes two steps, and nothing is reset until you ask:
+
+1. In Settings → Shared Tasks, choose **Create a new identity**. This is
+   an empty start on this device; your notes don't change.
+2. On a device of yours that syncs, run **"Add my other device…"**; on
+   this one, run **"Pair this device with a link…"** and go on as in
+   steps 4 to 6 above.
+
+Your shared sections then open there again, as you. A new identity on its
+own, without step 2, is a separate person: it has none of your earlier
+sections, and collaborators would need to invite it again. If the device
+was in your device list before, its old entry stays there: remove it from
+another device with "Your devices…". If none of your other devices can add
+a device (the lost one was your first device and no other has Full
+access), pairing isn't possible in this version: a new identity is then
+the only way, and collaborators invite it again. When another Shared Tasks
+window holds the vault's data, no new identity is offered: close the other
+window or restart Obsidian.
+
 ### A bridge or a bot
 
 A headless bridge (for example, a notes bridge on a server) is paired

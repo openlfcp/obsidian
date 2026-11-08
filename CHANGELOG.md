@@ -14,9 +14,20 @@ since 0.4.0.
 
 - When Shared Tasks can't open its local data on a device (its secrets or
   database gone, records that disagree), the pane, the section card, the
-  section list and the badge in the note say so and why, instead of
-  loading forever. The pane offers "Open settings", where "Create a new
-  identity" is; nothing is reset by itself.
+  section list, the badge in the note and the status bar say so and why,
+  instead of loading forever. They name the way back to your sections in
+  two steps, since such a device can't be paired as it is: "Create a new
+  identity" in the settings, then "Pair this device with a link…" with a
+  link from "Add my other device…" on a device that syncs. A new identity
+  on its own is said to be a separate person, without your earlier
+  sections. The pane offers "Open settings"; nothing is reset by itself.
+  After a new identity, Shared Tasks runs again without a restart and says
+  the next step. A guide:
+  [a synced vault on another device](docs/guides/devices.md#2-add-a-device).
+- "Add my other device…", "Your devices…" and "Pair this device with a
+  link…" on such a device say why and what to do, instead of "Try again
+  in a moment"; with another window holding the vault's data, they say to
+  close it.
 - "Open details" opens the section's card while it is still loading, or
   while Shared Tasks can't run, with what is known.
 - The diagnostics report gives the reason of a locked runtime
