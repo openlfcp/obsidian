@@ -726,6 +726,47 @@ describe("plugin lifecycle (LFCP-059)", () => {
     );
   });
 
+  it("a card opened while starting follows the host: locked, held by another window, running again", async () => {
+    const host = new SectionsHost(
+      new mock.App() as never,
+      () => undefined,
+      () => "child-line",
+      () => "local",
+      () => null,
+      () => "wss://sync.example/v1/ws",
+    );
+    mock.modals.length = 0;
+    vi.stubGlobal("activeDocument", { activeElement: null });
+    try {
+      // Opened before the start finished: no status yet, the host not known to be down.
+      await host.openCard("AAAAAAAAAAAAAAAAAAAAAA#y", "Plan");
+      expect(mock.modals).toHaveLength(1);
+      const card = (mock.modals[0] as unknown as { contentEl: mock.FakeElement }).contentEl;
+      expect(card.textContent).toContain("Loading shared section");
+      // The start finds the local data locked: the open card says so, and why, by itself.
+      host.unavailable(lockedText("marker-missing"), true);
+      await vi.waitFor(() => expect(card.textContent).toContain("Not available on this device"));
+      expect(card.textContent).toContain(
+        "This device's Shared Tasks secrets for this vault are missing.",
+      );
+      expect(card.textContent).not.toContain("Loading shared section");
+      expect(card.textContent).not.toContain("No local changes waiting.");
+      // Another window holding the data instead: its advice, no new identity.
+      host.unavailable(`Shared Tasks: ${LOCK_HELD_ADVICE}`);
+      await vi.waitFor(() =>
+        expect(card.textContent).toContain("Close other windows on this vault"),
+      );
+      expect(card.textContent).not.toContain("new identity");
+      // Running again: loading until its status comes, the same card throughout.
+      host.unavailable(null);
+      await vi.waitFor(() => expect(card.textContent).toContain("Loading shared section"));
+      expect(card.textContent).not.toContain("Not available on this device");
+      expect(mock.modals).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("deleting a note not checked for held edits yet recomputes the statuses (no lasting 'Checking…')", async () => {
     const host = new SectionsHost(
       new mock.App() as never,

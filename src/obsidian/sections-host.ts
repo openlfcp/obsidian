@@ -802,6 +802,8 @@ export class SectionsHost {
     for (const view of this.status.views)
       view.dispatch({ effects: setSectionsUnavailable.of(message) });
     this.reading.update();
+    // An open card says it too (opened while starting, it said "Loading"), or loads again.
+    void this.actions.refreshCard();
   }
   #unavailable: string | null = null;
   #recoverInSettings = false;

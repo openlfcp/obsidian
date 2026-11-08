@@ -16,23 +16,27 @@ let reasonIds = 0;
 export class SectionCardModal extends Modal {
   #card: SectionCard;
   readonly #returnFocus: Element | null;
+  /** The buttons drawn last, by label: focus stays on the same one across a redraw. */
+  #buttons: { readonly label: string; readonly el: HTMLElement }[] = [];
 
   constructor(
     app: App,
     card: SectionCard,
-    private readonly actions: readonly CardAction[],
+    private actions: readonly CardAction[],
     private readonly onClosed: () => void = () => undefined,
     /** Per identity: set its local alias (a label of this device only). */
-    private readonly rowActions: CardRowActions = {},
+    private rowActions: CardRowActions = {},
   ) {
     super(app);
     this.#card = card;
     this.#returnFocus = activeDocument.activeElement;
   }
 
-  /** New facts while the card is open. */
-  update(card: SectionCard): void {
+  /** New facts while the card is open; with `actions` and `rows`, its buttons drawn from them. */
+  update(card: SectionCard, actions?: readonly CardAction[], rows?: CardRowActions): void {
     this.#card = card;
+    if (actions !== undefined) this.actions = actions;
+    if (rows !== undefined) this.rowActions = rows;
     this.#render();
   }
 
@@ -45,6 +49,10 @@ export class SectionCardModal extends Modal {
 
   #render(): void {
     const c = this.#card;
+    // A redraw keeps focus on the button it was on (by its label), not on the page.
+    const active = activeDocument.activeElement;
+    const focused = this.#buttons.find((b) => b.el === active)?.label ?? null;
+    this.#buttons = [];
     this.setTitle(c.heading);
     const el = this.contentEl;
     el.empty();
@@ -108,6 +116,7 @@ export class SectionCardModal extends Modal {
       const reasons: { id: string; text: string }[] = [];
       for (const a of this.actions) {
         const b = buttons.createEl("button", { text: a.label });
+        this.#buttons.push({ label: a.label, el: b });
         // A5, D10: applies but blocked: shown, focusable, says why; a click does nothing.
         if (a.disabled !== undefined) {
           b.setAttribute("aria-disabled", "true");
@@ -129,6 +138,9 @@ export class SectionCardModal extends Modal {
           attr: { id: r.id },
         });
     }
+    // The same button again; gone, the first one (focus never falls out of the card).
+    if (focused !== null)
+      (this.#buttons.find((b) => b.label === focused) ?? this.#buttons[0])?.el.focus();
   }
 
   override onClose(): void {

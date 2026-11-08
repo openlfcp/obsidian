@@ -172,7 +172,11 @@ export interface CardRowActions {
 
 /** The open section card: redrawn with new facts, closed when another opens. */
 export interface CardHandle {
-  update(card: SectionCard): void;
+  /**
+   * New facts while it is open; with `actions` and `rows`, its buttons too,
+   * drawn again from those facts (an early card gains its loaded actions).
+   */
+  update(card: SectionCard, actions?: readonly CardAction[], rows?: CardRowActions): void;
   close(): void;
 }
 

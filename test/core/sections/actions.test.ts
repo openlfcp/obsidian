@@ -14,7 +14,7 @@ import {
   type Task,
   type TaskView,
 } from "@openlfcp/shared-objects";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ACTION_IDS } from "../../../src/core/actions/catalog";
 import {
   ActionDispatcher,
@@ -153,9 +153,17 @@ class RecordingPrompter implements SectionPrompter {
     this.#open("review", ...args);
   }
   readonly cardUpdates: unknown[] = [];
+  /** The buttons and row actions each update drew (undefined: kept). */
+  readonly cardRedraws: { actions: unknown; rows: unknown }[] = [];
   card(...args: unknown[]) {
     const d = this.#open("card", ...args);
-    return { update: (c: unknown) => this.cardUpdates.push(c), close: () => d.answer(null) };
+    return {
+      update: (c: unknown, actions?: unknown, rows?: unknown) => {
+        this.cardUpdates.push(c);
+        this.cardRedraws.push({ actions, rows });
+      },
+      close: () => d.answer(null),
+    };
   }
 }
 
@@ -1415,6 +1423,97 @@ describe("the section card (LFCP-03-008 over 059/060/061)", () => {
     held.set(null);
     await held.actions.openCard(KEY, "Launch");
     expect(held.opened()[0].problems[0]).toBe("another instance.");
+  });
+
+  /** What the open card shows now: its last update, else what it opened with. */
+  function shown(t: ReturnType<typeof cardSetup>) {
+    const [content, actions, , rows] = t.opened();
+    const last = t.prompter.cardRedraws.at(-1);
+    return {
+      content: (t.prompter.cardUpdates.at(-1) as SectionCard | undefined) ?? content,
+      actions: (last?.actions as CardArgs[1] | undefined) ?? actions,
+      rows: (last?.rows as CardArgs[3] | undefined) ?? rows,
+    };
+  }
+
+  it("an early card follows the host: loading, then locked or held, then loading again", async () => {
+    let down: string | null = null;
+    const t = cardSetup(() => ({ unavailable: () => down }));
+    t.set(null);
+    await t.actions.openCard(KEY, "Launch");
+    expect(shown(t).content.status).toBe("Loading shared section");
+    // The start finds the local data locked: no section status will ever come.
+    down = "Shared Tasks can't open its local data on this device.";
+    await t.actions.refreshCard();
+    expect(shown(t).content).toMatchObject({
+      status: "Not available on this device",
+      problems: ["Shared Tasks can't open its local data on this device."],
+    });
+    // Another instance holding the data: its reason, said inside the card.
+    down = "Shared Tasks: another instance holds this vault's data.";
+    await t.actions.refreshCard();
+    expect(shown(t).content.problems[0]).toBe("another instance holds this vault's data.");
+    // Running again (a new identity, the other window closed): loading, not "not available".
+    down = null;
+    await t.actions.refreshCard();
+    expect(shown(t).content.status).toBe("Loading shared section");
+    expect(shown(t).content.problems).toEqual([]);
+  });
+
+  it("an early card gains its loaded buttons and row actions once its section loads", async () => {
+    let readOnly = true;
+    const t = cardSetup(() => ({ readOnly: () => readOnly }));
+    t.set(null);
+    await t.actions.openCard(KEY, "Launch");
+    expect(shown(t).actions.map((a) => a.label)).not.toContain("Resource status");
+    expect(Object.keys(shown(t).rows)).toEqual(["alias"]);
+    // Loaded, with validated invite access, on a device that may write.
+    readOnly = false;
+    t.set(card());
+    await t.actions.refreshCard();
+    const now = shown(t);
+    expect(now.content.status).toBe("Current");
+    expect(now.actions.map((a) => [a.label, a.disabled])).toEqual([
+      ["Invite collaborator…", undefined],
+      ["Resource status", undefined],
+    ]);
+    expect(Object.keys(now.rows)).toEqual(["alias", "remove"]);
+    // The redrawn buttons run guarded, as the opened ones do.
+    now.actions.find((a) => a.label === "Resource status")?.run();
+    await vi.waitFor(() => expect(t.commandCalls).toEqual(["resourceStatusOf"]));
+  });
+
+  it("a card redraw that finishes after a later one, or after the card closed, is not drawn", async () => {
+    const answers: ((c: SectionCard | null) => void)[] = [];
+    let slow = false;
+    let content: SectionCard | null = null;
+    const t = cardSetup(() => ({
+      cardContent: () =>
+        slow ? new Promise<SectionCard | null>((r) => answers.push(r)) : Promise.resolve(content),
+    }));
+    await t.actions.openCard(KEY, "Launch");
+    slow = true;
+    const first = t.actions.refreshCard();
+    const second = t.actions.refreshCard();
+    answers[1]?.(card({ status: "Newer" }));
+    await second;
+    answers[0]?.(card({ status: "Older" }));
+    await first;
+    expect(t.prompter.cardUpdates.map((c) => (c as SectionCard).status)).toEqual(["Newer"]);
+    // Closed while a redraw reads: nothing is drawn on the closed card.
+    const third = t.actions.refreshCard();
+    t.opened()[2]();
+    answers[2]?.(card({ status: "After close" }));
+    await third;
+    expect(t.prompter.cardUpdates).toHaveLength(1);
+    // A loaded card whose status is gone for a moment keeps its facts (Shared Tasks runs).
+    slow = false;
+    content = card();
+    await t.actions.openCard(KEY, "Launch");
+    content = null;
+    const before = t.prompter.cardUpdates.length;
+    await t.actions.refreshCard();
+    expect(t.prompter.cardUpdates).toHaveLength(before);
   });
 
   it("offers what the facts allow, in order; read-only offers no invite and no removal", async () => {

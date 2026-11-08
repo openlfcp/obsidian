@@ -217,8 +217,15 @@ export class SectionActions {
   /** The notes those flows act on, followed across renames (LFCP-03-002). */
   readonly #targets = new NoteTargets();
   /** The open details card, redrawn when its section's status changes. */
-  #card: { readonly key: string; readonly title: string; readonly handle: CardHandle } | null =
-    null;
+  #card: {
+    readonly key: string;
+    readonly title: string;
+    readonly handle: CardHandle;
+    /** It shows its section's loaded facts (else what is known before they load). */
+    readonly loaded: boolean;
+  } | null = null;
+  /** The latest redraw of the open card: an earlier one that finishes later is not drawn. */
+  #cardTurn = 0;
 
   /** The dispatcher the card's buttons run through (LFCP-03-010); null: their handlers directly. */
   #dispatch: Dispatch | null = null;
@@ -1994,11 +2001,40 @@ export class SectionActions {
    * it is still here (stable ref, revalidated).
    */
   async openCard(key: string, title: string): Promise<void> {
+    if (key.indexOf("#") < 0) return;
+    let handle: CardHandle | null = null;
+    const view = await this.#cardView(key, title, () => handle);
+    this.#card?.handle.close();
+    handle = this.env.prompter.card(
+      view.content,
+      view.actions,
+      () => {
+        if (this.#card !== null && this.#card.handle === handle) this.#card = null;
+      },
+      view.rows,
+    );
+    this.#card = { key, title, handle, loaded: view.loaded };
+  }
+
+  /**
+   * What the card of `key` shows now: its content and, from the same facts,
+   * its buttons and row actions. Not loaded yet, or never while Shared Tasks
+   * cannot run here, it still says what is known, and why (never "try
+   * again" alone); `loaded` says which. `handle`: the card these are for
+   * (its row actions redraw it).
+   */
+  async #cardView(
+    key: string,
+    title: string,
+    handle: () => CardHandle | null,
+  ): Promise<{
+    readonly content: SectionCard;
+    readonly loaded: boolean;
+    readonly actions: readonly CardAction[];
+    readonly rows: CardRowActions;
+  }> {
     const { prompter, services } = this.env;
     const at = key.indexOf("#");
-    if (at < 0) return;
-    // Not loaded yet, or never while Shared Tasks cannot run here: the card
-    // still opens and says what is known, and why (never "try again" alone).
     const loaded = await services.cardContent(key, title);
     const down = services.unavailable();
     const content =
@@ -2098,15 +2134,13 @@ export class SectionActions {
           ]
         : []),
     ];
-    this.#card?.handle.close();
-    let handle: CardHandle | null = null;
     const rows: CardRowActions = {
       // A local alias: a label of this device for an identity, never sent.
       alias: (id, label) => {
         void prompter.alias(label.startsWith("Member ") ? "" : label).then(async (name) => {
           if (name === null || !(await services.setAlias(id, name))) return;
-          const fresh = await services.cardContent(key, title);
-          if (fresh !== null) handle?.update(fresh);
+          const h = handle();
+          if (h !== null) await this.#refreshCard(h);
         });
       },
       // 060: confirmed first; queued is pending until the server commits it.
@@ -2139,30 +2173,39 @@ export class SectionActions {
                         (hex) => aliases[hex.slice(0, 8)] ?? `Member ${hex.slice(0, 8)}`,
                       );
                 prompter.notice(`Shared Tasks: ${message}`);
-                const fresh = await services.cardContent(key, title);
-                if (fresh !== null && handle !== null && this.#card?.handle === handle)
-                  handle.update(fresh);
+                const h = handle();
+                if (h !== null) await this.#refreshCard(h);
               });
             },
           }),
     };
-    handle = prompter.card(
-      content,
-      actions,
-      () => {
-        if (this.#card !== null && this.#card.handle === handle) this.#card = null;
-      },
-      rows,
-    );
-    this.#card = { key, title, handle };
+    return { content, loaded: loaded !== null, actions, rows };
   }
 
-  /** The open card, redrawn with its section's facts now (its status changed). */
+  /**
+   * The open card, redrawn with its section's facts now (its status
+   * changed, or the host's: Shared Tasks became unavailable, or runs
+   * again), its buttons drawn again from the same facts.
+   */
   async refreshCard(): Promise<void> {
     const card = this.#card;
-    if (card === null) return;
-    const content = await this.env.services.cardContent(card.key, card.title);
-    if (content !== null) card.handle.update(content);
+    if (card !== null) await this.#refreshCard(card.handle);
+  }
+
+  /** Redraws the card `handle` if it is still the open one, and no later redraw started. */
+  async #refreshCard(handle: CardHandle): Promise<void> {
+    const card = this.#card;
+    if (card === null || card.handle !== handle) return;
+    const turn = ++this.#cardTurn;
+    const view = await this.#cardView(card.key, card.title, () => handle);
+    // Closed or replaced meanwhile, or a later redraw is on its way: not drawn.
+    const now = this.#card;
+    if (now === null || now.handle !== handle || turn !== this.#cardTurn) return;
+    // A loaded card whose status is gone for a moment keeps its last facts,
+    // unless Shared Tasks cannot run here (then that is what is true).
+    if (!view.loaded && now.loaded && this.env.services.unavailable() === null) return;
+    this.#card = { ...now, loaded: view.loaded };
+    handle.update(view.content, view.actions, view.rows);
   }
 
   /**
