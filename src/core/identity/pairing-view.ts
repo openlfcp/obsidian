@@ -18,6 +18,7 @@ import type {
   RegistrationResult,
   RequestPairingResult,
   RevocationPreview,
+  RevocationResult,
   RevocationStatus,
   RevokeDeviceResult,
   RotationOutcome,
@@ -65,6 +66,14 @@ export const KEEP_COPY =
 /** "this server does not support devices yet" (§5.1 step 1, §6). */
 export const NO_DEVICE_SUPPORT =
   "Your server does not support adding devices yet. Ask its operator to update it, or choose another default server in Settings.";
+
+/**
+ * A pairing session on a device list whose server no longer lists device
+ * support (§6, LFCP-WIRE-01 §37): the SDK sent nothing there, so no link
+ * exists and nothing changed.
+ */
+export const SESSION_NO_DEVICE_SUPPORT =
+  "The server that keeps your device list does not support devices now, so no link was made and nothing was changed. Ask its operator to update it.";
 
 /** The server could not be reached: nothing is decided (§6). */
 export const OFFLINE =
@@ -131,6 +140,8 @@ export function sessionView(r: PairingSessionResult): SessionView {
         kind: "stop",
         message: `The server refused the new link (${r.code}). Nothing was changed.`,
       };
+    case "unsupported":
+      return { kind: "stop", message: SESSION_NO_DEVICE_SUPPORT };
     case "conflict":
       return { kind: "stop", message: FORKED };
     case "unavailable":
@@ -402,19 +413,33 @@ function documentLine(d: DocumentWrite): string | null {
       : null;
 }
 
+/**
+ * How a removal reads in each section (§8.4). `not-relevant`: the device
+ * could never act there (a pairing device, a service outside its scope),
+ * so no record was needed and nothing is said about it.
+ */
+const REVOKE_LINE: Record<RevocationResult["revoke"], "done" | "later" | "refused"> = {
+  revoked: "done",
+  complete: "done",
+  superseded: "done",
+  "not-relevant": "done",
+  unreachable: "later",
+  "not-authorized": "later",
+  unsupported: "later",
+  conflict: "later",
+  "self-dependent": "later",
+  refused: "refused",
+};
+
 export function revokeView(r: RevokeDeviceResult, label: string, names: Names): RevokeView {
   switch (r.kind) {
     case "revoked": {
-      const by = (s: (typeof r.results)[number]["revoke"][]) =>
-        r.results.filter((x) => s.includes(x.revoke)).map((x) => names.resource(toHex(x.resource)));
-      const later = by([
-        "unreachable",
-        "not-authorized",
-        "unsupported",
-        "conflict",
-        "self-dependent",
-      ]);
-      const refused = by(["refused"]);
+      const by = (line: "later" | "refused") =>
+        r.results
+          .filter((x) => REVOKE_LINE[x.revoke] === line)
+          .map((x) => names.resource(toHex(x.resource)));
+      const later = by("later");
+      const refused = by("refused");
       const key = (s: RotationOutcome["status"]) =>
         r.results.filter((x) => x.rotation?.status === s);
       const named = (xs: readonly { readonly resource: ResourceId }[]) =>
