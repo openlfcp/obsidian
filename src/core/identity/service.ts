@@ -923,12 +923,24 @@ export class DeviceService {
           });
         } else done.push(o.resource);
       } catch (e) {
-        if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+        if (
+          !(
+            e instanceof IdentityUnavailable ||
+            e instanceof IdentityConflict ||
+            e instanceof IdentityRefused
+          )
+        )
+          throw e;
+        // This one stays owed and is reported; the next one is still handed on.
         still.push(o);
-        issues.push({
-          resource: o.resource,
-          kind: e instanceof IdentityConflict ? "conflict" : "unreachable",
-        });
+        issues.push(
+          e instanceof IdentityRefused
+            ? { resource: o.resource, kind: "refused", detail: e.code }
+            : {
+                resource: o.resource,
+                kind: e instanceof IdentityConflict ? "conflict" : "unreachable",
+              },
+        );
       } finally {
         channel?.close();
       }
@@ -967,23 +979,33 @@ export class DeviceService {
       for (const resource of resources) issues.push({ resource, kind: "conflict" });
       return [];
     }
+    // The SDK resumes each Resource on its own: one that refuses this device's read
+    // (unhosted, access revoked), is forked or unreachable keeps its obligation and is
+    // reported with its own outcome; the others are handed on (sdk-ts 0.5.1).
     const pool = new ChannelPool(flow.network);
+    let outcomes: readonly RotationOutcome[];
     try {
-      await this.#flows.resumeRotations({ ...flow, ...this.#deliveryIdentity(local), pool });
-    } catch (e) {
-      if (
-        !(
-          e instanceof IdentityUnavailable ||
-          e instanceof IdentityRefused ||
-          e instanceof IdentityConflict
-        )
-      )
-        throw e;
+      outcomes = await this.#flows.resumeRotations({
+        ...flow,
+        ...this.#deliveryIdentity(local),
+        pool,
+      });
     } finally {
       pool.closeAll();
     }
+    const failed = new Map<string, UpkeepIssue>();
+    for (const o of outcomes) {
+      const resource = toHex(o.resource);
+      if (o.status === "refused")
+        failed.set(resource, { resource, kind: "refused", detail: o.code ?? "refused" });
+      else if (o.status === "unreachable")
+        failed.set(resource, {
+          resource,
+          kind: o.code === "CONTROL_CONFLICT" ? "conflict" : "unreachable",
+        });
+    }
     const still = new Set((await this.#outstanding(local)).map((o) => toHex(o.resource)));
-    for (const resource of still) issues.push({ resource, kind: "keys" });
+    for (const resource of still) issues.push(failed.get(resource) ?? { resource, kind: "keys" });
     return resources.filter((r) => !still.has(r));
   }
 
@@ -1047,8 +1069,12 @@ export class DeviceService {
         resource,
       });
     } catch (e) {
-      if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
-      outcome = { resource, status: "unreachable" };
+      if (e instanceof IdentityRefused)
+        // The coordinator refuses this device's read (unhosted, access revoked): reported.
+        outcome = { resource, status: "refused", code: e.code };
+      else if (e instanceof IdentityUnavailable || e instanceof IdentityConflict)
+        outcome = { resource, status: "unreachable" };
+      else throw e;
     } finally {
       channel?.close();
     }
