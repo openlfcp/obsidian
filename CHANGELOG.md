@@ -10,16 +10,14 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-08
+
+Linked devices: one person, several devices. Add a device with a link and
+a fingerprint check, see your devices, remove one.
+Notes: [docs/releases/0.7.0.md](docs/releases/0.7.0.md).
+
 ### Added
 
-- Ready for linked devices (one person, several devices), which a later
-  version adds: a shared section where someone added or removed a device
-  stops syncing with "This section now uses a person's linked devices…
-  Update the plugin", kept across restarts, instead of a generic error or
-  endless loading. Its copy stays readable; edits made here wait on this
-  device.
-- Join tells a device pairing link (`lfcp://pair/…`) from an invitation:
-  "This is a link to add a device, not an invitation…", and uses nothing.
 - People, not installations: where someone uses several linked devices,
   the access list shows them once, their devices inside, and their edits,
   local name and assignments count for the person, with the device as
@@ -31,21 +29,29 @@ since 0.4.0.
   your devices, and your shared sections open there. "Your devices…" lists
   them and removes one, warning first which devices stop with it. A phone
   still only reads shared sections.
+- Any of your devices with Full access shares a section, accepts an
+  invitation and creates sections for you: they are yours on all your
+  devices, and sections you create later reach your other devices too.
+- Device steps are paced to stay within the sync server's limit on
+  connections from one network; the device dialogs ask less often the
+  longer they wait (Check now asks at once).
 - A guide to your devices: [docs/guides/devices.md](docs/guides/devices.md).
 
-### Fixed
+## [0.6.1] — 2026-11-07
 
-- A shared section open while you added a device kept syncing: before, it
-  could stay "syncing" and miss the new device's edits until a restart.
-- A removed device asked to be paired again says it was removed and that a
-  new, empty vault is paired instead, not that it can add devices. Also
-  when its pairing was not finished: it no longer waits forever.
-- A copied vault paired as a new device: its notes with shared sections
-  follow them; before, they did not until Obsidian restarted.
-- Adding two devices in a row and then removing one no longer runs into
-  the sync server's limit on connections from one network ("The server
-  could not be reached"): device steps are paced, and the device dialogs
-  ask less often the longer they wait (Check now asks at once).
+Ready for linked devices, which a later version adds.
+Notes: [docs/releases/0.6.1.md](docs/releases/0.6.1.md).
+
+### Added
+
+- Ready for linked devices (one person, several devices), which a later
+  version adds: a shared section where someone added or removed a device
+  stops syncing with "This section now uses a person's linked devices…
+  Update the plugin", kept across restarts, instead of a generic error or
+  endless loading. Its copy stays readable; edits made here wait on this
+  device.
+- Join tells a device pairing link (`lfcp://pair/…`) from an invitation:
+  "This is a link to add a device, not an invitation…", and uses nothing.
 
 ## [0.6.0] — 2026-10-31
 
