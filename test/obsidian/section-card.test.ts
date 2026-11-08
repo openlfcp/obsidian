@@ -76,7 +76,7 @@ describe("the section card's buttons (LFCP-03-013)", () => {
       const el = modal.contentEl as unknown as mock.FakeElement;
       el.findAll("button")[0]?.focus();
       const removes: string[] = [];
-      modal.update({ ...content, status: "Current" } as SectionCard, [
+      modal.update({ ...content, status: "Current" }, [
         { label: "Invite collaborator…", run: () => void ran.push("invite") },
         { label: "Resource status", run: () => void ran.push("status") },
       ]);
