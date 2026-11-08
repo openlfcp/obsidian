@@ -112,12 +112,17 @@ export const LOCK_MESSAGES: Readonly<Record<LockReason, string>> = {
 
 /**
  * What every surface says while this vault's install is locked for any
- * reason but "lock-held" (which passes by itself): that Shared Tasks cannot
- * open its local data here, why, and the way out the settings offer (a new
- * identity, never made without the user asking).
+ * reason but "lock-held" (which passes by itself, and never offers a new
+ * identity): that Shared Tasks cannot open its local data here, why, and
+ * the way back to the person's sections. A locked install cannot be paired
+ * (pairing needs a running one: its keys and database), so it is two
+ * steps: a new identity in the settings (never made without the user
+ * asking), then "Pair this device with a link…" with a link from "Add my
+ * other device…" on a device that syncs. A new identity alone is someone
+ * else, without the earlier sections: said, never implied otherwise.
  */
 export function lockedText(reason: LockReason): string {
-  return `Shared Tasks can't open its local data on this device. ${LOCK_MESSAGES[reason]} Your notes are not affected. To sync from this vault again, create a new identity in the Shared Tasks settings.`;
+  return `Shared Tasks can't open its local data on this device. ${LOCK_MESSAGES[reason]} Your notes are not affected. To get your shared sections here again, add this device to your identity in two steps: create a new identity in the Shared Tasks settings, then run "Pair this device with a link…" with a link from "Add my other device…" on a device of yours that syncs. A new identity on its own is a separate person, without your earlier sections.`;
 }
 
 /** The local Principal: public identity plus its keys (never shown or exported). */

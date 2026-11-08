@@ -129,6 +129,10 @@ const BLOCKED_RETRIES = 20;
 export const LOCK_HELD_ADVICE =
   "another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.";
 
+/** After "Create a new identity": the second step back to the person's sections. */
+export const NEW_IDENTITY_NEXT =
+  'this device now has a new, empty identity. To get your shared sections here, run "Pair this device with a link…" now, with a link from "Add my other device…" on a device of yours that syncs. Without that, this device is a separate person: collaborators would need to invite it again.';
+
 export default class OpenLfcpPlugin extends Plugin {
   override settings: Settings = normalizeSettings(undefined);
   /** Vault-level file changes, whatever made them (§45). */
@@ -975,7 +979,8 @@ export default class OpenLfcpPlugin extends Plugin {
   /**
    * Settings' "Create a new identity", after a lock (never offered for
    * "lock-held"): a new install with a new Principal, then a start on it, so
-   * every surface runs again without a reload.
+   * every surface runs again without a reload. The new install is empty, so
+   * it can be paired: the next step, said at once (alone it is someone else).
    */
   async createNewIdentity(): Promise<void> {
     const runtime = this.runtime;
@@ -983,6 +988,7 @@ export default class OpenLfcpPlugin extends Plugin {
     await runtime.createNewPrincipal();
     if (this.#lockRetry !== null) window.clearTimeout(this.#lockRetry);
     await this.#retryStart();
+    if (this.runtime?.status.kind === "ready") new Notice(`Shared Tasks: ${NEW_IDENTITY_NEXT}`, 0);
   }
 
   /** The lock was held: the locked runtime stopped, a new start tried. */
@@ -1449,10 +1455,18 @@ export default class OpenLfcpPlugin extends Plugin {
   }
 
   #readyDevices(): DeviceService | null {
-    const service = this.runtime?.status.kind === "ready" ? this.deviceService() : null;
-    if (service === null)
+    const status = this.runtime?.status;
+    const service = status?.kind === "ready" ? this.deviceService() : null;
+    if (service !== null) return service;
+    if (status?.kind !== "locked")
       new Notice("Shared Tasks: not ready on this device yet. Try again in a moment.");
-    return service;
+    // Locked, it never gets ready by itself: why, and the way out, not "try again".
+    else
+      new Notice(
+        `Shared Tasks: ${status.reason === "lock-held" ? LOCK_HELD_ADVICE : lockedText(status.reason)}`,
+        0,
+      );
+    return null;
   }
 
   /**

@@ -13,6 +13,7 @@ import {
 } from "@openlfcp/shared-objects";
 import type { LfcpStorage } from "@openlfcp/storage";
 import { describe, expect, it, vi } from "vitest";
+import { PAIR_HELP } from "../../src/core/identity/pairing-view";
 import { fingerprintOf, shortId } from "../../src/core/identity/people";
 import { DeviceService } from "../../src/core/identity/service";
 import { lockedText } from "../../src/core/lfcp/install";
@@ -20,7 +21,7 @@ import type { RuntimeEnv } from "../../src/core/lfcp/runtime";
 import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
-import OpenLfcpPlugin, { LOCK_HELD_ADVICE } from "../../src/obsidian/plugin";
+import OpenLfcpPlugin, { LOCK_HELD_ADVICE, NEW_IDENTITY_NEXT } from "../../src/obsidian/plugin";
 import { SectionsHost } from "../../src/obsidian/sections-host";
 import { P } from "../core/identity/x-chain";
 import * as mock from "../mocks/obsidian";
@@ -571,6 +572,103 @@ describe("plugin lifecycle (LFCP-059)", () => {
     expect(told.at(-1)).toEqual([null, false]);
     (plugin as unknown as mock.Plugin).unload();
     await plugin.stopRuntime();
+  });
+
+  it("a locked vault can't be paired yet: the device commands say the two steps; after a new identity it can", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    first.host.unload();
+    await first.plugin.stopRuntime();
+    // The device's secret store lost this vault's slots (as on a phone whose data was cleared).
+    app.secretStorage = new mock.SecretStorage();
+    // The pairing dialog's default device name reads the vault's name (not in the mock vault).
+    (app.vault as unknown as { getName: () => string }).getName = () => "Notes";
+    const { plugin, host } = await load(app);
+    expect((await plugin.whenRuntimeStarted())?.status).toMatchObject({
+      kind: "locked",
+      reason: "marker-missing",
+    });
+    const command = (id: string) => host.commands.find((c) => c.id === id)?.callback?.();
+    // The settings: why, and the two steps (a new identity, then pairing), never "the same access" alone.
+    const tab = host.settingTabs[0] as mock.PluginSettingTab;
+    tab.display();
+    const identity = () =>
+      tab.containerEl.settings.find((s) => s.name === "Identity on this device");
+    expect(identity()?.desc).toContain("two steps");
+    expect(identity()?.desc).toContain('run "Pair this device with a link…"');
+    expect(identity()?.desc).toContain('run "Add my other device…"');
+    expect(identity()?.desc).toContain("A new identity on its own is a separate person");
+    expect(identity()?.button?.text).toBe("Create a new identity");
+    // Each device command says why and what to do, never "try again in a moment".
+    vi.stubGlobal("activeDocument", { activeElement: null });
+    try {
+      for (const id of ["pair-this-device", "add-device", "your-devices"]) {
+        mock.notices.length = 0;
+        mock.modals.length = 0;
+        command(id);
+        await sleep(0);
+        expect(mock.notices, id).toEqual([`Shared Tasks: ${lockedText("marker-missing")}`]);
+        expect(mock.modals, id).toEqual([]);
+      }
+      // Step 1, asked for in the settings: a new, empty identity, and the next step said.
+      mock.notices.length = 0;
+      await identity()?.button?.onClickHandler();
+      expect((await plugin.whenRuntimeStarted())?.status.kind).toBe("ready");
+      expect(mock.notices).toEqual([`Shared Tasks: ${NEW_IDENTITY_NEXT}`]);
+      expect(identity()?.desc).toMatch(/^Ready\./);
+      // Step 2: this vault can now be paired (nothing of the old install is in it).
+      expect(await plugin.deviceService()?.pairRefusal()).toBeNull();
+      mock.notices.length = 0;
+      mock.modals.length = 0;
+      command("pair-this-device");
+      const modal = mock.modals.at(-1) as unknown as { contentEl: mock.FakeElement } | undefined;
+      for (let i = 0; i < 40 && !modal?.contentEl.textContent.includes(PAIR_HELP); i++)
+        await sleep(10);
+      expect(mock.notices).toEqual([]);
+      expect(modal?.contentEl.textContent).toContain(PAIR_HELP);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    host.unload();
+    await plugin.stopRuntime();
+  });
+
+  it("another instance holding the vault's data: no new identity offered anywhere, only what to do", async () => {
+    const app = new mock.App();
+    const first = await load(app);
+    await ready(first.plugin);
+    const second = new TestPlugin(app as never, manifest as never);
+    second.device = first.plugin.device;
+    const told: [string | null, boolean][] = [];
+    second.sectionsStub = new Proxy({} as Record<string, unknown>, {
+      get: (_t, name) =>
+        name === "unavailable"
+          ? (message: string | null, recover = false) => told.push([message, recover])
+          : () => Promise.resolve(),
+    });
+    await second.onload();
+    expect((await second.whenRuntimeStarted())?.status).toMatchObject({
+      kind: "locked",
+      reason: "lock-held",
+    });
+    // The surfaces: what to do, and no way out in the settings (recoverInSettings false),
+    // on the first start and on each retry while the other instance holds the data.
+    expect(told.length).toBeGreaterThan(0);
+    for (const t of told) expect(t).toEqual([`Shared Tasks: ${LOCK_HELD_ADVICE}`, false]);
+    const host = second as unknown as mock.Plugin;
+    const tab = host.settingTabs[0] as mock.PluginSettingTab;
+    tab.display();
+    const identity = tab.containerEl.settings.find((s) => s.name === "Identity on this device");
+    expect(identity?.button).toBeUndefined();
+    expect(identity?.desc).not.toContain("new identity");
+    mock.notices.length = 0;
+    host.commands.find((c) => c.id === "pair-this-device")?.callback?.();
+    expect(mock.notices).toEqual([`Shared Tasks: ${LOCK_HELD_ADVICE}`]);
+    host.unload();
+    await second.stopRuntime();
+    first.host.unload();
+    await first.plugin.stopRuntime();
   });
 
   it("another instance holding the vault's data: paused, and said what to do", async () => {

@@ -582,6 +582,28 @@ describe("pane host facts (LFCP-03-012)", () => {
     for (const a of m.header) expect(a).toMatchObject({ enabled: false, reason: why });
     expect(paneTexts(m).join("\n")).not.toMatch(/Loading|Reading the shared sections/);
 
+    // Every lock but lock-held: the same surfaces, its own reason, the settings' way out.
+    for (const reason of [
+      "state-missing",
+      "database-missing",
+      "mismatch",
+      "keys-missing",
+      "database-behind",
+    ] as const) {
+      const text = lockedText(reason);
+      const each = paneModel(
+        hostPaneFacts({
+          note: note(5),
+          registry: loading,
+          status: () => undefined,
+          host: { ...locked, unavailable: text },
+        }),
+      );
+      expect(each.card, reason).toMatchObject({ status: { word: "Not available" }, fact: text });
+      expect(each.primary, reason).toMatchObject({ id: "open-settings", enabled: true });
+      expect(each.sections.summary, reason).toBe(text);
+    }
+
     // Another instance holding the data passes by itself: said, no settings to open.
     const held = paneModel(
       hostPaneFacts({
