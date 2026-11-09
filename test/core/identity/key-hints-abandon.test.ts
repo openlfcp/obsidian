@@ -393,3 +393,70 @@ it("(c) own-root: after Stop trying, the upkeep no longer forces a reconciliatio
   await a.service.upkeep(true);
   expect(uploadsTo(me(b), from)).toBeGreaterThan(0);
 });
+
+// Review 418r2 R2: a transient answer to the hint write is retried; a standing one is asked
+// again once the device list's authority changes.
+it("R2: one RATE_LIMITED hint write, then recovery: a later upkeep writes the hint and the key comes back", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const cb = counted();
+  const b = await world.installation(cb.flows);
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  await a.service.upkeep(true);
+  const I = await b.service.identity();
+  if (I === undefined) throw new Error("no device list");
+  const epoch = await loseKey(b, X);
+  // The server refuses B's first unit in the device list (the hint) with RATE_LIMITED.
+  let refuse = true;
+  world.server.fault = (e) => {
+    if (refuse && e.op === "data-unit" && toHex(e.resource) === toHex(I)) {
+      refuse = false;
+      return { nack: "RATE_LIMITED" };
+    }
+    return undefined;
+  };
+  await b.service.upkeep();
+  expect(cb.calls.setKeyHints).toBe(1);
+  // Within the backoff, an ordinary upkeep does not ask again.
+  await b.service.upkeep();
+  expect(cb.calls.setKeyHints).toBe(1);
+  // Later (past the backoff), it does, and the hint is written.
+  const real = Date.now.bind(Date);
+  const later = vi.spyOn(Date, "now").mockImplementation(() => real() + 2 * 60 * 60 * 1000);
+  try {
+    await b.service.upkeep();
+  } finally {
+    later.mockRestore();
+  }
+  expect(cb.calls.setKeyHints).toBe(2);
+  expect(
+    (await b.service.unfinished()).find((u) => u.kind === "key-wait")?.refusal,
+  ).toBeUndefined();
+  await a.service.upkeep();
+  expect(hasKey(X, me(b), epoch)).toBe(true);
+});
+
+it("R2: a Read device that cannot ask asks again once the device list's authority changes", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const cc = counted();
+  const c = await world.installation(cc.flows);
+  const X = await a.section("Plans");
+  await c.service.progress(await pair(a, c, "read"));
+  await a.service.upkeep(true);
+  await loseKey(c, X);
+  await c.service.upkeep();
+  await c.service.upkeep();
+  expect(cc.calls.setKeyHints).toBe(1);
+  // The device list's authority changes (a device record: its head moves). A device's own
+  // access cannot be widened in place (N8: kind, mask and scope are immutable; I refuses a
+  // CAPABILITY_GRANT), so the cached answer is keyed to the head, which any such change moves.
+  const d = await world.installation();
+  await d.service.progress(await pair(a, d, "read"));
+  await c.service.upkeep();
+  expect(cc.calls.setKeyHints).toBe(2);
+  // Unchanged since: not asked again.
+  await c.service.upkeep();
+  expect(cc.calls.setKeyHints).toBe(2);
+});

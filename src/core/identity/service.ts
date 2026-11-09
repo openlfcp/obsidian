@@ -286,15 +286,22 @@ interface KeyHintState {
   readonly written: Readonly<Record<string, readonly string[]>>;
   readonly wanted: Readonly<Record<string, readonly string[]>>;
   readonly result: string;
-  /** When `result` was answered (ms): an `unavailable` is retried after KEY_HINT_RETRY_MS. */
+  /** The refusal's code, or why it was unavailable (review 418r2 R2). */
+  readonly code: string;
+  /** When `result` was answered (ms). */
   readonly at: number;
+  /** The device list's head (hex) when `result` was answered: its authority then. */
+  readonly head: string;
 }
 
 /**
- * setKeyHints answers that stand until what this device lacks changes (review 419 P3-3):
- * asking again would only learn the same. `unavailable` is retried after KEY_HINT_RETRY_MS.
+ * setKeyHints answers that stand while the device list's head (its authority) is the
+ * same and what this device lacks is the same (review 419 P3-3, 418r2 R2): asking
+ * again would learn the same. Every other answer (a refusal whatever its code, such as
+ * RATE_LIMITED, a conflict, an unavailable server) is retried after KEY_HINT_RETRY_MS,
+ * or at once by a forced upkeep.
  */
-const KEY_HINT_TERMINAL = new Set(["not-a-writer", "unsupported", "conflict", "refused"]);
+const KEY_HINT_STANDING = new Set(["not-a-writer", "unsupported"]);
 const KEY_HINT_RETRY_MS = 60 * 60 * 1000;
 
 const epochMap = (v: unknown): Record<string, string[]> =>
@@ -310,7 +317,9 @@ const hintStateOf = (v: unknown): KeyHintState => {
     written: epochMap(o.written),
     wanted: epochMap(o.wanted),
     result: typeof o.result === "string" ? o.result : "",
+    code: typeof o.code === "string" ? o.code : "",
     at: typeof o.at === "number" ? o.at : 0,
+    head: typeof o.head === "string" ? o.head : "",
   };
 };
 
@@ -749,7 +758,7 @@ export class DeviceService {
     // hands them on (§9.1, §9.2 Package), never another key change.
     const handedOn = [...new Set([...resumed, ...(await this.#handOver(flow, local, issues))])];
     // Keys this device lacks: asked for in its device list (§7.1 step 3, 419 (a)).
-    if (!offline) await this.#askForKeys(flow, local);
+    if (!offline) await this.#askForKeys(flow, local, force);
     // A managing device: the keys the person's devices ask for make reconciliation due.
     const requested = !offline && (await this.#readKeyRequests(flow, local));
     // This device's sections the roster lacks are queued (a queue write a failure cut short,
@@ -1160,7 +1169,7 @@ export class DeviceService {
    * that arrives leaves it. Written only when it changes. A device that cannot write
    * the device list (Read, a lost key of the device list itself) shows why instead.
    */
-  async #askForKeys(flow: FlowOptions, local: LocalState): Promise<void> {
+  async #askForKeys(flow: FlowOptions, local: LocalState, force: boolean): Promise<void> {
     if (local.identity === null || local.conflict !== null) return;
     const c = this.#context();
     const runtime = this.#runtime();
@@ -1211,22 +1220,40 @@ export class DeviceService {
     );
     const last = hintStateOf(await runtime.localState.get(KEY_HINT_KEY));
     if (sameEpochMap(last.written, wanted) && sameEpochMap(last.wanted, wanted)) return;
-    // The same need, answered for good (or recently unavailable): not asked again (P3-3).
-    if (
-      sameEpochMap(last.wanted, wanted) &&
-      (KEY_HINT_TERMINAL.has(last.result) ||
-        (last.result === "unavailable" && c.now() - last.at < KEY_HINT_RETRY_MS))
-    )
-      return;
+    // The same need: a standing answer while the device list's authority is the same, or any
+    // other answer within its backoff, is not asked again (P3-3, 418r2 R2).
+    const head = toHex(local.identity.state.head);
+    if (sameEpochMap(last.wanted, wanted) && !force) {
+      if (KEY_HINT_STANDING.has(last.result) && last.head === head) return;
+      if (
+        !KEY_HINT_STANDING.has(last.result) &&
+        last.result !== "written" &&
+        last.result !== "unchanged" &&
+        c.now() - last.at < KEY_HINT_RETRY_MS
+      )
+        return;
+    }
     let result: string;
+    let code = "";
     try {
-      result = (await this.#flows.setKeyHints({ ...(flow as IdentityFlowOptions), missing })).kind;
+      const r = await this.#flows.setKeyHints({ ...(flow as IdentityFlowOptions), missing });
+      result = r.kind;
+      if (r.kind === "refused") code = r.code;
+      else if (r.kind === "unavailable") code = r.reason;
     } catch (e) {
       if (!(e instanceof IdentityUnavailable || e instanceof IdentityRefused)) throw e;
       result = "unavailable";
+      code = e instanceof IdentityRefused ? e.code : e.message;
     }
     const written = result === "written" || result === "unchanged" ? wanted : last.written;
-    await runtime.localState.put(KEY_HINT_KEY, { written, wanted, result, at: c.now() });
+    await runtime.localState.put(KEY_HINT_KEY, {
+      written,
+      wanted,
+      result,
+      code,
+      at: c.now(),
+      head,
+    });
   }
 
   /**
