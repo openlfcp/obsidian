@@ -11,6 +11,11 @@ import { type App, PluginSettingTab, type Setting, type SettingDefinitionItem } 
 import { hiddenHints, SHOW_HINTS } from "../core/pane/hints";
 import { isRefPlacement, isSectionComments } from "../core/settings";
 import type OpenLfcpPlugin from "./plugin";
+import { ConfirmModal } from "./ui/confirm";
+
+/** "Delete earlier identity data…" (design 419 (b)): what is lost, and what is not. */
+const EARLIER_IDENTITY_CONFIRM =
+  "Delete the earlier identity's keys and local data from this device? Changes it had not sent yet are lost. Your notes are not affected, and nothing changes on your other devices or for your collaborators. This can't be undone.";
 
 /**
  * Declarative (Obsidian 1.13+, the plugin's minAppVersion is 1.13.1): the
@@ -32,6 +37,13 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         name: "Identity on this device",
         searchable: false,
         render: (setting) => this.#identity(setting),
+      },
+      {
+        name: "Data of an earlier identity on this device",
+        desc: "When you created a new identity, the previous one's keys and local data stayed on this device. Shared Tasks no longer uses them.",
+        searchable: false,
+        visible: () => (this.plugin.runtime?.earlierIdentities().length ?? 0) > 0,
+        render: (setting) => this.#earlierIdentity(setting),
       },
       {
         name: "Your devices",
@@ -162,6 +174,26 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         await this.plugin.rotateLocalEncryptionKey();
         this.update();
       }),
+    );
+  }
+
+  /** "Delete earlier identity data…" (design 419 (b)), only on confirmation. */
+  #earlierIdentity(setting: Setting): void {
+    setting.addButton((button) =>
+      button
+        .setButtonText("Delete earlier identity data…")
+        .setWarning()
+        .onClick(() => {
+          new ConfirmModal(this.app, {
+            title: "Delete earlier identity data",
+            text: EARLIER_IDENTITY_CONFIRM,
+            confirm: "Delete",
+            run: async () => {
+              await this.plugin.deleteEarlierIdentityData();
+              this.update();
+            },
+          }).open();
+        }),
     );
   }
 
