@@ -10,6 +10,24 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.7.3] — 2026-11-09
+
+Safer and more reliable key changes after removing a device (OpenLFCP SDK
+0.5.1). Notes: [docs/releases/0.7.3.md](docs/releases/0.7.3.md).
+
+### Fixed
+
+- A retried key change no longer hands a section's new key to a device
+  removed in your device list, or to a device added through it, while the
+  section's server has not recorded the removal yet. While the device list
+  has two conflicting versions, no key is handed on for it.
+- A key handed on to other people survives Obsidian closing or a dropped
+  connection after the key was changed. The next upkeep finishes it without
+  another key change, and "Your devices…" lists it until then.
+- A section whose server no longer hosts it, or no longer lets this device
+  read it, is reported without stopping the other sections' keys. A refusal
+  never marks a key change finished.
+
 ## [0.7.2] — 2026-11-08
 
 Locked-device explanations and recovery through pairing.
