@@ -10,8 +10,11 @@ since 0.4.0.
 
 ## [Unreleased]
 
-Draft notes for 0.7.4: [docs/releases/0.7.4.md](docs/releases/0.7.4.md).
-Needs OpenLFCP SDK 0.5.2.
+## [0.7.4] — 2026-11-09
+
+A lost section key comes back, a refused key can be given up, and an
+earlier identity's data can be deleted (OpenLFCP SDK 0.5.2). Notes:
+[docs/releases/0.7.4.md](docs/releases/0.7.4.md).
 
 ### Added
 
