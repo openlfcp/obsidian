@@ -45,7 +45,7 @@ async function loseKey(who: Installation, X: ResourceId): Promise<bigint> {
   const h = world.server.hosted.get(toHex(X));
   if (h === undefined) throw new Error("not hosted");
   h.packages = h.packages.filter((b) => toHex(parseKeyPackage(b).payload.recipient) !== me(who));
-  await ctxOf(who).secrets.delete(dekSecretRef(X, epoch as never));
+  await ctxOf(who).secrets.delete(dekSecretRef(X, epoch));
   expect(hasKey(X, me(who), epoch)).toBe(false);
   return epoch;
 }
