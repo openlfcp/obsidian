@@ -69,7 +69,7 @@ function problemText(c: Condition): string | null {
           ? "This vault is not a member of this section (it was not given access, or joined with another identity). Your local copy stays; new edits are kept on this device only."
           : c.access === "refused"
             ? "The sync server no longer accepts changes from this vault for this section. Your local copy stays; new edits are kept on this device only. Ask the section's owner to check your access."
-            : "This device does not hold the section's key yet. Edits wait until it arrives.";
+            : "This device does not hold the section's key yet. Edits wait until it arrives. If it does not come, this device asks your other devices for it (Your devices…); your first device, or another with Full access, can also send it again from there.";
     case "server-refused":
       return c.code === "RESOURCE_NOT_HOSTED"
         ? 'This section is not on its server, so nobody else gets its changes; they stay on this device. In "Resource status", choose "Host on the server now".'

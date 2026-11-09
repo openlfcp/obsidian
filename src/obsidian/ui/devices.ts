@@ -28,6 +28,7 @@ import {
   WAITING_FOR_DEVICE,
 } from "../../core/identity/pairing-view";
 import type { DeviceService, Unfinished } from "../../core/identity/service";
+import { ConfirmModal } from "./confirm";
 import { returnsFocus } from "./focus-return";
 
 const clipboard = async (text: string): Promise<void> => {
@@ -37,6 +38,14 @@ const clipboard = async (text: string): Promise<void> => {
 };
 
 const buttonRow = (el: HTMLElement): HTMLElement => el.createDiv({ cls: "modal-button-container" });
+
+/** "Send keys again" (design 419 (a)): its confirmation. */
+const SEND_KEYS_AGAIN =
+  "Send this device every section key again? Use this when it shows missing keys. Nothing changes for your other devices.";
+
+/** "Stop trying" (design 419 (c)): its confirmation, the sections by name. */
+const stopTryingText = (sections: readonly string[]): string =>
+  `Stop sending the new key of ${sections.map((s) => `"${s}"`).join(", ")} to these devices? They can't read changes made after the key change until someone sends it again. You can try again later from Given up.`;
 
 /**
  * Asks the server again while its dialog is open (one per dialog), with the
@@ -527,6 +536,19 @@ export class DevicesModal extends Modal {
           void this.#render();
         });
       });
+    // Design 419 (a): "Re-send keys" (§7.1 step 3), for a Read device too.
+    if (row.state !== "suspended" && !row.thisDevice)
+      control.createEl("button", { text: "Send keys again" }).addEventListener("click", () => {
+        new ConfirmModal(this.app, {
+          title: "Send keys again",
+          text: SEND_KEYS_AGAIN,
+          confirm: "Send keys again",
+          run: async () => {
+            new Notice(`Shared Tasks: ${await this.service.resendKeys(row.principal, row.label)}`);
+            await this.#render();
+          },
+        }).open();
+      });
     control
       .createEl("button", { text: "Remove device…", cls: "mod-warning" })
       .addEventListener("click", () => {
@@ -542,16 +564,59 @@ export class DevicesModal extends Modal {
 
   #unfinished(el: HTMLElement, u: Unfinished): void {
     if (u.kind === "request") return;
+    if (u.kind === "refused-handover" || u.kind === "given-up") {
+      // Design 419 (c): "Stop trying" a key change refused every time; "Try again".
+      const item = el.createDiv({ cls: "setting-item" });
+      item.createDiv({
+        cls: "setting-item-info",
+        text: unfinishedText({
+          kind: u.kind,
+          label: u.label,
+          sections: u.sections ?? [],
+          ...(u.refusal === undefined ? {} : { refusal: u.refusal }),
+          ...(u.since === undefined ? {} : { since: u.since }),
+        }),
+      });
+      const control = item.createDiv({ cls: "setting-item-control" });
+      const resource = u.resource ?? "";
+      if (u.kind === "given-up")
+        control.createEl("button", { text: "Try again" }).addEventListener("click", () => {
+          void this.service.tryAgain(u.operation, resource).then(() => this.#finish(true));
+        });
+      else
+        control
+          .createEl("button", { text: "Stop trying", cls: "mod-warning" })
+          .addEventListener("click", () => {
+            new ConfirmModal(this.app, {
+              title: "Stop trying",
+              text: stopTryingText(u.sections ?? []),
+              confirm: "Stop trying",
+              run: async () => {
+                new Notice(`Shared Tasks: ${await this.service.stopTrying(u.operation, resource)}`);
+                await this.#render();
+              },
+            }).open();
+          });
+      return;
+    }
     if (
       u.kind === "registration" ||
       u.kind === "key" ||
       u.kind === "handover" ||
-      u.kind === "roster"
+      u.kind === "roster" ||
+      u.kind === "key-wait" ||
+      u.kind === "key-request"
     ) {
       const item = el.createDiv({ cls: "setting-item" });
       item.createDiv({
         cls: "setting-item-info",
-        text: unfinishedText({ kind: u.kind, label: u.label, sections: u.sections ?? [] }),
+        text: unfinishedText({
+          kind: u.kind,
+          label: u.label,
+          sections: u.sections ?? [],
+          ...(u.refusal === undefined ? {} : { refusal: u.refusal }),
+          ...(u.since === undefined ? {} : { since: u.since }),
+        }),
       });
       const button = item
         .createDiv({ cls: "setting-item-control" })

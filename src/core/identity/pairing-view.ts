@@ -682,12 +682,33 @@ export function progressView(
 
 /** What the device upkeep still owes, as "Your devices…" lists it (§7.1, §8.4). */
 export function unfinishedText(u: {
-  readonly kind: "registration" | "key" | "handover" | "roster";
+  readonly kind:
+    | "registration"
+    | "key"
+    | "handover"
+    | "roster"
+    | "key-wait"
+    | "key-request"
+    | "refused-handover"
+    | "given-up";
   readonly label: string;
   readonly sections?: readonly string[];
+  readonly refusal?: string;
+  readonly since?: number;
 }): string {
   const sections = list(u.sections ?? []);
   switch (u.kind) {
+    case "key-wait":
+      // Design 419 (a): asked in the device list, or not askable from this device.
+      return u.refusal === undefined
+        ? `This device is missing the key of ${sections}. It asked your other devices to send it again; this finishes the next time one of them is open.`
+        : `This device is missing the key of ${sections}. On your first device, or another with Full access, open Your devices… and choose Send keys again for this device.`;
+    case "key-request":
+      return `"${u.label}" asks for the key of ${sections}.`;
+    case "refused-handover":
+      return `${u.label} has not received the new key of ${sections}: refused by the server (${u.refusal ?? "refused"}). Tried again at every check.`;
+    case "given-up":
+      return `Given up: ${sections} (${u.label})${u.since === undefined ? "" : `, since ${new Date(u.since).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`}.`;
     case "registration":
       return `"${u.label}" is not added to ${sections} yet.`;
     case "key":
