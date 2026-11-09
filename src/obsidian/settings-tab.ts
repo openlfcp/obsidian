@@ -11,7 +11,7 @@ import { type App, PluginSettingTab, type Setting, type SettingDefinitionItem } 
 import { hiddenHints, SHOW_HINTS } from "../core/pane/hints";
 import { isRefPlacement, isSectionComments } from "../core/settings";
 import type OpenLfcpPlugin from "./plugin";
-import { ConfirmModal } from "./ui/confirm";
+import { confirmAction } from "./ui/confirm";
 
 /** "Delete earlier identity data…" (design 419 (b)): what is lost, and what is not. */
 const EARLIER_IDENTITY_CONFIRM =
@@ -184,7 +184,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         .setButtonText("Delete earlier identity data…")
         .setDestructive()
         .onClick(() => {
-          new ConfirmModal(this.app, {
+          confirmAction(this.app, {
             title: "Delete earlier identity data",
             text: EARLIER_IDENTITY_CONFIRM,
             confirm: "Delete",
@@ -192,7 +192,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
               await this.plugin.deleteEarlierIdentityData();
               this.update();
             },
-          }).open();
+          });
         }),
     );
   }

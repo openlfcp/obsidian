@@ -28,7 +28,7 @@ import {
   WAITING_FOR_DEVICE,
 } from "../../core/identity/pairing-view";
 import type { DeviceService, Unfinished } from "../../core/identity/service";
-import { ConfirmModal } from "./confirm";
+import { confirmAction } from "./confirm";
 import { returnsFocus } from "./focus-return";
 
 const clipboard = async (text: string): Promise<void> => {
@@ -539,7 +539,7 @@ export class DevicesModal extends Modal {
     // Design 419 (a): "Re-send keys" (§7.1 step 3), for a Read device too.
     if (row.state !== "suspended" && !row.thisDevice)
       control.createEl("button", { text: "Send keys again" }).addEventListener("click", () => {
-        new ConfirmModal(this.app, {
+        confirmAction(this.app, {
           title: "Send keys again",
           text: SEND_KEYS_AGAIN,
           confirm: "Send keys again",
@@ -547,7 +547,7 @@ export class DevicesModal extends Modal {
             new Notice(`Shared Tasks: ${await this.service.resendKeys(row.principal, row.label)}`);
             await this.#render();
           },
-        }).open();
+        });
       });
     control
       .createEl("button", { text: "Remove device…", cls: "mod-warning" })
@@ -587,7 +587,7 @@ export class DevicesModal extends Modal {
         control
           .createEl("button", { text: "Stop trying", cls: "mod-warning" })
           .addEventListener("click", () => {
-            new ConfirmModal(this.app, {
+            confirmAction(this.app, {
               title: "Stop trying",
               text: stopTryingText(u.sections ?? []),
               confirm: "Stop trying",
@@ -595,7 +595,7 @@ export class DevicesModal extends Modal {
                 new Notice(`Shared Tasks: ${await this.service.stopTrying(u.operation, resource)}`);
                 await this.#render();
               },
-            }).open();
+            });
           });
       return;
     }

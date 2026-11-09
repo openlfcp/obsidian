@@ -318,10 +318,10 @@ const sameEpochMap = (
 const KEY_REQUESTS_KEY = "identity-key-requests";
 
 /** Design 419 (c): the last refusal of each Resource's owed delivery (hex → code). */
-const REFUSALS_KEY = "identity-delivery-refusals";
+const REFUSALS_KEY = "identity-handover-refusals";
 
 /** Design 419 (c): what "Stop trying" gave up, as `<resource>:<epoch>:<recipient>` (hex). */
-const ABANDONED_KEY = "identity-delivery-abandoned";
+const ABANDONED_KEY = "identity-handover-given-up";
 
 const recordOf = (v: unknown): Record<string, string> =>
   typeof v === "object" && v !== null
@@ -1305,8 +1305,8 @@ export class DeviceService {
     if (r === "pending")
       return `Shared Tasks keeps trying to hand on the new key of "${name}": the key change may already be in place.`;
     if (r === "not-owed") return `Nothing to stop: the new key of "${name}" was handed on.`;
-    const epoch = String(row?.epoch ?? 0n);
-    const triples = (row?.recipients ?? []).map((d) => `${resource}:${epoch}:${d}`);
+    const at = String(row?.epoch ?? 0n);
+    const triples = (row?.recipients ?? []).map((d) => `${resource}:${at}:${d}`);
     await runtime.localState.update(ABANDONED_KEY, (v) => [
       ...new Set([...hexList(v), ...triples]),
     ]);

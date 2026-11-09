@@ -3,6 +3,7 @@
 // data…", "Stop trying").
 
 import { type App, Modal } from "obsidian";
+import { returnsFocus } from "./focus-return";
 
 const buttonRow = (el: HTMLElement): HTMLElement => el.createDiv({ cls: "modal-button-container" });
 
@@ -39,4 +40,10 @@ export class ConfirmModal extends Modal {
   override onClose(): void {
     this.contentEl.empty();
   }
+}
+
+/** Opens the confirmation, focus given back when it closes (U03-18). */
+export function confirmAction(app: App, o: ConfirmOptions): void {
+  const modal = new ConfirmModal(app, o);
+  returnsFocus(modal).open();
 }
