@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { databaseName, INSTALL_KEY } from "../../../src/core/lfcp/install";
-import { RETIRED_KEY, retiredInstalls } from "../../../src/core/lfcp/retired";
+import { deleteRetiredInstall, RETIRED_KEY, retiredInstalls } from "../../../src/core/lfcp/retired";
 import { LfcpRuntime } from "../../../src/core/lfcp/runtime";
 import { markerSlotId } from "../../../src/core/lfcp/secrets";
 import { Device, deleteDatabase, FakeLocal } from "../../support/lfcp-env";
@@ -16,9 +16,20 @@ afterEach(async () => {
   for (const r of running.splice(0)) await r.stop();
 });
 
+/** A crash of the database deletion, once (review 419 probe B1). */
+let failDelete = false;
+
 const start = async (device: Device, local: FakeLocal) => {
   const r = await LfcpRuntime.start(
-    device.env(local, { deleteStorage: (name) => deleteDatabase(name) }),
+    device.env(local, {
+      deleteStorage: async (name) => {
+        if (failDelete) {
+          failDelete = false;
+          throw new Error("crashed while deleting the database");
+        }
+        await deleteDatabase(name);
+      },
+    }),
   );
   running.push(r);
   return r;
@@ -100,13 +111,40 @@ describe("earlier identity data (design 419 (b))", () => {
     expect(await databases()).not.toContain(databaseName(oldId));
   });
 
-  it("never deletes the current install, even when it is listed", async () => {
-    const { localA, locked, newId } = await retiredA();
+  it("an entry naming the current install is dropped, and the real one still deleted (review 419 B2)", async () => {
+    const { device, localA, locked, oldId, newId, slotsNew } = await retiredA();
+    // A new identity whose creation failed after it was recorded leaves such an entry first.
     localA.save(RETIRED_KEY, [
-      ...retiredInstalls(localA),
       { installId: newId, principal: null, reason: null, retiredAt: 1 },
+      ...retiredInstalls(localA),
     ]);
-    await expect(locked.deleteEarlierIdentities()).rejects.toThrow(/current install/);
+    const valuesNew = new Map([...slotsNew].map((s) => [s, device.slots.values.get(s)]));
+    expect(await locked.deleteEarlierIdentities()).toEqual({ kind: "deleted", count: 1 });
+    expect(await databases()).not.toContain(databaseName(oldId));
+    expect(await databases()).toContain(databaseName(newId));
+    for (const [s, v] of valuesNew) expect(device.slots.values.get(s)).toBe(v);
+    expect(locked.earlierIdentities()).toEqual([]);
     expect(locked.status.kind).toBe("ready");
+    // Asked directly, the deletion of the current install is still refused.
+    await expect(
+      deleteRetiredInstall(device.env(localA), {
+        installId: newId,
+        principal: null,
+        reason: null,
+        retiredAt: 1,
+      }),
+    ).rejects.toThrow(/current install/);
+  });
+
+  it("a crash after blanking, before the database is deleted, is finished by the next attempt (review 419 B1)", async () => {
+    const { device, locked, oldId, slotsOld } = await retiredA();
+    failDelete = true;
+    await expect(locked.deleteEarlierIdentities()).rejects.toThrow(/crashed/);
+    for (const s of slotsOld) expect(device.slots.values.get(s) ?? "").toBe("");
+    expect(locked.earlierIdentities().length).toBe(1);
+    expect(await databases()).toContain(databaseName(oldId));
+    expect(await locked.deleteEarlierIdentities()).toEqual({ kind: "deleted", count: 1 });
+    expect(await databases()).not.toContain(databaseName(oldId));
+    expect(locked.earlierIdentities()).toEqual([]);
   });
 });

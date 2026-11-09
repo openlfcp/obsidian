@@ -106,6 +106,7 @@ import { type RestartableReconnect, restartableReconnect } from "./reconnect";
 import {
   deleteRetiredInstall,
   principalHex,
+  RETIRED_KEY,
   type RetiredInstall,
   recordRetired,
   retiredInstalls,
@@ -2262,7 +2263,17 @@ export async function deleteEarlierIdentities(
   if (list.length === 0) return { kind: "none", count: 0 };
   let kind: "deleted" | "partial" | "busy" = "deleted";
   let count = 0;
+  const current = env.local.load(INSTALL_KEY);
   for (const entry of list) {
+    // An entry naming the current install (a new identity whose creation failed after it was
+    // recorded) is no earlier identity: dropped, never deleted (review 419 P3-4).
+    if (entry.installId === current) {
+      env.local.save(
+        RETIRED_KEY,
+        retiredInstalls(env.local).filter((r) => r.installId !== entry.installId),
+      );
+      continue;
+    }
     const r = await deleteRetiredInstall(env, entry);
     if (r.kind === "busy") kind = "busy";
     else {
