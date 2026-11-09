@@ -10,6 +10,29 @@ since 0.4.0.
 
 ## [Unreleased]
 
+Draft notes for 0.7.4: [docs/releases/0.7.4.md](docs/releases/0.7.4.md).
+Needs OpenLFCP SDK 0.5.2.
+
+### Added
+
+- A device that lacks a section's key asks your other devices for it, and
+  your first device (or another with Full access) sends it again at its
+  next upkeep. "Your devices…" shows the request, and **Send keys again**
+  sends a device every key again (also for a device with Read access).
+- **Delete earlier identity data…** in the settings removes the keys and
+  local data an earlier "Create a new identity" left on this device. Only on
+  confirmation, never automatic.
+- **Stop trying** for a section's new key that its server refuses every
+  time, and **Try again** under "Given up".
+
+### Fixed
+
+- Approving a device no longer fails when this device's open section stored
+  the approval's record first (SDK 0.5.2). Removing a device, adding
+  devices to sections and changing a section's key no longer fail that way
+  either.
+- The headless bridge (`lfcp-node pair`) starts on Windows (SDK 0.5.2).
+
 ## [0.7.3] — 2026-11-09
 
 Safer and more reliable key changes after removing a device (OpenLFCP SDK

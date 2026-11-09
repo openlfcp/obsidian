@@ -107,6 +107,13 @@ the only way, and collaborators invite it again. When another Shared Tasks
 window holds the vault's data, no new identity is offered: close the other
 window or restart Obsidian.
 
+The earlier identity's keys and local data stay on this device after you
+create a new one. To remove them, choose **Delete earlier identity data…**
+in Settings → Shared Tasks (shown while there is such data). Changes it had
+not sent yet are lost; your notes are not affected. Shared Tasks never
+deletes them by itself. Data left by a new identity created in 0.7.2 or
+0.7.3 is not listed there.
+
 ### A bridge or a bot
 
 A headless bridge (for example, a notes bridge on a server) is paired
@@ -131,6 +138,19 @@ each with its access, its state and its fingerprint:
 It also lists what is unfinished, for example a device not added to a
 section yet because a server was unreachable, with **Finish now**. Shared
 Tasks also finishes these by itself while it runs.
+
+**Missing keys.** A device that lacks the key of a section it should read
+asks your other devices for it; "Your devices…" says so on that device, and
+on your first device (or another with Full access) as "<device> asks for
+the key of …". The next time that device is open, it sends the key again.
+A device with Read access cannot ask: on your first device, choose **Send
+keys again** in its row.
+
+**A key that is refused every time.** When a section's key changes and its
+server refuses the new key to some readers every time, "Your devices…"
+lists it with the server's answer and **Stop trying**. Those readers then
+can't read changes made after the key change until it is sent; the item
+moves to **Given up**, where **Try again** sends it once more.
 
 In a section's details, the people list shows each person once; your own
 devices are listed under you.
