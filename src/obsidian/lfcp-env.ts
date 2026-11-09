@@ -53,6 +53,15 @@ async function acquireWebLock(locks: LockManagerLike, name: string): Promise<Hel
   });
 }
 
+/** Deletes an IndexedDB database; blocked by an open connection, it finishes once that closes. */
+function deleteDatabase(name: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error(`${name} was not deleted`));
+  });
+}
+
 export function obsidianRuntimeEnv(app: App): RuntimeEnv {
   const nav: NavigatorLike | undefined = window.navigator;
   const locks = nav?.locks;
@@ -73,6 +82,8 @@ export function obsidianRuntimeEnv(app: App): RuntimeEnv {
       IdbLfcpStorage.open(name, { onReserved, localState: { secrets, cipher: localStateCipher } }),
     ...(canPersist(storage) ? { persist: () => storage.persist() } : {}),
     ...(locks === undefined ? {} : { acquireLock: (name) => acquireWebLock(locks, name) }),
+    // "Delete earlier identity data…" (design 419 (b)): an earlier identity's database.
+    ...(typeof indexedDB === "undefined" ? {} : { deleteStorage: deleteDatabase }),
     // LFCP-02-095 (V3): shared sections are read-only on Obsidian mobile.
     sectionsReadOnly: Platform.isMobile,
     timers: {

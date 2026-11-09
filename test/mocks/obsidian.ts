@@ -774,9 +774,14 @@ export class TextComponent {
 export class ButtonComponent {
   text = "";
   disabled = false;
+  destructive = false;
   onClickHandler: () => unknown = () => undefined;
   setButtonText(text: string): this {
     this.text = text;
+    return this;
+  }
+  setDestructive(): this {
+    this.destructive = true;
     return this;
   }
   setDisabled(disabled: boolean): this {

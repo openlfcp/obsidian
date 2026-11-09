@@ -52,5 +52,10 @@ export const identityDocument: IdentityDocumentFactory = (
       write: (author, intents, retire) =>
         identityCodec.encode(replica.write(writer(author), intents, { retire })),
     },
+    // §7.1 step 3, AI5 (sdk-ts 0.5.2, design 419 (a)): this device's own missing_keys
+    // hint, written field by field: never its label, so a concurrent rename stays a conflict.
+    keyHints: {
+      write: (author, hints) => identityCodec.encode(replica.write(writer(author), [], { hints })),
+    },
   };
 };

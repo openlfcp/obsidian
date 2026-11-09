@@ -103,6 +103,14 @@ import {
 import { LIVENESS, type LivenessOptions, LivenessProbe, tapMessages } from "./liveness";
 import { idbBeforeSealing, idbMetaKeys, PLUGIN_PREFIX, SealedLocalState } from "./local-seal";
 import { type RestartableReconnect, restartableReconnect } from "./reconnect";
+import {
+  deleteRetiredInstall,
+  principalHex,
+  RETIRED_KEY,
+  type RetiredInstall,
+  recordRetired,
+  retiredInstalls,
+} from "./retired";
 import { listenerErrorClass, lossNoise, sdkErrorClass } from "./sdk-errors";
 import { isInstallId, SlotSecretStore } from "./secrets";
 import { NO_TRANSPORT, type TransportFact, TransportTracker } from "./transport";
@@ -124,6 +132,12 @@ export interface RuntimeEnv extends InstallEnv {
   readonly webSocket?: WebSocketFactory;
   /** Takes the install's writer lock, or null when another instance holds it. */
   acquireLock?(name: string): Promise<HeldLock | null>;
+  /**
+   * Deletes an install's database by name (Obsidian: indexedDB.deleteDatabase),
+   * for "Delete earlier identity data…" (design 419 (b)). Without it the
+   * database stays and the deletion is partial.
+   */
+  deleteStorage?(name: string): Promise<void>;
   /**
    * How long start waits for a held writer lock to be released (default
    * 5 s, tried every 100 ms): the plugin reloaded (disabled and enabled, a
@@ -2198,11 +2212,19 @@ export class LfcpRuntime {
 
   /**
    * After a lock: a new install with a new Principal. The old namespace is
-   * left as it is, never reused. Only allowed while locked.
+   * left as it is, never reused, and recorded as retired first, so that
+   * "Delete earlier identity data…" can find it (design 419 (b)). Only
+   * allowed while locked.
    */
   async createNewPrincipal(): Promise<void> {
     if (this.#install.kind !== "locked" || this.#install.reason === "lock-held")
       throw new Error("a new Principal is only offered when this vault's state is locked");
+    recordRetired(this.#env.local, {
+      installId: this.#install.installId,
+      principal: principalHex(this.#install.principalId),
+      reason: this.#install.reason,
+      retiredAt: this.#env.timers.now(),
+    });
     this.#install.storage?.close();
     this.#lock?.release();
     const install = await createInstall(this.#env);
@@ -2212,6 +2234,54 @@ export class LfcpRuntime {
     this.#lock = lock;
     this.#sealed = await LfcpRuntime.#seal(this.#env, install);
   }
+
+  /** Installs an earlier "Create a new identity" left on this device (design 419 (b)). */
+  earlierIdentities(): readonly RetiredInstall[] {
+    return earlierIdentities(this.#env);
+  }
+
+  /** "Delete earlier identity data…": never the current install (deleteRetiredInstall refuses it). */
+  deleteEarlierIdentities(): ReturnType<typeof deleteEarlierIdentities> {
+    return deleteEarlierIdentities(this.#env);
+  }
+}
+
+/** The installs "Create a new identity" left on this device (design 419 (b)). */
+export function earlierIdentities(env: RuntimeEnv): readonly RetiredInstall[] {
+  return retiredInstalls(env.local);
+}
+
+/**
+ * "Delete earlier identity data…": deletes every retired install's keys and
+ * database (retired.ts). `kind` is the weakest result: busy when one was
+ * held, partial when one could only be partly deleted.
+ */
+export async function deleteEarlierIdentities(
+  env: RuntimeEnv,
+): Promise<{ readonly kind: "deleted" | "partial" | "busy" | "none"; readonly count: number }> {
+  const list = retiredInstalls(env.local);
+  if (list.length === 0) return { kind: "none", count: 0 };
+  let kind: "deleted" | "partial" | "busy" = "deleted";
+  let count = 0;
+  const current = env.local.load(INSTALL_KEY);
+  for (const entry of list) {
+    // An entry naming the current install (a new identity whose creation failed after it was
+    // recorded) is no earlier identity: dropped, never deleted (review 419 P3-4).
+    if (entry.installId === current) {
+      env.local.save(
+        RETIRED_KEY,
+        retiredInstalls(env.local).filter((r) => r.installId !== entry.installId),
+      );
+      continue;
+    }
+    const r = await deleteRetiredInstall(env, entry);
+    if (r.kind === "busy") kind = "busy";
+    else {
+      count++;
+      if (r.kind === "partial" && kind === "deleted") kind = "partial";
+    }
+  }
+  return { kind, count };
 }
 
 /** The local state key of a Resource's display name (sealed, LFCP-02-098). */

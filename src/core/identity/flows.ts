@@ -4,6 +4,7 @@
 // record, package and journal phase is the SDK's.
 
 import {
+  abandonDelivery,
   acceptInvitationAsDevice,
   addToRoster,
   approvePairing,
@@ -14,6 +15,8 @@ import {
   createPairingSession,
   createResourceAsDevice,
   fetchDeks,
+  hintAnswered,
+  keyHints,
   loadIdentityDocument,
   openPairingSessions,
   outstandingDeliveries,
@@ -22,12 +25,15 @@ import {
   reconcileDevices,
   registerDevice,
   requestPairing,
+  resendKeys,
   resumeApproval,
   resumePairingSession,
   resumeRotations,
+  retryDelivery,
   revocationStatus,
   revokeDevice,
   rotateIfExposed,
+  setKeyHints,
   syncChain,
 } from "@openlfcp/client";
 
@@ -52,6 +58,17 @@ export interface IdentityFlows {
   readonly outstandingDeliveries: typeof outstandingDeliveries;
   /** Resumes those, and key changes whose KEY_EPOCH answer was lost (sdk-ts 0.5.1). */
   readonly resumeRotations: typeof resumeRotations;
+  /** This device's own missing_keys hint (sdk-ts 0.5.2, design 419 (a)). */
+  readonly setKeyHints: typeof setKeyHints;
+  /** The hints of the person's devices, read by a managing device (sdk-ts 0.5.2). */
+  readonly keyHints: typeof keyHints;
+  /** "Send keys again" for one device (sdk-ts 0.5.2). */
+  readonly resendKeys: typeof resendKeys;
+  /** "Stop trying" an owed delivery, and "Try again" (sdk-ts 0.5.2, design 419 (c)). */
+  readonly abandonDelivery: typeof abandonDelivery;
+  readonly retryDelivery: typeof retryDelivery;
+  /** Whether this device's reconciliation already answered a hint (sdk-ts 0.5.2). */
+  readonly hintAnswered: typeof hintAnswered;
   readonly requestPairing: typeof requestPairing;
   readonly completePairing: typeof completePairing;
   readonly revocationStatus: typeof revocationStatus;
@@ -80,6 +97,12 @@ export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   rotateIfExposed,
   outstandingDeliveries,
   resumeRotations,
+  setKeyHints,
+  keyHints,
+  resendKeys,
+  abandonDelivery,
+  retryDelivery,
+  hintAnswered,
   requestPairing,
   completePairing,
   revocationStatus,

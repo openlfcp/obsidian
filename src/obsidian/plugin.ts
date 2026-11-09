@@ -129,6 +129,20 @@ const BLOCKED_RETRIES = 20;
 export const LOCK_HELD_ADVICE =
   "another Shared Tasks instance holds this vault's data. Close other windows on this vault, or restart Obsidian.";
 
+/** What "Delete earlier identity data…" did, in words (design 419 (b)). */
+export function earlierIdentityText(kind: "deleted" | "partial" | "busy" | "none"): string {
+  switch (kind) {
+    case "deleted":
+      return "Deleted the earlier identity's data from this device.";
+    case "partial":
+      return "Deleted what could be found. Some of the earlier identity's keys may remain in Obsidian's secret storage.";
+    case "busy":
+      return "Another window still uses the earlier identity's data. Close it, then try again.";
+    case "none":
+      return "There is no earlier identity's data on this device.";
+  }
+}
+
 /** After "Create a new identity": the second step back to the person's sections. */
 export const NEW_IDENTITY_NEXT =
   'this device now has a new, empty identity. To get your shared sections here, run "Pair this device with a link…" now, with a link from "Add my other device…" on your first device or another with Full access. Without that, this device is a separate person: collaborators would need to invite it again.';
@@ -989,6 +1003,24 @@ export default class OpenLfcpPlugin extends Plugin {
     if (this.#lockRetry !== null) window.clearTimeout(this.#lockRetry);
     await this.#retryStart();
     if (this.runtime?.status.kind === "ready") new Notice(`Shared Tasks: ${NEW_IDENTITY_NEXT}`, 0);
+  }
+
+  /**
+   * Settings' "Delete earlier identity data…" (design 419 (b)): the keys and
+   * database every earlier "Create a new identity" left on this device. Only
+   * on the user's confirmation; never the current identity.
+   */
+  async deleteEarlierIdentityData(): Promise<void> {
+    const runtime = this.runtime;
+    if (runtime === null) return;
+    try {
+      const r = await runtime.deleteEarlierIdentities();
+      new Notice(`Shared Tasks: ${earlierIdentityText(r.kind)}`);
+    } catch (e) {
+      new Notice(
+        `Shared Tasks: the earlier identity's data could not be deleted: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /** The lock was held: the locked runtime stopped, a new start tried. */

@@ -154,8 +154,15 @@ for (const how of ["unhosted", "read access revoked"] as const)
       expect(owed.map((o) => toHex(o.resource))).toEqual([toHex(X)]);
       expect(owed[0]?.recipients).toEqual([xOwed]);
     }
-    // Y's handover is done; X's stays listed.
-    const handover = (await a.service.unfinished()).filter((u) => u.kind === "handover");
+    // Y's handover is done; X's stays listed: refused every time, so with its refusal and
+    // "Stop trying" (design 419 (c)).
+    const handover = (await a.service.unfinished()).filter(
+      (u) => u.kind === "handover" || u.kind === "refused-handover",
+    );
     expect(handover.flatMap((u) => u.sections)).not.toContain("Plans");
     expect(handover.length).toBeGreaterThan(0);
+    expect(handover.find((u) => u.resource === toHex(X))).toMatchObject({
+      kind: "refused-handover",
+      refusal: code,
+    });
   });

@@ -53,6 +53,7 @@ import {
 } from "@openlfcp/client";
 import {
   bytesEqual,
+  type DataEpoch,
   dataEpoch,
   fromBase64url,
   fromHex,
@@ -64,8 +65,10 @@ import {
 import { PROFILE_ID } from "@openlfcp/shared-objects";
 import { SECTIONS_PROFILE_ID } from "@openlfcp/shared-objects/sections";
 import {
+  ABILITY,
   actsFor,
   DEVICE_KIND,
+  hasAbility,
   invitationPrincipal,
   parseInviteUri,
   type Signer,
@@ -187,11 +190,25 @@ export interface Unfinished {
     | "registration"
     | "key"
     | "handover"
-    | "roster";
+    | "roster"
+    /** This device lacks keys and asked for them, or cannot ask (design 419 (a)). */
+    | "key-wait"
+    /** One of the person's devices asks for keys; a managing device (design 419 (a)). */
+    | "key-request"
+    /** A key change's new key refused to its readers, every time (design 419 (c)). */
+    | "refused-handover"
+    /** A key change's delivery this device stopped trying (design 419 (c)). */
+    | "given-up";
   readonly operation: string;
   readonly label: string;
   /** The sections concerned, by name (registration, key). */
   readonly sections?: readonly string[];
+  /** refused-handover, given-up: the Resource (hex) of the key change. */
+  readonly resource?: string;
+  /** refused-handover: the server's answer; key-wait: why this device cannot ask. */
+  readonly refusal?: string;
+  /** given-up: when, in milliseconds since the epoch. */
+  readonly since?: number;
 }
 
 /** What one device upkeep did (§7.1, §8.4). */
@@ -258,6 +275,82 @@ interface LocalState {
   readonly chains: ReadonlyMap<string, LinearChain>;
 }
 
+/**
+ * Design 419 (a): the hint this device last wrote in its device list (the
+ * epochs it lacks, by Resource hex), what it wants written now, and the
+ * SDK's last answer (written, unchanged, not-a-writer, unavailable…).
+ */
+const KEY_HINT_KEY = "identity-key-hint";
+
+interface KeyHintState {
+  readonly written: Readonly<Record<string, readonly string[]>>;
+  readonly wanted: Readonly<Record<string, readonly string[]>>;
+  readonly result: string;
+  /** The refusal's code, or why it was unavailable (review 418r2 R2). */
+  readonly code: string;
+  /** When `result` was answered (ms). */
+  readonly at: number;
+  /** The device list's head (hex) when `result` was answered: its authority then. */
+  readonly head: string;
+}
+
+/**
+ * setKeyHints answers that stand while the device list's head (its authority) is the
+ * same and what this device lacks is the same (review 419 P3-3, 418r2 R2): asking
+ * again would learn the same. Every other answer (a refusal whatever its code, such as
+ * RATE_LIMITED, a conflict, an unavailable server) is retried after KEY_HINT_RETRY_MS,
+ * or at once by a forced upkeep.
+ */
+const KEY_HINT_STANDING = new Set(["not-a-writer", "unsupported"]);
+const KEY_HINT_RETRY_MS = 60 * 60 * 1000;
+
+const epochMap = (v: unknown): Record<string, string[]> =>
+  typeof v === "object" && v !== null
+    ? Object.fromEntries(
+        Object.entries(v as Record<string, unknown>).map(([k, e]) => [k, hexList(e)]),
+      )
+    : {};
+
+const hintStateOf = (v: unknown): KeyHintState => {
+  const o = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
+  return {
+    written: epochMap(o.written),
+    wanted: epochMap(o.wanted),
+    result: typeof o.result === "string" ? o.result : "",
+    code: typeof o.code === "string" ? o.code : "",
+    at: typeof o.at === "number" ? o.at : 0,
+    head: typeof o.head === "string" ? o.head : "",
+  };
+};
+
+const sameEpochMap = (
+  a: Readonly<Record<string, readonly string[]>>,
+  b: Readonly<Record<string, readonly string[]>>,
+) =>
+  Object.keys(a).length === Object.keys(b).length &&
+  Object.entries(a).every(([k, v]) => {
+    const w = b[k];
+    return w !== undefined && w.length === v.length && v.every((x, i) => x === w[i]);
+  });
+
+/** Design 419 (a): a managing device's last read of its person's key hints, by device (hex). */
+const KEY_REQUESTS_KEY = "identity-key-requests";
+
+/** Design 419 (c): the last refusal of each Resource's owed delivery (hex → code). */
+const REFUSALS_KEY = "identity-handover-refusals";
+
+/** Design 419 (c): what "Stop trying" gave up, as `<resource>:<epoch>:<recipient>` (hex). */
+const ABANDONED_KEY = "identity-handover-given-up";
+
+const recordOf = (v: unknown): Record<string, string> =>
+  typeof v === "object" && v !== null
+    ? Object.fromEntries(
+        Object.entries(v as Record<string, unknown>).filter(
+          (e): e is [string, string] => typeof e[1] === "string",
+        ),
+      )
+    : {};
+
 /** Thrown when OpenLFCP is not ready (locked, stopped, starting). */
 export class DevicesUnavailable extends Error {
   constructor() {
@@ -273,22 +366,6 @@ const REMOVED =
   "This device was removed from your devices, so it cannot be added again under its identity. To use it again, pair a new, empty vault from one of your devices.";
 
 const reasonText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
-/**
- * The SDK's local compare-and-set of a Control Chain lost to another writer
- * of the same storage (LFCP-04-414c). The flow saves a record the server
- * ACKed over the chain it read; this device's open session of that Resource
- * gets the same record from the server and may store it first. The SDK
- * (0.4.0) then throws, although the stored chain already holds the record.
- * Its operation is journaled: resumed, it reads the stored chain, finds its
- * own record committed and goes on (§9.1). Matched by message: the SDK
- * throws a plain Error here.
- */
-const storeRace = (e: unknown): boolean =>
-  e instanceof Error && e.message === "the Control Chain was not stored: CONTROL_HEAD_MISMATCH";
-
-/** Resumptions of one operation after a store race, before its error stands. */
-const STORE_RACE_ATTEMPTS = 4;
 
 export class DeviceService {
   readonly #o: DeviceServiceOptions;
@@ -448,19 +525,88 @@ export class DeviceService {
           owedKeys.set(r, [...(owedKeys.get(r) ?? []), o.resource]);
     // And the readers a committed key change still owes its new key, by the SDK's journal:
     // kept across a restart, until every one has it (§9.1, §9.5).
-    for (const o of await this.#outstanding(local))
-      for (const r of o.recipients) {
-        const hex = toHex(o.resource);
+    // A key change refused every time is listed on its own, with "Stop trying" (419 (c)).
+    const runtime = this.#runtime();
+    const refusals = recordOf(await runtime.localState.get(REFUSALS_KEY));
+    const outstanding = await this.#outstanding(local);
+    const pendingSet = new Set(pendingKeys);
+    const name = (r: string) => (r === list ? "your device list" : names.resource(r));
+    for (const o of outstanding) {
+      const hex = toHex(o.resource);
+      const refusal = refusals[hex];
+      if (refusal !== undefined && !pendingSet.has(hex)) {
+        out.push({
+          kind: "refused-handover",
+          operation: o.operation,
+          label: o.recipients.map((r) => names.device(r)).join(", "),
+          sections: [name(hex)],
+          resource: hex,
+          refusal,
+        });
+        continue;
+      }
+      for (const r of o.recipients)
         if (!(owedKeys.get(r) ?? []).includes(hex))
           owedKeys.set(r, [...(owedKeys.get(r) ?? []), hex]);
-      }
+    }
     for (const [device, resources] of owedKeys)
       out.push({
         kind: "handover",
         operation: "",
         label: names.device(device),
-        sections: resources.map((r) => (r === list ? "your device list" : names.resource(r))),
+        sections: resources.map(name),
       });
+    // What "Stop trying" gave up, with "Try again" (419 (c)).
+    const c = this.#context();
+    const journal2 = new OperationJournal(c.storage);
+    for (const o of await this.#flows.outstandingDeliveries(
+      {
+        storage: c.storage,
+        installation: { signer: c.principal.signer, agreement: c.principal.agreement },
+        ...(local.identity === null ? {} : { identityChain: local.identity }),
+      },
+      { includeAbandoned: true },
+    )) {
+      if (o.abandoned !== true) continue;
+      const hex = toHex(o.resource);
+      const op = await journal2.get(o.operation);
+      const at = op?.phases.find((p) => p.id === `rotate:${hex}`)?.facts?.abandonedAt;
+      out.push({
+        kind: "given-up",
+        operation: o.operation,
+        label: `${o.recipients.length === 1 ? "1 device" : `${o.recipients.length} devices`}`,
+        sections: [name(hex)],
+        resource: hex,
+        ...(at === undefined ? {} : { since: Number(at) }),
+      });
+    }
+    // Keys this device lacks: asked for in the device list, or not askable here (419 (a)).
+    const hint = hintStateOf(await runtime.localState.get(KEY_HINT_KEY));
+    if (Object.keys(hint.wanted).length > 0)
+      out.push({
+        kind: "key-wait",
+        operation: "",
+        label: "",
+        sections: Object.keys(hint.wanted).map(name),
+        ...(hint.result === "written" || hint.result === "unchanged"
+          ? {}
+          : { refusal: hint.result }),
+      });
+    // A managing device: the person's devices that ask for keys (419 (a)).
+    if (local.manages) {
+      const requests = ((await runtime.localState.get(KEY_REQUESTS_KEY)) ?? {}) as Record<
+        string,
+        unknown
+      >;
+      for (const [device, resources] of Object.entries(requests))
+        if (Array.isArray(resources) && resources.length > 0)
+          out.push({
+            kind: "key-request",
+            operation: "",
+            label: names.device(device),
+            sections: hexList(resources).map(name),
+          });
+    }
     return out;
   }
 
@@ -478,6 +624,9 @@ export class DeviceService {
     const me = c.principal.id;
     const root = local.identity.state.owner.principalId;
     const ledger = new PackageLedger(c.storage);
+    // What "Stop trying" gave up no longer forces a reconciliation (419 (c)); a reconciliation
+    // that runs for another reason still sends it (§7.1 step 3).
+    const abandoned = new Set(hexList(await this.#runtime().localState.get(ABANDONED_KEY)));
     const all = [local.identity, ...local.chains.values()];
     for (const chain of all) {
       const deks = await heldDeks(c.secrets, chain);
@@ -487,7 +636,10 @@ export class DeviceService {
         const id = reader.principalId;
         if (bytesEqual(id, me) || !bytesEqual(actsFor(chain.state, id), root)) continue;
         for (const e of deks.keys())
-          if (!(await ledger.has(R, dataEpoch(BigInt(e)), id))) {
+          if (
+            !abandoned.has(`${toHex(R)}:${e}:${toHex(id)}`) &&
+            !(await ledger.has(R, dataEpoch(BigInt(e)), id))
+          ) {
             const hex = toHex(id);
             out.set(hex, [...(out.get(hex) ?? []), toHex(R)]);
             break;
@@ -570,11 +722,20 @@ export class DeviceService {
    */
   upkeep(force = false): Promise<UpkeepResult> {
     if (this.#upkeep !== null) return this.#upkeep;
-    const run = this.#runUpkeep(force).finally(() => {
+    const run = this.#serial(() => this.#runUpkeep(force)).finally(() => {
       this.#upkeep = null;
     });
     this.#upkeep = run;
     return run;
+  }
+
+  /** The upkeep and "Stop trying" / "Try again" one at a time (review 419 P3-1). */
+  #queue: Promise<unknown> = Promise.resolve();
+
+  #serial<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.#queue.then(work, work);
+    this.#queue = next.catch(() => undefined);
+    return next;
   }
 
   async #runUpkeep(force: boolean): Promise<UpkeepResult> {
@@ -596,6 +757,10 @@ export class DeviceService {
     // New keys a server refused to a reader after an earlier key change: the same operation
     // hands them on (§9.1, §9.2 Package), never another key change.
     const handedOn = [...new Set([...resumed, ...(await this.#handOver(flow, local, issues))])];
+    // Keys this device lacks: asked for in its device list (§7.1 step 3, 419 (a)).
+    if (!offline) await this.#askForKeys(flow, local, force);
+    // A managing device: the keys the person's devices ask for make reconciliation due.
+    const requested = !offline && (await this.#readKeyRequests(flow, local));
     // This device's sections the roster lacks are queued (a queue write a failure cut short,
     // a device flow whose roster entry was refused), then the queue is listed, before
     // reconciliation reads the roster (§7.1: it registers the person's devices there).
@@ -614,7 +779,8 @@ export class DeviceService {
         [...local.chains.values()].some(
           (x) => planReconciliation(I, x).length > 0 || this.#rotationDue(x),
         ) ||
-        (await this.#keysOwed(local)).size > 0;
+        (await this.#keysOwed(local)).size > 0 ||
+        requested;
       if (due) {
         try {
           const r = await this.#flows.reconcileDevices({ ...flow, rotate: true });
@@ -976,6 +1142,263 @@ export class DeviceService {
     return [...out];
   }
 
+  /**
+   * The last answer to each Resource's owed delivery (419 (c)): a refused read, or
+   * packages the server refused; a delivery that went through clears it.
+   */
+  async #recordRefusals(outcomes: readonly RotationOutcome[]): Promise<void> {
+    if (outcomes.length === 0) return;
+    await this.#runtime().localState.update(REFUSALS_KEY, (v) => {
+      const next = recordOf(v);
+      for (const o of outcomes) {
+        const hex = toHex(o.resource);
+        const skipped = o.keys?.skipped ?? [];
+        if (o.status === "refused") next[hex] = o.code ?? "refused";
+        else if (skipped.length > 0)
+          next[hex] = [...new Set(skipped.map((x) => x.reason))].join(", ");
+        else if (o.status !== "unreachable") delete next[hex];
+      }
+      return next;
+    });
+  }
+
+  /**
+   * §7.1 step 3, design 419 (a): the epochs of the device list and of this device's
+   * sections whose key this device does not hold, after asking the server for their
+   * packages once more, become its own missing_keys hint in the device list; a key
+   * that arrives leaves it. Written only when it changes. A device that cannot write
+   * the device list (Read, a lost key of the device list itself) shows why instead.
+   */
+  async #askForKeys(flow: FlowOptions, local: LocalState, force: boolean): Promise<void> {
+    if (local.identity === null || local.conflict !== null) return;
+    const c = this.#context();
+    const runtime = this.#runtime();
+    const me = c.principal.id;
+    const missing = new Map<ResourceId, DataEpoch[]>();
+    // One connection per coordinator for the whole pass (review 419 P3-3).
+    const pool = new ChannelPool(flow.network);
+    try {
+      for (const chain of [local.identity, ...local.chains.values()]) {
+        if (!hasAbility(chain.state, me, ABILITY.DATA_READ)) continue;
+        const held = await heldDeks(c.secrets, chain);
+        let lacking = [...chain.state.epochs.values()]
+          .map((e) => e.epoch)
+          .filter((e) => !held.has(String(e)));
+        if (lacking.length === 0) continue;
+        // The packages may be there: the server is asked first (KEY_PACKAGE_GET).
+        try {
+          const channel = await pool.get(
+            flow.installation.signer,
+            chain.state.route.coordinatorUrl,
+          );
+          const deks = await this.#flows.fetchDeks(
+            c.storage,
+            c.secrets,
+            channel,
+            chain,
+            flow.installation,
+          );
+          lacking = lacking.filter((e) => !deks.has(String(e)));
+        } catch (e) {
+          if (
+            !(
+              e instanceof IdentityUnavailable ||
+              e instanceof IdentityRefused ||
+              e instanceof IdentityConflict
+            )
+          )
+            throw e;
+          continue;
+        }
+        if (lacking.length > 0) missing.set(chain.state.resourceId, lacking);
+      }
+    } finally {
+      pool.closeAll();
+    }
+    const wanted: Record<string, string[]> = Object.fromEntries(
+      [...missing].map(([R, es]) => [toHex(R), es.map(String)]),
+    );
+    const last = hintStateOf(await runtime.localState.get(KEY_HINT_KEY));
+    if (sameEpochMap(last.written, wanted) && sameEpochMap(last.wanted, wanted)) return;
+    // The same need: a standing answer while the device list's authority is the same, or any
+    // other answer within its backoff, is not asked again (P3-3, 418r2 R2).
+    const head = toHex(local.identity.state.head);
+    if (sameEpochMap(last.wanted, wanted) && !force) {
+      if (KEY_HINT_STANDING.has(last.result) && last.head === head) return;
+      if (
+        !KEY_HINT_STANDING.has(last.result) &&
+        last.result !== "written" &&
+        last.result !== "unchanged" &&
+        c.now() - last.at < KEY_HINT_RETRY_MS
+      )
+        return;
+    }
+    let result: string;
+    let code = "";
+    try {
+      const r = await this.#flows.setKeyHints({ ...(flow as IdentityFlowOptions), missing });
+      result = r.kind;
+      if (r.kind === "refused") code = r.code;
+      else if (r.kind === "unavailable") code = r.reason;
+    } catch (e) {
+      if (!(e instanceof IdentityUnavailable || e instanceof IdentityRefused)) throw e;
+      result = "unavailable";
+      code = e instanceof IdentityRefused ? e.code : e.message;
+    }
+    const written = result === "written" || result === "unchanged" ? wanted : last.written;
+    await runtime.localState.put(KEY_HINT_KEY, {
+      written,
+      wanted,
+      result,
+      code,
+      at: c.now(),
+      head,
+    });
+  }
+
+  /**
+   * A managing device (419 (a)): the person's devices that ask for keys in the device
+   * list, kept for "Your devices…"; true when one asks for a key this device can send.
+   */
+  async #readKeyRequests(flow: FlowOptions, local: LocalState): Promise<boolean> {
+    if (local.identity === null || !local.manages || local.conflict !== null) return false;
+    const c = this.#context();
+    const me = toHex(c.principal.id);
+    let hints: Awaited<ReturnType<IdentityFlows["keyHints"]>>;
+    try {
+      hints = await this.#flows.keyHints(flow as IdentityFlowOptions);
+    } catch (e) {
+      if (
+        !(
+          e instanceof IdentityUnavailable ||
+          e instanceof IdentityRefused ||
+          e instanceof IdentityConflict
+        )
+      )
+        throw e;
+      return false;
+    }
+    const requests: Record<string, string[]> = {};
+    let sendable = false;
+    const chains = new Map<string, LinearChain>([
+      [toHex(local.identity.state.resourceId), local.identity],
+      ...local.chains,
+    ]);
+    for (const [device, byResource] of hints) {
+      const d = toHex(device);
+      if (d === me) continue;
+      requests[d] = [...byResource.keys()].map((R) => toHex(R));
+      for (const [R, epochs] of byResource) {
+        const chain = chains.get(toHex(R));
+        if (chain === undefined) continue;
+        // Answered once (review 419 P2-1): a hint this device's reconciliation already
+        // answered makes nothing due again until it changes or a day passed.
+        if (await this.#flows.hintAnswered(c.storage, R, device, epochs, c.now())) continue;
+        const held = await heldDeks(c.secrets, chain);
+        if (epochs.some((e) => held.has(String(e)))) sendable = true;
+      }
+    }
+    await this.#runtime().localState.put(KEY_REQUESTS_KEY, requests);
+    return sendable;
+  }
+
+  /**
+   * "Send keys again" (§7.1 step 3, 419 (a)): every key this managing device holds,
+   * sealed to `device` (hex) again, whatever its ledger says; for a Read device too.
+   */
+  async resendKeys(device: string, label: string): Promise<string> {
+    const names = await this.names();
+    try {
+      const r = await this.#flows.resendKeys({
+        ...this.#flow(),
+        device: fromHex(device) as PrincipalId,
+      });
+      const failed = r.targets
+        .filter(
+          (t) =>
+            t.status === "unreachable" || t.status === "conflict" || t.status === "unsupported",
+        )
+        .map((t) => `"${names.resource(toHex(t.resource))}"`);
+      const sent = r.targets.filter((t) =>
+        (t.keys?.sent ?? []).some((p) => p.recipient === device),
+      ).length;
+      if (failed.length > 0)
+        return `Some keys could not be sent: Not reached, tried again later: ${failed.join(", ")}.`;
+      return `Sent the keys of ${sent === 1 ? "1 section" : `${sent} sections`} to ${label}.`;
+    } catch (e) {
+      if (e instanceof IdentityUnavailable || e instanceof IdentityRefused)
+        return "Your device list could not be reached. Try again later.";
+      if (e instanceof IdentityConflict)
+        return "Your device list has two conflicting versions on the server; keys are not sent until that is resolved.";
+      throw e;
+    }
+  }
+
+  /**
+   * "Stop trying" (419 (c)): the owed delivery of `operation`'s key change of
+   * `resource` (hex) is no longer retried, nor does it force a reconciliation; its
+   * readers stay without the new key until "Try again". Refused while the key change's
+   * key is still pending (it may already be in place, §9.1).
+   */
+  stopTrying(operation: string, resource: string): Promise<string> {
+    return this.#serial(() => this.#stopTrying(operation, resource));
+  }
+
+  async #stopTrying(operation: string, resource: string): Promise<string> {
+    const c = this.#context();
+    const runtime = this.#runtime();
+    const R = fromHex(resource) as ResourceId;
+    const name = (await this.names()).resource(resource);
+    const row = (
+      await this.#flows.outstandingDeliveries(
+        {
+          storage: c.storage,
+          installation: { signer: c.principal.signer, agreement: c.principal.agreement },
+        },
+        { includeAbandoned: true },
+      )
+    ).find((o) => o.operation === operation && toHex(o.resource) === resource);
+    const r = await this.#flows.abandonDelivery({
+      storage: c.storage,
+      secrets: c.secrets,
+      operation,
+      resource: R,
+      now: c.now,
+    });
+    if (r === "pending")
+      return `Shared Tasks keeps trying to hand on the new key of "${name}": the key change may already be in place.`;
+    if (r === "not-owed") return `Nothing to stop: the new key of "${name}" was handed on.`;
+    const at = String(row?.epoch ?? 0n);
+    const triples = (row?.recipients ?? []).map((d) => `${resource}:${at}:${d}`);
+    await runtime.localState.update(ABANDONED_KEY, (v) => [
+      ...new Set([...hexList(v), ...triples]),
+    ]);
+    await runtime.localState.update(OWED_KEY, (v) =>
+      owedOf(v).filter((o) => !(o.operation === operation && o.resource === resource)),
+    );
+    const journal = new OperationJournal(c.storage);
+    const op = await journal.get(operation);
+    if (op?.kind === "rotate" && op.status === "open") await journal.setStatus(operation, "done");
+    return `Stopped sending the new key of "${name}". You can try again later from Given up.`;
+  }
+
+  /** "Try again" (419 (c)): a given-up delivery is owed again; the caller runs the upkeep. */
+  tryAgain(operation: string, resource: string): Promise<void> {
+    return this.#serial(() => this.#tryAgain(operation, resource));
+  }
+
+  async #tryAgain(operation: string, resource: string): Promise<void> {
+    const c = this.#context();
+    await this.#flows.retryDelivery({
+      storage: c.storage,
+      operation,
+      resource: fromHex(resource) as ResourceId,
+    });
+    await this.#runtime().localState.update(ABANDONED_KEY, (v) =>
+      hexList(v).filter((t) => !t.startsWith(`${resource}:`)),
+    );
+  }
+
   /** The SDK's committed key changes whose new key is still owed, by this device's state. */
   async #outstanding(local: LocalState): Promise<readonly OutstandingDelivery[]> {
     const c = this.#context();
@@ -1027,6 +1450,7 @@ export class DeviceService {
       pool.closeAll();
     }
     const failed = new Map<string, UpkeepIssue>();
+    await this.#recordRefusals(outcomes);
     for (const o of outcomes) {
       const resource = toHex(o.resource);
       if (o.status === "refused")
@@ -1272,40 +1696,22 @@ export class DeviceService {
       });
       return approvalView(r, review.label, await this.names());
     } catch (e) {
-      // The approval is journaled before its first record: resumed from there.
-      const operation = storeRace(e) ? await this.#openApproval(review) : undefined;
-      if (operation !== undefined) return this.finishApproval(operation, review.label);
       return this.#thrown(e);
     }
   }
 
-  /** The open journaled approval of `review`'s request, the latest if several. */
-  async #openApproval(review: PairingReview): Promise<string | undefined> {
-    const ops = await new OperationJournal(this.#context().storage).list({
-      kind: "pairing-approval",
-      status: "open",
-    });
-    return ops
-      .filter(
-        (op) => op.intent.session === review.session && op.intent.requestKey === review.requestKey,
-      )
-      .sort((x, y) => y.createdAt - x.createdAt)[0]?.id;
-  }
-
   /**
-   * "Finish": resumes an approval from its next phase (§9.1). A phase that
-   * lost the local store race to an open session (storeRace) is resumed
-   * again: it reads the chain that session stored and goes on from there.
+   * "Finish": resumes an approval from its next phase (§9.1). An open
+   * session of a section that stores the approval's record first is the
+   * SDK's to absorb (sdk-ts 0.5.2: storeChain accepts a stored chain that
+   * already holds it).
    */
   async finishApproval(operation: string, label: string): Promise<ApprovalView> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const r = await this.#flows.resumeApproval(this.#flow(), operation);
-        return approvalView(r, label, await this.names());
-      } catch (e) {
-        if (storeRace(e) && attempt < STORE_RACE_ATTEMPTS) continue;
-        return this.#thrown(e);
-      }
+    try {
+      const r = await this.#flows.resumeApproval(this.#flow(), operation);
+      return approvalView(r, label, await this.names());
+    } catch (e) {
+      return this.#thrown(e);
     }
   }
 

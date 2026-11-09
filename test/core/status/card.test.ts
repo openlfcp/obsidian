@@ -178,7 +178,7 @@ describe("the section card", () => {
   it("LFCP-03-019: without the section's key, and refused by the server, edits are not promised", () => {
     const key = card({ access: "unavailable-key" });
     expect(key.problems).toContain(
-      "This device does not hold the section's key yet. Edits wait until it arrives.",
+      "This device does not hold the section's key yet. Edits wait until it arrives. If it does not come, this device asks your other devices for it (Your devices…); your first device, or another with Full access, can also send it again from there.",
     );
     expect(key.facts).toContain(
       "Your edits to this section wait on this device until it holds the section's key.",

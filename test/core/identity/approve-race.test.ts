@@ -6,6 +6,9 @@
 // the flow's chain read and its save after the ACK, the flow's local
 // compare-and-set fails although the stored chain already holds the record.
 // Here a second writer stores the acknowledged record first, every time.
+// Since sdk-ts 0.5.2 the SDK accepts the stored chain that already holds the
+// record (storeChain); the plugin's message-matching retry is gone, and this
+// test checks the approval completes without it.
 
 import type { IdentityNetwork } from "@openlfcp/client";
 import { loadControlChain, saveControlChain } from "@openlfcp/client";
