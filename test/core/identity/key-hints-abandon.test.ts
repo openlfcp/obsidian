@@ -22,6 +22,7 @@ import { type ResourceId, toHex } from "@openlfcp/core";
 import { dekSecretRef } from "@openlfcp/storage";
 import { parseKeyPackage, signControlRecord } from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
+import { SDK_IDENTITY_FLOWS } from "../../../src/core/identity/flows";
 import { DeviceWorld, type Installation, pair, WORLD_URL } from "../../support/device-world";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -201,4 +202,194 @@ it("(c) Stop trying: a refused key change is no longer retried; Try again hands 
   const after = await kinds(a);
   expect(after).not.toContain("given-up");
   expect(after).not.toContain("refused-handover");
+});
+
+// Review 419 round 2: the reviewer's probes A1, A2 and A3, the serialization of
+// Stop trying with the upkeep (P3-1), and the own-root case of (c).
+
+/** The SDK flows, counted per name (and in order: `log`). */
+function counted() {
+  const calls: Record<string, number> = {};
+  const log: string[] = [];
+  const wrap = <K extends keyof typeof SDK_IDENTITY_FLOWS>(k: K) => {
+    const f = SDK_IDENTITY_FLOWS[k] as unknown as (...a: unknown[]) => Promise<unknown>;
+    return (async (...a: unknown[]) => {
+      calls[k] = (calls[k] ?? 0) + 1;
+      log.push(`${k}:start`);
+      try {
+        return await f(...a);
+      } finally {
+        log.push(`${k}:end`);
+      }
+    }) as unknown as (typeof SDK_IDENTITY_FLOWS)[K];
+  };
+  return {
+    calls,
+    log,
+    flows: {
+      reconcileDevices: wrap("reconcileDevices"),
+      setKeyHints: wrap("setKeyHints"),
+      resumeRotations: wrap("resumeRotations"),
+      abandonDelivery: wrap("abandonDelivery"),
+    },
+  };
+}
+
+const uploadsTo = (who: string, from: number) =>
+  world.server.uploads
+    .slice(from)
+    .filter(
+      (e) => e.op === "key-package" && toHex(parseKeyPackage(e.bytes).payload.recipient) === who,
+    ).length;
+
+it("A1: a hint whose device stays offline is answered once: the next upkeep neither reconciles nor uploads", async () => {
+  world = new DeviceWorld();
+  const ca = counted();
+  const a = await world.installation(ca.flows);
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  await a.service.upkeep(true);
+  await loseKey(b, X);
+  await b.service.upkeep(); // B writes its hint, then never runs again.
+  let r0 = ca.calls.reconcileDevices ?? 0;
+  let from = world.server.uploads.length;
+  await a.service.upkeep();
+  expect((ca.calls.reconcileDevices ?? 0) - r0).toBe(1);
+  expect(uploadsTo(me(b), from)).toBe(1);
+  for (let i = 0; i < 3; i++) {
+    r0 = ca.calls.reconcileDevices ?? 0;
+    from = world.server.uploads.length;
+    await a.service.upkeep();
+    expect((ca.calls.reconcileDevices ?? 0) - r0).toBe(0);
+    expect(uploadsTo(me(b), from)).toBe(0);
+  }
+  expect(world.server.packagesOf(X).filter((p) => toHex(p.recipient) === me(b)).length).toBe(1);
+  // Still shown: B asks, and was answered.
+  expect(await kinds(a)).toContain("key-request");
+});
+
+it("A2: a package the server refuses for good: the hint makes the upkeep reconcile once, not every time", async () => {
+  world = new DeviceWorld();
+  const ca = counted();
+  const a = await world.installation(ca.flows);
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  await a.service.upkeep(true);
+  await loseKey(b, X);
+  world.server.fault = (e) =>
+    e.op === "key-package" && toHex(parseKeyPackage(e.bytes).payload.recipient) === me(b)
+      ? { nack: "QUOTA_EXCEEDED" }
+      : undefined;
+  const rounds: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    await b.service.upkeep();
+    const r0 = ca.calls.reconcileDevices ?? 0;
+    await a.service.upkeep();
+    rounds.push((ca.calls.reconcileDevices ?? 0) - r0);
+  }
+  expect(rounds).toEqual([1, 0, 0]);
+});
+
+it("A3: a Read device asks once; the answer stands until what it lacks changes", async () => {
+  world = new DeviceWorld();
+  const a = await world.installation();
+  const cc = counted();
+  const c = await world.installation(cc.flows);
+  const X = await a.section("Plans");
+  await c.service.progress(await pair(a, c, "read"));
+  await a.service.upkeep(true);
+  await loseKey(c, X);
+  const s0 = cc.calls.setKeyHints ?? 0;
+  for (let i = 0; i < 3; i++) await c.service.upkeep();
+  expect((cc.calls.setKeyHints ?? 0) - s0).toBe(1);
+  expect((await c.service.unfinished()).find((u) => u.kind === "key-wait")?.refusal).toBe(
+    "not-a-writer",
+  );
+});
+
+it("P3-1: Stop trying waits for an upkeep in flight; the delivery stays given up", async () => {
+  const { a, X, operation } = await refusedKeyChange();
+  const ca = counted();
+  // The same installation's service, with counted flows (one upkeep queue per service).
+  const { DeviceService } = await import("../../../src/core/identity/service");
+  const { sleep } = await import("../../support/lfcp-env");
+  const service = new DeviceService({
+    runtime: () => a.runtime,
+    context: () => a.runtime.collaborationContext(),
+    collab: () => a.collab,
+    defaultServer: () => WORLD_URL,
+    platform: "desktop",
+    sections: true,
+    sleep,
+    pacing: null,
+    flows: {
+      ...SDK_IDENTITY_FLOWS,
+      connectionNetwork: () => world.server.network(),
+      ...ca.flows,
+    },
+  });
+  await service.upkeep(); // records the refusal
+  const upkeep = service.upkeep();
+  const stop = service.stopTrying(operation, toHex(X));
+  await Promise.all([upkeep, stop]);
+  expect(await stop).toMatch(/^Stopped sending/);
+  // abandonDelivery ran after the upkeep's resumeRotations, never during it.
+  const lastResumeEnd = ca.log.lastIndexOf("resumeRotations:end");
+  expect(ca.log.indexOf("abandonDelivery:start")).toBeGreaterThan(lastResumeEnd);
+  const listed = (await service.unfinished()).map((u) => u.kind);
+  expect(listed).toContain("given-up");
+  expect(listed).not.toContain("refused-handover");
+});
+
+it("(c) own-root: after Stop trying, the upkeep no longer forces a reconciliation; a forced one still tries", async () => {
+  world = new DeviceWorld();
+  const ca = counted();
+  const a = await world.installation(ca.flows);
+  const b = await world.installation();
+  const X = await a.section("Plans");
+  await b.service.progress(await pair(a, b, "full"));
+  await a.service.upkeep(true);
+  // A changes X's key; the server refuses B's new key, every time.
+  world.server.fault = (e) =>
+    e.op === "key-package" && toHex(parseKeyPackage(e.bytes).payload.recipient) === me(b)
+      ? { nack: "QUOTA_EXCEEDED" }
+      : undefined;
+  const actx = ctxOf(a);
+  const operation = "rotate.own";
+  await new OperationJournal(actx.storage).begin({
+    id: operation,
+    kind: "rotate",
+    createdAt: 1,
+    intent: {},
+  });
+  const channel = await world.server.network().connect(actx.principal.signer, WORLD_URL);
+  const x = await syncChain(actx.storage, channel, X);
+  await rotateAfter({
+    installation: { signer: actx.principal.signer, agreement: actx.principal.agreement },
+    storage: actx.storage,
+    secrets: actx.secrets,
+    network: world.server.network(),
+    now: actx.now,
+    channel,
+    operation,
+    resource: X,
+    revokedAt: x.state.seq,
+  });
+  channel.close();
+  // B (own root) lacks the new key: each upkeep reconciles for it.
+  let r0 = ca.calls.reconcileDevices ?? 0;
+  await a.service.upkeep();
+  await a.service.upkeep();
+  expect((ca.calls.reconcileDevices ?? 0) - r0).toBe(2);
+  expect(await a.service.stopTrying(operation, toHex(X))).toMatch(/^Stopped sending/);
+  r0 = ca.calls.reconcileDevices ?? 0;
+  await a.service.upkeep();
+  await a.service.upkeep();
+  expect((ca.calls.reconcileDevices ?? 0) - r0).toBe(0);
+  // A forced upkeep still reconciles, and §7.1 step 3 still tries B's key.
+  const from = world.server.uploads.length;
+  await a.service.upkeep(true);
+  expect(uploadsTo(me(b), from)).toBeGreaterThan(0);
 });

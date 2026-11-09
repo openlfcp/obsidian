@@ -15,6 +15,7 @@ import {
   createPairingSession,
   createResourceAsDevice,
   fetchDeks,
+  hintAnswered,
   keyHints,
   loadIdentityDocument,
   openPairingSessions,
@@ -66,6 +67,8 @@ export interface IdentityFlows {
   /** "Stop trying" an owed delivery, and "Try again" (sdk-ts 0.5.2, design 419 (c)). */
   readonly abandonDelivery: typeof abandonDelivery;
   readonly retryDelivery: typeof retryDelivery;
+  /** Whether this device's reconciliation already answered a hint (sdk-ts 0.5.2). */
+  readonly hintAnswered: typeof hintAnswered;
   readonly requestPairing: typeof requestPairing;
   readonly completePairing: typeof completePairing;
   readonly revocationStatus: typeof revocationStatus;
@@ -99,6 +102,7 @@ export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   resendKeys,
   abandonDelivery,
   retryDelivery,
+  hintAnswered,
   requestPairing,
   completePairing,
   revocationStatus,

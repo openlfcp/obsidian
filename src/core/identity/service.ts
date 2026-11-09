@@ -286,7 +286,16 @@ interface KeyHintState {
   readonly written: Readonly<Record<string, readonly string[]>>;
   readonly wanted: Readonly<Record<string, readonly string[]>>;
   readonly result: string;
+  /** When `result` was answered (ms): an `unavailable` is retried after KEY_HINT_RETRY_MS. */
+  readonly at: number;
 }
+
+/**
+ * setKeyHints answers that stand until what this device lacks changes (review 419 P3-3):
+ * asking again would only learn the same. `unavailable` is retried after KEY_HINT_RETRY_MS.
+ */
+const KEY_HINT_TERMINAL = new Set(["not-a-writer", "unsupported", "conflict", "refused"]);
+const KEY_HINT_RETRY_MS = 60 * 60 * 1000;
 
 const epochMap = (v: unknown): Record<string, string[]> =>
   typeof v === "object" && v !== null
@@ -301,6 +310,7 @@ const hintStateOf = (v: unknown): KeyHintState => {
     written: epochMap(o.written),
     wanted: epochMap(o.wanted),
     result: typeof o.result === "string" ? o.result : "",
+    at: typeof o.at === "number" ? o.at : 0,
   };
 };
 
@@ -703,11 +713,20 @@ export class DeviceService {
    */
   upkeep(force = false): Promise<UpkeepResult> {
     if (this.#upkeep !== null) return this.#upkeep;
-    const run = this.#runUpkeep(force).finally(() => {
+    const run = this.#serial(() => this.#runUpkeep(force)).finally(() => {
       this.#upkeep = null;
     });
     this.#upkeep = run;
     return run;
+  }
+
+  /** The upkeep and "Stop trying" / "Try again" one at a time (review 419 P3-1). */
+  #queue: Promise<unknown> = Promise.resolve();
+
+  #serial<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.#queue.then(work, work);
+    this.#queue = next.catch(() => undefined);
+    return next;
   }
 
   async #runUpkeep(force: boolean): Promise<UpkeepResult> {
@@ -1147,48 +1166,58 @@ export class DeviceService {
     const runtime = this.#runtime();
     const me = c.principal.id;
     const missing = new Map<ResourceId, DataEpoch[]>();
-    for (const chain of [local.identity, ...local.chains.values()]) {
-      if (!hasAbility(chain.state, me, ABILITY.DATA_READ)) continue;
-      const held = await heldDeks(c.secrets, chain);
-      let lacking = [...chain.state.epochs.values()]
-        .map((e) => e.epoch)
-        .filter((e) => !held.has(String(e)));
-      if (lacking.length === 0) continue;
-      // The packages may be there: the server is asked first (KEY_PACKAGE_GET).
-      let channel: IdentityChannel | undefined;
-      try {
-        channel = await flow.network.connect(
-          flow.installation.signer,
-          chain.state.route.coordinatorUrl,
-        );
-        const deks = await this.#flows.fetchDeks(
-          c.storage,
-          c.secrets,
-          channel,
-          chain,
-          flow.installation,
-        );
-        lacking = lacking.filter((e) => !deks.has(String(e)));
-      } catch (e) {
-        if (
-          !(
-            e instanceof IdentityUnavailable ||
-            e instanceof IdentityRefused ||
-            e instanceof IdentityConflict
+    // One connection per coordinator for the whole pass (review 419 P3-3).
+    const pool = new ChannelPool(flow.network);
+    try {
+      for (const chain of [local.identity, ...local.chains.values()]) {
+        if (!hasAbility(chain.state, me, ABILITY.DATA_READ)) continue;
+        const held = await heldDeks(c.secrets, chain);
+        let lacking = [...chain.state.epochs.values()]
+          .map((e) => e.epoch)
+          .filter((e) => !held.has(String(e)));
+        if (lacking.length === 0) continue;
+        // The packages may be there: the server is asked first (KEY_PACKAGE_GET).
+        try {
+          const channel = await pool.get(
+            flow.installation.signer,
+            chain.state.route.coordinatorUrl,
+          );
+          const deks = await this.#flows.fetchDeks(
+            c.storage,
+            c.secrets,
+            channel,
+            chain,
+            flow.installation,
+          );
+          lacking = lacking.filter((e) => !deks.has(String(e)));
+        } catch (e) {
+          if (
+            !(
+              e instanceof IdentityUnavailable ||
+              e instanceof IdentityRefused ||
+              e instanceof IdentityConflict
+            )
           )
-        )
-          throw e;
-        continue;
-      } finally {
-        channel?.close();
+            throw e;
+          continue;
+        }
+        if (lacking.length > 0) missing.set(chain.state.resourceId, lacking);
       }
-      if (lacking.length > 0) missing.set(chain.state.resourceId, lacking);
+    } finally {
+      pool.closeAll();
     }
     const wanted: Record<string, string[]> = Object.fromEntries(
       [...missing].map(([R, es]) => [toHex(R), es.map(String)]),
     );
     const last = hintStateOf(await runtime.localState.get(KEY_HINT_KEY));
     if (sameEpochMap(last.written, wanted) && sameEpochMap(last.wanted, wanted)) return;
+    // The same need, answered for good (or recently unavailable): not asked again (P3-3).
+    if (
+      sameEpochMap(last.wanted, wanted) &&
+      (KEY_HINT_TERMINAL.has(last.result) ||
+        (last.result === "unavailable" && c.now() - last.at < KEY_HINT_RETRY_MS))
+    )
+      return;
     let result: string;
     try {
       result = (await this.#flows.setKeyHints({ ...(flow as IdentityFlowOptions), missing })).kind;
@@ -1197,7 +1226,7 @@ export class DeviceService {
       result = "unavailable";
     }
     const written = result === "written" || result === "unchanged" ? wanted : last.written;
-    await runtime.localState.put(KEY_HINT_KEY, { written, wanted, result });
+    await runtime.localState.put(KEY_HINT_KEY, { written, wanted, result, at: c.now() });
   }
 
   /**
@@ -1235,6 +1264,9 @@ export class DeviceService {
       for (const [R, epochs] of byResource) {
         const chain = chains.get(toHex(R));
         if (chain === undefined) continue;
+        // Answered once (review 419 P2-1): a hint this device's reconciliation already
+        // answered makes nothing due again until it changes or a day passed.
+        if (await this.#flows.hintAnswered(c.storage, R, device, epochs, c.now())) continue;
         const held = await heldDeks(c.secrets, chain);
         if (epochs.some((e) => held.has(String(e)))) sendable = true;
       }
@@ -1281,7 +1313,11 @@ export class DeviceService {
    * readers stay without the new key until "Try again". Refused while the key change's
    * key is still pending (it may already be in place, §9.1).
    */
-  async stopTrying(operation: string, resource: string): Promise<string> {
+  stopTrying(operation: string, resource: string): Promise<string> {
+    return this.#serial(() => this.#stopTrying(operation, resource));
+  }
+
+  async #stopTrying(operation: string, resource: string): Promise<string> {
     const c = this.#context();
     const runtime = this.#runtime();
     const R = fromHex(resource) as ResourceId;
@@ -1320,7 +1356,11 @@ export class DeviceService {
   }
 
   /** "Try again" (419 (c)): a given-up delivery is owed again; the caller runs the upkeep. */
-  async tryAgain(operation: string, resource: string): Promise<void> {
+  tryAgain(operation: string, resource: string): Promise<void> {
+    return this.#serial(() => this.#tryAgain(operation, resource));
+  }
+
+  async #tryAgain(operation: string, resource: string): Promise<void> {
     const c = this.#context();
     await this.#flows.retryDelivery({
       storage: c.storage,
