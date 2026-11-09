@@ -135,10 +135,10 @@ export async function deleteRetiredInstall(
         if (typeof meta.principal === "string") principals.add(meta.principal);
       }
       for (const r of await storage.resources.list()) {
-        const R = r.resourceId as ResourceId;
+        const R = r.resourceId;
         for (const e of await storage.control.epochs(R)) {
           refs.add(dekSecretRef(R, dataEpoch(e.epoch)));
-          if (e.dekRef !== null) refs.add(e.dekRef as SecretRef);
+          if (e.dekRef !== null) refs.add(e.dekRef);
         }
       }
       for (const mark of await storage.localMarks.list("identity-op:")) {

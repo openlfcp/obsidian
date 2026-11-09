@@ -182,7 +182,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
     setting.addButton((button) =>
       button
         .setButtonText("Delete earlier identity data…")
-        .setWarning()
+        .setDestructive()
         .onClick(() => {
           new ConfirmModal(this.app, {
             title: "Delete earlier identity data",
