@@ -16,6 +16,7 @@ import {
   fetchDeks,
   loadIdentityDocument,
   openPairingSessions,
+  outstandingDeliveries,
   pairingRequests,
   previewRevocation,
   reconcileDevices,
@@ -23,6 +24,7 @@ import {
   requestPairing,
   resumeApproval,
   resumePairingSession,
+  resumeRotations,
   revocationStatus,
   revokeDevice,
   rotateIfExposed,
@@ -46,6 +48,10 @@ export interface IdentityFlows {
   readonly registerDevice: typeof registerDevice;
   readonly reconcileDevices: typeof reconcileDevices;
   readonly rotateIfExposed: typeof rotateIfExposed;
+  /** Committed key changes whose new key is still owed to a reader (sdk-ts 0.5.1). */
+  readonly outstandingDeliveries: typeof outstandingDeliveries;
+  /** Resumes those, and key changes whose KEY_EPOCH answer was lost (sdk-ts 0.5.1). */
+  readonly resumeRotations: typeof resumeRotations;
   readonly requestPairing: typeof requestPairing;
   readonly completePairing: typeof completePairing;
   readonly revocationStatus: typeof revocationStatus;
@@ -72,6 +78,8 @@ export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   registerDevice,
   reconcileDevices,
   rotateIfExposed,
+  outstandingDeliveries,
+  resumeRotations,
   requestPairing,
   completePairing,
   revocationStatus,

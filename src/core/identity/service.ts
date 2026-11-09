@@ -19,6 +19,7 @@
 // never logged, stored or put in a notice. Journals hold none (§9.8).
 
 import {
+  ChannelPool,
   checkIssuance,
   exposingRevocationsSince,
   type FlowOptions,
@@ -35,10 +36,12 @@ import {
   type MaskPreset,
   mayManageDevices,
   OperationJournal,
+  type OutstandingDelivery,
   PackageLedger,
   PairingLinkText as PairingLink,
   type PairingLinkText,
   type PairingReview,
+  pendingDekRef,
   planReconciliation,
   principalOfRef,
   type RegistrationResult,
@@ -244,6 +247,17 @@ const owedOf = (v: unknown): OwedKey[] =>
       )
     : [];
 
+/** This device's stored chains (#localState). */
+interface LocalState {
+  /** The device list's chain, when this device has one and it is not forked. */
+  readonly identity: LinearChain | null;
+  /** The device list, when its chain is forked (§9.7): nothing is sealed on its behalf. */
+  readonly conflict: ResourceId | null;
+  /** This device manages devices in the device list. */
+  readonly manages: boolean;
+  readonly chains: ReadonlyMap<string, LinearChain>;
+}
+
 /** Thrown when OpenLFCP is not ready (locked, stopped, starting). */
 export class DevicesUnavailable extends Error {
   constructor() {
@@ -408,9 +422,14 @@ export class DeviceService {
           }
     for (const [device, sections] of pending)
       out.push({ kind: "registration", operation: "", label: names.device(device), sections });
-    const keys = [...local.chains]
-      .filter(([, chain]) => this.#rotationDue(chain))
-      .map(([hex]) => names.resource(hex));
+    // Due key changes, and those committed or sent whose key still waits in its pending slot.
+    const pendingKeys = await this.#pendingRotations();
+    const keys = [
+      ...new Set([
+        ...[...local.chains].filter(([, chain]) => this.#rotationDue(chain)).map(([hex]) => hex),
+        ...pendingKeys,
+      ]),
+    ].map((hex) => names.resource(hex));
     if (keys.length > 0) out.push({ kind: "key", operation: "", label: "", sections: keys });
     const waiting = hexList(await this.#runtime().localState.get(ROSTER_PENDING_KEY));
     if (waiting.length > 0)
@@ -427,6 +446,14 @@ export class DeviceService {
       for (const r of o.recipients)
         if (!(owedKeys.get(r) ?? []).includes(o.resource))
           owedKeys.set(r, [...(owedKeys.get(r) ?? []), o.resource]);
+    // And the readers a committed key change still owes its new key, by the SDK's journal:
+    // kept across a restart, until every one has it (§9.1, §9.5).
+    for (const o of await this.#outstanding(local))
+      for (const r of o.recipients) {
+        const hex = toHex(o.resource);
+        if (!(owedKeys.get(r) ?? []).includes(hex))
+          owedKeys.set(r, [...(owedKeys.get(r) ?? []), hex]);
+      }
     for (const [device, resources] of owedKeys)
       out.push({
         kind: "handover",
@@ -444,11 +471,7 @@ export class DeviceService {
    * holds and has not sent it, by device (hex). A key change accepted
    * after which a package was lost is owed here until it is sent.
    */
-  async #keysOwed(local: {
-    readonly identity: LinearChain | null;
-    readonly manages: boolean;
-    readonly chains: ReadonlyMap<string, LinearChain>;
-  }): Promise<Map<string, string[]>> {
+  async #keysOwed(local: LocalState): Promise<Map<string, string[]>> {
     const out = new Map<string, string[]>();
     if (local.identity === null || !local.manages) return out;
     const c = this.#context();
@@ -478,16 +501,17 @@ export class DeviceService {
    * This device's stored chains: the device list (when this device is in
    * one and manages devices there) and every section of the registry.
    */
-  async #localState(): Promise<{
-    readonly identity: LinearChain | null;
-    readonly manages: boolean;
-    readonly chains: ReadonlyMap<string, LinearChain>;
-  }> {
+  async #localState(): Promise<LocalState> {
     const c = this.#context();
     const me = c.principal.id;
     const I = await this.identity();
     const stored = I === undefined ? undefined : await loadControlChain(c.storage, I);
-    const identity = stored?.kind === "linear" ? stored : null;
+    // A fork of the device list (§9.7) is stored as a conflict: no linear chain to act on.
+    const forked =
+      I !== undefined &&
+      ((await c.storage.control.conflict(I)) !== undefined ||
+        (stored !== undefined && stored.kind !== "linear"));
+    const identity = stored?.kind === "linear" && !forked ? stored : null;
     const chains = new Map<string, LinearChain>();
     for (const e of await this.#runtime().registry()) {
       const chain = await loadControlChain(c.storage, e.resourceId);
@@ -495,10 +519,24 @@ export class DeviceService {
     }
     return {
       identity,
+      conflict: forked ? I : null,
       manages:
         identity !== null && mayManageDevices(identity.state, me, identity.state.owner.principalId),
       chains,
     };
+  }
+
+  /**
+   * IDENTITY-PROFILE-01 §7.1 step 1: the device list every key change and
+   * hand-over of this device seals by, so that nothing goes to a device
+   * the person removed, even where a section still counts it as active.
+   * None without a device list (a key change still works); while the
+   * device list is forked (§9.7) nothing is sealed: IdentityConflict.
+   */
+  #deliveryIdentity(local: LocalState): { readonly identityChain?: LinearChain } {
+    if (local.conflict !== null)
+      throw new IdentityConflict(local.conflict, "the device list is forked (§9.7)");
+    return local.identity === null ? {} : { identityChain: local.identity };
   }
 
   /** §8.4: an exposing revocation since the current key, and this device may change the key. */
@@ -551,9 +589,13 @@ export class DeviceService {
     const issues: UpkeepIssue[] = [];
     const covered = new Set<string>();
     let reconciled = false;
+    // Key changes committed earlier whose new key is still owed (a crash after the change, a
+    // dropped connection or a refusal while handing it on), whichever operation made them:
+    // resumed by the SDK from its journal (§9.1, §9.5), never another key change.
+    const resumed = await this.#resumeDeliveries(flow, local, issues);
     // New keys a server refused to a reader after an earlier key change: the same operation
     // hands them on (§9.1, §9.2 Package), never another key change.
-    const handedOn = await this.#handOver(flow, local, issues);
+    const handedOn = [...new Set([...resumed, ...(await this.#handOver(flow, local, issues))])];
     // This device's sections the roster lacks are queued (a queue write a failure cut short,
     // a device flow whose roster entry was refused), then the queue is listed, before
     // reconciliation reads the roster (§7.1: it registers the person's devices there).
@@ -596,7 +638,7 @@ export class DeviceService {
       if (op.intent.by !== UPKEEP || typeof op.intent.resource !== "string") continue;
       const chain = local.chains.get(op.intent.resource);
       if (chain === undefined) continue;
-      const rotation = await this.#rotate(flow, journal, op.id, chain);
+      const rotation = await this.#rotate(flow, journal, op.id, chain, local);
       rotations.push(rotation);
       made.push({ rotation, operation: op.id });
       covered.add(op.intent.resource);
@@ -610,7 +652,7 @@ export class DeviceService {
         createdAt: flow.now(),
         intent: { by: UPKEEP, resource: hex },
       });
-      const rotation = await this.#rotate(flow, journal, id, chain);
+      const rotation = await this.#rotate(flow, journal, id, chain, local);
       rotations.push(rotation);
       made.push({ rotation, operation: id });
     }
@@ -837,14 +879,7 @@ export class DeviceService {
    * unreachable stays owed, as an issue. Returns the Resources (hex) whose
    * keys were all handed on.
    */
-  async #handOver(
-    flow: FlowOptions,
-    local: {
-      readonly identity: LinearChain | null;
-      readonly chains: ReadonlyMap<string, LinearChain>;
-    },
-    issues: UpkeepIssue[],
-  ): Promise<string[]> {
+  async #handOver(flow: FlowOptions, local: LocalState, issues: UpkeepIssue[]): Promise<string[]> {
     const runtime = this.#runtime();
     const owed = owedOf(await runtime.localState.get(OWED_KEY));
     if (owed.length === 0) return [];
@@ -866,8 +901,11 @@ export class DeviceService {
           flow.installation.signer,
           chain.state.route.coordinatorUrl,
         );
+        // The device list's removals hold for the retry too (§7.1 step 1).
+        const identity = this.#deliveryIdentity(local);
         const outcome = await this.#flows.rotateIfExposed({
           ...flow,
+          ...identity,
           channel,
           operation: o.operation,
           resource: chain.state.resourceId,
@@ -891,15 +929,117 @@ export class DeviceService {
           });
         } else done.push(o.resource);
       } catch (e) {
-        if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
+        if (
+          !(
+            e instanceof IdentityUnavailable ||
+            e instanceof IdentityConflict ||
+            e instanceof IdentityRefused
+          )
+        )
+          throw e;
+        // This one stays owed and is reported; the next one is still handed on.
         still.push(o);
-        issues.push({ resource: o.resource, kind: "unreachable" });
+        issues.push(
+          e instanceof IdentityRefused
+            ? { resource: o.resource, kind: "refused", detail: e.code }
+            : {
+                resource: o.resource,
+                kind: e instanceof IdentityConflict ? "conflict" : "unreachable",
+              },
+        );
       } finally {
         channel?.close();
       }
     }
     await runtime.localState.put(OWED_KEY, still);
     return done;
+  }
+
+  /**
+   * Resources (hex) of the key changes journaled here whose new key still
+   * waits in its pending slot (§9.1): the KEY_EPOCH was sent, and may be
+   * committed, but the key is not adopted yet. Whatever became of the
+   * operation (a refused read closes nothing), they stay owed until the
+   * SDK resumes them.
+   */
+  async #pendingRotations(): Promise<string[]> {
+    const c = this.#context();
+    const out = new Set<string>();
+    for (const op of await new OperationJournal(c.storage).list())
+      for (const p of op.phases) {
+        if (p.kind !== "rotate" || (p.state !== "pending" && p.state !== "committed-own")) continue;
+        const key = await c.secrets.get(pendingDekRef(fromHex(p.resource) as ResourceId, op.id));
+        if (key === undefined) continue;
+        key.fill(0);
+        out.add(p.resource);
+      }
+    return [...out];
+  }
+
+  /** The SDK's committed key changes whose new key is still owed, by this device's state. */
+  async #outstanding(local: LocalState): Promise<readonly OutstandingDelivery[]> {
+    const c = this.#context();
+    return this.#flows.outstandingDeliveries({
+      storage: c.storage,
+      installation: { signer: c.principal.signer, agreement: c.principal.agreement },
+      ...(local.identity === null ? {} : { identityChain: local.identity }),
+    });
+  }
+
+  /**
+   * Hands on what committed key changes still owe (the SDK's delivery
+   * marks, §9.1, §9.5): resumeRotations sends the missing packages to the
+   * readers of every person, through the device list's removals, and
+   * changes no key. Suspended while the device list is forked (§9.7).
+   * What is still owed stays listed in "Your devices…" and is an issue.
+   * Returns the Resources (hex) whose new key is now with every reader.
+   */
+  async #resumeDeliveries(
+    flow: FlowOptions,
+    local: LocalState,
+    issues: UpkeepIssue[],
+  ): Promise<string[]> {
+    // Owed: marked deliveries, and key changes whose committed key may still wait in their
+    // pending slot (a lost answer to the KEY_EPOCH): both are resumed by the SDK (§9.1).
+    const owedNow = async () =>
+      new Set([
+        ...(await this.#outstanding(local)).map((o) => toHex(o.resource)),
+        ...(await this.#pendingRotations()),
+      ]);
+    const resources = [...(await owedNow())];
+    if (resources.length === 0) return [];
+    if (local.conflict !== null) {
+      for (const resource of resources) issues.push({ resource, kind: "conflict" });
+      return [];
+    }
+    // The SDK resumes each Resource on its own: one that refuses this device's read
+    // (unhosted, access revoked), is forked or unreachable keeps its obligation and is
+    // reported with its own outcome; the others are handed on (sdk-ts 0.5.1).
+    const pool = new ChannelPool(flow.network);
+    let outcomes: readonly RotationOutcome[];
+    try {
+      outcomes = await this.#flows.resumeRotations({
+        ...flow,
+        ...this.#deliveryIdentity(local),
+        pool,
+      });
+    } finally {
+      pool.closeAll();
+    }
+    const failed = new Map<string, UpkeepIssue>();
+    for (const o of outcomes) {
+      const resource = toHex(o.resource);
+      if (o.status === "refused")
+        failed.set(resource, { resource, kind: "refused", detail: o.code ?? "refused" });
+      else if (o.status === "unreachable")
+        failed.set(resource, {
+          resource,
+          kind: o.code === "CONTROL_CONFLICT" ? "conflict" : "unreachable",
+        });
+    }
+    const still = await owedNow();
+    for (const resource of still) issues.push(failed.get(resource) ?? { resource, kind: "keys" });
+    return resources.filter((r) => !still.has(r));
   }
 
   /**
@@ -942,23 +1082,40 @@ export class DeviceService {
     journal: OperationJournal,
     id: string,
     chain: LinearChain,
+    local: LocalState,
   ): Promise<RotationOutcome> {
     const resource = chain.state.resourceId;
     let channel: IdentityChannel | undefined;
     let outcome: RotationOutcome;
+    // A refused read (unhosted, access revoked, rate limited) is reported, and decides
+    // nothing: the key change may be committed with its key still pending (§9.1).
+    let readRefused = false;
     try {
+      // The device list's removals hold for every key change of this device (§7.1 step 1).
+      const identity = this.#deliveryIdentity(local);
       channel = await flow.network.connect(
         flow.installation.signer,
         chain.state.route.coordinatorUrl,
       );
-      outcome = await this.#flows.rotateIfExposed({ ...flow, channel, operation: id, resource });
+      outcome = await this.#flows.rotateIfExposed({
+        ...flow,
+        ...identity,
+        channel,
+        operation: id,
+        resource,
+      });
     } catch (e) {
-      if (!(e instanceof IdentityUnavailable || e instanceof IdentityConflict)) throw e;
-      outcome = { resource, status: "unreachable" };
+      if (e instanceof IdentityRefused) {
+        readRefused = true;
+        outcome = { resource, status: "refused", code: e.code };
+      } else if (e instanceof IdentityUnavailable || e instanceof IdentityConflict)
+        outcome = { resource, status: "unreachable" };
+      else throw e;
     } finally {
       channel?.close();
     }
-    const open = outcome.status === "unreachable" || outcome.status === "awaiting-key-holder";
+    const open =
+      readRefused || outcome.status === "unreachable" || outcome.status === "awaiting-key-holder";
     await journal.setStatus(id, open ? "open" : "done");
     return outcome;
   }
