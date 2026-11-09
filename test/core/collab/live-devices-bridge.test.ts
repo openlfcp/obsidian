@@ -84,17 +84,6 @@ function pairCli(args: readonly string[], link: string) {
   };
 }
 
-/**
- * The CLI's secret store fsyncs its directory after each write
- * (FileSecretStore of @openlfcp/storage-node 0.4.0: openSync(dir) then
- * fsyncSync), which Windows does not allow for a directory: the command
- * dies creating its installation, before any output (obsidian#108 CI: the
- * wait for the fingerprint ran out at 60 s on Windows only). Not this
- * plugin's code; the scenario is skipped on Windows on exactly that
- * failure, and runs there as soon as the package handles it.
- */
-const WINDOWS_DIR_FSYNC = /\bE(?:PERM|ISDIR|ACCES)\b[^\n]*\b(?:fsync|open)\b/;
-
 describe("§7.4 scenario 3: the bridge CLI", () => {
   it("pairs headless as a service for two sections; attributed via the bridge; cannot invite, nor open a third section or the device list", async (ctx) => {
     if (skip !== null) ctx.skip(`no reference server: ${skip}`);
@@ -142,11 +131,8 @@ describe("§7.4 scenario 3: the bridge CLI", () => {
       () => printed() || cli.code() !== undefined,
       60_000,
     );
+    // On Windows too: @openlfcp/storage-node 0.5.2 tolerates the directory fsync Windows refuses.
     if (!printed()) {
-      if (process.platform === "win32" && WINDOWS_DIR_FSYNC.test(cli.stderr()))
-        ctx.skip(
-          `lfcp-node cannot fsync its secret directory on Windows (${WINDOWS_DIR_FSYNC.exec(cli.stderr())?.[0]})`,
-        );
       throw new Error(
         `lfcp-node pair ended (${String(cli.code())}) before its request was shown:\n${cli.output()}\n${cli.stderr()}`,
       );
