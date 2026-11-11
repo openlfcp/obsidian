@@ -3,7 +3,13 @@
 
 import { fromHex, type PrincipalId } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
-import { deviceLine, deviceRows, presetOf } from "../../../src/core/identity/device-list";
+import {
+  deviceLine,
+  deviceNote,
+  deviceRows,
+  presetOf,
+  removalWords,
+} from "../../../src/core/identity/device-list";
 import { fingerprintOf } from "../../../src/core/identity/people";
 import { P, stateOfX, X } from "./x-chain";
 
@@ -47,6 +53,25 @@ describe("device list", () => {
     );
     expect(bridge).toMatchObject({ kind: "service", preset: "service", manages: false });
     expect(bridge && deviceLine(bridge)).toBe(`${fingerprintOf(P("BRIDGE"))} (Service)`);
+  });
+
+  it("a service device (a bridge or bot) says what it is, and is disconnected rather than removed (P-050)", () => {
+    const rows = deviceRows(stateOfX(), P("BOB"), { [P("BRIDGE")]: "Mac bridge" }, BOB);
+    const bridge = rows.find((r) => name.get(r.principal) === "BRIDGE");
+    if (bridge === undefined) throw new Error("no bridge row");
+    expect(deviceNote(bridge)).toMatch(/bridge or bot/);
+    const words = removalWords(bridge);
+    expect(words).toMatchObject({
+      button: "Disconnect…",
+      title: 'Disconnect "Mac bridge"',
+      confirm: "Disconnect",
+    });
+    expect(words.note).toMatch(/stops syncing/);
+    expect(words.note).toMatch(/reminders .*stay/i);
+    const personal = rows.find((r) => r.kind === "personal" && !r.first);
+    if (personal === undefined) throw new Error("no personal row");
+    expect(deviceNote(personal)).toBeNull();
+    expect(removalWords(personal)).toMatchObject({ button: "Remove device…", note: null });
   });
 
   it("another person's devices are not this person's", () => {

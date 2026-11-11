@@ -10,6 +10,12 @@ since 0.4.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Your devices: a service device (such as the Apple Reminders bridge) says
+  what it is, and its action is "Disconnect…": the same removal, with what
+  happens said plainly. The bridge stops syncing; its reminders stay yours.
+
 ## [0.7.4] — 2026-11-09
 
 A lost section key comes back, a refused key can be given up, and an

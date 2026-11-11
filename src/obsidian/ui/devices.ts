@@ -14,7 +14,12 @@
 import type { MaskPreset, PairingLinkText, PairingReview } from "@openlfcp/client";
 import { fromHex, type ResourceId } from "@openlfcp/core";
 import { type App, Modal, Notice } from "obsidian";
-import { type DeviceRow, deviceLine } from "../../core/identity/device-list";
+import {
+  type DeviceRow,
+  deviceLine,
+  deviceNote,
+  removalWords,
+} from "../../core/identity/device-list";
 import { pollDelay } from "../../core/identity/pacing";
 import {
   type ApprovalView,
@@ -373,7 +378,7 @@ class RemoveDeviceModal extends Modal {
   }
 
   override onOpen(): void {
-    this.setTitle(`Remove "${this.row.label}"`);
+    this.setTitle(removalWords(this.row).title);
     this.contentEl.createEl("p", { text: "Checking what it affects…" });
     void this.#preview();
   }
@@ -389,6 +394,8 @@ class RemoveDeviceModal extends Modal {
         .addEventListener("click", () => this.close());
       return;
     }
+    const words = removalWords(this.row);
+    if (words.note !== null) el.createEl("p", { text: words.note });
     for (const line of preview.lines) el.createEl("p", { text: line });
     el.createEl("p", { text: "Why?" });
     const reason = el.createEl("select", { cls: "dropdown" });
@@ -409,7 +416,7 @@ class RemoveDeviceModal extends Modal {
           });
         });
     buttons
-      .createEl("button", { text: "Remove device", cls: "mod-warning" })
+      .createEl("button", { text: words.confirm, cls: "mod-warning" })
       .addEventListener("click", () => {
         const r = reason.value === "2" ? 2n : reason.value === "1" ? 1n : 0n;
         void this.#remove(r);
@@ -527,6 +534,8 @@ export class DevicesModal extends Modal {
       cls: "setting-item-description",
       text: `Fingerprint ${row.fingerprint}${row.state === "suspended" ? ". It stopped because a device that added it was removed." : ""}`,
     });
+    const note = deviceNote(row);
+    if (note !== null) info.createDiv({ cls: "setting-item-description", text: note });
     const control = item.createDiv({ cls: "setting-item-control" });
     if (!manages || row.first || row.state === "removed") return;
     if (row.state === "suspended" && !row.thisDevice)
@@ -550,7 +559,7 @@ export class DevicesModal extends Modal {
         });
       });
     control
-      .createEl("button", { text: "Remove device…", cls: "mod-warning" })
+      .createEl("button", { text: removalWords(row).button, cls: "mod-warning" })
       .addEventListener("click", () => {
         const remove = new RemoveDeviceModal(
           this.app,

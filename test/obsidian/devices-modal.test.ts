@@ -272,6 +272,54 @@ describe("Your devices…", () => {
     m.close();
   });
 
+  it("a service device (the Reminders bridge) says what it is and is disconnected, its reminders kept (P-050)", async () => {
+    const m = new DevicesModal(
+      new App() as never,
+      service({
+        devices: async () => ({
+          kind: "list",
+          current: true,
+          manages: true,
+          note: null,
+          rows: [
+            row({ principal: "01", first: true, label: "Desk", preset: null, thisDevice: true }),
+            row({ principal: "04", label: "Mac bridge", kind: "service", preset: "service" }),
+          ],
+        }),
+        unfinished: async () => [],
+        upkeep: async () => ({
+          reconciled: true,
+          rotations: [],
+          issues: [],
+          offline: false,
+          summary: "",
+        }),
+        accessStates: async () => [],
+        previewRemoval: async () => ({
+          blocked: null,
+          lines: ['"Mac bridge" loses access to all your sections.'],
+          suspended: [],
+        }),
+      }),
+      () => undefined,
+    );
+    m.open();
+    await settle();
+    const el = m.contentEl as unknown as FakeElement;
+    expect(el.textContent).toContain("Mac bridge (Service)");
+    expect(el.textContent).toContain("Service device: a bridge or bot");
+    expect(el.findAll("button").filter((b) => b.text === "Remove device…")).toHaveLength(0);
+    button(el, "Disconnect…").click();
+    await settle();
+    const dialog = modals[modals.length - 1];
+    const d = dialog?.contentEl as unknown as FakeElement;
+    expect(d.textContent).toContain("stops syncing these sections");
+    expect(d.textContent).toContain("reminders stay in Apple Reminders as yours");
+    expect(button(d, "Disconnect")).toBeDefined();
+    dialog?.close();
+    m.close();
+  });
+
   it("a device that does not manage sees the list without actions", async () => {
     const m = new DevicesModal(
       new App() as never,
