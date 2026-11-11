@@ -15,6 +15,8 @@ since 0.4.0.
 - Your devices: a service device (such as the Apple Reminders bridge) says
   what it is, and its action is "Disconnect…": the same removal, with what
   happens said plainly. The bridge stops syncing; its reminders stay yours.
+- Approving a service: the dialog links to the Reminders bridge's runbook
+  (how it runs and how to disconnect it).
 
 ## [0.7.4] — 2026-11-09
 

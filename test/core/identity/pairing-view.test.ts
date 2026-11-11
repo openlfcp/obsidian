@@ -4,6 +4,7 @@ import type { PairingReview } from "@openlfcp/client";
 import { generateResourceId, type PrincipalId, toHex } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
 import {
+  BRIDGE_RUNBOOK_URL,
   defaultPreset,
   type Names,
   progressView,
@@ -72,6 +73,21 @@ describe("the approve dialog's words (§5.3 step 4, §5.4)", () => {
     );
     expect(view.presets.map((p) => p.preset)).toEqual(["service"]);
     expect(view.scope).toHaveLength(1);
+  });
+
+  it("a service request points to the Reminders bridge runbook (P-050); a device of yours does not", () => {
+    const service = reviewView(
+      review({ kind: 1, label: "Mac bridge", requestedScope: [generateResourceId()] }),
+      names,
+    );
+    expect(service.help).toEqual({
+      text: expect.stringContaining("Reminders bridge"),
+      link: BRIDGE_RUNBOOK_URL,
+    });
+    expect(BRIDGE_RUNBOOK_URL).toMatch(
+      /^https:\/\/github\.com\/openlfcp\/bridge\/.*running-the-bridge\.md$/,
+    );
+    expect(reviewView(review({ platform: "desktop" }), names).help).toBeNull();
   });
 });
 

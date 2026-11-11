@@ -265,6 +265,10 @@ export class AddDeviceModal extends Modal {
     this.setTitle(view.title);
     if (note !== null) el.createEl("p", { text: note });
     for (const line of view.details) el.createEl("p", { text: line });
+    if (view.help !== null) {
+      const help = el.createEl("p", { text: `${view.help.text} ` });
+      help.createEl("a", { text: "Bridge runbook", href: view.help.link });
+    }
     el.createEl("p", { text: "Fingerprint of the new device:" });
     el.createEl("h3").createEl("code", { text: view.fingerprint });
     el.createEl("p", {
