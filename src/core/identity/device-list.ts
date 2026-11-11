@@ -157,3 +157,39 @@ export function deviceLine(row: DeviceRow): string {
   ];
   return `${row.label} (${what})${notes.length === 0 ? "" : ` · ${notes.join(" · ")}`}`;
 }
+
+/**
+ * What a service device is, under its line (P-050): a bridge (the Apple Reminders bridge) or a bot
+ * with access to the chosen sections. Null for a device of the person. The device list holds no
+ * "last seen" for a device, so none is shown.
+ */
+export function deviceNote(row: DeviceRow): string | null {
+  return row.kind === "service"
+    ? "Service device: a bridge or bot (such as the Reminders bridge) with access to the sections you chose."
+    : null;
+}
+
+/**
+ * The words of the remove action for a device (§8). Removing a service device is the same
+ * revocation, said as disconnecting it: a bridge stops syncing, and what it wrote stays.
+ */
+export function removalWords(row: DeviceRow): {
+  readonly button: string;
+  readonly title: string;
+  readonly confirm: string;
+  readonly note: string | null;
+} {
+  if (row.kind === "service")
+    return {
+      button: "Disconnect…",
+      title: `Disconnect "${row.label}"`,
+      confirm: "Disconnect",
+      note: "It stops syncing these sections for good. What it already wrote stays: a Reminders bridge's reminders stay in Apple Reminders as yours. To connect it again, pair it as a new service.",
+    };
+  return {
+    button: "Remove device…",
+    title: `Remove "${row.label}"`,
+    confirm: "Remove device",
+    note: null,
+  };
+}

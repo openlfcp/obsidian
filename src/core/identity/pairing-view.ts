@@ -160,6 +160,10 @@ export function defaultPreset(review: PairingReview): MaskPreset {
   return review.presets.find((o) => o.offered)?.preset ?? wanted;
 }
 
+/** How to run, and disconnect, the Apple Reminders bridge (its runbook). */
+export const BRIDGE_RUNBOOK_URL =
+  "https://github.com/openlfcp/bridge/blob/main/docs/guides/running-the-bridge.md";
+
 /** One request as the approve dialog shows it (§5.3 step 4). */
 export interface ReviewView {
   readonly title: string;
@@ -175,6 +179,8 @@ export interface ReviewView {
   readonly preset: MaskPreset;
   /** Service: the requested sections, hex, each may be removed and none added. */
   readonly scope: readonly { readonly resource: string; readonly name: string }[];
+  /** Service: where to read more (the Reminders bridge's runbook); null for a device of yours. */
+  readonly help: { readonly text: string; readonly link: string } | null;
 }
 
 export function reviewView(review: PairingReview, names: Names): ReviewView {
@@ -209,6 +215,12 @@ export function reviewView(review: PairingReview, names: Names): ReviewView {
       resource: toHex(r),
       name: names.resource(toHex(r)),
     })),
+    help: service
+      ? {
+          text: "Is it the Reminders bridge? How it runs, and how to disconnect it later:",
+          link: BRIDGE_RUNBOOK_URL,
+        }
+      : null,
   };
 }
 
