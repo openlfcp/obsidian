@@ -165,7 +165,7 @@ export function deviceLine(row: DeviceRow): string {
  */
 export function deviceNote(row: DeviceRow): string | null {
   return row.kind === "service"
-    ? "Service device: a bridge or bot (such as the Reminders bridge) with access to the sections you chose."
+    ? "Service device: a bridge or bot with access to the sections you chose, such as the Reminders bridge (experimental: a tech preview run from the Terminal)."
     : null;
 }
 
@@ -184,7 +184,7 @@ export function removalWords(row: DeviceRow): {
       button: "Disconnect…",
       title: `Disconnect "${row.label}"`,
       confirm: "Disconnect",
-      note: "It stops syncing these sections for good. What it already wrote stays: a Reminders bridge's reminders stay in Apple Reminders as yours. To connect it again, pair it as a new service.",
+      note: "It stops syncing these sections for good. What it already wrote stays: the reminders of a Reminders bridge (experimental) stay in Apple Reminders as yours. To connect it again, pair it as a new service.",
     };
   return {
     button: "Remove device…",

@@ -217,7 +217,7 @@ export function reviewView(review: PairingReview, names: Names): ReviewView {
     })),
     help: service
       ? {
-          text: "Is it the Reminders bridge? How it runs, and how to disconnect it later:",
+          text: "Is it the Reminders bridge (experimental, run from the Terminal)? How it runs, and how to disconnect it later:",
           link: BRIDGE_RUNBOOK_URL,
         }
       : null,

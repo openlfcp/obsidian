@@ -308,13 +308,18 @@ describe("Your devices…", () => {
     const el = m.contentEl as unknown as FakeElement;
     expect(el.textContent).toContain("Mac bridge (Service)");
     expect(el.textContent).toContain("Service device: a bridge or bot");
+    expect(el.textContent).toContain(
+      "Reminders bridge (experimental: a tech preview run from the Terminal)",
+    );
     expect(el.findAll("button").filter((b) => b.text === "Remove device…")).toHaveLength(0);
     button(el, "Disconnect…").click();
     await settle();
     const dialog = modals[modals.length - 1];
     const d = dialog?.contentEl as unknown as FakeElement;
     expect(d.textContent).toContain("stops syncing these sections");
-    expect(d.textContent).toContain("reminders stay in Apple Reminders as yours");
+    expect(d.textContent).toContain(
+      "the reminders of a Reminders bridge (experimental) stay in Apple Reminders as yours",
+    );
     expect(button(d, "Disconnect")).toBeDefined();
     dialog?.close();
     m.close();

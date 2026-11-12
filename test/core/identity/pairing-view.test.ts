@@ -81,7 +81,7 @@ describe("the approve dialog's words (§5.3 step 4, §5.4)", () => {
       names,
     );
     expect(service.help).toEqual({
-      text: expect.stringContaining("Reminders bridge"),
+      text: expect.stringContaining("Reminders bridge (experimental, run from the Terminal)"),
       link: BRIDGE_RUNBOOK_URL,
     });
     expect(BRIDGE_RUNBOOK_URL).toMatch(
