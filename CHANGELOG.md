@@ -10,6 +10,12 @@ since 0.4.0.
 
 ## [Unreleased]
 
+## [0.7.5] — 2026-11-12
+
+Your devices name and disconnect the Apple Reminders bridge, which is
+labelled experimental: a tech preview run from the Terminal. Notes:
+[docs/releases/0.7.5.md](docs/releases/0.7.5.md).
+
 ### Changed
 
 - Your devices: a service device (such as the Apple Reminders bridge) says
@@ -17,6 +23,11 @@ since 0.4.0.
   happens said plainly. The bridge stops syncing; its reminders stay yours.
 - Approving a service: the dialog links to the Reminders bridge's runbook
   (how it runs and how to disconnect it).
+- The Reminders bridge is called experimental (a tech preview run from the
+  Terminal) in the device list, the Disconnect dialog and the approve
+  dialog.
+- README: "Your devices" describes what ships, and a new section
+  introduces the Apple Reminders bridge (experimental).
 
 ## [0.7.4] — 2026-11-09
 
