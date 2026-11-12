@@ -278,23 +278,44 @@ and the value to keep; both notes then show it.
   and completion. Some Tasks tokens (🔁 🛫 ➕ ❌ 🔼) stay local to your
   note; the share preview shows them.
 
-### Linked devices (coming next)
+### Your devices
 
-A later version of Shared Tasks lets one person use several devices
-(another computer, a phone) under one identity: a device is added with a
-`lfcp://pair/…` link. This version does not add devices yet, but it knows
-what they look like:
+One person can use Shared Tasks on several devices (another computer, a
+phone) under one identity; collaborators see you once. From the command
+palette:
 
-- When someone in a shared section adds or removes a device, this version
-  stops syncing that section and says "This section now uses a person's
-  linked devices… Update the plugin". Your copy stays readable, and edits
-  you make wait on this device. The message stays after a restart, until
-  you update. Older versions (0.6.0 and before) stop syncing such a
-  section too, but show only a generic error or keep loading.
-- A pasted `lfcp://pair/…` link is not an invitation: Join says so and
-  uses nothing.
+- **"Add my other device…"** on the device you already use shows a
+  one-time `lfcp://pair/…` link; you choose the new device's access (Full,
+  Edit, Read, or Service for a bridge or bot).
+- **"Pair this device with a link…"** on the new device takes the link and
+  shows a fingerprint to compare before you approve.
+- **"Your devices…"** lists your devices and removes one.
 
-Update everyone who shares sections with you before anyone adds a device.
+Devices need a sync server that supports them (the project server does).
+A pasted `lfcp://pair/…` link is not an invitation: Join says so and uses
+nothing. The full guide: [docs/guides/devices.md](docs/guides/devices.md).
+
+**Collaborators on older versions:** adding your first device changes each
+section you share. A collaborator on Shared Tasks 0.6.0 or earlier stops
+syncing that section; 0.6.1 says "This section now uses a person's linked
+devices… Update the plugin". After they update it syncs again, with
+nothing lost on their side. Tell them before you add your first device.
+
+## Apple Reminders bridge (experimental)
+
+The Apple Reminders bridge is a separate open-source app for a Mac
+([openlfcp/bridge](https://github.com/openlfcp/bridge)). It syncs one
+shared section with one list in Apple Reminders, so its tasks show up on
+your iPhone. It joins as a **service device** of yours: you approve it with
+"Add my other device…" and give it access to the sections you choose.
+
+It is a **tech preview**: you install and run it from the Terminal, and it
+is not part of this plugin. How to set it up and check it: the bridge's
+README and its
+[verification run](https://github.com/openlfcp/bridge/blob/main/docs/devel/testing/verification-run.md).
+
+To remove it: **"Your devices…" → Disconnect…** on the bridge. It stops
+syncing for good; the reminders it made stay in Apple Reminders as yours.
 
 ## Limitations
 
