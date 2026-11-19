@@ -91,6 +91,7 @@ it("connects a bridge: code compared, [Yes], A1–A4 with the record in C, regis
     "the bridge approved and registered",
     async () => {
       const a = await connect.tick();
+      if (a?.state === "failed") throw new Error(JSON.stringify(a));
       return a?.state === "registering" ? a : (await sleep(500), undefined);
     },
     120_000,
