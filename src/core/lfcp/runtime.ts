@@ -479,6 +479,8 @@ export class LfcpRuntime {
   >();
   /** Section opens under way, by Resource (hex): one at a time per Resource. */
   readonly #sectionOpening = new Map<string, Promise<OpenedSection>>();
+  /** Control Resource opens under way, by Resource (hex): one at a time per Resource. */
+  readonly #controlOpening = new Map<string, Promise<boolean>>();
   /** Section Resources being made under a chosen ID (LFCP-03-058): a second call joins the first. */
   readonly #sectionCreating = new Map<string, Promise<ResourceId>>();
   /** 0.1 Resources being restored (#local) and opened on a session (#openResource), by Resource (hex). */
@@ -1665,58 +1667,65 @@ export class LfcpRuntime {
    * when its chain is not here. Opening again is a no-op.
    */
   openControl(resource: ResourceId, url: string): Promise<boolean> {
-    return this.#engine(async () => {
-      const key = toHex(resource);
-      if (this.#controls.has(key)) return true;
-      const { storage, secrets } = this.#ready();
-      const chain = await loadControlChain(storage, resource);
-      const genesis = chain?.kind === "linear" ? chain.records[0]?.body : undefined;
-      if (genesis?.type !== "GENESIS") return false;
-      const profile = new ServiceControlDataProfile({
-        resource,
-        root: genesis.owner.principalId,
-        // §2.2: the device of Genesis field 5 when one signed it, else the owner.
-        genesisSigner:
-          genesis.deviceChain?.leaf.payload.device.principalId ?? genesis.owner.principalId,
-        // §2.3 at the unit's control_ref; a unit without it is of class `other`.
-        signerClassOf: (u) =>
-          u.control === undefined
-            ? "other"
-            : serviceControlSignerClass(
-                serviceControlSignerFacts(u.control as ControlState, u.actor),
-              ),
-      });
-      const applier = new DataUnitApplier({
-        storage,
-        dek: dekResolver(storage, secrets, resource),
-        handlers: [
-          {
-            dataProfile: profile.dataProfile,
-            codecFor: (u) => profile.codecFor(u),
-            apply: (u, v) => profile.apply(u, v as never),
-            exclude: (ids) => profile.exclude(ids),
-            has: (id) => profile.has(id),
-            reset: () => profile.reset(),
-          },
-        ],
-      });
-      // No commit binding: this part only reads C. Its units are replayed, never a Snapshot (§2.2).
-      const binding = {
-        resourceId: resource,
-        applier,
-        snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
-      };
-      const client = this.#session(url).client;
-      client.open(binding);
-      const port = serviceControlPort({
-        client,
-        profile,
-        resource,
-        synchronised: () => client.resourceState(resource) === "LIVE",
-      });
-      this.#controls.set(key, { port, url, binding });
-      return true;
+    // One open per Resource, as #openSection (LFCP-03-033): two first opens at once (the
+    // upkeep and "Send keys again") would each build a profile, the session keeping the
+    // first one's binding and the gate reading the second, which never gets C's units.
+    return this.#engine(() =>
+      once(this.#controlOpening, toHex(resource), () => this.#openControlNow(resource, url)),
+    );
+  }
+
+  async #openControlNow(resource: ResourceId, url: string): Promise<boolean> {
+    const key = toHex(resource);
+    if (this.#controls.has(key)) return true;
+    const { storage, secrets } = this.#ready();
+    const chain = await loadControlChain(storage, resource);
+    const genesis = chain?.kind === "linear" ? chain.records[0]?.body : undefined;
+    if (genesis?.type !== "GENESIS") return false;
+    const profile = new ServiceControlDataProfile({
+      resource,
+      root: genesis.owner.principalId,
+      // §2.2: the device of Genesis field 5 when one signed it, else the owner.
+      genesisSigner:
+        genesis.deviceChain?.leaf.payload.device.principalId ?? genesis.owner.principalId,
+      // §2.3 at the unit's control_ref; a unit without it is of class `other`.
+      signerClassOf: (u) =>
+        u.control === undefined
+          ? "other"
+          : serviceControlSignerClass(
+              serviceControlSignerFacts(u.control as ControlState, u.actor),
+            ),
     });
+    const applier = new DataUnitApplier({
+      storage,
+      dek: dekResolver(storage, secrets, resource),
+      handlers: [
+        {
+          dataProfile: profile.dataProfile,
+          codecFor: (u) => profile.codecFor(u),
+          apply: (u, v) => profile.apply(u, v as never),
+          exclude: (ids) => profile.exclude(ids),
+          has: (id) => profile.has(id),
+          reset: () => profile.reset(),
+        },
+      ],
+    });
+    // No commit binding: this part only reads C. Its units are replayed, never a Snapshot (§2.2).
+    const binding = {
+      resourceId: resource,
+      applier,
+      snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
+    };
+    const client = this.#session(url).client;
+    client.open(binding);
+    const port = serviceControlPort({
+      client,
+      profile,
+      resource,
+      synchronised: () => client.resourceState(resource) === "LIVE",
+    });
+    this.#controls.set(key, { port, url, binding });
+    return true;
   }
 
   /** This device's view of an open control Resource C (§7.4), or undefined when not open here. */

@@ -9,6 +9,7 @@ import {
   createServiceControl,
   type IdentityFlowOptions,
   leafPayload,
+  SyncClient,
   signChain,
   syncChain,
 } from "@openlfcp/client";
@@ -163,4 +164,30 @@ it("Send keys again passes the views and says why D waits", async () => {
     /"MacBook Air" is not added to "Plans" yet: it waits until "Reminders bridge · MacBook Air[^"]*" is up to date on this device\./,
   );
   expect(registered(X, D)).toBe(false);
+});
+
+/** What the runtime's sessions were given to open C, by spying on SyncClient.open. */
+async function opensOf(C: ResourceId, run: () => Promise<unknown>) {
+  const spy = vi.spyOn(SyncClient.prototype, "open");
+  try {
+    await run();
+    return spy.mock.calls.map(([b]) => b).filter((b) => toHex(b.resourceId) === toHex(C));
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+it("two opens of C at once share one binding, the one the gate reads (review r1, 1)", async () => {
+  const { a, C } = await setup();
+  const R = C as ResourceId;
+  const opens = await opensOf(R, () =>
+    Promise.all([a.runtime.openControl(R, WORLD_URL), a.runtime.openControl(R, WORLD_URL)]),
+  );
+  expect(opens).toHaveLength(1);
+  const port = a.runtime.controlPort(R);
+  expect(port).toBeDefined();
+  // A later open, and the upkeep's, keep that same view.
+  expect(await opensOf(R, () => a.runtime.openControl(R, WORLD_URL))).toHaveLength(0);
+  await a.service.upkeep(true);
+  expect(a.runtime.controlPort(R)).toBe(port);
 });
