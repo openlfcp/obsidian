@@ -135,8 +135,8 @@ export interface DeviceRuntime {
   sectionProfile?(resource: ResourceId): unknown;
   /** Opens a control Resource C to read it (LfcpRuntime.openControl): false without its chain here. */
   openControl?(resource: ResourceId, url: string): Promise<boolean>;
-  /** This device's view of an open C (LfcpRuntime.controlPort), undefined when not open here. */
-  controlPort?(resource: ResourceId): ServiceControlView | undefined;
+  /** This device's port of an open C (LfcpRuntime.controlPort), undefined when not open here. */
+  controlPort?(resource: ResourceId): ServiceControlPort | undefined;
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
@@ -1045,6 +1045,13 @@ export class DeviceService {
     }
   }
 
+  /** The port of control Resource C, opened here first with the roster's others (#openControls). */
+  async #controlPortOf(C: ResourceId): Promise<ServiceControlPort | undefined> {
+    const runtime = this.#runtime();
+    if (runtime.controlPort?.(C) === undefined) await this.#openControls(this.#flow());
+    return runtime.controlPort?.(C);
+  }
+
   /** reconcileDevices' and resendKeys' `controlResources` (§7.4): this device's view of each C. */
   #controlResources(): (resource: ResourceId) => ServiceControlView | undefined {
     const runtime = this.#runtime();
@@ -1780,20 +1787,36 @@ export class DeviceService {
     }
   }
 
-  /** §5.3 steps 4–10: approves a confirmed request with a preset (a service: within its scope). */
+  /**
+   * §5.3 steps 4–10: approves a confirmed request with a preset (a service: within its scope).
+   * With `control`, the base installation of a service managed through that control
+   * Resource C (SERVICE-CONTROL-PROFILE-01 §7.1): scope exactly [C], and the approval
+   * record `approvals[P]` written in C (phase A3, origin `meta.attemptId` of C) after the
+   * consume and the grant, before any registration. C is opened here first; while it is
+   * not synchronised or the record not acknowledged, the result is "finish"
+   * (approval-record-pending) and finishApproval carries the phases on.
+   */
   async approve(
     review: PairingReview,
     preset: MaskPreset,
     scope?: readonly ResourceId[],
+    control?: { readonly resource: ResourceId; readonly origin: string },
   ): Promise<ApprovalView> {
     const flow = this.#flow();
     try {
+      const port = control === undefined ? undefined : await this.#controlPortOf(control.resource);
       const r = await this.#flows.approvePairing({
         ...flow,
         review,
         preset,
         ...(scope === undefined ? {} : { scope }),
         addedAt: rfc3339(flow.now()),
+        ...(control === undefined
+          ? {}
+          : {
+              ...(port === undefined ? {} : { control: port }),
+              approvalRecord: { role: "base", origin: control.origin },
+            }),
       });
       return approvalView(r, review.label, await this.names());
     } catch (e) {
@@ -1809,7 +1832,17 @@ export class DeviceService {
    */
   async finishApproval(operation: string, label: string): Promise<ApprovalView> {
     try {
-      const r = await this.#flows.resumeApproval(this.#flow(), operation);
+      // An approval with a record in a control Resource C (A3) resumes with C's port (§7.1).
+      const op = await new OperationJournal(this.#context().storage).get(operation);
+      const record = op?.intent.approvalRecord as { readonly resource?: unknown } | undefined;
+      const port =
+        typeof record?.resource === "string"
+          ? await this.#controlPortOf(fromHex(record.resource) as ResourceId)
+          : undefined;
+      const r = await this.#flows.resumeApproval(
+        { ...this.#flow(), ...(port === undefined ? {} : { control: port }) },
+        operation,
+      );
       return approvalView(r, label, await this.names());
     } catch (e) {
       return this.#thrown(e);

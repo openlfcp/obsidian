@@ -9,6 +9,7 @@ import {
   createServiceControl,
   type IdentityFlowOptions,
   leafPayload,
+  requestPairing,
   SyncClient,
   signChain,
   syncChain,
@@ -33,9 +34,17 @@ const ctxOf = (i: Installation) => {
 
 type ControlResources = Parameters<IdentityFlows["reconcileDevices"]>[0]["controlResources"];
 
+/** The control Resources each resumeApproval was given (E-022c), in order. */
+const resumedWith: unknown[] = [];
+
 /** The SDK's flows, recording the controlResources each reconciler run is given. */
 function recording(seen: ControlResources[], archive = false): Partial<IdentityFlows> {
+  resumedWith.length = 0;
   return {
+    resumeApproval: (o, operation) => {
+      resumedWith.push(o.control);
+      return SDK_IDENTITY_FLOWS.resumeApproval(o, operation);
+    },
     reconcileDevices: (o) => {
       seen.push(o.controlResources);
       return SDK_IDENTITY_FLOWS.reconcileDevices(o);
@@ -192,7 +201,7 @@ it("two opens of C at once share one binding, the one the gate reads (review r1,
   expect(a.runtime.controlPort(R)).toBe(port);
 });
 
-it("C is opened read only: no commit and no Snapshot binding (review r1, 2)", async () => {
+it("C is opened to be written by its manager, never as a Snapshot (E-022c; b review r1, 2)", async () => {
   const { a, C } = await setup();
   const R = C as ResourceId;
   const [binding, ...more] = await opensOf(R, () => a.runtime.openControl(R, WORLD_URL));
@@ -200,5 +209,42 @@ it("C is opened read only: no commit and no Snapshot binding (review r1, 2)", as
   expect(binding?.applier).toBeDefined();
   // SyncClient publishes a Snapshot only through binding.snapshot: none, so never one of C.
   expect(binding?.snapshot).toBeUndefined();
-  expect(binding?.commit).toBeUndefined();
+  // A3 writes through the commit binding (the write itself: live-control-approval.test.ts,
+  // since no session reaches the coordinator in this world).
+  expect(binding?.commit).toBeDefined();
+});
+
+it("approving a base installation with C: A3 waits for C here, nothing is registered before it (E-022c)", async () => {
+  const { a, C } = await setup();
+  const R = C as ResourceId;
+  const session = await a.service.startSession("Desk");
+  if (session.kind !== "link" || session.result.kind !== "created")
+    throw new Error(JSON.stringify(session));
+  const bridge = await world.installation();
+  const requested = await requestPairing({
+    ...world.flowOf(bridge),
+    link: session.result.link,
+    label: "MacBook Air",
+    kind: 1,
+    scope: [R],
+  });
+  if (requested.kind !== "requested") throw new Error(JSON.stringify(requested));
+  const reviews = await a.service.requests(session.session);
+  const review = Array.isArray(reviews) ? reviews[0] : undefined;
+  if (review === undefined) throw new Error(JSON.stringify(reviews));
+  // A1 and A2 are done; C is not synchronised in this world, so A3 cannot be written: "finish".
+  const view = await a.service.approve(review, "service", [R], {
+    resource: R,
+    origin: "attempt-1",
+  });
+  if (view.kind !== "finish") throw new Error(JSON.stringify(view));
+  expect(view.message).toContain("its approval is not saved on the server yet");
+  // A3 before A4 (§7.1): the bridge is not registered in C while its record waits.
+  const P = toHex(ctxOf(bridge).principal.id);
+  expect(registered(R, P)).toBe(false);
+  // "Finish" resumes with C's port, and waits again without registering.
+  const again = await a.service.finishApproval(view.operation, review.label);
+  expect(again.kind).toBe("finish");
+  expect(resumedWith.at(-1)).toBe(a.runtime.controlPort(R));
+  expect(registered(R, P)).toBe(false);
 });

@@ -465,9 +465,10 @@ export class LfcpRuntime {
   readonly #opened = new Map<string, Opened>();
   readonly #sections = new Map<string, OpenedSection>();
   /**
-   * Control Resources C (SERVICE-CONTROL-PROFILE-01) open for the §7.4
-   * registration gate only, by Resource (hex): read, never written here,
-   * and kept out of the registry (no section, no status, no key change).
+   * Control Resources C (SERVICE-CONTROL-PROFILE-01) open here, by Resource
+   * (hex): read by the §7.4 registration gate, written by the approval
+   * record (A3), never by a Snapshot; kept out of the registry (no
+   * section, no status, no key change).
    */
   readonly #controls = new Map<
     string,
@@ -1661,10 +1662,12 @@ export class LfcpRuntime {
 
   /**
    * Opens a control Resource C of the person's roster on its coordinator
-   * `url`, to read it (SERVICE-CONTROL-PROFILE-01 §7.4: the registration
-   * gate of reconcileDevices and resendKeys). Its chain and keys must be
-   * stored already (the identity flows' syncChain and fetchDeks); false
-   * when its chain is not here. Opening again is a no-op.
+   * `url` (SERVICE-CONTROL-PROFILE-01): read by the registration gate of
+   * reconcileDevices and resendKeys (§7.4), written by this managing
+   * device as root or personal, e.g. the approval record of phase A3
+   * (§7.1) through controlPort's commit. Its chain and keys must be stored
+   * already (the identity flows' syncChain and fetchDeks); false when its
+   * chain is not here. Opening again is a no-op.
    */
   openControl(resource: ResourceId, url: string): Promise<boolean> {
     // One open per Resource, as #openSection (LFCP-03-033): two first opens at once (the
@@ -1678,16 +1681,16 @@ export class LfcpRuntime {
   async #openControlNow(resource: ResourceId, url: string): Promise<boolean> {
     const key = toHex(resource);
     if (this.#controls.has(key)) return true;
-    const { storage, secrets } = this.#ready();
+    const { storage, secrets, principal } = this.#ready();
     const chain = await loadControlChain(storage, resource);
     const genesis = chain?.kind === "linear" ? chain.records[0]?.body : undefined;
     if (genesis?.type !== "GENESIS") return false;
+    const owner = genesis.owner.principalId;
     const profile = new ServiceControlDataProfile({
       resource,
-      root: genesis.owner.principalId,
+      root: owner,
       // §2.2: the device of Genesis field 5 when one signed it, else the owner.
-      genesisSigner:
-        genesis.deviceChain?.leaf.payload.device.principalId ?? genesis.owner.principalId,
+      genesisSigner: genesis.deviceChain?.leaf.payload.device.principalId ?? owner,
       // §2.3 at the unit's control_ref; a unit without it is of class `other`.
       signerClassOf: (u) =>
         u.control === undefined
@@ -1710,9 +1713,16 @@ export class LfcpRuntime {
         },
       ],
     });
-    // Read only: no commit binding, and no Snapshot binding either, so this device never
-    // publishes a Snapshot of C (snapshotPolicy leaves C out too). Its units are replayed (§2.2).
-    const binding = { resourceId: resource, applier };
+    // §2.3: a managing device writes C as its root (the Genesis owner) or as a personal
+    // device of it; admission judges the class at each unit's control_ref anyway (§4), so a
+    // change this device may not make is refused before any unit exists.
+    const commit = profile.commitBinding(
+      principal.id,
+      bytesEqual(principal.id, owner) ? "root" : "personal",
+    ) as CommitBinding<unknown>;
+    // No Snapshot binding: this device never publishes a Snapshot of C (snapshotPolicy
+    // leaves C out too, E-022b review r1). Its units are replayed (§2.2).
+    const binding = { resourceId: resource, applier, commit };
     const client = this.#session(url).client;
     client.open(binding);
     const port = serviceControlPort({
@@ -2031,7 +2041,7 @@ export class LfcpRuntime {
         (units + (this.#ownUnits.get(toHex(R)) ?? 0) >= (this.#env.snapshotEvery ?? 200) ||
           this.#epochDue(R)) &&
         this.#publishers.has(toHex(R)) &&
-        // A control Resource C is only read here (E-022b): no Snapshot of it from this device.
+        // A control Resource C: written through its units only, never a Snapshot from this device.
         !this.#controls.has(toHex(R)) &&
         // V3: no Snapshot of a section from a device where sections are read-only.
         !(this.#env.sectionsReadOnly === true && this.#sections.has(toHex(R))),
