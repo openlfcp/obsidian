@@ -7,7 +7,8 @@
 # part is the manual checklist in docs/devel/testing/platform-smoke.md.
 #
 # Pins: spec.lock (tag), server.lock (commit), sdk-rs at the server's own
-# sdk-rs.lock; the SDK is the @openlfcp/* npm packages in pnpm-lock.yaml.
+# sdk-rs.lock; the TypeScript SDK at sdk-ts.lock (commit), packed by
+# scripts/sdk-ts-pack.mjs, its tarballs locked in pnpm-lock.yaml.
 
 name: Platform smoke
 
@@ -49,6 +50,7 @@ jobs:
           {
             echo "spec=$(jq -er .tag spec.lock)"
             echo "server=$(jq -er .commit server.lock)"
+            echo "sdk_ts=$(jq -er .commit sdk-ts.lock)"
           } >> "$GITHUB_OUTPUT"
 
       # Full history with tags: the tests check the tag still resolves to the commit in spec.lock.
@@ -63,6 +65,15 @@ jobs:
           repository: openlfcp/server
           ref: ${{ steps.pins.outputs.server }}
           path: server
+      # The TypeScript SDK at the commit in sdk-ts.lock (scripts/sdk-ts-pack.mjs).
+      - uses: actions/checkout@v7
+        with:
+          repository: openlfcp/sdk-ts
+          ref: ${{ steps.pins.outputs.sdk_ts }}
+          path: sdk-ts
+          # Only what the packages build from (with the root files): sdk-ts's
+          # conformance fixtures have paths too long for a Windows checkout.
+          sparse-checkout: packages
       - id: sdk-rs
         working-directory: server
         run: echo "commit=$(jq -er .commit sdk-rs.lock)" >> "$GITHUB_OUTPUT"
@@ -103,6 +114,7 @@ jobs:
       - name: Build, lint and typecheck the plugin
         working-directory: obsidian
         run: |
+          node scripts/sdk-ts-pack.mjs
           pnpm install --frozen-lockfile
           pnpm run build
           pnpm run lint

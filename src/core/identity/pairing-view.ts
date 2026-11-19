@@ -318,6 +318,14 @@ export function approvalView(r: ApprovalResult, label: string, names: Names): Ap
       };
     case "conflict":
       return { kind: "stop", message: FORKED };
+    // A service's approval record (SERVICE-CONTROL-PROFILE-01 §7.1, A3) is not
+    // acknowledged yet; nothing is registered before it. "Finish" resumes it.
+    case "approval-record-pending":
+      return {
+        kind: "finish",
+        operation: r.operation,
+        message: `"${label}" is approved, but adding it is not finished: its approval is not saved on the server yet. Finish it when you are online.`,
+      };
     case "unavailable":
       return r.operation === undefined
         ? { kind: "stop", message: OFFLINE }

@@ -527,12 +527,16 @@ and keeps `fake-indexeddb` test-only.
 
 ### Build from a clean checkout
 
-The plugin builds from the `@openlfcp/*` npm packages at the exact
-versions in `package.json` (locked in `pnpm-lock.yaml`); no sibling `sdk-ts`
-checkout is needed. A tag release refuses any other setup, such as a
-`link:` to a local sdk-ts (`scripts/check-release-deps.mjs`).
+A release builds from the `@openlfcp/*` npm packages at the exact
+versions in `package.json` (locked in `pnpm-lock.yaml`); a tag release
+refuses any other setup (`scripts/check-release-deps.mjs`). Between
+releases `main` may pin a commit of sdk-ts that is not on npm yet
+(`sdk-ts.lock`): then clone openlfcp/sdk-ts next to this repository
+(it must have that commit) and pack it first (CONTRIBUTING.md, "The SDK
+pin").
 
 ```sh
+node scripts/sdk-ts-pack.mjs   # only while sdk-ts.lock is present
 pnpm install --frozen-lockfile
 pnpm run build       # typecheck src and bundle main.js
 pnpm run lint        # Biome and the boundary check (with its self-test)

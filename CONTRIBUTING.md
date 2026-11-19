@@ -30,9 +30,12 @@ or by email to **security@openlfcp.org**. See the organization's
 
 ## Building and testing
 
-You need Node.js 24 or later and pnpm 10. From a clean clone:
+You need Node.js 24 or later and pnpm 10. From a clean clone, with a
+clone of openlfcp/sdk-ts next to it that has the commit in `sdk-ts.lock`
+(see "The SDK pin" below):
 
 ```sh
+node scripts/sdk-ts-pack.mjs   # packs the SDK into vendor/sdk-ts/
 pnpm install --frozen-lockfile
 pnpm build       # typecheck src and bundle main.js
 pnpm lint        # Biome and the boundary check
@@ -41,9 +44,7 @@ pnpm typecheck   # src and tests
 pnpm test
 ```
 
-The `@openlfcp/*` SDK packages come from npm at the exact versions in
-`package.json`, locked in `pnpm-lock.yaml`; move them only to published
-versions, in their own commit. The live tests, the two-vault E2E included, run against
+The live tests, the two-vault E2E included, run against
 the real OpenLFCP server, built with cargo from a `../server` checkout;
 without it they are skipped. No server outlives its test process: the
 harnesses in `test/support/` kill it when the process exits, and a
@@ -53,6 +54,42 @@ directory if the process is SIGKILLed or crashes (POSIX only;
 [docs/devel/testing/two-vault-e2e.md](docs/devel/testing/two-vault-e2e.md)
 and the README's "For developers" section. To try your build in Obsidian:
 [docs/devel/testing/load-in-clean-vault.md](docs/devel/testing/load-in-clean-vault.md).
+
+### The SDK pin
+
+Until `@openlfcp/*` 0.7.0 is on npm, the plugin builds against a commit of
+openlfcp/sdk-ts's `main`:
+
+- `sdk-ts.lock` names the commit, as `spec.lock` and `server.lock` do.
+- `node scripts/sdk-ts-pack.mjs [--checkout DIR]` exports that commit from
+  a clone of sdk-ts (default `../sdk-ts`; its working tree, branch and
+  line-ending settings do not matter) into a temporary directory, installs
+  and builds it there, and packs its eight packages into `vendor/sdk-ts/`
+  (gitignored). The packing is byte-identical on Linux, macOS and Windows,
+  `core.autocrlf` or not: the files are the committed bytes (`git
+  archive`, no line-ending conversion); each package's `workspace:` ranges
+  are rewritten before `pnpm pack` (which writes them in no stable order);
+  and each tarball is written again with its entries sorted, fixed mode,
+  owner and time, stored uncompressed in gzip (`pnpm pack`'s file order and
+  gzip bytes differ by system).
+- `package.json` takes each package as a `file:vendor/sdk-ts/…tgz` tarball,
+  and `pnpm.overrides` sends every `@openlfcp/*` dependency, those of the
+  packages themselves included, to the tarballs, never to npm.
+  `pnpm-lock.yaml` records each tarball's integrity: the lock file pins the
+  commit, the pnpm lockfile its bytes. `pnpm install --frozen-lockfile`
+  fails if a tarball differs.
+- CI (`ci.yml`, `native.yml`, `platform-smoke.yml`) checks out sdk-ts at
+  the commit in `sdk-ts.lock` and runs the script before `pnpm install`.
+- A release is never built from the pin: `release.yml` runs
+  `scripts/check-release-deps.mjs`, which refuses `sdk-ts.lock`, any
+  `@openlfcp/*` dependency or devDependency that is not an exact npm
+  version, and any `@openlfcp/*` entry in `pnpm.overrides`.
+
+To move the pin: fetch the new commit into the sdk-ts clone, update `sdk-ts.lock`, run the
+script and `pnpm install`, and commit `sdk-ts.lock`, `package.json` (if the
+version changed) and `pnpm-lock.yaml` together. Once the SDK is published,
+remove `sdk-ts.lock` and the overrides and take the exact npm versions again,
+in their own commit.
 
 ## Changes
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // A tag release is built from the @openlfcp/* npm packages only (the
 // community directory's review reproduces the build from npm). A commit that
-// links the SDK from a local sdk-ts (sdk-ts.lock, link: dependencies), as
-// main did while 0.4 was developed, must not ship that build, so
-// release.yml runs this first and stops on any problem.
+// pins the SDK to an sdk-ts commit (sdk-ts.lock with file: tarballs from
+// scripts/sdk-ts-pack.mjs, or link: dependencies as main had while 0.4 was
+// developed) must not ship that build, so release.yml runs this first and
+// stops on any problem.
 //
 //   node scripts/check-release-deps.mjs
 
@@ -15,9 +16,13 @@ import { pathToFileURL } from "node:url";
 export function releaseDepsProblems({ pkg, sdkLock }) {
   const problems = [];
   if (sdkLock) problems.push("sdk-ts.lock is present: the SDK is pinned to a commit, not npm");
-  for (const [name, version] of Object.entries(pkg.dependencies ?? {}))
-    if (name.startsWith("@openlfcp/") && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version))
-      problems.push(`${name} is "${version}", not an exact npm version`);
+  for (const field of ["dependencies", "devDependencies"])
+    for (const [name, version] of Object.entries(pkg[field] ?? {}))
+      if (name.startsWith("@openlfcp/") && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version))
+        problems.push(`${name} is "${version}", not an exact npm version`);
+  // An override would send the SDK elsewhere whatever the dependencies say.
+  for (const [name, target] of Object.entries(pkg.pnpm?.overrides ?? {}))
+    if (name.includes("@openlfcp/")) problems.push(`pnpm.overrides sends ${name} to "${target}"`);
   return problems;
 }
 

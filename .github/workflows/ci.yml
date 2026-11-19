@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A branch without a pull request (e.g. before one is opened).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,8 +32,20 @@ jobs:
           ref: refs/tags/${{ steps.spec-lock.outputs.tag }}
           path: spec
           fetch-depth: 0
-      # The TypeScript SDK comes from npm: the exact @openlfcp/* versions in
-      # package.json, locked in pnpm-lock.yaml.
+      # The TypeScript SDK: until @openlfcp/* 0.7.0 is on npm, the eight
+      # packages of openlfcp/sdk-ts at the commit in sdk-ts.lock, packed by
+      # scripts/sdk-ts-pack.mjs into vendor/sdk-ts/; pnpm-lock.yaml holds each
+      # tarball's integrity (CONTRIBUTING.md, "The SDK pin").
+      - id: sdk-ts-lock
+        run: echo "commit=$(jq -er .commit sdk-ts.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: openlfcp/sdk-ts
+          ref: ${{ steps.sdk-ts-lock.outputs.commit }}
+          path: sdk-ts
+          # Only what the packages build from (with the root files): sdk-ts's
+          # conformance fixtures have paths too long for a Windows checkout.
+          sparse-checkout: packages
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: obsidian/package.json
@@ -40,6 +54,7 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: obsidian/pnpm-lock.yaml
+      - run: node scripts/sdk-ts-pack.mjs
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm run lint
