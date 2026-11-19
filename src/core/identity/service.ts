@@ -49,6 +49,7 @@ import {
   type RotationOutcome,
   readersAt,
   rotatorTest,
+  type ServiceControlPort,
   signChain,
 } from "@openlfcp/client";
 import {
@@ -74,6 +75,7 @@ import {
   type Signer,
   validateControlChain,
 } from "@openlfcp/wire";
+import { SERVICE_CONTROL_PROFILE_ID } from "../collab/profiles";
 import {
   CollabError,
   type Collaboration,
@@ -94,6 +96,7 @@ import {
   type CancelView,
   cancelView,
   createView,
+  deferredText,
   type Names,
   OFFLINE,
   type OpenFailure,
@@ -120,10 +123,20 @@ import type { RosterAdd, RosterWriter } from "./roster";
 const PAIRING_KEY = "identity-pairing-request";
 
 /** What the device flows need of the plugin runtime (LfcpRuntime implements it). */
+/** What the §7.4 registration gate reads of a control Resource C (SERVICE-CONTROL-PROFILE-01). */
+export type ServiceControlView = Pick<
+  ServiceControlPort,
+  "state" | "requestHistory" | "acknowledged"
+>;
+
 export interface DeviceRuntime {
   registry(): Promise<RegistryEntry[]>;
   /** An open section's profile, undefined while it is not open here (LfcpRuntime.sectionProfile). */
   sectionProfile?(resource: ResourceId): unknown;
+  /** Opens a control Resource C to read it (LfcpRuntime.openControl): false without its chain here. */
+  openControl?(resource: ResourceId, url: string): Promise<boolean>;
+  /** This device's view of an open C (LfcpRuntime.controlPort), undefined when not open here. */
+  controlPort?(resource: ResourceId): ServiceControlView | undefined;
   readonly localState: {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
@@ -441,7 +454,11 @@ export class DeviceService {
     const roster = await this.#rosterNames();
     const labels = await this.#labels();
     return {
-      resource: (hex) => sections.get(hex) ?? roster.get(hex) ?? `section ${shortId(hex)}`,
+      resource: (hex) =>
+        sections.get(hex) ??
+        roster.get(hex) ??
+        this.#controlNames.get(hex) ??
+        `section ${shortId(hex)}`,
       device: (hex) => labels[hex] ?? fingerprintOf(hex),
     };
   }
@@ -783,7 +800,12 @@ export class DeviceService {
         requested;
       if (due) {
         try {
-          const r = await this.#flows.reconcileDevices({ ...flow, rotate: true });
+          await this.#openControls(flow);
+          const r = await this.#flows.reconcileDevices({
+            ...flow,
+            rotate: true,
+            controlResources: this.#controlResources(),
+          });
           reconciled = true;
           for (const t of r.targets) {
             if (t.status !== "unreachable") covered.add(toHex(t.resource));
@@ -974,6 +996,59 @@ export class DeviceService {
       if (e instanceof IdentityConflict) return { kind: "refused", code: "CONTROL_CONFLICT" };
       throw e;
     }
+  }
+
+  /** Roster names of the control Resources C (hex), as #openControls last read them. */
+  readonly #controlNames = new Map<string, string>();
+
+  /**
+   * SERVICE-CONTROL-PROFILE-01 §7.4 (svc-1 R5): every control Resource C of
+   * the person's roster, archived ones included, opened here to be read by
+   * the registration gate of reconcileDevices and resendKeys, and for
+   * nothing else. Its chain and keys are fetched first; one this device
+   * cannot read yet (not registered or keyed in it, not reachable) stays
+   * closed, and the gate then defers every kind-1 registration with that
+   * reason (TargetReconciliation.deferred). Whether a C gone for good may
+   * be left out is the owner's question (Q-1), not decided here.
+   */
+  async #openControls(flow: IdentityFlowOptions): Promise<void> {
+    const runtime = this.#runtime();
+    const I = await this.identity();
+    if (runtime.openControl === undefined || I === undefined) return;
+    const roster = await this.#identityRoster(flow, I, { archived: true });
+    if (roster === null) return;
+    const c = this.#context();
+    for (const [hex, entry] of roster) {
+      if (entry.profile !== SERVICE_CONTROL_PROFILE_ID) continue;
+      if (entry.name !== undefined) this.#controlNames.set(hex, entry.name);
+      const C = fromHex(hex) as ResourceId;
+      if (runtime.controlPort?.(C) !== undefined) continue;
+      let channel: IdentityChannel | undefined;
+      try {
+        channel = await flow.network.connect(flow.installation.signer, entry.coordinator);
+        const chain = await this.#flows.syncChain(c.storage, channel, C);
+        await this.#flows.fetchDeks(c.storage, c.secrets, channel, chain, flow.installation);
+        await runtime.openControl(C, entry.coordinator);
+      } catch (e) {
+        // Not readable here yet: the gate defers, a later upkeep tries again.
+        if (
+          !(
+            e instanceof IdentityUnavailable ||
+            e instanceof IdentityRefused ||
+            e instanceof IdentityConflict
+          )
+        )
+          throw e;
+      } finally {
+        channel?.close();
+      }
+    }
+  }
+
+  /** reconcileDevices' and resendKeys' `controlResources` (§7.4): this device's view of each C. */
+  #controlResources(): (resource: ResourceId) => ServiceControlView | undefined {
+    const runtime = this.#runtime();
+    return (resource) => runtime.controlPort?.(resource);
   }
 
   /**
@@ -1309,9 +1384,12 @@ export class DeviceService {
   async resendKeys(device: string, label: string): Promise<string> {
     const names = await this.names();
     try {
+      const flow = this.#flow();
+      await this.#openControls(flow);
       const r = await this.#flows.resendKeys({
-        ...this.#flow(),
+        ...flow,
         device: fromHex(device) as PrincipalId,
+        controlResources: this.#controlResources(),
       });
       const failed = r.targets
         .filter(
@@ -1322,9 +1400,32 @@ export class DeviceService {
       const sent = r.targets.filter((t) =>
         (t.keys?.sent ?? []).some((p) => p.recipient === device),
       ).length;
+      // §7.4: where its registration waits for a control Resource C, say why (svc-1 R5).
+      const deferred = r.targets.flatMap((t) =>
+        (t.deferred ?? [])
+          .filter((d) => toHex(d.device) === device)
+          .map((d) => ({ resource: toHex(t.resource), reason: d.reason })),
+      );
+      const waits = [...new Set(deferred.map((d) => d.reason))].map((reason) =>
+        deferredText(
+          reason,
+          label,
+          deferred
+            .filter((d) => d.reason === reason)
+            .map((d) => `"${names.resource(d.resource)}"`)
+            .join(", "),
+          names,
+        ),
+      );
       if (failed.length > 0)
-        return `Some keys could not be sent: Not reached, tried again later: ${failed.join(", ")}.`;
-      return `Sent the keys of ${sent === 1 ? "1 section" : `${sent} sections`} to ${label}.`;
+        return [
+          `Some keys could not be sent: Not reached, tried again later: ${failed.join(", ")}.`,
+          ...waits,
+        ].join(" ");
+      return [
+        `Sent the keys of ${sent === 1 ? "1 section" : `${sent} sections`} to ${label}.`,
+        ...waits,
+      ].join(" ");
     } catch (e) {
       if (e instanceof IdentityUnavailable || e instanceof IdentityRefused)
         return "Your device list could not be reached. Try again later.";
@@ -1977,6 +2078,7 @@ export class DeviceService {
   async #identityRoster(
     flow: IdentityFlowOptions,
     I: ResourceId,
+    { archived = false }: { readonly archived?: boolean } = {},
   ): Promise<ReadonlyMap<string, RosterEntryValue> | null> {
     const c = this.#context();
     const stored = await loadControlChain(c.storage, I);
@@ -1997,7 +2099,7 @@ export class DeviceService {
       });
       const out = new Map<string, RosterEntryValue>();
       for (const [ref, entry] of doc.roster())
-        if (entry.archived !== true) out.set(toHex(fromBase64url(ref)), entry);
+        if (archived || entry.archived !== true) out.set(toHex(fromBase64url(ref)), entry);
       return out;
     } catch (e) {
       if (
