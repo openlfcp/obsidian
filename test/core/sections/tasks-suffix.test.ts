@@ -56,10 +56,31 @@ describe("isTasksSuffix (§4.1 table)", () => {
       expect(isTasksSuffix(s), s).toBe(false);
   });
 
+  it("accepts the same fields as Dataview fields (PB-11)", () => {
+    for (const s of [
+      "  [completion:: 2026-10-08]",
+      "  [repeat:: every week]  [due:: 2026-10-08]",
+      " (priority:: high) [start:: 2026-10-01] [created:: 2026-09-30]",
+      " [id:: a1] [dependsOn:: b2,c-3] [onCompletion:: delete] ^block-1",
+      " [cancelled::2026-10-08 ] ✅ 2026-10-08",
+    ])
+      expect(isTasksSuffix(s), s).toBe(true);
+    for (const s of [
+      " [due:: next week]",
+      " [due:: 2026-10-08)",
+      " [owner:: sam]",
+      "[due:: 2026-10-08]",
+    ])
+      expect(isTasksSuffix(s), s).toBe(false);
+  });
+
   it("tells a field given both before and after the ref", () => {
     expect(suffixAmbiguous("Water 📅 2026-10-01", " 📅 2026-10-08")).toBe(true);
     expect(suffixAmbiguous("Water ⏫", " 🔽")).toBe(true);
     expect(suffixAmbiguous("Water 📅 2026-10-01", " ✅ 2026-10-08")).toBe(false);
+    expect(suffixAmbiguous("Water [due:: 2026-10-01]", " 📅 2026-10-08")).toBe(true);
+    expect(suffixAmbiguous("Water ⏫", " [priority:: low]")).toBe(true);
+    expect(suffixAmbiguous("Water [due:: 2026-10-01]", " [completion:: 2026-10-08]")).toBe(false);
   });
 });
 
@@ -98,6 +119,18 @@ describe("inside a section only", () => {
     expect(plan.intents).toEqual([
       { intent: "task.complete", id: TASK, completionDate: "2026-10-08" },
     ]);
+  });
+
+  it("PB-11: Tasks' [completion:: …] after an inline ref is a completion date", () => {
+    const line = `- [x] Prepare contract [due:: 2026-10-07] ${REF}  [completion:: 2026-10-08]`;
+    const md = note(line);
+    expect(parseSections(md).sections[0]?.blocked).toBe(false);
+    expect(scanSectionRefs(md).projections[0]?.objectId).toBe(TASK);
+    expect(representLine(line)?.text).toMatchObject({
+      title: "Prepare contract",
+      due: "2026-10-07",
+      completion: "2026-10-08",
+    });
   });
 
   it("MS44: other text after the ref blocks the Task, and pauses the section", () => {
