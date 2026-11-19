@@ -58,8 +58,25 @@ export interface Attempt {
   readonly initialized?: boolean;
   /** The approval's operation, once A1 has run (resumed after a restart). */
   readonly approval?: string;
-  /** A cancel to finish (J not revoked yet, or C not archived): the final state it leads to. */
+  /**
+   * A cancel to finish (J not revoked yet, or C not archived): the final
+   * state it leads to. While set, nothing is approved and no request is
+   * offered (review r1, 4): only the cancel goes on, or a consume found.
+   */
   readonly aborting?: AttemptState;
+  /** [No]'s request key, deleted with the cancel, again on a retry. */
+  readonly reject?: string;
+  /**
+   * The request the person compared and said [Yes] to (review r1, 1): after
+   * a restart only this one is approved, never another under J.
+   */
+  readonly confirmed?: { readonly requestKey: string; readonly fingerprint: string };
+  /**
+   * The pairing sessions already open before this attempt made J (review r1,
+   * 3): a session open now and not among them is J, found again after a
+   * crash between its creation and the journal.
+   */
+  readonly sessionsBefore?: readonly string[];
   readonly message?: string;
 }
 
@@ -131,9 +148,11 @@ export interface ConnectView {
 
 /** The texts of U П1 for a state; `offline` while the server cannot be reached after [Yes]. */
 export function connectView(
-  a: Pick<Attempt, "state" | "message"> | undefined,
+  a: Pick<Attempt, "state" | "message" | "aborting"> | undefined,
   o: { readonly code?: string; readonly offline?: boolean } = {},
 ): ConnectView {
+  // A cancel under way offers nothing more, [Yes] least of all (review r1, 4).
+  if (a?.aborting !== undefined) return { lines: ["Cancelling the connection…"], actions: [] };
   switch (a?.state) {
     case undefined:
       return {

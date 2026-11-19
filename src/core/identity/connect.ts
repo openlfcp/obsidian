@@ -131,28 +131,60 @@ export class BridgeConnect {
         createdAt: this.#now(),
         state: "waiting-app",
       };
-      await this.#save(a);
-      const session = await this.#d.flows.createPairingSession(flow);
-      if (session.kind !== "created") {
-        const state: AttemptState = session.kind === "limit" ? "capacity" : "failed";
-        return this.#finish(a, state, describe(session));
-      }
-      this.#link = session.link;
-      return this.#save(
-        await this.#initialize({
-          ...a,
-          session: session.session,
-          j: toHex(session.pairingDevice),
-        }),
-      );
+      // Journaled before J exists: a crash after the SDK made it finds it again (#recoverSession).
+      const sessionsBefore = (await this.#d.flows.openPairingSessions(flow)).map((s) => s.session);
+      const made = await this.#ensureSession(await this.#save({ ...a, sessionsBefore }));
+      return BEFORE_CONSUME.has(made.state) ? this.#save(await this.#initialize(made)) : made;
     });
+  }
+
+  /**
+   * J of this attempt: a session made after `sessionsBefore` and still open
+   * (review r1, 3), found again in the SDK's journal after a crash, or made
+   * now. Unchanged while the server cannot be reached; final when J cannot
+   * be made (limit → capacity).
+   */
+  async #ensureSession(a: Attempt): Promise<Attempt> {
+    const found = await this.#recoverSession(a);
+    if (found.session !== undefined) return found;
+    const session = await this.#d.flows.createPairingSession(this.#d.flow());
+    if (session.kind === "created") {
+      this.#link = session.link;
+      return this.#save({ ...found, session: session.session, j: toHex(session.pairingDevice) });
+    }
+    // Begun but not finished: the session is in the journal, the next tick resumes it.
+    if (session.kind === "unavailable") return this.#recoverSession(found);
+    return this.#abort(
+      found,
+      session.kind === "limit" ? "capacity" : "failed",
+      undefined,
+      describe(session),
+    );
+  }
+
+  /** The attempt with its J from the SDK's journal, if a session was made for it. */
+  async #recoverSession(a: Attempt): Promise<Attempt> {
+    if (a.session !== undefined || a.sessionsBefore === undefined) return a;
+    const before = new Set(a.sessionsBefore);
+    const mine = (await this.#d.flows.openPairingSessions(this.#d.flow())).find(
+      (s) => !before.has(s.session),
+    );
+    if (mine === undefined) return a;
+    return this.#save({ ...a, session: mine.session, j: toHex(mine.pairingDevice) });
   }
 
   /** The link for LFCP Bridge (open on this Mac, or Copy link), while the attempt waits. */
   link(): Promise<string | null> {
     return this.#serial(async () => {
-      const a = await this.attempt();
-      if (a === undefined || !BEFORE_CONSUME.has(a.state) || a.session === undefined) return null;
+      const stored = await this.attempt();
+      if (
+        stored === undefined ||
+        !BEFORE_CONSUME.has(stored.state) ||
+        stored.aborting !== undefined
+      )
+        return null;
+      const a = await this.#recoverSession(stored);
+      if (a.session === undefined) return null;
       if (this.#link === null) {
         const r = await this.#d.flows.resumePairingSession(this.#d.flow(), a.session);
         if (r.kind !== "created") return null;
@@ -173,6 +205,7 @@ export class BridgeConnect {
       const a = await this.attempt();
       if (a === undefined || c.attempt !== a.id || c.vault !== a.vault || !ACTIVE.has(a.state))
         return { reopen: false };
+      if (a.aborting !== undefined) return { reopen: false };
       if (c.event === "app-ready") return { reopen: a.state === "waiting-app" };
       if (c.event === "request-ready") await this.#look(a);
       else if (BEFORE_CONSUME.has(a.state)) await this.#abort(a, c.event);
@@ -184,9 +217,19 @@ export class BridgeConnect {
   confirm(matches: boolean): Promise<Attempt | undefined> {
     return this.#serial(async () => {
       const a = await this.attempt();
-      if (a?.state !== "confirm-code" || this.#review === null) return a;
-      if (!matches) return this.#abort(a, "rejected", this.#review.requestKey);
-      return this.#advance(await this.#save({ ...a, state: "committing" }));
+      // A cancel under way: no new approval (review r1, 4).
+      if (a?.state !== "confirm-code" || a.aborting !== undefined || this.#review === null)
+        return a;
+      const review = this.#review;
+      if (!matches) return this.#abort(a, "rejected", review.requestKey);
+      // The request the person said [Yes] to, journaled with the state (review r1, 1).
+      return this.#advance(
+        await this.#save({
+          ...a,
+          state: "committing",
+          confirmed: { requestKey: review.requestKey, fingerprint: review.fingerprint },
+        }),
+      );
     });
   }
 
@@ -209,12 +252,12 @@ export class BridgeConnect {
     return this.#serial(async () => {
       const a = await this.attempt();
       if (a === undefined) return undefined;
-      if (a.aborting !== undefined) return this.#abort(a, a.aborting);
+      if (a.aborting !== undefined) return this.#abort(a, a.aborting, a.reject, a.message);
       if (!ACTIVE.has(a.state)) return a;
       if (BEFORE_CONSUME.has(a.state) && this.#now() - a.createdAt > ATTEMPT_DEADLINE_MS)
         return this.#abort(a, "expired");
       if (BEFORE_CONSUME.has(a.state))
-        return this.#look(await this.#save(await this.#initialize(a)));
+        return this.#look(await this.#save(await this.#initialize(await this.#ensureSession(a))));
       return this.#advance(a);
     });
   }
@@ -244,17 +287,9 @@ export class BridgeConnect {
 
   /** A§4.1 step 5: the request signed by this attempt's J, of a service, with scope exactly [C]. */
   async #look(a: Attempt): Promise<Attempt> {
-    if (!BEFORE_CONSUME.has(a.state) || a.session === undefined) return a;
-    const all = await this.#d.flows
-      .pairingRequests({ ...this.#d.flow(), session: a.session })
-      .catch(() => null);
-    if (all === null) return a;
-    const ours = all.filter(
-      (r) =>
-        r.kind === 1 &&
-        r.requestedScope.length === 1 &&
-        toHex(r.requestedScope[0] as ResourceId) === a.c,
-    );
+    if (!BEFORE_CONSUME.has(a.state) || a.aborting !== undefined) return a;
+    const ours = await this.#requests(a);
+    if (ours === null) return a;
     // Two requests under one J: the link went to someone else too; nothing is offered.
     if (ours.length > 1) return this.#abort(a, "cancelled");
     const review = ours[0];
@@ -275,14 +310,21 @@ export class BridgeConnect {
       return state?.service === undefined ? a : this.#save({ ...a, state: "ready" });
     }
     if (a.state !== "committing") return a;
-    const ready = await this.#save(await this.#initialize(a));
+    let ready = await this.#save(await this.#initialize(a));
     if (ready.initialized !== true) return ready;
+    // An approval the SDK journaled for J (A1 may have run before a crash, review r1, 2).
+    const approval = ready.approval ?? (await this.#journaledApproval(ready));
     let view: ApprovalView;
-    if (ready.approval !== undefined)
-      view = await this.#d.finishApproval(ready.approval, "LFCP Bridge");
-    else {
-      const review = this.#review ?? (await this.#reviewAgain(ready));
-      if (review === undefined) return ready;
+    if (approval !== undefined) {
+      if (ready.approval === undefined) ready = await this.#save({ ...ready, approval });
+      view = await this.#d.finishApproval(approval, "LFCP Bridge");
+    } else {
+      const review = await this.#confirmedReview(ready);
+      // The request said [Yes] to is gone before any consume: compare a code again.
+      if (review === undefined) {
+        const { confirmed: _, ...rest } = ready;
+        return this.#look(await this.#save({ ...rest, state: "waiting-app" }));
+      }
       view = await this.#d.approve(review, fromHex(ready.c) as ResourceId, ready.id);
     }
     switch (view.kind) {
@@ -290,23 +332,63 @@ export class BridgeConnect {
         return this.#save({ ...ready, state: "registering" });
       case "finish":
         return this.#save({ ...ready, approval: view.operation });
-      case "reconfirm":
+      case "reconfirm": {
         this.#review = view.review ?? null;
-        return this.#save({ ...ready, state: "confirm-code" });
+        const { confirmed: _, ...rest } = ready;
+        return this.#save({
+          ...rest,
+          state: this.#review === null ? "waiting-app" : "confirm-code",
+        });
+      }
       case "stop":
         return this.#save({ ...ready, state: "failed", message: view.message });
     }
   }
 
-  /** The request under review after a restart (it is not journaled). */
-  async #reviewAgain(a: Attempt): Promise<PairingReview | undefined> {
-    if (a.session === undefined) return undefined;
+  /** The requests under J of a service with scope exactly [C]; null when not readable now. */
+  async #requests(a: Attempt): Promise<readonly PairingReview[] | null> {
+    if (a.session === undefined) return null;
     const all = await this.#d.flows
       .pairingRequests({ ...this.#d.flow(), session: a.session })
       .catch(() => null);
-    const r = all?.find((x) => x.kind === 1 && toHex(x.requestedScope[0] as ResourceId) === a.c);
+    if (all === null) return null;
+    return all.filter(
+      (r) =>
+        r.kind === 1 &&
+        r.requestedScope.length === 1 &&
+        toHex(r.requestedScope[0] as ResourceId) === a.c,
+    );
+  }
+
+  /**
+   * The request the person said [Yes] to, by its key and code (review r1,
+   * 1): the one in memory, or read again after a restart; never another
+   * request under J. Undefined when it is no longer there.
+   */
+  async #confirmedReview(a: Attempt): Promise<PairingReview | undefined> {
+    const c = a.confirmed;
+    if (c === undefined) return undefined;
+    const same = (r: PairingReview) =>
+      r.requestKey === c.requestKey && r.fingerprint === c.fingerprint;
+    if (this.#review !== null && same(this.#review)) return this.#review;
+    const r = (await this.#requests(a))?.find(same);
     if (r !== undefined) this.#review = r;
     return r;
+  }
+
+  /** The SDK's approval of this attempt's J, journaled at its start (before A1). */
+  async #journaledApproval(a: Attempt): Promise<string | undefined> {
+    if (a.session === undefined) return undefined;
+    const ops = await new OperationJournal(this.#d.flow().storage).list({
+      kind: "pairing-approval",
+    });
+    return ops.find(
+      (op) =>
+        op.intent.session === a.session &&
+        op.status !== "superseded" &&
+        op.status !== "abandoned" &&
+        op.intent.requestKey === a.confirmed?.requestKey,
+    )?.id;
   }
 
   /**
@@ -315,8 +397,16 @@ export class BridgeConnect {
    * on a later tick. A cancel that finds J consumed is the approval's:
    * the attempt goes on as `committing` (A§4.4).
    */
-  async #abort(a: Attempt, to: AttemptState, reject?: string): Promise<Attempt> {
-    let next = await this.#save({ ...a, aborting: to });
+  async #abort(a: Attempt, to: AttemptState, reject?: string, message?: string): Promise<Attempt> {
+    // J made but not journaled yet (a crash, review r1, 3) is revoked too.
+    let next = await this.#recoverSession(
+      await this.#save({
+        ...a,
+        aborting: to,
+        ...(reject === undefined ? {} : { reject }),
+        ...(message === undefined ? {} : { message }),
+      }),
+    );
     if (next.session !== undefined) {
       const r = await this.#d.flows
         .cancelPairing({
@@ -326,27 +416,23 @@ export class BridgeConnect {
         })
         .catch(() => ({ kind: "unavailable" }) as const);
       if (r.kind === "consumed") {
-        const { aborting: _, ...rest } = next;
-        return this.#save({
-          ...rest,
-          state: "committing",
-          ...(r.operation === undefined ? {} : { approval: r.operation }),
-        });
+        const { aborting: _, reject: _r, ...rest } = next;
+        // This device's approval goes on through its phases; another managing device's
+        // carries A3 and A4 itself: here the attempt waits for the bridge in C.
+        return this.#save(
+          r.operation === undefined
+            ? { ...rest, state: "registering" }
+            : { ...rest, state: "committing", approval: r.operation },
+        );
       }
       if (r.kind !== "cancelled" && r.kind !== "document-incomplete") return next;
     }
     if (!(await this.#archive(next))) return next;
     this.#link = null;
     this.#review = null;
-    const { aborting: _, ...rest } = next;
+    const { aborting: _, reject: _r, ...rest } = next;
     next = await this.#save({ ...rest, state: to });
     return next;
-  }
-
-  /** A final state without a cancel (nothing under J yet), C archived. */
-  async #finish(a: Attempt, to: AttemptState, message: string): Promise<Attempt> {
-    await this.#archive(a);
-    return this.#save({ ...a, state: to, message });
   }
 
   /**
