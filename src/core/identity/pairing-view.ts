@@ -752,9 +752,13 @@ export interface UpkeepIssue {
     | "keys"
     | "document"
     /** Not listed in the roster yet: the person's other devices do not get it yet. */
-    | "roster";
-  /** The refusal's code or reason, when there is one. */
+    | "roster"
+    /** A device's registration the §7.4 gate deferred (SERVICE-CONTROL-PROFILE-01). */
+    | "deferred";
+  /** The refusal's code or reason, when there is one; for "deferred", the SDK's reason. */
   readonly detail?: string;
+  /** For "deferred": the device (hex) not registered yet. */
+  readonly device?: string;
 }
 
 /**
@@ -769,6 +773,7 @@ export function upkeepIssues(
     readonly status: string;
     readonly steps: readonly { readonly state: string }[];
     readonly keys?: { readonly skipped: readonly { readonly reason: string }[] };
+    readonly deferred?: readonly { readonly device: Uint8Array; readonly reason: string }[];
   }[],
   document: DocumentWrite,
   identity: string,
@@ -792,6 +797,8 @@ export function upkeepIssues(
         kind: "keys",
         detail: [...new Set(skipped.map((x) => x.reason))].join(", "),
       });
+    for (const d of t.deferred ?? [])
+      out.push({ resource, kind: "deferred", device: toHex(d.device), detail: d.reason });
   }
   if (document.state === "refused" || document.state === "unreachable")
     out.push({
@@ -800,6 +807,49 @@ export function upkeepIssues(
       detail: document.code ?? document.state,
     });
   return out;
+}
+
+/**
+ * Why a device is not added to `sections` yet, from the reason of
+ * TargetReconciliation.deferred (SERVICE-CONTROL-PROFILE-01 §7.4): the
+ * control Resource C the reason names, by its roster name, in plain words.
+ */
+export function deferredText(
+  reason: string,
+  device: string,
+  sections: string,
+  names?: Pick<Names, "resource">,
+): string {
+  const hex = /control Resource ([0-9a-f]{64})/.exec(reason)?.[1];
+  const control = hex === undefined || names === undefined ? undefined : names.resource(hex);
+  const what = control === undefined ? "your Reminders bridge" : `"${control}"`;
+  const head = `"${device}" is not added to ${sections} yet:`;
+  if (reason.includes("is not synchronised"))
+    return `${head} it waits until ${what} is up to date on this device.`;
+  if (reason.includes("holds no approval") || reason.includes("not accepted by the server"))
+    return `${head} it waits until its connection is confirmed in ${what}.`;
+  return `${head} ${reason}.`;
+}
+
+/** The "deferred" issues, one line per device and reason, naming every section it waits in. */
+function deferredLines(issues: readonly UpkeepIssue[], names?: Names): string[] {
+  const groups = new Map<string, { device: string; reason: string; sections: Set<string> }>();
+  for (const i of issues) {
+    if (i.kind !== "deferred" || i.device === undefined) continue;
+    const reason = i.detail ?? "";
+    const key = `${i.device}\n${reason}`;
+    const g = groups.get(key) ?? { device: i.device, reason, sections: new Set<string>() };
+    g.sections.add(names?.resource(i.resource) ?? `section ${i.resource.slice(0, 8)}`);
+    groups.set(key, g);
+  }
+  return [...groups.values()].map((g) =>
+    deferredText(
+      g.reason,
+      names?.device(g.device) ?? g.device.slice(0, 8),
+      list([...g.sections]),
+      names,
+    ),
+  );
 }
 
 /** What a device upkeep did, in words (§7.1, §8.4): "up to date" only when nothing is left. */
@@ -842,6 +892,7 @@ export function upkeepText(
       : []),
     ...(has("keys") ? [`A key could not be handed on in ${by("keys")}.`] : []),
     ...(has("roster") ? [`Not on your other devices yet: ${by("roster")}.`] : []),
+    ...deferredLines(issues, names),
     ...(document === undefined
       ? []
       : [`Your device list's names could not be saved (${document.detail ?? "refused"}).`]),
