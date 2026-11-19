@@ -6,7 +6,9 @@
 // (owned statuses), the title, the tag run, the owned priority emoji, 📅,
 // ⏳ and ✅ (ST-5: exactly one on a done Task, none otherwise). A piece
 // whose value already matches keeps its exact bytes; a new one goes where
-// Obsidian Tasks puts it. The ref comment, child lines, the ^block-id,
+// Obsidian Tasks puts it, in the line's format: a Dataview field
+// (`[due:: …]`, PB-11) when the line already writes its fields so, an emoji
+// otherwise. The ref comment, child lines, the ^block-id,
 // unowned tokens (🛫 ➕ ❌ 🔼 🔁), indentation, surrounding text and line
 // endings are untouched. Conflicted fields render their visible value and
 // are reported for an indicator outside the text; no conflict marker is ever
@@ -137,12 +139,22 @@ function setPieces(
   insertAt(segments, [wanted], rank, first);
 }
 
-const date = (field: DateField, value: string): Segment => ({
-  kind: "date",
-  field,
-  value,
-  raw: ` ${DATE_FIELD_EMOJI[field as "due" | "scheduled" | "completion"]} ${value}`,
-});
+/** A new date piece, written as Obsidian Tasks writes it in that format (Dataview: two spaces before). */
+const date = (field: DateField, value: string, dataview: boolean): Segment =>
+  dataview
+    ? { kind: "date", field, value, raw: `  [${field}:: ${value}]`, dataview: true }
+    : {
+        kind: "date",
+        field,
+        value,
+        raw: ` ${DATE_FIELD_EMOJI[field as "due" | "scheduled" | "completion"]} ${value}`,
+      };
+
+/** Whether the line writes its Tasks fields as Dataview fields (PB-11). */
+const writesDataview = (segments: readonly Segment[]): boolean =>
+  segments.some((s) => s.kind !== "tag" && s.kind !== "block" && s.dataview === true);
+
+const DATAVIEW_PRIORITY = /(::\s*)(?:highest|high|medium|lowest|low)/u;
 
 /** `text` with the last occurrence of `from` replaced by `to`. */
 const replaceLast = (text: string, from: string, to: string): string => {
@@ -157,6 +169,7 @@ export function renderTaskText(text: string, task: Task, issues: RenderIssue[]):
   const parsed = parseTaskText(text);
   const { description, segments: original, trailing } = segmentTaskText(text);
   const segments = [...original];
+  const dataview = writesDataview(original);
 
   // Title and tags (with the LFCP-061 legacy layout, ruling a).
   const run = parsed.tags.map((t) => `#${t}`).join(" ");
@@ -211,17 +224,19 @@ export function renderTaskText(text: string, task: Task, issues: RenderIssue[]):
         1,
       );
     } else {
+      const value = task.priority;
       setPieces(
         segments,
         (s) => s.kind === "priority",
-        { kind: "priority", value: task.priority, raw: ` ${emoji}` },
-        (s) => s.kind === "priority" && s.value === task.priority,
+        dataview
+          ? { kind: "priority", value, raw: `  [priority:: ${value}]`, dataview: true }
+          : { kind: "priority", value, raw: ` ${emoji}` },
+        (s) => s.kind === "priority" && s.value === value,
         RANK.priority as number,
-        (s) => ({
-          kind: "priority",
-          value: task.priority,
-          raw: s.raw.replace(/🔺|⏫|🔼|🔽|⏬/u, emoji),
-        }),
+        (s) =>
+          s.kind === "priority" && s.dataview === true
+            ? { ...s, value, raw: s.raw.replace(DATAVIEW_PRIORITY, `$1${value}`) }
+            : { kind: "priority", value, raw: s.raw.replace(/🔺|⏫|🔼|🔽|⏬/u, emoji) },
       );
     }
   }
@@ -237,13 +252,13 @@ export function renderTaskText(text: string, task: Task, issues: RenderIssue[]):
     setPieces(
       segments,
       (s) => s.kind === "date" && s.field === field,
-      value === null ? null : date(field, value),
+      value === null ? null : date(field, value, dataview),
       (s) => s.kind === "date" && s.value === value,
       RANK[field] as number,
       (s) =>
         s.kind === "date" && value !== null
           ? { ...s, value, raw: replaceLast(s.raw, s.value, value) }
-          : date(field, value as string),
+          : date(field, value as string, dataview),
     );
 
   return nextDescription + segments.map((s) => s.raw).join("") + trailing;

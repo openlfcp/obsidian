@@ -192,6 +192,11 @@ describe("linear Task suffix parser (security review H3, M9)", () => {
     ["unbalanced wikilinks", "[[".repeat(N / 2)],
     ["wikilink opens and single closes", "[[a]".repeat(N / 4)],
     ["mixed whitespace kinds", "x" + " \t\u00a0\u3000".repeat(N / 4) + "#t"],
+    ["many Dataview dates", "x" + "  [due:: 2026-10-10]".repeat(N / 20)],
+    ["a long Dataview-like field", `x [due::${" ".repeat(N)}2026-10-10]`],
+    ["a long bracket without a key", `x [${"a".repeat(N)}]`],
+    ["many closing brackets", "]".repeat(N)],
+    ["many opening brackets then a field", `${"[".repeat(N)}due:: 2026-10-10]`],
   ];
   for (const [name, input] of cases)
     it(`parses "${name}" (${input.length} chars) within ${budgetMs} ms`, () => {
