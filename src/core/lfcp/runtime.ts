@@ -1710,12 +1710,9 @@ export class LfcpRuntime {
         },
       ],
     });
-    // No commit binding: this part only reads C. Its units are replayed, never a Snapshot (§2.2).
-    const binding = {
-      resourceId: resource,
-      applier,
-      snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
-    };
+    // Read only: no commit binding, and no Snapshot binding either, so this device never
+    // publishes a Snapshot of C (snapshotPolicy leaves C out too). Its units are replayed (§2.2).
+    const binding = { resourceId: resource, applier };
     const client = this.#session(url).client;
     client.open(binding);
     const port = serviceControlPort({
@@ -2034,6 +2031,8 @@ export class LfcpRuntime {
         (units + (this.#ownUnits.get(toHex(R)) ?? 0) >= (this.#env.snapshotEvery ?? 200) ||
           this.#epochDue(R)) &&
         this.#publishers.has(toHex(R)) &&
+        // A control Resource C is only read here (E-022b): no Snapshot of it from this device.
+        !this.#controls.has(toHex(R)) &&
         // V3: no Snapshot of a section from a device where sections are read-only.
         !(this.#env.sectionsReadOnly === true && this.#sections.has(toHex(R))),
     });

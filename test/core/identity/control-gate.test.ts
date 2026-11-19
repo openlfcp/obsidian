@@ -191,3 +191,14 @@ it("two opens of C at once share one binding, the one the gate reads (review r1,
   await a.service.upkeep(true);
   expect(a.runtime.controlPort(R)).toBe(port);
 });
+
+it("C is opened read only: no commit and no Snapshot binding (review r1, 2)", async () => {
+  const { a, C } = await setup();
+  const R = C as ResourceId;
+  const [binding, ...more] = await opensOf(R, () => a.runtime.openControl(R, WORLD_URL));
+  expect(more).toEqual([]);
+  expect(binding?.applier).toBeDefined();
+  // SyncClient publishes a Snapshot only through binding.snapshot: none, so never one of C.
+  expect(binding?.snapshot).toBeUndefined();
+  expect(binding?.commit).toBeUndefined();
+});
