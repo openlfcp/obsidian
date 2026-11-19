@@ -531,8 +531,9 @@ A release builds from the `@openlfcp/*` npm packages at the exact
 versions in `package.json` (locked in `pnpm-lock.yaml`); a tag release
 refuses any other setup (`scripts/check-release-deps.mjs`). Between
 releases `main` may pin a commit of sdk-ts that is not on npm yet
-(`sdk-ts.lock`): then check out openlfcp/sdk-ts at that commit next to
-this repository and pack it first (CONTRIBUTING.md, "The SDK pin").
+(`sdk-ts.lock`): then clone openlfcp/sdk-ts next to this repository
+(it must have that commit) and pack it first (CONTRIBUTING.md, "The SDK
+pin").
 
 ```sh
 node scripts/sdk-ts-pack.mjs   # only while sdk-ts.lock is present
