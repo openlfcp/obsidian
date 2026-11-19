@@ -230,12 +230,16 @@ export class BridgeConnect {
     const C = fromHex(a.c) as ResourceId;
     await runtime.openControl?.(C, a.url);
     const port = runtime.controlPort?.(C);
-    if (port?.state() === undefined) return a;
-    const r = await port.commit(
-      [{ intent: "initialize", attemptId: a.id, createdAt: a.metaAt }],
-      `${a.id}:initialize`,
-    );
-    return r.kind === "rejected" ? a : { ...a, initialized: true };
+    if (port === undefined) return a;
+    // Not state(): C reads as unusable until this very change. Its session must be live
+    // to write (SyncClient refuses before then, e.g. key-unavailable): a later tick.
+    const r = await port
+      .commit(
+        [{ intent: "initialize", attemptId: a.id, createdAt: a.metaAt }],
+        `${a.id}:initialize`,
+      )
+      .catch(() => null);
+    return r === null || r.kind === "rejected" ? a : { ...a, initialized: true };
   }
 
   /** A§4.1 step 5: the request signed by this attempt's J, of a service, with scope exactly [C]. */
