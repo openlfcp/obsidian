@@ -64,8 +64,11 @@ openlfcp/sdk-ts's `main`:
 - `node scripts/sdk-ts-pack.mjs [--checkout DIR]` checks that the checkout
   (default `../sdk-ts`) is at that commit, installs and builds it, and packs
   its eight packages into `vendor/sdk-ts/` (gitignored). The packing is
-  reproducible: each package is staged with its `workspace:` ranges already
-  rewritten in place, since `pnpm pack` writes them in no stable order.
+  byte-identical on Linux, macOS and Windows: each package is staged with
+  its `workspace:` ranges already rewritten in place (`pnpm pack` writes
+  them in no stable order), and each tarball is written again with its
+  entries sorted, fixed mode, owner and time, stored uncompressed in gzip
+  (`pnpm pack`'s file order and gzip bytes differ by system).
 - `package.json` takes each package as a `file:vendor/sdk-ts/…tgz` tarball,
   and `pnpm.overrides` sends every `@openlfcp/*` dependency, those of the
   packages themselves included, to the tarballs, never to npm.
