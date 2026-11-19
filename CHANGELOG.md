@@ -10,6 +10,14 @@ since 0.4.0.
 
 ## [Unreleased]
 
+### Added
+
+- Tasks written in the Tasks plugin's Dataview format sync their fields:
+  `[due:: 2026-11-13]`, `[scheduled:: …]`, `[completion:: …]` and
+  `[priority:: high]` mean what `📅`, `⏳`, `✅` and `⏫` mean. A task with
+  only a Dataview due date used to sync without one. A change from a
+  collaborator is written back in the format the line already uses.
+
 ### Fixed
 
 - An empty shared section keeps an empty line inside it, so a task typed
