@@ -46,6 +46,7 @@ import {
   SECTION_LINK_FOR_LEGACY,
 } from "./messages";
 import { INVITE_PRESETS, type InvitePreset } from "./presets";
+import { listedAsResource } from "./profiles";
 import { type Hint, serverHint } from "./server-notice";
 import type { Collaboration, JoinAccept, JoinStage, ResourceStatus } from "./service";
 import { resourceNoun } from "./view";
@@ -326,7 +327,9 @@ export class CollabCommands {
       readonly legacyOnly?: boolean;
     } = {},
   ): Promise<ResourceId | null> {
-    const all = await collab.list();
+    // A Resource of another profile (a service device's `C`, a newer or an
+    // unknown one) is neither a collaboration nor a section: never listed.
+    const all = (await collab.list()).filter((e) => listedAsResource(e.profile));
     const hidden = (e: RegistryEntry) =>
       options.legacyOnly === true
         ? e.profile !== TASKS_PROFILE_ID
