@@ -41,6 +41,9 @@ jobs:
           repository: openlfcp/sdk-ts
           ref: ${{ steps.sdk-ts-lock.outputs.commit }}
           path: sdk-ts
+          # Only what the packages build from (with the root files): sdk-ts's
+          # conformance fixtures have paths too long for a Windows checkout.
+          sparse-checkout: packages
       - uses: pnpm/action-setup@v6
         with:
           package_json_file: obsidian/package.json

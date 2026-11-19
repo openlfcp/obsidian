@@ -71,6 +71,9 @@ jobs:
           repository: openlfcp/sdk-ts
           ref: ${{ steps.pins.outputs.sdk_ts }}
           path: sdk-ts
+          # Only what the packages build from (with the root files): sdk-ts's
+          # conformance fixtures have paths too long for a Windows checkout.
+          sparse-checkout: packages
       - id: sdk-rs
         working-directory: server
         run: echo "commit=$(jq -er .commit sdk-rs.lock)" >> "$GITHUB_OUTPUT"
