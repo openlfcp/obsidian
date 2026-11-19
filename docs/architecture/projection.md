@@ -44,6 +44,12 @@ Tags follow ruling (a), in force since LFCP-062:
 | `🔁 rule` | not synced | warning (ST-5) |
 | `🛫`, `➕`, `❌` dates | not owned | kept local |
 
+The Tasks plugin's Dataview format (PB-11) reads the same: `[due:: …]`,
+`[scheduled:: …]`, `[completion:: …]`, `[priority:: highest|high|low|lowest]`
+(`medium`: not owned), `[start:: …]`, `[created:: …]`, `[cancelled:: …]`,
+`[repeat:: …]`, in `[ ]` or `( )`, keys exact. An emoji and a Dataview field
+for the same field with different values are ambiguous, as two emoji are.
+
 Wikilinks in a shared title are sent as written, with a warning that the
 note names become visible to collaborators (ST-4).
 
@@ -113,7 +119,9 @@ note writes nothing.
 - **Rewritten:** the glyph (owned statuses), the title, the sorted tag run,
   the owned priority emoji (🔼 is never written), 📅, ⏳ and exactly one ✅
   on a done Task (removed when it leaves done). A piece that already matches
-  keeps its bytes; a new one goes where Obsidian Tasks puts it.
+  keeps its bytes; a new one goes where Obsidian Tasks puts it, as a
+  Dataview field (two spaces before, `  [due:: …]`) when the line already
+  has one, as an emoji otherwise.
 - **Kept:** the ref comment byte for byte, the placement, child lines, the
   `^block-id`, unowned tokens (🛫 ➕ ❌ 🔼 🔁), indentation, surrounding
   text, local Tasks (their ✅ too) and line endings.

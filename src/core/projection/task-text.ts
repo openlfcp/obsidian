@@ -10,6 +10,12 @@
 // synced), the ^block-id. Tags (ruling a, LFCP-062): the trailing contiguous
 // run of valid Obsidian tags is the Task's tag set and not part of the
 // title; a #tag inside the text is title text.
+//
+// The same fields in the Tasks plugin's Dataview format (PB-11): `[due:: …]`,
+// `[scheduled:: …]`, `[completion:: …]`, `[priority:: high]`, `[start:: …]`,
+// `[created:: …]`, `[cancelled:: …]`, `[repeat:: …]`, also in parentheses.
+// They mean what their emoji mean (owned or local alike); a segment keeps
+// which format it was written in, so the renderer answers in it.
 
 import type { TaskPriority, TaskStatus } from "@openlfcp/shared-objects";
 
@@ -63,6 +69,23 @@ export const PRIORITY_EMOJI: Readonly<Partial<Record<TaskPriority, string>>> = {
 };
 
 export type DateField = "due" | "scheduled" | "completion" | "start" | "created" | "cancelled";
+/** The Dataview keys of the date fields: the field names themselves. */
+const DATAVIEW_DATES: ReadonlySet<string> = new Set<DateField>([
+  "due",
+  "scheduled",
+  "completion",
+  "start",
+  "created",
+  "cancelled",
+]);
+/** Dataview `priority::` values ("medium" is 🔼: not owned). */
+const DATAVIEW_PRIORITIES: Readonly<Record<string, TaskPriority | null>> = {
+  highest: "highest",
+  high: "high",
+  medium: null,
+  low: "low",
+  lowest: "lowest",
+};
 const DATE_EMOJI: Readonly<Record<string, DateField>> = {
   "📅": "due",
   "⏳": "scheduled",
@@ -78,7 +101,11 @@ export const DATE_FIELD_EMOJI: Readonly<Record<"due" | "scheduled" | "completion
   completion: "✅",
 };
 
-/** One recognized piece of a Task's suffix, with its exact text (leading whitespace included). */
+/**
+ * One recognized piece of a Task's suffix, with its exact text (leading
+ * whitespace included). `dataview`: written as a Dataview field
+ * (`[key:: value]`), not with an emoji.
+ */
 export type Segment =
   | { readonly kind: "block"; readonly value: string; readonly raw: string }
   | {
@@ -86,13 +113,20 @@ export type Segment =
       readonly field: DateField;
       readonly value: string;
       readonly raw: string;
+      readonly dataview?: true;
     }
   | {
       readonly kind: "priority";
       readonly value: TaskPriority | "unowned";
       readonly raw: string;
+      readonly dataview?: true;
     }
-  | { readonly kind: "recurrence"; readonly value: string; readonly raw: string }
+  | {
+      readonly kind: "recurrence";
+      readonly value: string;
+      readonly raw: string;
+      readonly dataview?: true;
+    }
   /** A tag of the trailing run, without "#". */
   | { readonly kind: "tag"; readonly value: string; readonly raw: string };
 
@@ -142,6 +176,8 @@ export const isObsidianTag = (tag: string): boolean =>
 //   priority    \s*(🔺|⏫|🔼|🔽|⏬)\uFE0F?$
 //   recurrence  \s*🔁\uFE0F?\s*([a-zA-Z0-9, !]+?)\s*$
 //   tag         (?:^|\s+)#([\p{L}\p{N}_/-]+)$
+// and, with no regex predecessor (PB-11):
+//   dataview    \s*\[key::\s*value\s*\]$  or the same in ( ), no bracket inside
 
 /** JavaScript's \s: the same code units. */
 const WS = new Set(
@@ -279,10 +315,56 @@ function tagAtEnd(s: string, e: number): Cut | null {
   return { start, segment: { kind: "tag", value: s.slice(i, e), raw: s.slice(start, e) } };
 }
 
+const isDateValue = (v: string): boolean =>
+  v.length === 10 && [...v].every((c, k) => (k === 4 || k === 7 ? c === "-" : isDigit(c)));
+
+function dataviewAtEnd(s: string, e: number): Cut | null {
+  const close = s[e - 1];
+  const open = close === "]" ? "[" : close === ")" ? "(" : undefined;
+  if (open === undefined) return null;
+  // Back to the nearest bracket: a failed scan ends the whole parse (no
+  // other scanner takes a closing bracket), a successful one consumes it.
+  let i = e - 1;
+  while (i > 0 && !"[]()".includes(s[i - 1] as string)) i--;
+  if (i === 0 || s[i - 1] !== open) return null;
+  const inner = s.slice(i, e - 1);
+  const sep = inner.indexOf("::");
+  if (sep < 0) return null;
+  const key = inner.slice(0, sep);
+  const value = inner.slice(sep + 2).trim();
+  const start = wsStart(s, i - 1);
+  const raw = s.slice(start, e);
+  if (DATAVIEW_DATES.has(key))
+    return isDateValue(value)
+      ? {
+          start,
+          segment: { kind: "date", field: key as DateField, value, raw, dataview: true },
+        }
+      : null;
+  if (key === "priority")
+    return Object.hasOwn(DATAVIEW_PRIORITIES, value)
+      ? {
+          start,
+          segment: {
+            kind: "priority",
+            value: DATAVIEW_PRIORITIES[value] ?? "unowned",
+            raw,
+            dataview: true,
+          },
+        }
+      : null;
+  if (key === "repeat")
+    return value !== "" && [...value].every(isRepeatChar)
+      ? { start, segment: { kind: "recurrence", value, raw, dataview: true } }
+      : null;
+  return null;
+}
+
 /**
  * Splits a Task's text (after the checkbox, without the inline ref) the way
  * Obsidian Tasks reads its suffix, from the end: block ID, dates, priority,
- * recurrence and the trailing run of tags, in any order. The description is
+ * recurrence (as emoji or Dataview fields) and the trailing run of tags, in
+ * any order. The description is
  * what is left. Segments keep their exact text, so a renderer can rewrite
  * owned ones and leave the rest byte for byte. Linear in the text length.
  */
@@ -295,11 +377,13 @@ export function segmentTaskText(text: string): SegmentedTaskText {
   let recurrence = false;
   for (;;) {
     const tag = tagAtEnd(end, e);
+    const dataview = dataviewAtEnd(end, e);
     const cut =
       (!block ? blockAtEnd(end, e) : null) ??
       dateAtEnd(end, e) ??
       priorityAtEnd(end, e) ??
       (!recurrence ? recurrenceAtEnd(end, e) : null) ??
+      (dataview?.segment.kind === "recurrence" && recurrence ? null : dataview) ??
       (tag !== null && tag.start > 0 && isObsidianTag(tag.segment.value) ? tag : null);
     if (cut === null) break;
     if (cut.segment.kind === "block") block = true;

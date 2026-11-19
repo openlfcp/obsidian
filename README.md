@@ -274,9 +274,12 @@ and the value to keep; both notes then show it.
 - Mobile (iOS, Android): the plugin is not desktop-only, and on mobile it
   opens shared sections read-only (see "Limitations"). Automated tests
   cover that read-only path; it has not been tested on a phone or tablet.
-- Tasks use the Obsidian Tasks plugin's emoji syntax for dates, priority
-  and completion. Some Tasks tokens (🔁 🛫 ➕ ❌ 🔼) stay local to your
-  note; the share preview shows them.
+- Tasks use the Obsidian Tasks plugin's syntax for dates, priority and
+  completion, as emoji or as Dataview fields (`[due:: 2026-10-20]`). A
+  field a collaborator adds to a line with no fields yet is written as an
+  emoji. Some Tasks fields (🔁 🛫 ➕ ❌ 🔼 and their Dataview forms
+  `repeat`, `start`, `created`, `cancelled`, `priority:: medium`) stay
+  local to your note; the share preview shows them.
 
 ### Your devices
 

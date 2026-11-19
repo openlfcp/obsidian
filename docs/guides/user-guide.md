@@ -136,6 +136,10 @@ Either of you can now edit the line like any other task:
 - rename it;
 - change its dates (`📅` due, `⏳` scheduled), priority or tags.
 
+The Tasks plugin's Dataview format works too: `[due:: 2026-10-20]`,
+`[scheduled:: …]`, `[priority:: high]`. A change from the other note is
+written in the format the line already uses.
+
 Changes appear in the other note within seconds while both of you are
 online.
 

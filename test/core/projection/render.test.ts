@@ -219,3 +219,74 @@ describe("renderNote (LFCP-062)", () => {
     );
   });
 });
+
+describe("Dataview fields (PB-11)", () => {
+  it("answers in the line's Dataview format, keeping each field's bytes", () => {
+    const r = replica();
+    apply(r, setDue(task(r), "2026-11-14").intent);
+    apply(r, setPriority(task(r), "low").intent);
+    const before = child(
+      "[ ] Prepare API contract  [priority:: high]  [start:: 2026-11-01]  (due::2026-11-13 ) ^blk",
+    );
+    expect(renderNote(before, lookup(r)).text).toBe(
+      child(
+        "[ ] Prepare API contract  [priority:: low]  [start:: 2026-11-01]  (due::2026-11-14 ) ^blk",
+      ),
+    );
+  });
+
+  it("adds missing owned fields as Dataview fields where Tasks puts them, removes cleared ones", () => {
+    const r = replica("Prepare API contract", { scheduled: "2026-11-12", priority: "highest" });
+    apply(r, complete(task(r), "2026-11-15").intent);
+    const out = renderNote(child("[ ] Prepare API contract  [due:: 2026-11-13] ^blk"), lookup(r));
+    expect(out.text).toBe(
+      child(
+        "[x] Prepare API contract  [priority:: highest]  [scheduled:: 2026-11-12]  [completion:: 2026-11-15] ^blk",
+      ),
+    );
+    expect(renderNote(out.text, lookup(r)).changed).toBe(false);
+  });
+
+  it("keeps a medium priority, cancelled and repeat fields (not owned)", () => {
+    const r = replica();
+    apply(r, setDue(task(r), "2026-11-13").intent);
+    const before = child(
+      "[ ] Prepare API contract  [priority:: medium]  [repeat:: every week]  [cancelled:: 2026-11-01]",
+    );
+    expect(renderNote(before, lookup(r)).text).toBe(
+      child(
+        "[ ] Prepare API contract  [priority:: medium]  [repeat:: every week]  [due:: 2026-11-13]  [cancelled:: 2026-11-01]",
+      ),
+    );
+  });
+
+  it("an emoji line stays emoji", () => {
+    const r = replica();
+    apply(r, setDue(task(r), "2026-11-13").intent);
+    expect(renderNote(child("[ ] Prepare API contract 🛫 2026-11-01"), lookup(r)).text).toBe(
+      child("[ ] Prepare API contract 🛫 2026-11-01 📅 2026-11-13"),
+    );
+  });
+
+  it("round-trips: what a Dataview line represents renders back to the same bytes", () => {
+    const lines = [
+      "[ ] Buy milk  [due:: 2026-11-13]",
+      "[ ] Buy milk #home  [priority:: high]  [scheduled:: 2026-11-12]  [due:: 2026-11-13]",
+      "[x] Buy milk [due::2026-11-13] (completion:: 2026-11-14) ^b1",
+      "[ ] Buy milk  [priority:: lowest]  [start:: 2026-11-01]  [created:: 2026-10-30]",
+    ];
+    for (const line of lines) {
+      const p = parseTaskText(line.slice(4));
+      const r = replica(p.title, {
+        tags: [...p.tags],
+        ...(p.due !== null ? { due: p.due } : {}),
+        ...(p.scheduled !== null ? { scheduled: p.scheduled } : {}),
+        ...(p.priority !== "unowned" ? { priority: p.priority } : {}),
+      });
+      if (line.startsWith("[x]")) apply(r, complete(task(r), p.completion ?? undefined).intent);
+      const out = renderNote(child(line), lookup(r));
+      expect(out.text, line).toBe(child(line));
+      expect(out.changed, line).toBe(false);
+    }
+  });
+});

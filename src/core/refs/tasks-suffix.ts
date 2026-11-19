@@ -4,6 +4,10 @@
 // an inline ref, so inside a section an inline ref may be followed by Tasks
 // fields. Outside a section MARKDOWN-REFS-01 is unchanged: any text after an
 // inline ref is LFCP_REF_NOT_AT_LINE_END.
+//
+// The fields may be written in the Tasks plugin's Dataview format too
+// (`[completion:: 2026-11-13]`, in [ ] or ( ), PB-11): Tasks set to Dataview
+// appends those after the ref the same way.
 
 const VS = "️?";
 const ID = "[A-Za-z0-9_-]+";
@@ -16,7 +20,22 @@ const FIELD = [
   `⛔${VS} ${ID}(?:,${ID})*`,
   `🏁${VS} (?:keep|delete)`,
 ].join("|");
-const SUFFIX = new RegExp(`^(?:[ \\t]+(?:${FIELD}))+(?:[ \\t]+\\^[A-Za-z0-9-]+)?[ \\t]*$`, "u");
+/** A Dataview field `[key:: value]` or `(key:: value)`. */
+const dataview = (key: string, value: string): string =>
+  `(?:\\[${key}:: *${value} *\\]|\\(${key}:: *${value} *\\))`;
+/** The same fields as Dataview fields (Tasks' Dataview format). */
+const DATAVIEW_FIELD = [
+  dataview("(?:due|scheduled|start|created|completion|cancelled)", "\\d{4}-\\d{2}-\\d{2}"),
+  dataview("priority", "(?:highest|high|medium|low|lowest)"),
+  dataview("repeat", "[A-Za-z0-9,:!]+(?: +[A-Za-z0-9,:!]+)*"),
+  dataview("id", ID),
+  dataview("dependsOn", `${ID}(?:,${ID})*`),
+  dataview("onCompletion", "(?:keep|delete)"),
+].join("|");
+const SUFFIX = new RegExp(
+  `^(?:[ \\t]+(?:${FIELD}|${DATAVIEW_FIELD}))+(?:[ \\t]+\\^[A-Za-z0-9-]+)?[ \\t]*$`,
+  "u",
+);
 
 /** The fields' signs, to tell a field given both before and after the ref. */
 const SIGNS = [
@@ -43,11 +62,28 @@ export function isTasksSuffix(text: string): boolean {
   return text.trim() !== "" && SUFFIX.test(text);
 }
 
-/** The kinds of field a text gives (a sign, or "priority" for any priority sign). */
+/** Each Dataview key, as the sign of the same field. */
+const DATAVIEW_KEYS: Readonly<Record<string, string>> = {
+  due: "📅",
+  scheduled: "⏳",
+  start: "🛫",
+  created: "➕",
+  completion: "✅",
+  cancelled: "❌",
+  priority: "priority",
+  repeat: "🔁",
+  id: "🆔",
+  dependsOn: "⛔",
+  onCompletion: "🏁",
+};
+
+/** The kinds of field a text gives (a sign, or "priority" for any priority sign), in either format. */
 function kinds(text: string): Set<string> {
   const out = new Set<string>();
   for (const s of SIGNS)
     if (new RegExp(`(?:^|[ \\t])${s}`, "u").test(text)) out.add(PRIORITY.has(s) ? "priority" : s);
+  for (const [key, kind] of Object.entries(DATAVIEW_KEYS))
+    if (new RegExp(`(?:^|[ \\t])[[(]${key}::`, "u").test(text)) out.add(kind);
   return out;
 }
 
