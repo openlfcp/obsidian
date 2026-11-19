@@ -7,25 +7,30 @@
 // tarballs too, never to npm) and pnpm-lock.yaml records each tarball's
 // integrity: sdk-ts.lock pins the commit, the lockfile pins the bytes.
 //
-//   node scripts/sdk-ts-pack.mjs [--checkout DIR] [--no-build]
+//   node scripts/sdk-ts-pack.mjs [--checkout DIR]
 //   node scripts/sdk-ts-pack.mjs --self-test
 //
-// DIR defaults to ../sdk-ts next to this repository (as CI checks it out).
-// Its HEAD must be the commit in sdk-ts.lock. The packing is reproducible
-// on every system, as the lockfile's integrity needs:
+// DIR is a clone of openlfcp/sdk-ts that has the commit in sdk-ts.lock
+// (default ../sdk-ts next to this repository, as CI checks it out); its
+// working tree, branch and line-ending settings do not matter. The packing
+// is byte-identical on every system, as the lockfile's integrity needs:
+// - the commit's files are exported from the repository's objects (git
+//   archive, no line-ending conversion) into a temporary directory, and
+//   installed, built and packed there: a CRLF checkout (core.autocrlf on
+//   Windows) or a local edit changes nothing;
 // - `pnpm pack` writes `workspace:` ranges in no stable order, so each
-//   package is staged with its ranges already rewritten (workspace:^ and
+//   package.json has its ranges rewritten first (workspace:^ and
 //   workspace:~ to ^version and ~version, workspace:* to the version, in
-//   place) and packed from there; the checkout itself is never modified;
+//   place);
 // - its tar lists the files in the file system's order (APFS and ext4
 //   differ) and its gzip output depends on the zlib build, so each tarball
 //   is written again (canonicalTarball): entries sorted by path, fixed
 //   mode, owner and time, stored (gzip level 0) with no OS in the header.
 
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync, gzipSync } from "node:zlib";
 
@@ -68,7 +73,7 @@ export function publishedManifest(pkg, versions) {
 }
 
 /** The regular files of a ustar archive: [{ path, data }] in archive order. */
-export function tarEntries(tar) {
+export function tarEntries(tar, { skip = [] } = {}) {
   const out = [];
   const text = (b) => b.toString("latin1").replace(/\0.*$/s, "");
   for (let at = 0; at + 512 <= tar.length; ) {
@@ -78,9 +83,11 @@ export function tarEntries(tar) {
     const type = String.fromCharCode(header[156] || 0x30);
     const prefix = text(header.subarray(345, 500));
     const name = text(header.subarray(0, 100));
-    if (type !== "0") throw new Error(`unexpected tar entry type "${type}" (${name})`);
     const data = tar.subarray(at + 512, at + 512 + size);
-    out.push({ path: prefix === "" ? name : `${prefix}/${name}`, data });
+    if (!skip.includes(type)) {
+      if (type !== "0") throw new Error(`unexpected tar entry type "${type}" (${name})`);
+      out.push({ path: prefix === "" ? name : `${prefix}/${name}`, data });
+    }
     at += 512 + Math.ceil(size / 512) * 512;
   }
   return out;
@@ -128,6 +135,7 @@ export function canonicalTarball(tgz) {
   return gz;
 }
 
+/** pnpm (a .cmd on Windows, hence the shell there): arguments must hold no path or metacharacter. */
 const run = (cmd, args, cwd) =>
   execFileSync(cmd, args, {
     cwd,
@@ -180,51 +188,93 @@ function selfTest() {
   process.stdout.write("sdk-ts-pack self-test: ok\n");
 }
 
+/** What the packages install and build from: the root files of the workspace and packages/. */
+const EXPORTED = [
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "tsconfig.json",
+  "tsconfig.base.json",
+  "packages",
+];
+
+/**
+ * The tree of `commit` under `paths`, from the repository's objects (never
+ * its working tree): the bytes as committed, whatever core.autocrlf or the
+ * checkout says, as a ustar archive. Throws if the repository lacks it.
+ */
+export function exportCommit(repo, commit, paths) {
+  execFileSync("git", ["-C", repo, "cat-file", "-e", `${commit}^{commit}`], { stdio: "ignore" });
+  return execFileSync(
+    "git",
+    [
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "core.eol=lf",
+      "-C",
+      repo,
+      "archive",
+      "--format=tar",
+      commit,
+      "--",
+      ...paths,
+    ],
+    { maxBuffer: 1 << 30 },
+  );
+}
+
+/** Writes a `git archive` tar (regular files and directories) under `dir`. */
+export function extractTar(tar, dir) {
+  for (const e of tarEntries(tar, { skip: ["g", "5"] })) {
+    if (e.path.split("/").includes("..")) throw new Error(`tar path outside: ${e.path}`);
+    const to = join(dir, ...e.path.split("/"));
+    mkdirSync(dirname(to), { recursive: true });
+    writeFileSync(to, e.data);
+  }
+}
+
 function main(argv) {
   if (argv.includes("--self-test")) return selfTest();
   const root = resolve(import.meta.dirname, "..");
   const at = argv.indexOf("--checkout");
-  const checkout = resolve(at === -1 ? join(root, "..", "sdk-ts") : argv[at + 1]);
+  const repo = resolve(at === -1 ? join(root, "..", "sdk-ts") : argv[at + 1]);
   const lock = JSON.parse(readFileSync(join(root, "sdk-ts.lock"), "utf8"));
-  const head = run("git", ["rev-parse", "HEAD"], checkout).trim();
-  if (head !== lock.commit) {
-    process.stderr.write(
-      `sdk-ts-pack: ${checkout} is at ${head}, sdk-ts.lock pins ${lock.commit}\n`,
-    );
-    process.exit(1);
-  }
-  if (!argv.includes("--no-build")) {
-    run("pnpm", ["install", "--frozen-lockfile"], checkout);
-    run("pnpm", ["build"], checkout);
-  }
-  const manifests = Object.fromEntries(
-    SDK_PACKAGES.map((p) => [
-      p,
-      JSON.parse(readFileSync(join(checkout, "packages", p, "package.json"), "utf8")),
-    ]),
-  );
-  const versions = Object.fromEntries(Object.values(manifests).map((m) => [m.name, m.version]));
-  const out = join(root, "vendor", "sdk-ts");
-  rmSync(out, { recursive: true, force: true });
-  mkdirSync(out, { recursive: true });
   const stage = mkdtempSync(join(tmpdir(), "sdk-ts-pack-"));
   try {
+    let tar;
+    try {
+      tar = exportCommit(repo, lock.commit, EXPORTED);
+    } catch {
+      process.stderr.write(
+        `sdk-ts-pack: ${repo} has no commit ${lock.commit} (sdk-ts.lock): clone openlfcp/sdk-ts there and fetch it\n`,
+      );
+      process.exit(1);
+    }
+    const src = join(stage, "sdk-ts");
+    extractTar(tar, src);
+    // No path on these command lines (cwd is an option): Windows runs pnpm through cmd.exe.
+    run("pnpm", ["install", "--frozen-lockfile"], src);
+    run("pnpm", ["build"], src);
+    const manifests = Object.fromEntries(
+      SDK_PACKAGES.map((p) => [
+        p,
+        JSON.parse(readFileSync(join(src, "packages", p, "package.json"), "utf8")),
+      ]),
+    );
+    const versions = Object.fromEntries(Object.values(manifests).map((m) => [m.name, m.version]));
+    const out = join(root, "vendor", "sdk-ts");
+    rmSync(out, { recursive: true, force: true });
+    mkdirSync(out, { recursive: true });
     for (const p of SDK_PACKAGES) {
-      const src = join(checkout, "packages", p);
-      const dir = join(stage, p);
-      cpSync(src, dir, {
-        recursive: true,
-        filter: (f) => !/[\\/](node_modules|src|test)([\\/]|$)/.test(f.slice(src.length)),
-      });
+      const dir = join(src, "packages", p);
       writeFileSync(
         join(dir, "package.json"),
         `${JSON.stringify(publishedManifest(manifests[p], versions), null, 2)}\n`,
       );
-      const packed = join(stage, `${p}.out`);
-      mkdirSync(packed);
-      run("pnpm", ["pack", "--pack-destination", packed], dir);
+      run("pnpm", ["pack"], dir);
       const name = `${manifests[p].name.replace("@", "").replace("/", "-")}-${manifests[p].version}.tgz`;
-      writeFileSync(join(out, name), canonicalTarball(readFileSync(join(packed, name))));
+      writeFileSync(join(out, name), canonicalTarball(readFileSync(join(dir, name))));
       process.stdout.write(`packed ${manifests[p].name}@${manifests[p].version}\n`);
     }
   } finally {
