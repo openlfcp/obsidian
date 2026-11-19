@@ -190,3 +190,10 @@ it("an Edit device may not connect (A§4.1: 12 and 13)", async () => {
   expect(attempt.state).toBe("insufficient-authority");
   expect(attempt.c).toBe("");
 });
+
+it('"Add my other device…" never hands out the attempt\'s J', async () => {
+  const { a, attempt } = await waiting();
+  const s = await a.service.startSession("Desk");
+  if (s.kind !== "link") throw new Error(JSON.stringify(s));
+  expect(s.session).not.toBe(attempt.session);
+});

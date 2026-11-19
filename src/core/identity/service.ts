@@ -1745,7 +1745,11 @@ export class DeviceService {
     const flow = this.#flow();
     const stop = await this.#ensureIdentity(label);
     if (stop !== null) return stop;
-    const open = (await this.#flows.openPairingSessions(flow))[0];
+    // Never the J of a "Connect Apple Reminders" attempt: its link is for LFCP Bridge only.
+    const connecting = (await this.connector().attempt())?.session;
+    const open = (await this.#flows.openPairingSessions(flow)).find(
+      (s) => s.session !== connecting,
+    );
     try {
       return sessionView(
         open === undefined
