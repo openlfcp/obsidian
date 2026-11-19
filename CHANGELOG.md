@@ -12,8 +12,10 @@ since 0.4.0.
 
 ### Fixed
 
-- A new or inserted empty shared section keeps an empty line inside it, so
-  a task typed under its heading lands in the section, not below it.
+- An empty shared section keeps an empty line inside it, so a task typed
+  under its heading lands in the section, not below it. This holds for a
+  new or inserted section, and for one whose last item was deleted, here or
+  by a collaborator.
 - A task right below a shared section is flagged in the pane: it is not in
   the section and does not sync. Move it into the section to share it.
 - Pickers ("Resource status", insert, invite) list only task collaborations
