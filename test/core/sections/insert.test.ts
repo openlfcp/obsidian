@@ -49,7 +49,7 @@ afterEach(async () => {
 });
 
 /** A runtime with the section of SOURCE created in it, and an insertion over it. */
-async function setup() {
+async function setup(source = SOURCE) {
   const r = await LfcpRuntime.start(new Device().env(new FakeLocal()));
   running.push(r);
   const status = r.status;
@@ -65,7 +65,7 @@ async function setup() {
         : { allowed: false, reason: "read-only", controlHead: null, verifiedAt: null },
   });
   const files = new Map([
-    ["Launch.md", SOURCE],
+    ["Launch.md", source],
     ["Week.md", TARGET],
   ]);
   const fail = { edit: false };
@@ -97,10 +97,10 @@ async function setup() {
     newOperationId: () => `create-${++n}`,
     newTask,
   });
-  const range = proposeRange(SOURCE, 0);
+  const range = proposeRange(source, 0);
   if (range === null) throw new Error("no range");
   const created = await creation.run(
-    await creation.prepare("Launch.md", SOURCE, preflight(SOURCE, range)),
+    await creation.prepare("Launch.md", source, preflight(source, range)),
   );
   const R = created.entry.resource;
   const sectionId = created.entry.sectionId;
@@ -216,6 +216,31 @@ describe("inserting a shared section", () => {
     expect(pass.sections.flatMap((s) => s.entries)).toEqual([]);
     expect(await env.outbound()).toBe(queued);
     expect(await insertion.unfinished()).toEqual([]);
+  });
+
+  it("PB-10: an empty section is inserted with an empty line inside its markers, and stays so", async () => {
+    const env = await setup("## Errands\n");
+    const insertion = new SectionInsertion(env.deps);
+    const preview = (await insertion.preview(resourceOf(env.R), env.sectionId)) as InsertPreview;
+    const lines = preview.block.split("\n");
+    expect(lines).toHaveLength(5);
+    expect([lines[0], lines[2], lines[4]]).toEqual(["## Errands", "", ""]);
+    expect(insertDisplay(preview.block).readable).toBe("## Errands\n");
+    const out = await insertion.run(await insertion.prepare("Week.md", TARGET, 2, preview));
+    expect(out.kind).toBe("inserted");
+    const md = env.files.get("Week.md") as string;
+    expect(md).toContain(preview.block);
+    // The engine takes it as it is: the empty line stays, nothing to send.
+    const queued = await env.outbound();
+    const pass = await env.engine.pass("Week.md", md, ctx);
+    expect(applyChanges(md, pass.changes)).toBe(md);
+    expect(pass.sections.flatMap((s) => s.entries)).toEqual([]);
+    expect(await env.outbound()).toBe(queued);
+    // A task typed on it is the section's.
+    const section = parseSections(md).sections[0];
+    const typed = md.split("\n");
+    typed[(section?.startLine ?? 0) + 1] = "- [ ] Buy milk";
+    expect(parseSections(typed.join("\n")).sections[0]?.nodes.map((n) => n.kind)).toEqual(["task"]);
   });
 
   it("is refused while the section imports or is not fully loaded", async () => {
