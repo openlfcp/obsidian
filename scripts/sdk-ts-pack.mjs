@@ -11,17 +11,23 @@
 //   node scripts/sdk-ts-pack.mjs --self-test
 //
 // DIR defaults to ../sdk-ts next to this repository (as CI checks it out).
-// Its HEAD must be the commit in sdk-ts.lock. The packing is reproducible:
-// `pnpm pack` writes `workspace:` ranges in no stable order, so each
-// package is staged with its ranges already rewritten (workspace:^ and
-// workspace:~ to ^version and ~version, workspace:* to the version, in
-// place) and packed from there; the checkout itself is never modified.
+// Its HEAD must be the commit in sdk-ts.lock. The packing is reproducible
+// on every system, as the lockfile's integrity needs:
+// - `pnpm pack` writes `workspace:` ranges in no stable order, so each
+//   package is staged with its ranges already rewritten (workspace:^ and
+//   workspace:~ to ^version and ~version, workspace:* to the version, in
+//   place) and packed from there; the checkout itself is never modified;
+// - its tar lists the files in the file system's order (APFS and ext4
+//   differ) and its gzip output depends on the zlib build, so each tarball
+//   is written again (canonicalTarball): entries sorted by path, fixed
+//   mode, owner and time, stored (gzip level 0) with no OS in the header.
 
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 /** The packages, in dependency order. */
 export const SDK_PACKAGES = [
@@ -61,6 +67,67 @@ export function publishedManifest(pkg, versions) {
   return out;
 }
 
+/** The regular files of a ustar archive: [{ path, data }] in archive order. */
+export function tarEntries(tar) {
+  const out = [];
+  const text = (b) => b.toString("latin1").replace(/\0.*$/s, "");
+  for (let at = 0; at + 512 <= tar.length; ) {
+    const header = tar.subarray(at, at + 512);
+    if (header.every((b) => b === 0)) break;
+    const size = Number.parseInt(text(header.subarray(124, 136)).trim() || "0", 8);
+    const type = String.fromCharCode(header[156] || 0x30);
+    const prefix = text(header.subarray(345, 500));
+    const name = text(header.subarray(0, 100));
+    if (type !== "0") throw new Error(`unexpected tar entry type "${type}" (${name})`);
+    const data = tar.subarray(at + 512, at + 512 + size);
+    out.push({ path: prefix === "" ? name : `${prefix}/${name}`, data });
+    at += 512 + Math.ceil(size / 512) * 512;
+  }
+  return out;
+}
+
+/** 1985-10-26T08:15:00Z, the time npm and pnpm give every packed file. */
+const PACK_MTIME = 499162500;
+
+function tarHeader(path, size) {
+  if (Buffer.byteLength(path) > 100) throw new Error(`tar path over 100 bytes: ${path}`);
+  const h = Buffer.alloc(512);
+  const put = (at, len, value) => h.write(value, at, len, "latin1");
+  const octal = (at, len, n) => put(at, len, `${n.toString(8).padStart(len - 1, "0")}\0`);
+  put(0, 100, path);
+  octal(100, 8, 0o644);
+  octal(108, 8, 0);
+  octal(116, 8, 0);
+  octal(124, 12, size);
+  octal(136, 12, PACK_MTIME);
+  put(148, 8, "        ");
+  put(156, 1, "0");
+  put(257, 8, "ustar\x0000");
+  let sum = 0;
+  for (const b of h) sum += b;
+  put(148, 8, `${sum.toString(8).padStart(6, "0")}\0 `);
+  return h;
+}
+
+/** A .tgz with the same files, byte-identical whatever packed it and on what system. */
+export function canonicalTarball(tgz) {
+  const entries = tarEntries(gunzipSync(tgz)).sort((a, b) =>
+    a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+  );
+  const blocks = [];
+  for (const { path, data } of entries) {
+    blocks.push(
+      tarHeader(path, data.length),
+      data,
+      Buffer.alloc((512 - (data.length % 512)) % 512),
+    );
+  }
+  blocks.push(Buffer.alloc(1024));
+  const gz = gzipSync(Buffer.concat(blocks), { level: 0 });
+  gz[9] = 255; // RFC 1952 OS: unknown (zlib writes the build's own)
+  return gz;
+}
+
 const run = (cmd, args, cwd) =>
   execFileSync(cmd, args, {
     cwd,
@@ -94,6 +161,22 @@ function selfTest() {
     threw = true;
   }
   if (!threw) throw new Error("self-test: an unknown workspace package must throw");
+  const file = (path, text) => ({ path, data: Buffer.from(text) });
+  const raw = (files) => {
+    const blocks = files.flatMap(({ path, data }) => [
+      tarHeader(path, data.length),
+      data,
+      Buffer.alloc((512 - (data.length % 512)) % 512),
+    ]);
+    return Buffer.concat([...blocks, Buffer.alloc(1024)]);
+  };
+  const a = [file("package/b.js", "b"), file("package/package.json", "{}")];
+  const one = canonicalTarball(gzipSync(raw(a), { level: 9 }));
+  const two = canonicalTarball(gzipSync(raw([...a].reverse()), { level: 1 }));
+  if (!one.equals(two)) throw new Error("self-test: canonicalTarball depends on order or gzip");
+  const back = tarEntries(gunzipSync(one)).map((e) => `${e.path}=${e.data}`);
+  if (back.join() !== "package/b.js=b,package/package.json={}")
+    throw new Error(`self-test: canonicalTarball lost files: ${back.join()}`);
   process.stdout.write("sdk-ts-pack self-test: ok\n");
 }
 
@@ -137,7 +220,11 @@ function main(argv) {
         join(dir, "package.json"),
         `${JSON.stringify(publishedManifest(manifests[p], versions), null, 2)}\n`,
       );
-      run("pnpm", ["pack", "--pack-destination", out], dir);
+      const packed = join(stage, `${p}.out`);
+      mkdirSync(packed);
+      run("pnpm", ["pack", "--pack-destination", packed], dir);
+      const name = `${manifests[p].name.replace("@", "").replace("/", "-")}-${manifests[p].version}.tgz`;
+      writeFileSync(join(out, name), canonicalTarball(readFileSync(join(packed, name))));
       process.stdout.write(`packed ${manifests[p].name}@${manifests[p].version}\n`);
     }
   } finally {

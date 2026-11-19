@@ -430,43 +430,43 @@ packages:
     engines: {node: '>= 20.19.0'}
 
   '@openlfcp/client@file:vendor/sdk-ts/openlfcp-client-0.6.0.tgz':
-    resolution: {integrity: sha512-40yMG3bDK3BYB4Y9MooPWuwrNqL2K1EdGhyo9rsgIrOBkGonQUxIolXbQAaBXyyySfsxJAZ8xayq73yq3tkVfQ==, tarball: file:vendor/sdk-ts/openlfcp-client-0.6.0.tgz}
+    resolution: {integrity: sha512-4sJr9f3At0N0X+YJsTvwGCZtgGy+j8QBWS/Sq2+uK8aAP+3S3Go3qp+S8tW94SEFceNCqqHHZ6uPUGYRyzpeIw==, tarball: file:vendor/sdk-ts/openlfcp-client-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
 
   '@openlfcp/core@file:vendor/sdk-ts/openlfcp-core-0.6.0.tgz':
-    resolution: {integrity: sha512-Z6teKBLA67D2qu9QHcboKLdfzuzTxgThh5GGVWY8KlTifjeBEQCVZmQ6XZeV68uC9N8p03LL1wk0cKddMaL45g==, tarball: file:vendor/sdk-ts/openlfcp-core-0.6.0.tgz}
+    resolution: {integrity: sha512-bCQV40VqO1/1sJtqkUdqBo1sWg7e5NkzEihY033n2SOxz6czqIzEomSZX9kZU1LSZ2rlhRnuBktutm4toC8YNA==, tarball: file:vendor/sdk-ts/openlfcp-core-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
 
   '@openlfcp/crypto@file:vendor/sdk-ts/openlfcp-crypto-0.6.0.tgz':
-    resolution: {integrity: sha512-Y5GQGAIB3gvthR7QkupWuPtJR7wRdeSv6BFaXdaes/8n97L2OPzi2M9hareyfndmiWoUOpfvGHqrIz4WWelXSQ==, tarball: file:vendor/sdk-ts/openlfcp-crypto-0.6.0.tgz}
+    resolution: {integrity: sha512-cd0JmGwFAfsOZBiMcmjH32XMUrNjgHUiHAV9gG9OeUlrS92wJGULwlrPQ3NiF9+Sv0oUgFNP4B1EhRFwEXlLuw==, tarball: file:vendor/sdk-ts/openlfcp-crypto-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
 
   '@openlfcp/shared-objects@file:vendor/sdk-ts/openlfcp-shared-objects-0.6.0.tgz':
-    resolution: {integrity: sha512-6b759/FbOBpxpMEohknNpEUUvGqH2DMIWjw8V6u4q4Zgu+uOLiTiAu7T/dMAj30WL/m9Ijszhr5ZHWGoLCzcRQ==, tarball: file:vendor/sdk-ts/openlfcp-shared-objects-0.6.0.tgz}
+    resolution: {integrity: sha512-wl6BIQe1SqI5bHGYQyyVqFW8jVTfeEfP66JfKb8ExDbT4ym0669oFIH9NtmMGBpjhhRLnChgvr4f+SVsd39V4Q==, tarball: file:vendor/sdk-ts/openlfcp-shared-objects-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
 
   '@openlfcp/storage-idb@file:vendor/sdk-ts/openlfcp-storage-idb-0.6.0.tgz':
-    resolution: {integrity: sha512-BNZJQO9gemVUKeHDLvv4Mn0KaxRbDQtxaUHtmpqcPv7bLemLgs355sjQJDcfvrOhveA//LFFCVhsNvky+T60Gg==, tarball: file:vendor/sdk-ts/openlfcp-storage-idb-0.6.0.tgz}
+    resolution: {integrity: sha512-DOucXPpnSmmoRmF8ngnB6Ap3g4SEVDimqzde4vCcUwGyYfMvUkhYgbXEP8UWL/CXVfeVQfdiDMsxyshWrJkHBw==, tarball: file:vendor/sdk-ts/openlfcp-storage-idb-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
 
   '@openlfcp/storage-node@file:vendor/sdk-ts/openlfcp-storage-node-0.6.0.tgz':
-    resolution: {integrity: sha512-t0lc1whu9Q4GrnzNPgQYONi3yCWwzEuotJsO9pTCdcFxGsQPf1BvChpgejQ+sCxLyKo0Yld6JMdq/U+mtt2ziw==, tarball: file:vendor/sdk-ts/openlfcp-storage-node-0.6.0.tgz}
+    resolution: {integrity: sha512-SBAfwloQYdkO/MsUX44mO3Wwrry4rKNdSFmAtEE0QvAyFeiqmlsVOUplKOPDrib7Lw9kvqK/n50SlHvjsjv5jA==, tarball: file:vendor/sdk-ts/openlfcp-storage-node-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
     hasBin: true
 
   '@openlfcp/storage@file:vendor/sdk-ts/openlfcp-storage-0.6.0.tgz':
-    resolution: {integrity: sha512-1kxzyOlWyyBQhhc5An2WpZcYAGc3K9PwByuscTXqG0KVlm1gqASZUrDHNmaM4LavWt+9cVeFn6Au7ubpbrNicA==, tarball: file:vendor/sdk-ts/openlfcp-storage-0.6.0.tgz}
+    resolution: {integrity: sha512-BvpG5zFM+fbTZCKMpJ0/oaPYGUFNEZ1XAu1IICeUUqysdGbZ+gp8UH4UW1C7r/BmwdkbqQ4az8EDbGZj1n36gA==, tarball: file:vendor/sdk-ts/openlfcp-storage-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
 
   '@openlfcp/wire@file:vendor/sdk-ts/openlfcp-wire-0.6.0.tgz':
-    resolution: {integrity: sha512-al66092SG7D1gnOw+TwjC8G3fBfzcdADn6h/sCB0RxbWxe9o1eWO8uZM8e4TaM14wP7la6z3OYNNlwy5IZh7pw==, tarball: file:vendor/sdk-ts/openlfcp-wire-0.6.0.tgz}
+    resolution: {integrity: sha512-xviLm8ZspeWvpDHx8+lNT8hSXfx6tYHcddWn6SpXK6NEmG4ByFvni35+k6UQsQdjpGlTYtgP2yyhceBZaonaHA==, tarball: file:vendor/sdk-ts/openlfcp-wire-0.6.0.tgz}
     version: 0.6.0
     engines: {node: '>=24'}
 
