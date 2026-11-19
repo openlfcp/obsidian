@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // A tag release is built from the @openlfcp/* npm packages only (the
 // community directory's review reproduces the build from npm). A commit that
-// links the SDK from a local sdk-ts (sdk-ts.lock, link: dependencies), as
-// main did while 0.4 was developed, must not ship that build, so
-// release.yml runs this first and stops on any problem.
+// pins the SDK to an sdk-ts commit (sdk-ts.lock with file: tarballs from
+// scripts/sdk-ts-pack.mjs, or link: dependencies as main had while 0.4 was
+// developed) must not ship that build, so release.yml runs this first and
+// stops on any problem.
 //
 //   node scripts/check-release-deps.mjs
 

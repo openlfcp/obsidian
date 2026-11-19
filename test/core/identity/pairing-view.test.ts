@@ -4,6 +4,7 @@ import type { PairingReview } from "@openlfcp/client";
 import { generateResourceId, type PrincipalId, toHex } from "@openlfcp/core";
 import { describe, expect, it } from "vitest";
 import {
+  approvalView,
   BRIDGE_RUNBOOK_URL,
   defaultPreset,
   type Names,
@@ -149,5 +150,25 @@ describe("sdk-ts 0.5.0 outcomes (IDENTITY-PROFILE-01 §6, §8.4)", () => {
       { resource: label, device: (hex) => hex.slice(0, 4) },
     );
     expect(view).toEqual({ kind: "done", message: 'Removed "Laptop".' });
+  });
+});
+
+describe("an approval waiting for its record in C (SERVICE-CONTROL-PROFILE-01 §7.1)", () => {
+  it("offers Finish, never Done, and says why without internal words", () => {
+    const v = approvalView(
+      {
+        kind: "approval-record-pending",
+        operation: "op",
+        reason: "the control Resource C is not open here",
+      },
+      "LFCP Bridge",
+      names,
+    );
+    expect(v).toEqual({
+      kind: "finish",
+      operation: "op",
+      message: expect.stringContaining('"LFCP Bridge" is approved, but adding it is not finished'),
+    });
+    expect(v.message).not.toMatch(/control Resource|approval record|\bC\b/);
   });
 });

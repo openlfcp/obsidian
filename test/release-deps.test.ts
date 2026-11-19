@@ -1,5 +1,5 @@
 // A tag release is built from npm only (release.yml): the development pin
-// of the SDK (sdk-ts.lock, link: dependencies) refuses it.
+// of the SDK (sdk-ts.lock, file: tarballs or link: dependencies) refuses it.
 
 import { describe, expect, it } from "vitest";
 import { releaseDepsProblems } from "../scripts/check-release-deps.mjs";
@@ -11,6 +11,18 @@ const npm = {
 describe("release dependencies", () => {
   it("accept exact npm versions of the SDK", () => {
     expect(releaseDepsProblems({ pkg: npm, sdkLock: false })).toEqual([]);
+  });
+
+  it("refuse the tarballs of an sdk-ts commit", () => {
+    expect(
+      releaseDepsProblems({
+        pkg: { dependencies: { "@openlfcp/core": "file:vendor/sdk-ts/openlfcp-core-0.6.0.tgz" } },
+        sdkLock: true,
+      }),
+    ).toEqual([
+      "sdk-ts.lock is present: the SDK is pinned to a commit, not npm",
+      '@openlfcp/core is "file:vendor/sdk-ts/openlfcp-core-0.6.0.tgz", not an exact npm version',
+    ]);
   });
 
   it("refuse the development pin: sdk-ts.lock, link: or a range", () => {
