@@ -56,7 +56,12 @@ export type RepairItem =
   /** Something to locate and edit by hand: what, where. */
   | { readonly kind: "locate"; readonly line: number; readonly message: string };
 
+/** PB-10: what a Task right below a section's end marker is told (SECTION_TASK_BELOW_END). */
+export const TASK_BELOW_END =
+  "This task is right below a shared section, not in it: it does not sync. Move it into the section to share it.";
+
 const MESSAGES: Partial<Record<SectionDiagnostic["code"], string>> = {
+  SECTION_TASK_BELOW_END: TASK_BELOW_END,
   SECTION_BOUNDARY_MISMATCH:
     "Section boundary needs repair: this end marker names another section. Your text is kept locally.",
   SECTION_BOUNDARY_OVERLAP:

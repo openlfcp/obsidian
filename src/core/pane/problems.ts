@@ -24,7 +24,7 @@ import type { ProblemTarget } from "../actions/dispatcher";
 import { IDENTITY_BLOCKED } from "../lfcp/identity-barrier";
 import { sectionKey } from "../sections/context";
 import type { RecoveryItem } from "../sections/recovery";
-import { type KeyedRepair, restoreText } from "../sections/repair";
+import { type KeyedRepair, restoreText, TASK_BELOW_END } from "../sections/repair";
 import { type HeldCause, type HeldEdits, heldCauseText } from "../status/held";
 import type { Condition, StatusView } from "../status/reducer";
 
@@ -129,11 +129,12 @@ function repairText(k: KeyedRepair): { text: string; category: ProblemCategory }
     return { text: "A shared section has a start marker and no end.", category: "boundary" };
   if (item.kind === "missing-start")
     return { text: "A shared section's end marker has no start.", category: "boundary" };
-  const category: ProblemCategory = item.message.startsWith("Section boundary")
-    ? "boundary"
-    : item.message.startsWith("This content")
-      ? "unsupported"
-      : "binding";
+  const category: ProblemCategory =
+    item.message.startsWith("Section boundary") || item.message === TASK_BELOW_END
+      ? "boundary"
+      : item.message.startsWith("This content")
+        ? "unsupported"
+        : "binding";
   return { text: item.message, category };
 }
 
