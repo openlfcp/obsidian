@@ -86,6 +86,7 @@ import {
 } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
+import { BridgeConnect } from "./connect";
 import { type DeviceRow, deviceRows } from "./device-list";
 import { identityDocument } from "./document";
 import { type IdentityFlows, SDK_IDENTITY_FLOWS } from "./flows";
@@ -1742,25 +1743,8 @@ export class DeviceService {
    */
   async startSession(label: string): Promise<SessionView> {
     const flow = this.#flow();
-    if ((await this.identity()) === undefined) {
-      const url = this.#o.defaultServer().trim();
-      if (url === "")
-        return {
-          kind: "stop",
-          message: "Set a default server in Settings first: your device list is kept there.",
-        };
-      const created = createView(
-        await this.#flows.createIdentityResource({
-          ...flow,
-          url,
-          label,
-          platform: this.#o.platform,
-          roster: await this.#roster(),
-          addedAt: rfc3339(flow.now()),
-        }),
-      );
-      if (created.kind === "stop") return created;
-    }
+    const stop = await this.#ensureIdentity(label);
+    if (stop !== null) return stop;
     const open = (await this.#flows.openPairingSessions(flow))[0];
     try {
       return sessionView(
@@ -1771,6 +1755,46 @@ export class DeviceService {
     } catch (e) {
       return this.#thrown(e);
     }
+  }
+
+  /** §5.1: the device list, created on its first use; a stop when it cannot be. */
+  async #ensureIdentity(label: string): Promise<Stop | null> {
+    if ((await this.identity()) !== undefined) return null;
+    const flow = this.#flow();
+    const url = this.#o.defaultServer().trim();
+    if (url === "")
+      return {
+        kind: "stop",
+        message: "Set a default server in Settings first: your device list is kept there.",
+      };
+    const created = createView(
+      await this.#flows.createIdentityResource({
+        ...flow,
+        url,
+        label,
+        platform: this.#o.platform,
+        roster: await this.#roster(),
+        addedAt: rfc3339(flow.now()),
+      }),
+    );
+    return created.kind === "stop" ? created : null;
+  }
+
+  #connector: BridgeConnect | null = null;
+
+  /** "Connect Apple Reminders" (MVP 0.6 A§4.1, E-022d): this device's one attempt at a time. */
+  connector(label = "Obsidian"): BridgeConnect {
+    this.#connector ??= new BridgeConnect({
+      flows: this.#flows,
+      flow: () => this.#flow(),
+      runtime: () => this.#runtime(),
+      defaultServer: () => this.#o.defaultServer(),
+      identity: () => this.identity(),
+      ensureIdentity: async () => (await this.#ensureIdentity(label))?.message ?? null,
+      approve: (review, C, origin) => this.approve(review, "service", [C], { resource: C, origin }),
+      finishApproval: (operation, l) => this.finishApproval(operation, l),
+    });
+    return this.#connector;
   }
 
   /**

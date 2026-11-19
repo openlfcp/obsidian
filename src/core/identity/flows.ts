@@ -14,6 +14,7 @@ import {
   createIdentityResource,
   createPairingSession,
   createResourceAsDevice,
+  createServiceControl,
   fetchDeks,
   hintAnswered,
   keyHints,
@@ -76,6 +77,8 @@ export interface IdentityFlows {
   readonly fetchDeks: typeof fetchDeks;
   readonly loadIdentityDocument: typeof loadIdentityDocument;
   readonly connectionNetwork: typeof connectionNetwork;
+  /** A control Resource C of a service (SERVICE-CONTROL-PROFILE-01 §1, E-022d). */
+  readonly createServiceControl: typeof createServiceControl;
 }
 
 export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
@@ -110,4 +113,5 @@ export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   fetchDeks,
   loadIdentityDocument,
   connectionNetwork,
+  createServiceControl,
 });
