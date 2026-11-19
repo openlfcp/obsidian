@@ -24,11 +24,14 @@ import {
   type ResourceRefusal,
   type RevokeAccessResult,
   type Receipt as SectionReceipt,
+  type ServiceControlPort,
   type SnapshotBinding,
   type StatusSnapshot,
   SyncClient,
   type SyncEvent,
   saveControlChain,
+  serviceControlPort,
+  serviceControlSignerFacts,
   startSyncDriver,
   type WebSocketFactory,
   type WriteAccess,
@@ -69,6 +72,10 @@ import {
   SharedSectionsDataProfile,
 } from "@openlfcp/shared-objects/sections";
 import {
+  ServiceControlDataProfile,
+  serviceControlSignerClass,
+} from "@openlfcp/shared-objects/service-control";
+import {
   dekSecretRef,
   deleteUnsentResource,
   type LfcpStorage,
@@ -76,7 +83,7 @@ import {
   principalKeySecretRef,
   type SecretStore,
 } from "@openlfcp/storage";
-import { signControlRecord, validateControlChain } from "@openlfcp/wire";
+import { type ControlState, signControlRecord, validateControlChain } from "@openlfcp/wire";
 import { type BlockedPerson, blockedByPerson, type People, peopleOf } from "../identity/people";
 import type { DiscardResult } from "../sections/create";
 import { historyRows } from "./history";
@@ -457,6 +464,19 @@ export class LfcpRuntime {
   readonly #pool = new Map<string, Pooled>();
   readonly #opened = new Map<string, Opened>();
   readonly #sections = new Map<string, OpenedSection>();
+  /**
+   * Control Resources C (SERVICE-CONTROL-PROFILE-01) open for the §7.4
+   * registration gate only, by Resource (hex): read, never written here,
+   * and kept out of the registry (no section, no status, no key change).
+   */
+  readonly #controls = new Map<
+    string,
+    {
+      readonly port: ServiceControlPort;
+      readonly url: string;
+      readonly binding: Parameters<SyncClient["open"]>[0];
+    }
+  >();
   /** Section opens under way, by Resource (hex): one at a time per Resource. */
   readonly #sectionOpening = new Map<string, Promise<OpenedSection>>();
   /** Section Resources being made under a chosen ID (LFCP-03-058): a second call joins the first. */
@@ -1637,6 +1657,73 @@ export class LfcpRuntime {
     return this.#sections.get(toHex(resource))?.profile;
   }
 
+  /**
+   * Opens a control Resource C of the person's roster on its coordinator
+   * `url`, to read it (SERVICE-CONTROL-PROFILE-01 §7.4: the registration
+   * gate of reconcileDevices and resendKeys). Its chain and keys must be
+   * stored already (the identity flows' syncChain and fetchDeks); false
+   * when its chain is not here. Opening again is a no-op.
+   */
+  openControl(resource: ResourceId, url: string): Promise<boolean> {
+    return this.#engine(async () => {
+      const key = toHex(resource);
+      if (this.#controls.has(key)) return true;
+      const { storage, secrets } = this.#ready();
+      const chain = await loadControlChain(storage, resource);
+      const genesis = chain?.kind === "linear" ? chain.records[0]?.body : undefined;
+      if (genesis?.type !== "GENESIS") return false;
+      const profile = new ServiceControlDataProfile({
+        resource,
+        root: genesis.owner.principalId,
+        // §2.2: the device of Genesis field 5 when one signed it, else the owner.
+        genesisSigner:
+          genesis.deviceChain?.leaf.payload.device.principalId ?? genesis.owner.principalId,
+        // §2.3 at the unit's control_ref; a unit without it is of class `other`.
+        signerClassOf: (u) =>
+          u.control === undefined
+            ? "other"
+            : serviceControlSignerClass(
+                serviceControlSignerFacts(u.control as ControlState, u.actor),
+              ),
+      });
+      const applier = new DataUnitApplier({
+        storage,
+        dek: dekResolver(storage, secrets, resource),
+        handlers: [
+          {
+            dataProfile: profile.dataProfile,
+            codecFor: (u) => profile.codecFor(u),
+            apply: (u, v) => profile.apply(u, v as never),
+            exclude: (ids) => profile.exclude(ids),
+            has: (id) => profile.has(id),
+            reset: () => profile.reset(),
+          },
+        ],
+      });
+      // No commit binding: this part only reads C. Its units are replayed, never a Snapshot (§2.2).
+      const binding = {
+        resourceId: resource,
+        applier,
+        snapshot: profile.snapshotBinding() as SnapshotBinding<unknown>,
+      };
+      const client = this.#session(url).client;
+      client.open(binding);
+      const port = serviceControlPort({
+        client,
+        profile,
+        resource,
+        synchronised: () => client.resourceState(resource) === "LIVE",
+      });
+      this.#controls.set(key, { port, url, binding });
+      return true;
+    });
+  }
+
+  /** This device's view of an open control Resource C (§7.4), or undefined when not open here. */
+  controlPort(resource: ResourceId): ServiceControlPort | undefined {
+    return this.#controls.get(toHex(resource))?.port;
+  }
+
   /** Commits a batch on a shared-sections Resource through its session (§3.1): a durable receipt. */
   commitSection(
     resource: ResourceId,
@@ -2076,8 +2163,9 @@ export class LfcpRuntime {
     const key = toHex(resource);
     const section = this.#sections.get(key);
     const opened = this.#opened.get(key);
-    const url = section?.url ?? opened?.url ?? null;
-    const binding = section?.binding ?? opened?.binding;
+    const control = this.#controls.get(key);
+    const url = section?.url ?? opened?.url ?? control?.url ?? null;
+    const binding = section?.binding ?? opened?.binding ?? control?.binding;
     if (url === null || binding === undefined || this.#stopped) return;
     const client = this.#session(url).client;
     client.close(resource);
@@ -2202,6 +2290,7 @@ export class LfcpRuntime {
       );
     this.#opened.clear();
     this.#sections.clear();
+    this.#controls.clear();
     this.#install.storage?.close();
     this.#lock?.release();
     this.#lock = null;
