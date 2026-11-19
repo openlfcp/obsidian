@@ -13,6 +13,22 @@ describe("release dependencies", () => {
     expect(releaseDepsProblems({ pkg: npm, sdkLock: false })).toEqual([]);
   });
 
+  it("refuse an SDK override or a non-exact SDK devDependency left behind", () => {
+    expect(
+      releaseDepsProblems({
+        pkg: {
+          dependencies: { "@openlfcp/core": "0.7.0" },
+          devDependencies: { "@openlfcp/storage-node": "file:vendor/sdk-ts/x.tgz" },
+          pnpm: { overrides: { "@openlfcp/core": "file:vendor/sdk-ts/openlfcp-core-0.6.0.tgz" } },
+        },
+        sdkLock: false,
+      }),
+    ).toEqual([
+      '@openlfcp/storage-node is "file:vendor/sdk-ts/x.tgz", not an exact npm version',
+      'pnpm.overrides sends @openlfcp/core to "file:vendor/sdk-ts/openlfcp-core-0.6.0.tgz"',
+    ]);
+  });
+
   it("refuse the tarballs of an sdk-ts commit", () => {
     expect(
       releaseDepsProblems({

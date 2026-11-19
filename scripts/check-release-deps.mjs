@@ -16,9 +16,13 @@ import { pathToFileURL } from "node:url";
 export function releaseDepsProblems({ pkg, sdkLock }) {
   const problems = [];
   if (sdkLock) problems.push("sdk-ts.lock is present: the SDK is pinned to a commit, not npm");
-  for (const [name, version] of Object.entries(pkg.dependencies ?? {}))
-    if (name.startsWith("@openlfcp/") && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version))
-      problems.push(`${name} is "${version}", not an exact npm version`);
+  for (const field of ["dependencies", "devDependencies"])
+    for (const [name, version] of Object.entries(pkg[field] ?? {}))
+      if (name.startsWith("@openlfcp/") && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version))
+        problems.push(`${name} is "${version}", not an exact npm version`);
+  // An override would send the SDK elsewhere whatever the dependencies say.
+  for (const [name, target] of Object.entries(pkg.pnpm?.overrides ?? {}))
+    if (name.includes("@openlfcp/")) problems.push(`pnpm.overrides sends ${name} to "${target}"`);
   return problems;
 }
 
