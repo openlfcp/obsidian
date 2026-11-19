@@ -17,7 +17,7 @@ import {
   type SectionRef,
 } from "../../../src/core/sections/grammar";
 import type { RecoveryItem } from "../../../src/core/sections/recovery";
-import { keyedRepairs } from "../../../src/core/sections/repair";
+import { keyedRepairs, TASK_BELOW_END } from "../../../src/core/sections/repair";
 import type { TargetCapture } from "../../../src/core/sections/target";
 import type { HeldEdits } from "../../../src/core/status/held";
 import { type StatusFacts, type StatusView, statusView } from "../../../src/core/status/reducer";
@@ -181,6 +181,34 @@ describe("problem hub rows (LFCP-03-018)", () => {
       action: "go-to-problem",
       ref: { kind: "repair", path: "Plan.md", line: 4, revision: contentHash(HEADING_INSIDE) },
     });
+  });
+
+  it("PB-10: a task right below a section's end marker: a boundary row, to its line", () => {
+    const text = [
+      "# Plan",
+      "## Launch",
+      formatBoundary("start", S),
+      formatBoundary("end", S),
+      "- [ ] Buy milk",
+      "",
+    ].join("\n");
+    const rows = paneProblems({ view: null, recovery: [], repairs: repairsOf("Plan.md", text) });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      category: "boundary",
+      text: TASK_BELOW_END,
+      source: "Plan.md, line 5",
+      action: "go-to-problem",
+      ref: { kind: "repair", path: "Plan.md", line: 4, revision: contentHash(text) },
+    });
+    // Moved into the section: the row is gone.
+    const moved = text.replace(
+      `${formatBoundary("end", S)}\n- [ ] Buy milk`,
+      `- [ ] Buy milk\n${formatBoundary("end", S)}`,
+    );
+    expect(
+      paneProblems({ view: null, recovery: [], repairs: repairsOf("Plan.md", moved) }),
+    ).toEqual([]);
   });
 
   it("held edits in another note: the count, the cause and the source, to their resolver", () => {

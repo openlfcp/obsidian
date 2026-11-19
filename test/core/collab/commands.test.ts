@@ -13,6 +13,7 @@ import {
   type Prompter,
 } from "../../../src/core/collab/commands";
 import { INVITE_PRESETS } from "../../../src/core/collab/presets";
+import { SERVICE_CONTROL_PROFILE_ID } from "../../../src/core/collab/profiles";
 import { PROJECT_SERVER_HINT } from "../../../src/core/collab/server-notice";
 import { Collaboration, type ResourceStatus } from "../../../src/core/collab/service";
 import { LfcpRuntime, NEEDS_NEWER_VERSION } from "../../../src/core/lfcp/runtime";
@@ -525,6 +526,45 @@ describe("LFCP-065 commands", () => {
     await s.commands.inviteCollaborator();
     expect(s.prompter.offered[0]).toHaveLength(1);
     expect(s.prompter.offered[0]?.[0]).toContain("Task collaboration · ");
+  });
+
+  it("E-020: a Resource of another profile is never listed as a collaboration or a section", async () => {
+    const s = await setup("child-line", true);
+    // A service device's control Resource (C), a newer section, an unknown profile.
+    await storeForeign(s.runtime, SERVICE_CONTROL_PROFILE_ID, "Reminders bridge · MacBook Air");
+    await storeForeign(s.runtime, "org.openlfcp.shared-sections.v2", "Newer section");
+    await storeForeign(s.runtime, "org.example.board.v1", "Board");
+    expect(await s.runtime.registry()).toHaveLength(3);
+    s.notes.files.set("n.md", "- [ ] Prepare contract\n");
+    s.notes.open("n.md", 0);
+    // Only those: every picker says nothing is shared, no dialog opens.
+    await s.commands.resourceStatus();
+    await s.commands.insertSharedObject();
+    await s.commands.inviteCollaborator();
+    expect(s.prompter.asked).toEqual([]);
+    expect(s.prompter.notices).toEqual([
+      expect.stringContaining("nothing is shared on this device yet"),
+      expect.stringContaining("nothing is shared on this device yet"),
+      expect.stringContaining("there is no task collaboration on this device"),
+    ]);
+    // With a collaboration and a section: those two rows, and only them.
+    await created(s);
+    await s.runtime.createSectionResource({
+      name: "Launch",
+      endpoints: [SERVER],
+      coordinatorUrl: SERVER,
+    });
+    s.prompter.picks.push("Team");
+    await s.commands.resourceStatus();
+    const rows = s.prompter.offered.at(-1) ?? [];
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((d) => d.startsWith("Task collaboration · "))).toHaveLength(1);
+    expect(rows.filter((d) => d.startsWith("Section · "))).toHaveLength(1);
+    for (const name of ["Reminders bridge · MacBook Air", "Newer section", "Board"]) {
+      s.prompter.picks.push(name);
+      await s.commands.resourceStatus();
+      expect(s.prompter.notices.at(-1)).toContain(`no choice "${name}"`);
+    }
   });
 
   it("Conflict hook: picks a field and a value and resolves; nothing else resolves", async () => {

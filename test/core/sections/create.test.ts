@@ -196,6 +196,32 @@ describe("creating a shared section", () => {
     ]);
   });
 
+  it("PB-10: an empty section has an empty line inside its markers, and a task typed there is in it", async () => {
+    for (const [note, tail] of [
+      ["## Launch\n\n## Other\nPrivate.\n", "\n## Other\nPrivate.\n"],
+      ["Intro.\n\n## Launch", ""],
+    ] as const) {
+      const env = await setup(note);
+      const creation = new SectionCreation(env.deps);
+      const entry = await creation.prepare("Launch.md", note, env.preview());
+      expect((await creation.run(entry)).kind).toBe("hosted");
+      const ref = { resourceId: fromBase64url(entry.resource), sectionId: entry.sectionId };
+      const md = env.files.get("Launch.md") as string;
+      const head = note.slice(0, note.indexOf("## Launch"));
+      expect(md).toBe(
+        `${head}## Launch\n${formatBoundary("start", ref)}\n\n${formatBoundary("end", ref)}\n${tail}`,
+      );
+      const section = parseSections(md).sections[0];
+      expect(section?.nodes).toEqual([]);
+      expect(section?.endLine).toBe((section?.startLine ?? 0) + 2);
+      // Typed on the line under the heading's marker: inside the section.
+      const lines = md.split("\n");
+      lines[(section?.startLine ?? 0) + 1] = "- [ ] Buy milk";
+      const typed = parseSections(lines.join("\n")).sections[0];
+      expect(typed?.nodes.map((n) => n.kind)).toEqual(["task"]);
+    }
+  });
+
   it("hands over the bound note before hosting starts (LFCP-03-061: the placement index learns it at the write)", async () => {
     const env = await setup();
     const order: string[] = [];

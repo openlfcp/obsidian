@@ -227,10 +227,18 @@ function withBoundaries(markdown: string, preview: SharePreview, ref: SectionRef
     const c = after(n);
     return { ...c, insert: `${c.insert}${formatBoundary(kind, ref)}${eol}` };
   };
-  const changes = [
-    boundary(preview.range.headingLine, "start"),
-    boundary(preview.range.lastLine, "end"),
-  ];
+  // PB-10: an empty section gets an empty line inside its markers. Live
+  // Preview hides them, and the line under the heading is then the section's
+  // own: a task typed there is in it, not below its end.
+  const empty = (): DocChange => {
+    const c = after(preview.range.headingLine);
+    const inside = `${formatBoundary("start", ref)}${eol}${eol}${formatBoundary("end", ref)}${eol}`;
+    return { ...c, insert: `${c.insert}${inside}` };
+  };
+  const changes =
+    preview.range.lastLine === preview.range.headingLine
+      ? [empty()]
+      : [boundary(preview.range.headingLine, "start"), boundary(preview.range.lastLine, "end")];
   const text = applyChanges(markdown, changes);
   const section = parseSections(text).sections.find((s) => s.ref.sectionId === ref.sectionId);
   return { changes, text, section };

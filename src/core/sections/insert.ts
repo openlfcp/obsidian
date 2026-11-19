@@ -400,5 +400,8 @@ export function renderSection(
   );
   if (state.unbound.length > 0 || Object.keys(state.state.nodes).length !== visible.length)
     return null;
-  return block;
+  // PB-10: an empty section with an empty line inside its markers, as one is created.
+  return visible.length === 0
+    ? `${"#".repeat(level)} ${snap.title}\n${formatBoundary("start", ref)}\n\n${formatBoundary("end", ref)}\n`
+    : block;
 }

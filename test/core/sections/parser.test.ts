@@ -148,6 +148,30 @@ describe("boundaries (M4, fail closed)", () => {
       { code: "SECTION_PRIVATE_TAIL", severity: "info", line: 5 },
     ]);
   });
+
+  it("PB-10: a Task right below the end marker is warned about; with a line between, it is private", () => {
+    const below = lines("## Shared", start, "- [ ] One", end, "- [ ] Buy milk", "## Next", "y");
+    const scan = parseSections(below);
+    expect(scan.sections[0]?.nodes.map((n) => n.kind)).toEqual(["task"]);
+    expect(scan.diagnostics).toEqual([
+      { code: "SECTION_PRIVATE_TAIL", severity: "info", line: 4 },
+      { code: "SECTION_TASK_BELOW_END", severity: "warning", line: 4 },
+    ]);
+    // The empty section as 0.7 made it: the markers adjacent, the Task below.
+    const empty = parseSections(lines("## Shared", start, end, "  - [x] Buy milk"));
+    expect(empty.sections[0]?.nodes).toEqual([]);
+    expect(empty.diagnostics.map((d) => d.code)).toContain("SECTION_TASK_BELOW_END");
+    // Not a Task, a Task after a blank line, or a Task in a fence: no warning.
+    for (const after of [
+      ["Private text."],
+      ["", "- [ ] Private"],
+      ["```", "- [ ] code", "```"],
+      ["## Next", "- [ ] Other"],
+    ])
+      expect(
+        parseSections(lines("## Shared", start, end, ...after)).diagnostics.map((d) => d.code),
+      ).not.toContain("SECTION_TASK_BELOW_END");
+  });
 });
 
 describe("nodes", () => {

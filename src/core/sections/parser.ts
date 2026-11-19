@@ -46,6 +46,11 @@ export type SectionDiagnosticCode =
   | "SECTION_UNSUPPORTED_SYNTAX"
   /** Private text after the end marker, under the section's heading (H5): shown, folded and dragged with it. */
   | "SECTION_PRIVATE_TAIL"
+  /**
+   * A Task right below the end marker (PB-10): Live Preview hides the
+   * markers, so it was likely meant for the section, but it is not in it.
+   */
+  | "SECTION_TASK_BELOW_END"
   | "NODE_MARKER_MALFORMED"
   /** A node marker with nothing to bind (no item above, no block below). */
   | "NODE_BINDING_ORPHAN"
@@ -288,8 +293,10 @@ export function parseSections(markdown: string): SectionScan {
       localBlocks: body.localBlocks,
     } satisfies ParsedSection;
   });
-  for (const s of sections)
+  for (const s of sections) {
     if (s.privateTail !== null) note("SECTION_PRIVATE_TAIL", s.privateTail.from);
+    if (kinds[s.endLine + 1] === "task") note("SECTION_TASK_BELOW_END", s.endLine + 1);
+  }
   return {
     sections,
     claimed: mergeRanges(claimed),
