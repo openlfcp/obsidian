@@ -1579,6 +1579,22 @@ export class SectionEngine {
         base = { ...base, nodes };
       }
     }
+    // 7. PB-10: a section this pass leaves empty (its last node deleted here
+    //    or by a collaborator) keeps an empty line inside its markers, as a
+    //    new one has: Live Preview hides them, and a task typed under the
+    //    heading belongs in the section. Only on that transition (the stored
+    //    base had nodes): an empty section stays as the user leaves it.
+    if (Object.keys(stored.state.nodes).length > 0) {
+      const emptied = applyChanges(source, changes);
+      const sectionE = sectionLike(emptied, ref, section0);
+      if (sectionE !== undefined && sectionE.endLine === sectionE.startLine + 1) {
+        const linesE = splitLines(emptied);
+        const at = lineStarts(linesE)[sectionE.endLine] ?? emptied.length;
+        const eol = linesE[sectionE.startLine]?.eol || "\n";
+        const all = composeChanges(changes, [{ from: at, to: at, insert: eol }]);
+        if (all !== null) changes = all;
+      }
+    }
     // The note as written, against the model it was projected from: a node
     // the model has elsewhere is a divergence the badge must show, unless its
     // placement waits for the user's edit or a frozen section.

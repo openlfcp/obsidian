@@ -248,6 +248,56 @@ describe("remote changes", () => {
   });
 });
 
+describe("PB-10: a section left empty keeps an empty line inside its markers", () => {
+  const ONE = [formatNodeMarker("paragraph", P), "Draft"];
+  const EMPTY = note([""]);
+  const typedInto = (md: string) =>
+    md.replace(
+      `${formatBoundary("start", S)}\n\n`,
+      `${formatBoundary("start", S)}\n- [ ] Buy milk\n`,
+    );
+
+  it("the user deletes the last node: the line comes back once, and a second pass leaves the note", async () => {
+    const h = await seeded(note(ONE));
+    const { out } = await h.run(note([]), { ...CTX, deletedIds: new Set([P]) });
+    expect(h.port.changes[0]?.intents).toEqual([{ intent: "node.delete", id: P }]);
+    expect(out).toBe(EMPTY);
+    const again = await h.run(out);
+    expect(again.pass.changes).toEqual([]);
+    expect(h.port.changes).toHaveLength(1);
+    // The user removes the line too: an empty section stays as they leave it.
+    const bare = await h.run(note([]));
+    expect(bare.pass.changes).toEqual([]);
+    // A task typed on the line is the section's, and goes out.
+    const typed = await h.run(typedInto(EMPTY));
+    expect(parseSections(typed.out).sections[0]?.nodes.map((n) => n.kind)).toEqual(["task"]);
+    expect(h.port.changes.at(-1)?.intents).toMatchObject([{ intent: "task.create_in_section" }]);
+  });
+
+  it("a collaborator deletes the last node: the line stays, and a second pass leaves the note", async () => {
+    const h = await seeded(note(ONE));
+    h.port.remote(R, (s) => {
+      const was = s.state.nodes[P];
+      if (was === undefined) throw new Error("no node");
+      s.deleted.set(P, was);
+      s.state = { ...s.state, nodes: {}, order: { ...s.state.order, [SID]: [] } };
+    });
+    const { out } = await h.run(note(ONE));
+    expect(out).toBe(EMPTY);
+    expect(h.port.changes).toEqual([]);
+    const again = await h.run(out);
+    expect(again.pass.changes).toEqual([]);
+    expect(parseSections(typedInto(out)).sections[0]?.nodes.map((n) => n.kind)).toEqual(["task"]);
+  });
+
+  it("a section that still has a node is not touched", async () => {
+    const h = await seeded();
+    await h.run(note(BODY.slice(0, 2)), { ...CTX, deletedIds: new Set([Q]) });
+    const again = await h.run(note(BODY.slice(0, 2)));
+    expect(again.out).toBe(note(BODY.slice(0, 2)));
+  });
+});
+
 describe("a crash between the commit and the bindings", () => {
   it("projects the IDs already allocated on the next pass: one Task, never two", async () => {
     const h = await seeded();
