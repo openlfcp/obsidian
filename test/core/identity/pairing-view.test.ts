@@ -7,12 +7,15 @@ import {
   approvalView,
   BRIDGE_RUNBOOK_URL,
   defaultPreset,
+  deferredText,
   type Names,
   progressView,
   reviewView,
   revokeView,
   SESSION_NO_DEVICE_SUPPORT,
   sessionView,
+  upkeepIssues,
+  upkeepText,
 } from "../../../src/core/identity/pairing-view";
 
 const names: Names = { resource: () => "Plans", device: (hex) => hex.slice(0, 4) };
@@ -170,5 +173,81 @@ describe("an approval waiting for its record in C (SERVICE-CONTROL-PROFILE-01 §
       message: expect.stringContaining('"LFCP Bridge" is approved, but adding it is not finished'),
     });
     expect(v.message).not.toMatch(/control Resource|approval record|\bC\b/);
+  });
+});
+
+describe("a registration the §7.4 gate deferred (SERVICE-CONTROL-PROFILE-01, svc-1 R5)", () => {
+  const C = "c".repeat(64);
+  const X = "a".repeat(64);
+  const D = "d".repeat(64);
+  const named: Names = {
+    resource: (hex) => (hex === C ? "Reminders bridge · MacBook Air" : "Plans"),
+    device: () => "MacBook Air",
+  };
+  const notSynced = `the control Resource ${C} is not synchronised`;
+  const noApproval = `the control Resource ${C} names it and holds no approval for it yet`;
+  const unacked = `the control Resource ${C} names it and its approval for it is not accepted by the server yet`;
+
+  it("says each reason in plain words, naming C by its roster name", () => {
+    expect(deferredText(notSynced, "MacBook Air", '"Plans"', named)).toBe(
+      '"MacBook Air" is not added to "Plans" yet: it waits until "Reminders bridge · MacBook Air" is up to date on this device.',
+    );
+    for (const reason of [noApproval, unacked])
+      expect(deferredText(reason, "MacBook Air", '"Plans"', named)).toBe(
+        '"MacBook Air" is not added to "Plans" yet: it waits until its connection is confirmed in "Reminders bridge · MacBook Air".',
+      );
+    // Without names, no identifier is shown.
+    expect(deferredText(notSynced, "MacBook Air", '"Plans"')).toBe(
+      '"MacBook Air" is not added to "Plans" yet: it waits until your Reminders bridge is up to date on this device.',
+    );
+    // A reason this version does not know is kept, not dropped (I14).
+    expect(deferredText("something new", "MacBook Air", '"Plans"', named)).toBe(
+      '"MacBook Air" is not added to "Plans" yet: something new.',
+    );
+  });
+
+  it("is an upkeep issue and a line of the upkeep's text; never 'up to date'", () => {
+    const resource = generateResourceId();
+    const issues = upkeepIssues(
+      [
+        {
+          resource,
+          status: "partial",
+          steps: [],
+          deferred: [{ device: Uint8Array.from(Buffer.from(D, "hex")), reason: notSynced }],
+        },
+      ],
+      { state: "complete" } as never,
+      X,
+    );
+    expect(issues).toEqual([
+      { resource: toHex(resource), kind: "deferred", device: D, detail: notSynced },
+    ]);
+    const text = upkeepText({ reconciled: true, rotations: [], issues }, named);
+    expect(text).toBe(
+      '"MacBook Air" is not added to "Plans" yet: it waits until "Reminders bridge · MacBook Air" is up to date on this device.',
+    );
+    expect(text).not.toContain("up to date in every section");
+  });
+
+  it("names every section a device waits in once per reason", () => {
+    const other = {
+      ...named,
+      resource: (hex: string) => (hex === C ? "Bridge" : hex === X ? "Plans" : "Home"),
+    };
+    const text = upkeepText(
+      {
+        reconciled: true,
+        rotations: [],
+        issues: [
+          { resource: X, kind: "deferred", device: D, detail: notSynced },
+          { resource: "b".repeat(64), kind: "deferred", device: D, detail: notSynced },
+        ],
+      },
+      other,
+    );
+    expect(text).toBe(
+      '"MacBook Air" is not added to "Plans", "Home" yet: it waits until "Bridge" is up to date on this device.',
+    );
   });
 });
