@@ -14,13 +14,14 @@ import {
   controlRevocationTargets,
   createdBy,
   type IdentityFlowOptions,
+  OperationIdReusedError,
   principalOfRef,
   principalRefOf,
   type ServiceControlPort,
   type ServiceControlStateView,
 } from "@openlfcp/client";
 import { fromHex, type PrincipalId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
-import type { ControlState } from "@openlfcp/wire";
+import { type ControlState, revocationOf } from "@openlfcp/wire";
 import type { IdentityFlows } from "./flows";
 import { uuid7 } from "./section-pairing";
 
@@ -309,6 +310,10 @@ export class BridgeRevocations {
     port: ServiceControlPort,
     cause: ControlRevocationCause | { readonly kind: "everything" },
   ): Promise<string | null> {
+    // The journal first: the targets are read from I and C as it leaves them, never a
+    // list from before it finished (arbiter r2: a stale list made a second record).
+    const journaled = await this.#finishJournal(port);
+    if (journaled !== "done") return typeof journaled === "string" ? null : journaled.message;
     const I = await this.#d.identity();
     const state = port.state();
     if (I === null || state === undefined) return null;
@@ -326,11 +331,15 @@ export class BridgeRevocations {
           .targets,
       );
     const order = [...targets].sort((a, b) => Number(isBase(state, a)) - Number(isBase(state, b)));
-    const journaled = await this.#finishJournal(port);
-    if (journaled !== "done") return typeof journaled === "string" ? null : journaled.message;
     const journal = await this.#all<Revocation>(REVOCATIONS_KEY);
     for (const P of order) {
       if (journal[toHex(P)] !== undefined) continue;
+      // Already revoked, in C or in I: never a new record under its `<ref>:revoke` key.
+      if (
+        state.approvals[principalRefOf(P)]?.revoked === true ||
+        revocationOf(I.state, I.root, P) !== undefined
+      )
+        continue;
       const r: Revocation = {
         c: toHex(port.resource),
         ref: principalRefOf(P),
@@ -397,7 +406,17 @@ export class BridgeRevocations {
         [{ intent: "approval.revoke", principal: step.ref, at: step.at }],
         `${step.ref}:revoke`,
       )
-      .catch(() => undefined);
+      .catch((e: unknown) => {
+        // Other intents under this key already (§3.3): said, not repeated for ever.
+        if (e instanceof OperationIdReusedError) return { kind: "reused" as const };
+        return undefined;
+      });
+    if (out?.kind === "reused") {
+      const message =
+        "The record of the bridge's installation was already changed differently on this device (OPERATION_ID_REUSED).";
+      await this.#put(REVOCATIONS_KEY, toHex(P), { ...step, message });
+      return { message };
+    }
     if (out === undefined || out.kind === "queued") return "pending";
     // Done once acknowledged, or refused while C shows the approval revoked already.
     if (out.kind === "rejected" && port.state()?.approvals[step.ref]?.revoked !== true) {

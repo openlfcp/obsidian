@@ -407,3 +407,83 @@ it("r1-6: a kind-1 installation of another root, otherwise approved, is never re
   await revocationsOf(w.a, [w.control]).tick();
   expect(revokedInI(w.I)).toEqual([toHex(idOf(bridge))]);
 });
+
+// Arbiter round after review r2 of obsidian#124.
+
+/** A section X and a base (y's installation standing as the bridge's base) in one C. */
+async function sectionAndBase(w: World) {
+  const x = await connect(w, w.control);
+  const y = await connect(w, w.control, w.Y);
+  const base = w.control.data.approvals[y.ref];
+  if (base === undefined) throw new Error("no approval");
+  base.role = "base";
+  base.resource = toBase64url(w.C);
+  return { x, y };
+}
+
+/** Disconnect anyway with approval.revoke refused: failed, the section revoked in I only. */
+async function refusedOnce(w: World, r: BridgeRevocations, sectionRef: string) {
+  w.control.refuse = { intent: "approval.revoke", code: "NOT_PERMITTED" };
+  await r.start(w.control);
+  expect((await r.anyway(w.control))?.state).toBe("failed");
+  const journal = (await w.a.runtime.localState.get(REVOCATIONS_KEY)) as Record<
+    string,
+    { ref: string; at: string; operation: string }
+  >;
+  const kept = Object.values(journal).find((e) => e.ref === sectionRef);
+  if (kept === undefined) throw new Error("the refused revocation is not journaled");
+  w.control.refuse = undefined;
+  return kept;
+}
+
+const revokeCommits = (control: FakeControl, ref: string) =>
+  control.commits.filter((c) => c.operation === `${ref}:revoke`);
+
+it("r2-1: Try again after a refusal, a minute later: done, section then base, one approval.revoke with its first at", async () => {
+  const w = await setup();
+  const { x, y } = await sectionAndBase(w);
+  const r = revocationsOf(w.a, [w.control]);
+  const kept = await refusedOnce(w, r, x.ref);
+  skew = 60_000;
+  await r.start(w.control); // Try again
+  await r.anyway(w.control);
+  await r.tick();
+  expect((await r.disconnect(toHex(w.C)))?.state).toBe("done");
+  expect(revokedInI(w.I)).toEqual([toHex(idOf(x.bridge)), toHex(idOf(y.bridge))]);
+  expect(w.control.data.approvals[x.ref]?.revoked).toBe(true);
+  expect(w.control.data.approvals[y.ref]?.revoked).toBe(true);
+  expect(await w.a.runtime.localState.get(REVOCATIONS_KEY)).toEqual({});
+  const commits = revokeCommits(w.control, x.ref);
+  expect(commits).toHaveLength(1);
+  expect(commits[0]?.intents).toEqual([
+    { intent: "approval.revoke", principal: x.ref, at: kept.at },
+  ]);
+});
+
+it("r2-1: the same with one section only: done, nothing left in the journal", async () => {
+  const w = await setup();
+  const x = await connect(w, w.control);
+  const r = revocationsOf(w.a, [w.control]);
+  const kept = await refusedOnce(w, r, x.ref);
+  skew = 60_000;
+  await r.start(w.control);
+  await r.anyway(w.control);
+  await r.tick();
+  expect((await r.disconnect(toHex(w.C)))?.state).toBe("done");
+  expect(await w.a.runtime.localState.get(REVOCATIONS_KEY)).toEqual({});
+  expect(revokeCommits(w.control, x.ref).map((c) => c.intents)).toEqual([
+    [{ intent: "approval.revoke", principal: x.ref, at: kept.at }],
+  ]);
+});
+
+it("r2-1: OPERATION_ID_REUSED on approval.revoke is a failure said with its text, not pending for ever", async () => {
+  const w = await setup();
+  const x = await connect(w, w.control);
+  // Another change already kept under this key here (other intents).
+  w.control.receipts.set(`${x.ref}:revoke`, "other intents");
+  const r = revocationsOf(w.a, [w.control]);
+  await r.start(w.control);
+  const d = await r.anyway(w.control);
+  expect(d?.state).toBe("failed");
+  expect(d?.message).toMatch(/OPERATION_ID_REUSED/);
+});
