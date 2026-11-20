@@ -33,7 +33,7 @@ const attempt = (state: AttemptState, extra: Partial<Attempt> = {}): Attempt => 
 });
 
 /** A substituted attempt driver and the adapter's host. */
-function setup(stored?: Attempt) {
+function setup(stored?: Attempt, disconnected?: (c: string) => Promise<boolean>) {
   let current = stored;
   let link: string | null = LINK;
   const connector = {
@@ -77,6 +77,7 @@ function setup(stored?: Attempt) {
       copied.push(text);
     },
     changed,
+    ...(disconnected === undefined ? {} : { disconnected }),
   });
   return {
     reminders,
@@ -181,6 +182,25 @@ describe("RemindersConnect", () => {
     p.set(undefined);
     await p.reminders.callback({ event: "app-ready" });
     expect(p.opened).toEqual([]);
+  });
+
+  it("r1-2: after Disconnect the connected attempt offers Connect again, after a restart too", async () => {
+    const done = new Set<string>();
+    const p = setup(attempt("ready"), async (c) => done.has(c));
+    await p.reminders.tick();
+    expect(p.reminders.view().actions).toEqual(["disconnect"]);
+    done.add(attempt("ready").c);
+    await p.reminders.tick();
+    expect(p.reminders.view().actions).toEqual(["connect"]);
+    // A restart: the same journaled attempt, the Disconnect journaled as done.
+    const again = setup(attempt("ready"), async (c) => done.has(c));
+    await again.reminders.tick();
+    expect(again.reminders.view().actions).toEqual(["connect"]);
+    expect(again.reminders.hasAttempt()).toBe(true);
+    // Connect again: a new attempt, its own C; its link opened.
+    await again.reminders.connect();
+    expect(again.reminders.view().state).toBe("waiting-app");
+    expect(again.opened).toEqual([LINK]);
   });
 
   it("a clipboard that refuses: a notice, no success and no rejection, the link not shown", async () => {

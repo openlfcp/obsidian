@@ -1491,6 +1491,11 @@ export default class OpenLfcpPlugin extends Plugin {
     open: (url) => window.open(url),
     copy: (text) => navigator.clipboard.writeText(text),
     changed: () => this.#settingTab?.update(),
+    // E-024: the connected bridge disconnected here since (its Disconnect journaled as done).
+    disconnected: async (c) => {
+      const service = this.runtime?.status.kind === "ready" ? this.deviceService() : null;
+      return (await service?.bridgeRevocations().disconnect(c))?.state === "done";
+    },
   });
 
   /** The attempt's first step at once when ready (after a restart too), then every few seconds. */
