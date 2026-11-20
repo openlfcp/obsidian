@@ -269,6 +269,13 @@ export class BridgeRevocations {
           next = { ...d, state: "silent" };
       }
     }
+    // Neither C nor I read here yet: the revocations wait, never "done" without them.
+    if (next.state === "revoking" && port.state() === undefined) {
+      if (next !== d) await this.#put(DISCONNECTS_KEY, d.c, next);
+      return next;
+    }
+    if (next.state === "revoking" && (await this.#d.identity()) === null)
+      next = { ...next, state: "failed", message: NOT_MANAGING };
     if (next.state === "revoking") {
       const message = await this.#revokeAll(port, { kind: "everything" });
       const left = Object.values(await this.#all<Revocation>(REVOCATIONS_KEY)).some(
@@ -354,6 +361,9 @@ export class BridgeRevocations {
     return null;
   }
 }
+
+/** Disconnect on a device that may not remove devices (or without a copy of the device list). */
+export const NOT_MANAGING = "Disconnect from a device where you manage devices for your account.";
 
 /** The non-revoked approvals of a state (the cause "Disconnect" names each). */
 const live = (state: ServiceControlStateView): string[] =>

@@ -13,6 +13,7 @@ import {
   BridgeRevocations,
   baseConflict,
   DISCONNECT_WAIT_MS,
+  NOT_MANAGING,
   REVOCATIONS_KEY,
 } from "../../../src/core/identity/bridge-revocation";
 import { SDK_IDENTITY_FLOWS } from "../../../src/core/identity/flows";
@@ -286,4 +287,22 @@ it("an approval.revoke not acknowledged yet is finished on a later tick, with th
   await revocationsOf(w.a, [w.control]).tick();
   expect(w.control.data.approvals[ref]?.revoked).toBe(true);
   expect(revokedInI(w.I)).toEqual([toHex(idOf(bridge))]);
+});
+
+it("Disconnect on a device that may not remove devices fails, never done without revocations", async () => {
+  const w = await setup();
+  const { bridge } = await connect(w, w.control);
+  const r = new BridgeRevocations({
+    flows: SDK_IDENTITY_FLOWS,
+    flow: () => flowOf(w.a),
+    localState: () => w.a.runtime.localState,
+    controls: async () => [w.control],
+    identity: async () => null,
+    client: { app: "Shared Tasks 0.8.0", protocol: 1 },
+  });
+  await r.start(w.control);
+  expect((await r.anyway(w.control))?.state).toBe("failed");
+  expect((await r.disconnect(toHex(w.C)))?.message).toBe(NOT_MANAGING);
+  expect(revokedInI(w.I)).toEqual([]);
+  expect(w.control.data.approvals[principalRefOf(idOf(bridge))]?.revoked).toBe(false);
 });

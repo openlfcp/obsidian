@@ -932,7 +932,8 @@ export class DisconnectBridgeModal extends Modal {
       return;
     }
     const r = this.service.bridgeRevocations();
-    await step(r, port);
+    // Not reached now (C, the server): the journaled step goes on at the plugin's tick.
+    await step(r, port).catch(() => undefined);
     await this.#refresh();
   }
 
