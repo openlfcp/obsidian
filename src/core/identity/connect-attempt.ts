@@ -143,7 +143,9 @@ export type ConnectAction =
   | "yes"
   | "no"
   | "open-devices"
-  | "show-it";
+  | "show-it"
+  /** U П1 "connected": [Disconnect…] (A§6.3, E-024). */
+  | "disconnect";
 
 export interface ConnectView {
   readonly lines: readonly string[];
@@ -200,7 +202,7 @@ export function connectView(
         actions: [],
       };
     case "ready":
-      return { lines: ["Connected."], actions: [] };
+      return { lines: ["Connected."], actions: ["disconnect"] };
     case "rejected":
     case "cancelled":
     case "expired":

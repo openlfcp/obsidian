@@ -79,7 +79,12 @@ import { sectionPresentationExtension, setShowMetadata } from "./section-present
 import { captureEditor, editorMode } from "./section-target";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
-import { AddDeviceModal, DevicesModal, PairThisDeviceModal } from "./ui/devices";
+import {
+  AddDeviceModal,
+  DevicesModal,
+  DisconnectBridgeModal,
+  PairThisDeviceModal,
+} from "./ui/devices";
 import { DiagnosticsModal } from "./ui/diagnostics";
 import { returnsFocus } from "./ui/focus-return";
 import {
@@ -1572,6 +1577,15 @@ export default class OpenLfcpPlugin extends Plugin {
     const service = this.#readyDevices();
     if (service === null) return;
     returnsFocus(new DevicesModal(this.app, service, () => void this.addDevice())).open();
+  }
+
+  /** [Disconnect…] of the bridge connected here (U П1, E-024). */
+  async disconnectBridge(c: string): Promise<void> {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    const bridge = (await service.bridges().catch(() => [])).find((b) => b.c === c);
+    const name = bridge?.name ?? "Reminders bridge";
+    returnsFocus(new DisconnectBridgeModal(this.app, service, c, name, () => undefined)).open();
   }
 
   /** "Pair this device with a link…" (§5.3 steps 2–3, 8, 11). */

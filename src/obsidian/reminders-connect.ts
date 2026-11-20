@@ -62,6 +62,11 @@ export class RemindersConnect {
     };
   }
 
+  /** The control Resource C (hex) of the attempt, for [Disconnect…] once it is connected. */
+  control(): string | undefined {
+    return this.#attempt?.c;
+  }
+
   /** Whether an attempt was made here before ("Connect again" rather than "Connect"). */
   hasAttempt(): boolean {
     return this.#attempt !== undefined;

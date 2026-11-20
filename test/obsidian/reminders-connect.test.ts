@@ -234,7 +234,7 @@ describe("the Apple Reminders section (U П1)", () => {
       ["confirm-code", ["No", "Yes, it matches"]],
       ["committing", []],
       ["registering", []],
-      ["ready", []],
+      ["ready", ["Disconnect…"]],
       ["rejected", ["Connect again"]],
       ["cancelled", ["Connect again"]],
       ["expired", ["Connect again"]],
