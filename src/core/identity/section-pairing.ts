@@ -69,6 +69,12 @@ export interface SectionPairing {
   readonly requested?: boolean;
   /** A cancel to finish (J_X not revoked yet, or `cancels[rid]` not acknowledged): its end state. */
   readonly aborting?: "cancelled" | "expired" | "failed";
+  /**
+   * `cancels[rid]` as first decided, journaled with `aborting`: every repeat commits exactly
+   * these intents under `<rid>:cancel` (SyncClient refuses other intents under a known
+   * operation, OPERATION_ID_REUSED).
+   */
+  readonly cancel?: { readonly reason: "user" | "expired"; readonly at: string };
   /** The approval's operation once consumed (resumed after a restart). */
   readonly approval?: string;
   readonly message?: string;
@@ -536,17 +542,26 @@ export class SectionPairings {
   ): Promise<SectionPairing> {
     // Journaled under the lock with J_X found first: a J_X made but not journaled is revoked too.
     let next =
-      (await this.#locked(p.c, (fresh) => ({
-        ...fresh,
-        aborting: to,
-        ...(message === undefined ? {} : { message }),
-      }))) ?? p;
+      (await this.#locked(p.c, (fresh) => {
+        // The first decision stands: a later [Cancel] does not change a cancel under way.
+        const end = fresh.aborting ?? to;
+        return {
+          ...fresh,
+          aborting: end,
+          cancel: fresh.cancel ?? {
+            reason: end === "expired" ? "expired" : "user",
+            at: iso(this.#now()),
+          },
+          ...(message === undefined ? {} : { message }),
+        };
+      })) ?? p;
+    const end = next.aborting ?? to;
     if (next.session !== undefined) {
       const r = await this.#d.flows
         .cancelPairing({ ...this.#d.flow(), session: next.session })
         .catch(() => ({ kind: "unavailable" }) as const);
       if (r.kind === "consumed") {
-        const { aborting: _, ...rest } = next;
+        const { aborting: _, cancel: _c, ...rest } = next;
         return r.operation === undefined
           ? this.#save({ ...rest, state: "cancelled" })
           : this.#resume(await this.#save({ ...rest, state: "approving", approval: r.operation }));
@@ -555,17 +570,23 @@ export class SectionPairings {
     }
     if (next.requested === true || next.session !== undefined) {
       const port = await this.#d.control(fromHexC(next.c));
-      const reason = to === "expired" ? "expired" : "user";
+      const cancel = next.cancel ?? {
+        reason: end === "expired" ? "expired" : "user",
+        at: iso(this.#now()),
+      };
       const w = await port
-        ?.commit(
-          [{ intent: "cancel.create", rid: next.rid, cancel: { reason, at: iso(this.#now()) } }],
-          `${next.rid}:cancel`,
-        )
-        .catch(() => null);
+        ?.commit([{ intent: "cancel.create", rid: next.rid, cancel }], `${next.rid}:cancel`)
+        // OPERATION_ID_REUSED: this operation's cancel is already durable here (a journal of
+        // an earlier version, with another `at`); SyncClient sends it, nothing is left to write.
+        .catch((e: unknown) =>
+          (e as { code?: unknown } | null)?.code === "OPERATION_ID_REUSED"
+            ? ({ kind: "acknowledged" } as const)
+            : null,
+        );
       if (w?.kind !== "acknowledged" && w?.kind !== "rejected") return next;
     }
-    const { aborting: _, ...rest } = next;
-    next = await this.#save({ ...rest, state: to });
+    const { aborting: _, cancel: _c, ...rest } = next;
+    next = await this.#save({ ...rest, state: end });
     return next;
   }
 

@@ -5,11 +5,12 @@
 // class admission would have judged. Test only (E-023: the host's C is not
 // merged yet).
 
-import type {
-  ServiceControlCommitOutcome,
-  ServiceControlCreator,
-  ServiceControlPort,
-  ServiceControlWriterClass,
+import {
+  OperationIdReusedError,
+  type ServiceControlCommitOutcome,
+  type ServiceControlCreator,
+  type ServiceControlPort,
+  type ServiceControlWriterClass,
 } from "@openlfcp/client";
 import type { PrincipalId, ResourceId } from "@openlfcp/core";
 
@@ -38,7 +39,10 @@ export class FakeControl implements ServiceControlPort {
   readonly creators = new Map<string, ServiceControlCreator[]>();
   /** Every committed batch, in order (with its operation). */
   readonly commits: { operation: string; intents: readonly Record<string, unknown>[] }[] = [];
-  /** What commit answers: "acknowledged" by default; "queued"/"offline" leave C unchanged. */
+  /**
+   * What commit answers: "acknowledged" by default; "queued" keeps the receipt here
+   * and leaves C unchanged (the ACK not received); "offline" fails before anything.
+   */
   answer: "acknowledged" | "queued" | "offline" = "acknowledged";
   synchronised = true;
 
@@ -81,14 +85,28 @@ export class FakeControl implements ServiceControlPort {
     if (container !== "events") this.creators.set(`${container}/${key}`, [by]);
   }
 
+  /**
+   * The local receipts, by operation, as SyncClient keeps them (§3.3): the same
+   * operation with other intents throws OperationIdReusedError; with the same
+   * ones it writes nothing new. A receipt is kept once the change is durable
+   * here ("queued" too), before the server acknowledges it.
+   */
+  readonly receipts = new Map<string, string>();
+  readonly #applied = new Set<string>();
+
   async commit(
     intents: readonly unknown[],
     operation: string,
   ): Promise<ServiceControlCommitOutcome> {
-    if (this.answer === "offline") throw new Error("C is not reachable");
     const list = intents as readonly Record<string, unknown>[];
-    if (this.commits.some((c) => c.operation === operation)) return { kind: "acknowledged" };
+    const hash = JSON.stringify(list);
+    const known = this.receipts.get(operation);
+    if (known !== undefined && known !== hash) throw new OperationIdReusedError(operation);
+    if (this.answer === "offline") throw new Error("C is not reachable");
+    if (known === undefined) this.receipts.set(operation, hash);
     if (this.answer === "queued") return { kind: "queued" };
+    if (this.#applied.has(operation)) return { kind: "acknowledged" };
+    this.#applied.add(operation);
     this.commits.push({ operation, intents: list });
     const by = { signer: this.me, writerClass: this.myClass };
     for (const i of list) {

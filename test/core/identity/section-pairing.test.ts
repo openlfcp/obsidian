@@ -26,7 +26,12 @@ import { FakeControl } from "../../support/fake-control";
 vi.setConfig({ testTimeout: 30_000 });
 
 let world: DeviceWorld;
-afterEach(() => world.stop());
+/** How far the section pairings' clock is ahead of the wall clock (R3-2: a later tick). */
+let skew = 0;
+afterEach(() => {
+  skew = 0;
+  return world.stop();
+});
 
 const idOf = (i: Installation) => {
   const p = i.runtime.collaborationContext()?.principal.signer.descriptor.principalId;
@@ -40,7 +45,7 @@ const randomId = () => crypto.getRandomValues(new Uint8Array(32)) as ResourceId;
 function pairingsOf(a: Installation, control: FakeControl, live?: number) {
   return new SectionPairings({
     flows: SDK_IDENTITY_FLOWS,
-    flow: () => world.flowOf(a),
+    flow: () => ({ ...world.flowOf(a), now: () => Date.now() + skew }),
     localState: () => a.runtime.localState,
     control: async () => control,
     identity: async () => {
@@ -494,4 +499,38 @@ it("R3-1: with C unreachable on the first tick, the cancel in C is finished once
   w.control.answer = "acknowledged";
   expect((await pairingsOf(w.a, w.control).tick())[p.c]?.state).toBe("expired");
   expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "expired" });
+});
+
+// Round 3, review r3: SyncClient checks a known operation's intents (OPERATION_ID_REUSED).
+
+const cancelCommits = (w: World, rid: string) =>
+  w.control.commits.filter((c) => c.operation === `${rid}:cancel`);
+
+it("R3-2: a cancel kept here but not acknowledged is repeated as is, later and after a restart", async () => {
+  const w = await setup();
+  const { p } = await started(w);
+  await lostAckPastDeadline(w, p);
+  // The cancel is durable here (its receipt), its ACK lost.
+  w.control.answer = "queued";
+  expect((await pairingsOf(w.a, w.control).tick())[p.c]?.aborting).toBe("expired");
+  expect(w.control.receipts.has(`${p.rid}:cancel`)).toBe(true);
+  // A later tick, a minute on: the same intents, the same `at`.
+  skew = 60_000;
+  expect((await w.pairings.tick())[p.c]?.aborting).toBe("expired");
+  // A restart, C reachable: done, one cancel in C.
+  skew = 120_000;
+  w.control.answer = "acknowledged";
+  expect((await pairingsOf(w.a, w.control).tick())[p.c]?.state).toBe("expired");
+  expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "expired" });
+  expect(cancelCommits(w, p.rid)).toHaveLength(1);
+});
+
+it("R3-2: a cancel already written under its operation with other intents ends the pairing", async () => {
+  const w = await setup();
+  const { p } = await started(w);
+  await lostAckPastDeadline(w, p);
+  // A journal of an earlier version: its cancel's receipt holds another `at`.
+  w.control.receipts.set(`${p.rid}:cancel`, "[]");
+  expect((await pairingsOf(w.a, w.control).tick())[p.c]?.state).toBe("expired");
+  expect((await stateOf(w))?.aborting).toBeUndefined();
 });
