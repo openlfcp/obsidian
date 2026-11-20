@@ -12,13 +12,19 @@
 // them again (the SDK's journal, §9).
 
 import type { MaskPreset, PairingLinkText, PairingReview } from "@openlfcp/client";
-import { fromBase64url, fromHex, type ResourceId, toHex } from "@openlfcp/core";
+import { fromBase64url, fromHex, type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
 import { type App, Modal, Notice } from "obsidian";
 import {
+  BASE_CONFLICT,
   type BridgeControl,
   type BridgeGroup,
   bridgeGroups,
   bridgeLine,
+  DISCONNECT_CONFIRM,
+  type DisconnectAction,
+  disconnectView,
+  OLDER_DEVICE,
+  olderDevices,
   pendingLine,
 } from "../../core/identity/bridge-devices";
 import {
@@ -523,14 +529,34 @@ export class DevicesModal extends Modal {
         el.createEl("p", { text: list.note, cls: "setting-item-description" });
       // U П5: a bridge's installations under its own line, by bridgeInstanceId.
       const { groups, rest } = bridgeGroups(list.rows, bridges);
-      for (const row of rest) this.#row(el, row, list.manages);
+      const older = new Set(olderDevices(rest));
+      for (const row of rest) if (!older.has(row)) this.#row(el, row, list.manages);
       for (const g of groups) {
+        // A bridge disconnected for good has nothing left to show.
+        if (g.base.length + g.sections.length + g.pending.length === 0) continue;
         el.createEl("h4", { text: bridgeLine(g, Date.now()) });
-        for (const row of [...g.base, ...g.sections]) this.#row(el, row, list.manages);
+        if (g.conflict) el.createEl("p", { text: BASE_CONFLICT, cls: "mod-warning" });
+        // A§5.3: an installation of a bridge is revoked only by its approval record —
+        // Disconnect for the bridge, or one base in a conflict — never by Remove device….
+        for (const row of [...g.base, ...g.sections]) this.#row(el, row, list.manages, g);
         for (const p of g.pending) {
           const hex = toHex(fromBase64url(p.binding));
           this.#pending(el, p, names?.resource(hex) ?? p.binding, list.manages);
         }
+        const c = g.controls[g.controls.length - 1];
+        if (list.manages && c !== undefined)
+          buttonRow(el)
+            .createEl("button", { text: "Disconnect…", cls: "mod-warning" })
+            .addEventListener("click", () => {
+              const d = new DisconnectBridgeModal(this.app, this.service, c, g.name, () =>
+                this.#render(),
+              );
+              returnsFocus(d).open();
+            });
+      }
+      if (older.size > 0) {
+        el.createEl("h4", { text: OLDER_DEVICE });
+        for (const row of older) this.#row(el, row, list.manages);
       }
     }
     for (const u of unfinished) this.#unfinished(el, u);
@@ -553,7 +579,7 @@ export class DevicesModal extends Modal {
     buttons.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
   }
 
-  #row(el: HTMLElement, row: DeviceRow, manages: boolean): void {
+  #row(el: HTMLElement, row: DeviceRow, manages: boolean, bridge?: BridgeGroup): void {
     const item = el.createDiv({ cls: "setting-item" });
     const info = item.createDiv({ cls: "setting-item-info" });
     info.createDiv({ cls: "setting-item-name", text: deviceLine(row) });
@@ -585,6 +611,13 @@ export class DevicesModal extends Modal {
           },
         });
       });
+    if (bridge !== undefined) {
+      if (bridge.conflict && bridge.base.includes(row))
+        control
+          .createEl("button", { text: "Remove this connection…", cls: "mod-warning" })
+          .addEventListener("click", () => this.#removeBase(bridge, row));
+      return;
+    }
     control
       .createEl("button", { text: removalWords(row).button, cls: "mod-warning" })
       .addEventListener("click", () => {
@@ -596,6 +629,28 @@ export class DevicesModal extends Modal {
         );
         returnsFocus(remove).open();
       });
+  }
+
+  /** A§3.1 conflict: the human revokes one base installation, by its approval record (A§5.3 (a)). */
+  #removeBase(g: BridgeGroup, row: DeviceRow): void {
+    confirmAction(this.app, {
+      title: "Remove this connection",
+      text: `"${row.label}" stops acting for your account. The other connection of this Mac stays.`,
+      confirm: "Remove",
+      run: async () => {
+        let message: string | null = "This Mac's connections can't be read here now. Try again.";
+        for (const c of g.controls) {
+          const port = await this.service.controlPort(c);
+          if (port === undefined) continue;
+          message = await this.service
+            .bridgeRevocations()
+            .revokeOne(port, fromHex(row.principal) as PrincipalId);
+          if (message === null) break;
+        }
+        if (message !== null) new Notice(`Shared Tasks: ${message}`);
+        await this.#render();
+      },
+    });
   }
 
   /** "Pending connection" [Cancel] (U П1, П5): until the section's installation is approved. */
@@ -827,5 +882,119 @@ export class PairThisDeviceModal extends Modal {
       // Final, or waiting for an update of the plugin: no more asking now.
       return !(view.final || view.paused);
     });
+  }
+}
+
+/** Polling the Disconnect while the dialog is open (the plugin's tick goes on after it closes). */
+const DISCONNECT_POLL_MS = 2000;
+
+/**
+ * [Disconnect…] (U П1, П5; A§6.3): the confirmation, then the bridge's
+ * removal of its sections, "Disconnect anyway?" when it does not answer, and
+ * the revocations by the approval records of its C (A§5.3).
+ */
+export class DisconnectBridgeModal extends Modal {
+  #timer: number | null = null;
+
+  constructor(
+    app: App,
+    private readonly service: DeviceService,
+    private readonly c: string,
+    private readonly name: string,
+    private readonly done: () => unknown,
+  ) {
+    super(app);
+  }
+
+  override onOpen(): void {
+    this.setTitle(`Disconnect “${this.name}”`);
+    const el = this.contentEl;
+    el.createEl("p", { text: DISCONNECT_CONFIRM });
+    const buttons = buttonRow(el);
+    buttons
+      .createEl("button", { text: "Disconnect", cls: "mod-warning" })
+      .addEventListener("click", () => void this.#run((r, port) => r.start(port)));
+    const cancel = buttons.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.close());
+    cancel.focus();
+  }
+
+  async #run(
+    step: (
+      r: ReturnType<DeviceService["bridgeRevocations"]>,
+      port: NonNullable<Awaited<ReturnType<DeviceService["controlPort"]>>>,
+    ) => Promise<unknown>,
+  ): Promise<void> {
+    this.#show(undefined);
+    const port = await this.service.controlPort(this.c);
+    if (port === undefined) {
+      this.#message("This Mac's connection can't be read here now. Try again later.");
+      return;
+    }
+    const r = this.service.bridgeRevocations();
+    await step(r, port);
+    await this.#refresh();
+  }
+
+  async #refresh(): Promise<void> {
+    if (this.#closed) return;
+    const r = this.service.bridgeRevocations();
+    const d = await r.disconnect(this.c);
+    this.#show(d);
+    if (d === undefined || d.state === "removing" || d.state === "revoking")
+      this.#timer = window.setTimeout(() => {
+        void r
+          .tick()
+          .catch(() => undefined)
+          .then(() => this.#refresh());
+      }, DISCONNECT_POLL_MS);
+  }
+
+  #message(text: string): void {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("p", { text });
+    buttonRow(el)
+      .createEl("button", { text: "Close" })
+      .addEventListener("click", () => this.close());
+  }
+
+  #show(d: Parameters<typeof disconnectView>[0]): void {
+    const view = disconnectView(d);
+    const el = this.contentEl;
+    el.empty();
+    for (const line of view.lines) el.createEl("p", { text: line });
+    const buttons = buttonRow(el);
+    const labels: Record<DisconnectAction, string> = {
+      "disconnect-anyway": "Disconnect anyway",
+      cancel: "Cancel",
+      "try-again": "Try again",
+      close: "Close",
+    };
+    for (const action of view.actions) {
+      const b = buttons.createEl("button", {
+        text: labels[action],
+        ...(action === "disconnect-anyway" ? { cls: "mod-warning" } : {}),
+      });
+      b.addEventListener("click", () => {
+        if (action === "disconnect-anyway") void this.#run((r, port) => r.anyway(port));
+        else if (action === "try-again") void this.#run((r, port) => r.start(port));
+        else if (action === "cancel")
+          void this.service
+            .bridgeRevocations()
+            .forget(this.c)
+            .then(() => this.close());
+        else this.close();
+      });
+    }
+  }
+
+  #closed = false;
+
+  override onClose(): void {
+    this.#closed = true;
+    if (this.#timer !== null) window.clearTimeout(this.#timer);
+    this.contentEl.empty();
+    void this.done();
   }
 }

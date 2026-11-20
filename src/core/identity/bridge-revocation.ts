@@ -19,7 +19,7 @@ import {
   type ServiceControlPort,
   type ServiceControlStateView,
 } from "@openlfcp/client";
-import { type PrincipalId, toBase64url, toHex } from "@openlfcp/core";
+import { type PrincipalId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import type { ControlState } from "@openlfcp/wire";
 import type { IdentityFlows } from "./flows";
 import { uuid7 } from "./section-pairing";
@@ -86,11 +86,12 @@ export interface BridgeRevocationDeps {
 
 /** The non-revoked base approvals of `C` written by root or personal for `C` itself. */
 export function baseApprovals(
-  port: Pick<ServiceControlPort, "resource" | "state" | "creatorsOf">,
+  port: Pick<ServiceControlPort, "state" | "creatorsOf">,
+  resource: ResourceId,
 ): string[] {
   const state = port.state();
   if (state === undefined) return [];
-  const C = toBase64url(port.resource);
+  const C = toBase64url(resource);
   return Object.entries(state.approvals)
     .filter(
       ([ref, a]) =>
@@ -107,7 +108,7 @@ export function baseApprovals(
  * writes are refused) until root or personal revokes one. Shown in Devices.
  */
 export const baseConflict = (port: Pick<ServiceControlPort, "resource" | "state" | "creatorsOf">) =>
-  baseApprovals(port).length > 1;
+  baseApprovals(port, port.resource).length > 1;
 
 const FINAL = new Set(["applied", "failed", "rejected", "stale", "cancelled"]);
 

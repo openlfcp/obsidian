@@ -87,6 +87,7 @@ import {
 } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
 import type { BridgeControl } from "./bridge-devices";
+import { BridgeRevocations } from "./bridge-revocation";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
 import { BridgeConnect } from "./connect";
 import { type DeviceRow, deviceRows } from "./device-list";
@@ -1049,6 +1050,11 @@ export class DeviceService {
     }
   }
 
+  /** C's port (hex) for Disconnect and a conflict's removal (E-024); undefined when not open here. */
+  controlPort(c: string): Promise<ServiceControlPort | undefined> {
+    return this.#controlPortOf(fromHex(c) as ResourceId);
+  }
+
   /** The port of control Resource C, opened here first with the roster's others (#openControls). */
   async #controlPortOf(C: ResourceId): Promise<ServiceControlPort | undefined> {
     const runtime = this.#runtime();
@@ -1830,6 +1836,45 @@ export class DeviceService {
         out.push({ c, name, port, pending: pendingConnections(port, revoked) });
     }
     return out;
+  }
+
+  #revocations: BridgeRevocations | null = null;
+  #controlsOpened = false;
+
+  /**
+   * Revoking a bridge's installations by the approval records of its C (MVP 0.6
+   * A§5.3, E-024): `lifecycle` acted on at each tick, and Disconnect. The C of
+   * the roster are opened once here, then read as they are. A device that may
+   * not manage devices revokes nothing.
+   */
+  bridgeRevocations(app = "Shared Tasks"): BridgeRevocations {
+    this.#revocations ??= new BridgeRevocations({
+      flows: this.#flows,
+      flow: () => this.#flow(),
+      localState: () => this.#runtime().localState,
+      controls: async () => {
+        if (!this.#controlsOpened) {
+          await this.#openControls(this.#flow());
+          this.#controlsOpened = true;
+        }
+        const runtime = this.#runtime();
+        return [...this.#controlNames.keys()].flatMap((c) => {
+          const port = runtime.controlPort?.(fromHex(c) as ResourceId);
+          return port === undefined ? [] : [port];
+        });
+      },
+      identity: async () => {
+        const I = await this.identity();
+        const chain = I === undefined ? undefined : await loadControlChain(this.#flow().storage, I);
+        if (chain?.kind !== "linear") return null;
+        const me = toHex(this.#context().principal.id);
+        const mine = deviceRows(chain.state, me, {}).find((r) => r.thisDevice);
+        if (mine?.manages !== true || mine.state !== "active") return null;
+        return { root: chain.state.owner.principalId, state: chain.state };
+      },
+      client: { app, protocol: 1 },
+    });
+    return this.#revocations;
   }
 
   #sectionPairings: SectionPairings | null = null;

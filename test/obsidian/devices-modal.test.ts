@@ -275,7 +275,7 @@ describe("Your devices…", () => {
     m.close();
   });
 
-  it("a service device (the Reminders bridge) says what it is and is disconnected, its reminders kept (P-050)", async () => {
+  it("a service device (the Reminders bridge) of 0.5 is an Older device, removed by the human, its reminders kept (P-050, E17)", async () => {
     const m = new DevicesModal(
       new App() as never,
       service({
@@ -314,8 +314,10 @@ describe("Your devices…", () => {
     expect(el.textContent).toContain(
       "Reminders bridge (experimental: a tech preview run from the Terminal)",
     );
-    expect(el.findAll("button").filter((b) => b.text === "Remove device…")).toHaveLength(0);
-    button(el, "Disconnect…").click();
+    // E17: an installation of 0.5 (no approval record) is an older device, removed by the human.
+    expect(el.textContent).toContain("Older device — not managed by LFCP Bridge 0.6");
+    expect(el.findAll("button").filter((b) => b.text === "Disconnect…")).toHaveLength(0);
+    button(el, "Remove device…").click();
     await settle();
     const dialog = modals[modals.length - 1];
     const d = dialog?.contentEl as unknown as FakeElement;
@@ -323,7 +325,7 @@ describe("Your devices…", () => {
     expect(d.textContent).toContain(
       "the reminders of a Reminders bridge (experimental) stay in Apple Reminders as yours",
     );
-    expect(button(d, "Disconnect")).toBeDefined();
+    expect(button(d, "Remove device")).toBeDefined();
     dialog?.close();
     m.close();
   });
@@ -396,6 +398,115 @@ describe("Your devices…", () => {
     button(el, "Cancel").click();
     await settle();
     expect(cancelled).toHaveLength(1);
+    m.close();
+  });
+
+  it("a bridge is disconnected as a whole (E-024): no Remove device… for its installations", async () => {
+    const C = new FakeControl(new Uint8Array(32).fill(9) as ResourceId, id(1));
+    C.data.service = { instance: "bridge-a" };
+    C.put("approvals", principalRefOf(id(5)), { role: "section", revoked: false } as never, root);
+    const started: unknown[] = [];
+    const revocations = {
+      start: async (port: unknown) => started.push(port),
+      disconnect: async () => ({ state: "silent" }),
+      anyway: async (port: unknown) => started.push(["anyway", port]),
+      tick: async () => undefined,
+      forget: async () => undefined,
+    };
+    const m = new DevicesModal(
+      new App() as never,
+      service({
+        devices: async () => ({
+          kind: "list",
+          current: true,
+          manages: true,
+          note: null,
+          rows: [
+            row({ principal: "01", first: true, label: "Desk", preset: null, thisDevice: true }),
+            row({ principal: toHex(id(5)), label: "Home", kind: "service", preset: "service" }),
+          ],
+        }),
+        unfinished: async () => [],
+        accessStates: async () => [],
+        bridges: async () => [
+          { c: "09".repeat(32), name: "Reminders bridge · MacBook Air", port: C, pending: [] },
+        ],
+        controlPort: async () => C,
+        bridgeRevocations: () => revocations,
+      }),
+      () => undefined,
+    );
+    m.open();
+    await settle();
+    const el = m.contentEl as unknown as FakeElement;
+    expect(el.findAll("button").filter((b) => b.text === "Remove device…")).toHaveLength(0);
+    expect(el.textContent).not.toContain("Older device");
+    button(el, "Disconnect…").click();
+    await settle();
+    const d = modals[modals.length - 1]?.contentEl as unknown as FakeElement;
+    expect(d.textContent).toContain("The lists stay in Reminders.");
+    button(d, "Disconnect").click();
+    await settle();
+    expect(started).toEqual([C]);
+    // U П1: the Mac has not answered.
+    expect(d.textContent).toContain(
+      "Your Mac hasn't answered.\nDisconnect anyway? Lists and the bridge's hidden service reminders stay in Reminders.",
+    );
+    button(d, "Disconnect anyway").click();
+    await settle();
+    expect(started).toEqual([C, ["anyway", C]]);
+    modals[modals.length - 1]?.close();
+    m.close();
+  });
+
+  it("two base approvals: the conflict is shown, each base may be removed by its record (A§3.1)", async () => {
+    const Cid = new Uint8Array(32).fill(9) as ResourceId;
+    const C = new FakeControl(Cid, id(1));
+    for (const n of [4, 5])
+      C.put(
+        "approvals",
+        principalRefOf(id(n)),
+        { role: "base", resource: toBase64url(Cid), revoked: false } as never,
+        root,
+      );
+    const revoked: unknown[] = [];
+    const m = new DevicesModal(
+      new App() as never,
+      service({
+        devices: async () => ({
+          kind: "list",
+          current: true,
+          manages: true,
+          note: null,
+          rows: [
+            row({ principal: "01", first: true, label: "Desk", preset: null, thisDevice: true }),
+            row({ principal: toHex(id(4)), label: "Mac", kind: "service", preset: "service" }),
+            row({ principal: toHex(id(5)), label: "Mac 2", kind: "service", preset: "service" }),
+          ],
+        }),
+        unfinished: async () => [],
+        accessStates: async () => [],
+        bridges: async () => [
+          { c: "09".repeat(32), name: "Reminders bridge", port: C, pending: [] },
+        ],
+        controlPort: async () => C,
+        bridgeRevocations: () => ({
+          revokeOne: async (_: unknown, P: PrincipalId) => (revoked.push(toHex(P)), null),
+        }),
+      }),
+      () => undefined,
+    );
+    m.open();
+    await settle();
+    const el = m.contentEl as unknown as FakeElement;
+    expect(el.textContent).toContain("This Mac is connected to your account twice");
+    const remove = el.findAll("button").filter((b) => b.text === "Remove this connection…");
+    expect(remove).toHaveLength(2);
+    remove[0]?.click();
+    await settle();
+    button(modals[modals.length - 1]?.contentEl as unknown as FakeElement, "Remove").click();
+    await settle();
+    expect(revoked).toEqual([toHex(id(4))]);
     m.close();
   });
 
