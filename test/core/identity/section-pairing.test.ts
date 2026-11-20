@@ -55,6 +55,7 @@ function pairingsOf(a: Installation, control: FakeControl, live?: number) {
       };
     },
     exclusive: (work) => a.service.connector().otherDevice(() => work()),
+    reserved: async () => [],
     client: { app: "Shared Tasks 0.8.0", protocol: 1 },
   });
 }
@@ -281,7 +282,7 @@ it("a cancel cut short is finished after a restart", async () => {
   // C is not reachable: J_X is revoked, cancels/<rid> not written; the journal keeps the cancel.
   w.control.answer = "offline";
   await w.pairings.cancel(w.C);
-  expect((await stateOf(w))?.aborting).toBe("user");
+  expect((await stateOf(w))?.aborting).toBe("cancelled");
   expect(w.control.data.cancels[p.rid]).toBeUndefined();
   // A restart: a new instance on the same local state finishes it.
   w.control.answer = "acknowledged";
@@ -364,4 +365,96 @@ it("a mismatch whose cancels write is not acknowledged yet is finished on a late
   expect((await pairingsOf(w.a, w.control).tick())[p.c]?.state).toBe("mismatch");
   expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "mismatch" });
   expect(granted(w.I, toHex(idOf(bridge)))).toBe(false);
+});
+
+// Round 2 (review of obsidian#123).
+
+/** The journal as a crash between J_X's creation and its record left it (C has no request yet). */
+async function crashedBeforeSession(w: World, p: SectionPairing) {
+  const { session: _s, requested: _r, ...rest } = p;
+  await w.a.runtime.localState.put(SECTIONS_KEY, { [p.c]: rest });
+  delete w.control.data.requests[p.rid];
+  w.control.creators.delete(`requests/${p.rid}`);
+}
+
+const openSessions = async (a: Installation) =>
+  (await SDK_IDENTITY_FLOWS.openPairingSessions(world.flowOf(a))).map((s) => s.session);
+
+it("R2-1: past the local deadline a ready answer is not approved: J_X cancelled, cancels{expired}", async () => {
+  const w = await setup();
+  const { p, link } = await started(w);
+  const bridge = await ask(w, link);
+  pairingRecord(w, p, await review(w, p), service(bridge));
+  await w.a.runtime.localState.put(SECTIONS_KEY, {
+    [p.c]: { ...p, createdAt: p.createdAt - ATTEMPT_DEADLINE_MS - 1 },
+  });
+  expect((await w.pairings.tick())[p.c]?.state).toBe("expired");
+  expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "expired" });
+  expect(granted(w.I, toHex(idOf(bridge)))).toBe(false);
+  expect(Object.keys(w.control.data.approvals)).toEqual([]);
+  expect(await openSessions(w.a)).not.toContain(p.session);
+});
+
+it("R2-2: after a crash before J_X was journaled, Add my other device… never hands out J_X", async () => {
+  const w = await setup();
+  if (w.personal.kind === "link") await w.a.service.cancel(w.personal.session);
+  const { p } = await started(w);
+  await crashedBeforeSession(w, p);
+  const s = await w.a.service.startSession("Desk");
+  if (s.kind !== "link") throw new Error(JSON.stringify(s));
+  expect(s.session).not.toBe(p.session);
+  // J_X is found again (never the personal session made meanwhile).
+  expect((await w.pairings.tick())[p.c]?.session).toBe(p.session);
+});
+
+it("R2-2: [Cancel] after such a crash revokes J_X too", async () => {
+  const w = await setup();
+  const { p } = await started(w);
+  await crashedBeforeSession(w, p);
+  expect(await w.pairings.cancel(w.C)).toBe(true);
+  expect((await stateOf(w))?.state).toBe("cancelled");
+  expect(await openSessions(w.a)).not.toContain(p.session);
+});
+
+it("R2-2: a personal session made while J_X is not made yet is never taken for J_X", async () => {
+  const w = await setup();
+  if (w.personal.kind === "link") await w.a.service.cancel(w.personal.session);
+  // Journaled with its snapshot, then a crash before the SDK made J_X.
+  const now = Date.now();
+  const rid = uuid7(now);
+  const c = toHex(w.C);
+  await w.a.runtime.localState.put(SECTIONS_KEY, {
+    [c]: {
+      rid,
+      c,
+      binding: toBase64url(w.X),
+      createdAt: now,
+      state: "pairing",
+      sessionsBefore: await openSessions(w.a),
+    },
+  });
+  const s = await w.a.service.startSession("Desk");
+  if (s.kind !== "link") throw new Error(JSON.stringify(s));
+  expect((await w.pairings.tick())[c]?.session).toBeUndefined();
+  // [Cancel] of that pairing leaves the personal link alone.
+  expect(await w.pairings.cancel(w.C)).toBe(true);
+  expect(await openSessions(w.a)).toContain(s.session);
+});
+
+it("R2-3: Pending [Cancel] of another device's request is finished after a restart", async () => {
+  const w = await setup();
+  const { p } = await started(w);
+  await w.a.runtime.localState.put(SECTIONS_KEY, {});
+  const chain = await loadControlChain(world.flowOf(w.a).storage, w.I);
+  if (chain?.kind !== "linear") throw new Error("no chain");
+  const pending = pendingConnections(
+    w.control,
+    (J) => revocationOf(chain.state, chain.state.owner.principalId, J) !== undefined,
+  );
+  w.control.answer = "offline";
+  expect(await w.pairings.cancelPending(w.C, pending[0] as never)).toBe(false);
+  expect(w.control.data.cancels[p.rid]).toBeUndefined();
+  w.control.answer = "acknowledged";
+  await pairingsOf(w.a, w.control).tick();
+  expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "user" });
 });

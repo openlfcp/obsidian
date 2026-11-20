@@ -22,6 +22,8 @@ import type { IdentityFlows } from "./flows";
 
 /** Local state: the section pairings of this installation, by C (hex): one open per bridge. */
 export const SECTIONS_KEY = "reminders-sections";
+/** Local state: [Cancel]s of other devices' pending connections to finish, by rid. */
+export const FOREIGN_CANCELS_KEY = "reminders-section-cancels";
 /** A§5.2: at most 8 connected sections per bridge; paused ones count, only Remove frees one. */
 export const MAX_SECTIONS = 8;
 
@@ -52,12 +54,21 @@ export interface SectionPairing {
   readonly state: SectionPairingState;
   /** J_X's pairing session; undefined until it is made (found again after a crash). */
   readonly session?: string;
-  /** The sessions open before J_X was made: one open now and not among them is J_X. */
+  /**
+   * Every pairing session open when this pairing was journaled, before J_X was made
+   * (no time filter): one open later, not among them and no other pairing's, is J_X.
+   */
   readonly sessionsBefore?: readonly string[];
+  /**
+   * Set while another pairing session is made and this pairing has no J_X yet ("Add my
+   * other device…", another section): what is made meanwhile is set aside into
+   * `sessionsBefore`, also after a crash that left this set (E-022d1, arbiter).
+   */
+  readonly othersSince?: true;
   /** `requests[rid]` acknowledged by the server. */
   readonly requested?: boolean;
-  /** [Cancel] to finish (J_X not revoked yet, or `cancels[rid]` not acknowledged). */
-  readonly aborting?: "user";
+  /** A cancel to finish (J_X not revoked yet, or `cancels[rid]` not acknowledged): its end state. */
+  readonly aborting?: "cancelled" | "expired" | "failed";
   /** The approval's operation once consumed (resumed after a restart). */
   readonly approval?: string;
   readonly message?: string;
@@ -88,6 +99,8 @@ export interface SectionPairingDeps {
   readonly localState: () => {
     get(key: string): Promise<unknown>;
     put(key: string, value: unknown): Promise<void>;
+    /** Read-modify-write of one key, one at a time per key. */
+    update(key: string, change: (value: unknown) => unknown): Promise<void>;
   };
   /** C's port, opened here first; undefined while it cannot be. */
   readonly control: (C: ResourceId) => Promise<ServiceControlPort | undefined>;
@@ -98,9 +111,13 @@ export interface SectionPairingDeps {
   } | null>;
   /**
    * Runs `work` where no other pairing session is made (BridgeConnect.otherDevice): the
-   * base attempt never takes J_X for its J, nor "Add my other device…" for its own.
+   * base attempt never takes J_X for its J, nor "Add my other device…" for its own. Every
+   * change to a pairing without its J_X is made inside it. Lock order: this class's
+   * queue, then this one; "Add my other device…" holds only this one (aside()).
    */
   readonly exclusive: <T>(work: () => Promise<T>) => Promise<T>;
+  /** Sessions of other flows never taken for J_X (the base attempt's J). */
+  readonly reserved: () => Promise<readonly string[]>;
   /** `requests[].client` (A§3.5a). */
   readonly client: { readonly app: string; readonly protocol: number };
 }
@@ -131,6 +148,15 @@ export function connectedSections(
 }
 
 /** A pair-section request of C still open (no final event, no cancel), from any managing device. */
+/** A [Cancel] of another device's pending connection, journaled before J_X is revoked. */
+export interface ForeignCancel {
+  readonly c: string;
+  readonly rid: string;
+  /** J_X (hex). */
+  readonly j: string;
+  readonly at: string;
+}
+
 export interface PendingConnection {
   readonly rid: string;
   readonly binding: string;
@@ -215,7 +241,10 @@ export class SectionPairings {
   }
 
   async #save(p: SectionPairing): Promise<SectionPairing> {
-    await this.#d.localState().put(SECTIONS_KEY, { ...(await this.all()), [p.c]: p });
+    await this.#d.localState().update(SECTIONS_KEY, (all) => ({
+      ...((all ?? {}) as Record<string, SectionPairing>),
+      [p.c]: p,
+    }));
     return p;
   }
 
@@ -225,6 +254,77 @@ export class SectionPairings {
     for (const p of Object.values(await this.all()))
       if (p.session !== undefined && OPEN.has(p.state)) out.add(p.session);
     return out;
+  }
+
+  /**
+   * Inside exclusive() only. A pairing without J_X: first its sessions set aside by a
+   * flow a crash cut short (`othersSince`: every open session not another pairing's is
+   * then not J_X, as none was open outside its snapshot when it was set and J_X is
+   * never made while it stands), then J_X found: open, outside its snapshot, nobody's.
+   */
+  async #recoverNow(): Promise<void> {
+    const waiting = Object.values(await this.all()).filter(
+      (p) => OPEN.has(p.state) && p.session === undefined && p.sessionsBefore !== undefined,
+    );
+    if (waiting.length === 0) return;
+    const open = (await this.#d.flows.openPairingSessions(this.#d.flow())).map((s) => s.session);
+    const taken = new Set([...(await this.sessions()), ...(await this.#d.reserved())]);
+    for (const p of waiting.filter((x) => x.othersSince === true)) {
+      const { othersSince: _, ...rest } = p;
+      const set = open.filter((s) => !taken.has(s));
+      await this.#save({
+        ...rest,
+        sessionsBefore: [...new Set([...(p.sessionsBefore ?? []), ...set])],
+      });
+    }
+    for (const stored of waiting) {
+      const p = (await this.all())[stored.c] ?? stored;
+      const before = new Set(p.sessionsBefore);
+      const found = open.find((s) => !before.has(s) && !taken.has(s));
+      if (found === undefined) continue;
+      taken.add(found);
+      await this.#save({ ...p, session: found });
+    }
+  }
+
+  /**
+   * Inside exclusive() only: `work` makes a pairing session that is not any waiting
+   * pairing's J_X. Their J_X is found first; those still without one set aside what
+   * `work` opens (marker journaled first, settled after, or by #recoverNow after a crash).
+   */
+  async #setAside<T>(work: (sections: ReadonlySet<string>) => Promise<T>): Promise<T> {
+    await this.#recoverNow();
+    const marked = Object.values(await this.all()).filter(
+      (p) => OPEN.has(p.state) && p.session === undefined && p.sessionsBefore !== undefined,
+    );
+    for (const p of marked) await this.#save({ ...p, othersSince: true });
+    try {
+      return await work(await this.sessions());
+    } finally {
+      if (marked.length > 0) await this.#recoverNow();
+    }
+  }
+
+  /**
+   * "Add my other device…" (DeviceService.startSession), already inside exclusive()'s
+   * lock: `work` gets the section pairings' sessions to leave out, J_X found again
+   * first; what it makes is set aside for a pairing whose J_X is not made yet.
+   */
+  aside<T>(work: (sections: ReadonlySet<string>) => Promise<T>): Promise<T> {
+    return this.#setAside(work);
+  }
+
+  /** Under the lock: J_X found again, then `change` on the record as stored now. */
+  #locked(
+    c: string,
+    change: (p: SectionPairing) => SectionPairing | undefined,
+  ): Promise<SectionPairing | undefined> {
+    return this.#d.exclusive(async () => {
+      await this.#recoverNow();
+      const p = (await this.all())[c];
+      const next = p === undefined ? undefined : change(p);
+      return next === undefined ? p : this.#save(next);
+    });
   }
 
   /** The section's toggle (the person acted, A§4.3 step 1): checks, then J_X and the request in C. */
@@ -246,36 +346,32 @@ export class SectionPairings {
       if (sections.size >= MAX_SECTIONS) return { kind: "sections-full" };
       if (I.live + ROOM_NEEDED > MAX_LIVE_BOUND) return { kind: "too-many-devices" };
       const now = this.#now();
-      const p = await this.#d.exclusive(async () => {
-        const flow = this.#d.flow();
-        const before = (await this.#d.flows.openPairingSessions(flow)).map((s) => s.session);
-        // Journaled before J_X exists: a crash after the SDK made it finds it again.
-        const fresh = await this.#save({
-          rid: uuid7(now),
-          c,
-          binding,
-          createdAt: now,
-          state: "pairing",
-          sessionsBefore: before,
-        });
-        const made = await this.#d.flows.createPairingSession(flow);
-        if (made.kind === "created") return this.#save({ ...fresh, session: made.session });
-        if (made.kind === "unavailable") return this.#recover(fresh);
-        return this.#save({ ...fresh, state: "failed", message: made.kind });
-      });
+      const p = await this.#d.exclusive(() =>
+        // Another pairing still without its J_X sets this J_X aside.
+        this.#setAside(async () => {
+          const flow = this.#d.flow();
+          // Every open session, whatever its age (E-022d1): J_X is the one made after.
+          const before = (await this.#d.flows.openPairingSessions(flow)).map((s) => s.session);
+          // Journaled before J_X exists: a crash after the SDK made it finds it again.
+          const fresh = await this.#save({
+            rid: uuid7(now),
+            c,
+            binding,
+            createdAt: now,
+            state: "pairing",
+            sessionsBefore: before,
+          });
+          const made = await this.#d.flows.createPairingSession(flow);
+          if (made.kind === "created") return this.#save({ ...fresh, session: made.session });
+          if (made.kind === "unavailable") {
+            await this.#recoverNow();
+            return (await this.all())[c] ?? fresh;
+          }
+          return this.#save({ ...fresh, state: "failed", message: made.kind });
+        }),
+      );
       return { kind: "started", pairing: await this.#request(p) };
     });
-  }
-
-  /** J_X of a pairing journaled before its session was (a crash in between). */
-  async #recover(p: SectionPairing): Promise<SectionPairing> {
-    if (p.session !== undefined || p.sessionsBefore === undefined) return p;
-    const before = new Set(p.sessionsBefore);
-    const others = new Set([...(await this.sessions())]);
-    const found = (await this.#d.flows.openPairingSessions(this.#d.flow())).find(
-      (s) => !before.has(s.session) && !others.has(s.session),
-    );
-    return found === undefined ? p : this.#save({ ...p, session: found.session });
   }
 
   /** A§4.3 step 1: `requests/<rid>` in C, committed again (a receipt) until acknowledged. */
@@ -305,7 +401,7 @@ export class SectionPairings {
     if (r === null || r.kind === "queued") return p;
     if (r.kind === "acknowledged") return this.#save({ ...p, requested: true });
     // Admission refused it (A§3.5a "Couldn't send"): J_X goes, nothing was asked.
-    return this.#abort({ ...p, message: `Couldn't send (${r.code})` }, "failed");
+    return this.#abort(p, "failed", `Couldn't send (${r.code})`);
   }
 
   /**
@@ -315,28 +411,34 @@ export class SectionPairings {
    */
   tick(): Promise<Readonly<Record<string, SectionPairing>>> {
     return this.#serial(async () => {
-      for (const stored of Object.values(await this.all())) {
-        if (!OPEN.has(stored.state)) continue;
-        if (stored.aborting !== undefined) {
-          await this.#abort(stored, "cancelled");
+      for (const f of Object.values(await this.#foreign())) await this.#finishForeign(f);
+      const stored = Object.values(await this.all()).filter((p) => OPEN.has(p.state));
+      if (stored.some((p) => p.session === undefined))
+        await this.#d.exclusive(() => this.#recoverNow());
+      for (const { c } of stored) {
+        const found = (await this.all())[c];
+        if (found === undefined || !OPEN.has(found.state)) continue;
+        if (found.aborting !== undefined) {
+          await this.#abort(found, found.aborting);
           continue;
         }
-        const p = await this.#request(await this.#recover(stored));
-        if (p.session === undefined) {
-          // J_X was never made: nothing to revoke once its deadline passed.
-          if (this.#now() - p.createdAt > ATTEMPT_DEADLINE_MS)
-            await this.#save({ ...p, state: "expired" });
+        const expired = this.#now() - found.createdAt > ATTEMPT_DEADLINE_MS;
+        // The local deadline is checked before any new consume (A§4.3): a ready answer
+        // after it is not approved; a consume already made carries on (A§4.4).
+        if (found.state === "pairing" && expired) {
+          await this.#abort(found, "expired");
           continue;
         }
+        const p = await this.#request(found);
+        if (p.session === undefined) continue;
         if (p.state === "approving") await this.#resume(p);
         else if (p.requested === true) await this.#check(p);
-        else if (this.#now() - p.createdAt > ATTEMPT_DEADLINE_MS) await this.#abort(p, "expired");
       }
       return this.all();
     });
   }
 
-  /** A§4.3 step 3 by the SDK, with the local deadline. */
+  /** A§4.3 step 3 by the SDK, before the local deadline (tick() checks it first). */
   async #check(p: SectionPairing): Promise<SectionPairing> {
     const port = await this.#d.control(fromHexC(p.c));
     if (port === undefined || p.session === undefined) return p;
@@ -346,7 +448,6 @@ export class SectionPairings {
         session: p.session,
         rid: p.rid,
         control: port,
-        expired: this.#now() - p.createdAt > ATTEMPT_DEADLINE_MS,
       })
       .catch((e: unknown) => ({ kind: "unavailable" as const, reason: String(e) }));
     switch (r.kind) {
@@ -417,11 +518,21 @@ export class SectionPairings {
   }
 
   /**
-   * J_X revoked (reason 0, I rotated by the SDK), then `cancels[rid] = {reason: user}`;
-   * journaled first so a restart finishes it. A consumed J_X carries on (A§4.4).
+   * J_X revoked (reason 0, I rotated by the SDK), then `cancels[rid] = {reason:
+   * user|expired}`; journaled first so a restart finishes it. A consumed J_X carries on (A§4.4).
    */
-  async #abort(p: SectionPairing, to: "cancelled" | "expired" | "failed"): Promise<SectionPairing> {
-    let next = await this.#save({ ...p, aborting: "user" });
+  async #abort(
+    p: SectionPairing,
+    to: "cancelled" | "expired" | "failed",
+    message?: string,
+  ): Promise<SectionPairing> {
+    // Journaled under the lock with J_X found first: a J_X made but not journaled is revoked too.
+    let next =
+      (await this.#locked(p.c, (fresh) => ({
+        ...fresh,
+        aborting: to,
+        ...(message === undefined ? {} : { message }),
+      }))) ?? p;
     if (next.session !== undefined) {
       const r = await this.#d.flows
         .cancelPairing({ ...this.#d.flow(), session: next.session })
@@ -461,25 +572,57 @@ export class SectionPairings {
         if (own.state !== "pairing") return false;
         return (await this.#abort(own, "cancelled")).state === "cancelled";
       }
+      // Journaled before J_X is revoked: once revoked it is listed no more, so only the
+      // journal finishes `cancels[rid]` after a crash or a lost write.
+      const f: ForeignCancel = {
+        c: toHex(C),
+        rid: pending.rid,
+        j: toHex(pending.pairingDevice),
+        at: iso(this.#now()),
+      };
+      await this.#d.localState().update(FOREIGN_CANCELS_KEY, (all) => ({
+        ...((all ?? {}) as Record<string, ForeignCancel>),
+        [f.rid]: f,
+      }));
+      return this.#finishForeign(f);
+    });
+  }
+
+  async #foreign(): Promise<Readonly<Record<string, ForeignCancel>>> {
+    return ((await this.#d.localState().get(FOREIGN_CANCELS_KEY)) ?? {}) as Record<
+      string,
+      ForeignCancel
+    >;
+  }
+
+  /** Both phases of a foreign cancel, each again until done: J_X revoked, then `cancels[rid]`. */
+  async #finishForeign(f: ForeignCancel): Promise<boolean> {
+    const J = fromHexC(f.j) as unknown as PrincipalId;
+    const I = await this.#d.identity();
+    if (I === null) return false;
+    if (!I.revoked(J)) {
       const r = await this.#d.flows
-        .revokeDevice({ ...this.#d.flow(), device: pending.pairingDevice, reason: 0n })
+        .revokeDevice({
+          ...this.#d.flow(),
+          device: J,
+          reason: 0n,
+          operation: `revoke-pending.${f.rid}`,
+        })
         .catch(() => null);
       if (r?.kind !== "revoked") return false;
-      const port = await this.#d.control(C);
-      const w = await port
-        ?.commit(
-          [
-            {
-              intent: "cancel.create",
-              rid: pending.rid,
-              cancel: { reason: "user", at: iso(this.#now()) },
-            },
-          ],
-          `${pending.rid}:cancel`,
-        )
-        .catch(() => null);
-      return w?.kind === "acknowledged";
+    }
+    const w = await (await this.#d.control(fromHexC(f.c)))
+      ?.commit(
+        [{ intent: "cancel.create", rid: f.rid, cancel: { reason: "user", at: f.at } }],
+        `${f.rid}:cancel`,
+      )
+      .catch(() => null);
+    if (w?.kind !== "acknowledged" && w?.kind !== "rejected") return false;
+    await this.#d.localState().update(FOREIGN_CANCELS_KEY, (all) => {
+      const { [f.rid]: _, ...rest } = (all ?? {}) as Record<string, ForeignCancel>;
+      return rest;
     });
+    return true;
   }
 }
 

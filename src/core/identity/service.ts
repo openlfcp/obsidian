@@ -1750,22 +1750,24 @@ export class DeviceService {
     if (stop !== null) return stop;
     // Never the J of a "Connect Apple Reminders" attempt (its link is for LFCP Bridge only):
     // in the attempt's queue, its J found again first, and no session made while it makes J.
-    return this.connector().otherDevice(async (connecting) => {
-      // Nor the J_X of a section's installation (A§4.3).
-      const sections = await this.sectionPairings().sessions();
-      const open = (await this.#flows.openPairingSessions(flow)).find(
-        (s) => s.session !== connecting && !sections.has(s.session),
-      );
-      try {
-        return sessionView(
-          open === undefined
-            ? await this.#flows.createPairingSession(flow)
-            : await this.#flows.resumePairingSession(flow, open.session),
+    return this.connector().otherDevice((connecting) =>
+      // Nor the J_X of a section's installation (A§4.3), found again first; a J_X not made
+      // yet sets aside what this makes (E-022d1).
+      this.sectionPairings().aside(async (sections) => {
+        const open = (await this.#flows.openPairingSessions(flow)).find(
+          (s) => s.session !== connecting && !sections.has(s.session),
         );
-      } catch (e) {
-        return this.#thrown(e);
-      }
-    });
+        try {
+          return sessionView(
+            open === undefined
+              ? await this.#flows.createPairingSession(flow)
+              : await this.#flows.resumePairingSession(flow, open.session),
+          );
+        } catch (e) {
+          return this.#thrown(e);
+        }
+      }),
+    );
   }
 
   /** §5.1: the device list, created on its first use; a stop when it cannot be. */
@@ -1851,6 +1853,10 @@ export class DeviceService {
       },
       // No pairing session is made meanwhile: neither the base attempt's J nor a personal one.
       exclusive: (work) => this.connector().otherDevice(() => work()),
+      reserved: async () => {
+        const a = await this.connector().attempt();
+        return a?.session === undefined ? [] : [a.session];
+      },
       client: { app, protocol: 1 },
     });
     return this.#sectionPairings;
