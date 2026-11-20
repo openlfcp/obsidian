@@ -32,6 +32,11 @@ export class TFile implements TAbstractFile {
 export class Vault {
   readonly handlers: EventRef[] = [];
   readonly files = new Map<string, string>();
+  /** The vault's name (obsidian:// URLs carry it). */
+  name = "Vault";
+  getName(): string {
+    return this.name;
+  }
   getMarkdownFiles(): TFile[] {
     return [...this.files.keys()].filter((p) => p.endsWith(".md")).map((path) => new TFile(path));
   }
@@ -607,6 +612,14 @@ export class Plugin {
     this.events.push(ref);
   }
 
+  /** obsidian:// handlers by action (registerObsidianProtocolHandler; a test calls them). */
+  readonly protocolHandlers = new Map<string, (params: Record<string, string>) => unknown>();
+  registerObsidianProtocolHandler(
+    action: string,
+    handler: (params: Record<string, string>) => unknown,
+  ): void {
+    this.protocolHandlers.set(action, handler);
+  }
   /** DOM listeners registered for unload, by event type (a test calls them). */
   readonly domEvents: { el: unknown; type: string; callback: (e: unknown) => unknown }[] = [];
   registerDomEvent(el: unknown, type: string, callback: (e: unknown) => unknown): void {
@@ -784,6 +797,11 @@ export class ButtonComponent {
     this.destructive = true;
     return this;
   }
+  cta = false;
+  setCta(): this {
+    this.cta = true;
+    return this;
+  }
   setDisabled(disabled: boolean): this {
     this.disabled = disabled;
     return this;
@@ -799,7 +817,9 @@ export class Setting {
   desc = "";
   dropdown?: DropdownComponent;
   text?: TextComponent;
+  /** The last button added (most rows have one); every one in `buttons`. */
   button?: ButtonComponent;
+  readonly buttons: ButtonComponent[] = [];
 
   constructor(container: ContainerEl) {
     container.settings.push(this);
@@ -819,6 +839,7 @@ export class Setting {
   }
   addButton(build: (button: ButtonComponent) => unknown): this {
     this.button = new ButtonComponent();
+    this.buttons.push(this.button);
     build(this.button);
     return this;
   }

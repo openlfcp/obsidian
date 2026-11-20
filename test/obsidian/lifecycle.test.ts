@@ -22,6 +22,7 @@ import { HeldChecks } from "../../src/core/status/held-checks";
 import type { VaultChange } from "../../src/core/vault/changes";
 import { obsidianRuntimeEnv } from "../../src/obsidian/lfcp-env";
 import OpenLfcpPlugin, { LOCK_HELD_ADVICE, NEW_IDENTITY_NEXT } from "../../src/obsidian/plugin";
+import { RemindersConnect } from "../../src/obsidian/reminders-connect";
 import { SectionsHost } from "../../src/obsidian/sections-host";
 import { P } from "../core/identity/x-chain";
 import * as mock from "../mocks/obsidian";
@@ -179,6 +180,36 @@ describe("plugin lifecycle (LFCP-059)", () => {
     plugin.changes.flush();
     expect(seen).toHaveLength(1);
     await plugin.stopRuntime();
+  });
+
+  it("E-022d2: LFCP Bridge's callback handler, the first connect tick once ready, a forged callback starts nothing", async () => {
+    const tick = vi.spyOn(RemindersConnect.prototype, "tick");
+    const callback = vi.spyOn(RemindersConnect.prototype, "callback");
+    const { plugin, host } = await load();
+    try {
+      await ready(plugin);
+      expect(host.protocolHandlers.has("openlfcp-bridge")).toBe(true);
+      // At once when ready, not after the periodic interval.
+      await vi.waitFor(() => expect(tick).toHaveBeenCalled());
+      await host.protocolHandlers.get("openlfcp-bridge")?.({
+        action: "openlfcp-bridge",
+        event: "request-ready",
+        attempt: "forged",
+        vault: "Vault",
+      });
+      await callback.mock.results[0]?.value;
+      expect(plugin.reminders.hasAttempt()).toBe(false);
+      const tab = host.settingTabs[0] as mock.PluginSettingTab;
+      tab.display();
+      const row = tab.containerEl.settings.find((s) => s.name === "Apple Reminders");
+      expect(row?.desc).toBe("Sync shared tasks with Apple Reminders on your Mac.");
+      expect(row?.buttons.map((b) => b.text)).toEqual(["Connect Apple Reminders"]);
+    } finally {
+      tick.mockRestore();
+      callback.mockRestore();
+      host.unload();
+      await plugin.stopRuntime();
+    }
   });
 
   it("settings show the identity state without the Principal or keys", async () => {

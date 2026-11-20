@@ -73,6 +73,7 @@ import { type VaultChange, VaultChangeHub } from "../core/vault/changes";
 import { conflictDecorations } from "./conflict-decoration";
 import { obsidianRuntimeEnv } from "./lfcp-env";
 import { LiveRegion } from "./live-region";
+import { CONNECT_TICK_MS, RemindersConnect } from "./reminders-connect";
 import { filterUiFromCopy } from "./section-clipboard";
 import { sectionPresentationExtension, setShowMetadata } from "./section-presentation";
 import { captureEditor, editorMode } from "./section-target";
@@ -323,7 +324,15 @@ export default class OpenLfcpPlugin extends Plugin {
       name: "Pair this device with a link…",
       callback: () => this.pairThisDevice(),
     });
-    this.addSettingTab(new OpenLfcpSettingTab(this.app, this));
+    this.#settingTab = new OpenLfcpSettingTab(this.app, this);
+    this.addSettingTab(this.#settingTab);
+    // Connect Apple Reminders (MVP 0.6 A§4.1): LFCP Bridge's callbacks, unauthenticated
+    // hints for this vault's attempt (request-ready, app-ready, already-connected,
+    // other-account); nothing is approved from a callback.
+    this.registerObsidianProtocolHandler("openlfcp-bridge", (params) => {
+      // Unload or a restart may come meanwhile: the next tick picks the attempt up.
+      void this.reminders.callback(params).catch(() => undefined);
+    });
     this.#listenToVault();
     this.changes.subscribe((batch) => this.#enqueue(() => this.#onVaultChanges(batch)));
     const bar = this.addStatusBarItem();
@@ -763,6 +772,8 @@ export default class OpenLfcpPlugin extends Plugin {
     this.#upkeepTimer = null;
     if (this.#upkeepEvery !== null) window.clearInterval(this.#upkeepEvery);
     this.#upkeepEvery = null;
+    if (this.#connectEvery !== null) window.clearInterval(this.#connectEvery);
+    this.#connectEvery = null;
     this.changes.close();
     // The next instance of the plugin in this window (a reload: disabled and
     // enabled, a BRAT update) waits for this one to stop and let go of the
@@ -931,6 +942,7 @@ export default class OpenLfcpPlugin extends Plugin {
       this.#watchRefused(runtime);
       this.#watchObjects(runtime);
       this.#watchDevices(runtime);
+      this.#watchConnect();
       // Pending changes go out and remote ones come in without waiting for a
       // command: every stored Resource is opened (one pooled session per server).
       if (runtime.status.kind === "ready")
@@ -1459,6 +1471,31 @@ export default class OpenLfcpPlugin extends Plugin {
   }
 
   #devices: { readonly runtime: LfcpRuntime; readonly service: DeviceService } | null = null;
+
+  #settingTab: OpenLfcpSettingTab | null = null;
+  #connectEvery: number | null = null;
+
+  /** "Connect Apple Reminders" (U П1, E-022d2): the settings section and LFCP Bridge's callbacks. */
+  readonly reminders = new RemindersConnect({
+    connector: () =>
+      this.runtime?.status.kind === "ready"
+        ? (this.deviceService()?.connector(this.#deviceLabel()) ?? null)
+        : null,
+    vault: () => this.app.vault.getName(),
+    open: (url) => window.open(url),
+    copy: (text) => navigator.clipboard.writeText(text),
+    changed: () => this.#settingTab?.update(),
+  });
+
+  /** The attempt's first step at once when ready (after a restart too), then every few seconds. */
+  #watchConnect(): void {
+    void this.reminders.tick().catch(() => undefined);
+    if (this.#connectEvery !== null) window.clearInterval(this.#connectEvery);
+    this.#connectEvery = window.setInterval(
+      () => void this.reminders.tick().catch(() => undefined),
+      CONNECT_TICK_MS,
+    );
+  }
 
   /** The device flows (LFCP-04-413), or null while the runtime is not running. */
   deviceService(): DeviceService | null {
