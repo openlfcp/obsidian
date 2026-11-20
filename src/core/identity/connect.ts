@@ -146,13 +146,15 @@ export class BridgeConnect {
    */
   async #ensureSession(a: Attempt): Promise<Attempt> {
     const found = await this.#recoverSession(a);
-    if (found.session !== undefined) return found;
+    if (found.session !== undefined)
+      return this.#link === null ? this.#resumeSession(found) : found;
     const session = await this.#d.flows.createPairingSession(this.#d.flow());
     if (session.kind === "created") {
       this.#link = session.link;
       return this.#save({ ...found, session: session.session, j: toHex(session.pairingDevice) });
     }
-    // Begun but not finished: the session is in the journal, the next tick resumes it.
+    // Begun but not finished: the session is in the journal, the next tick resumes it
+    // (#resumeSession, arbiter round 3, 2).
     if (session.kind === "unavailable") return this.#recoverSession(found);
     return this.#abort(
       found,
@@ -160,6 +162,36 @@ export class BridgeConnect {
       undefined,
       describe(session),
     );
+  }
+
+  /**
+   * J's creation carried on (resumePairingSession: J registered in I, its keys
+   * delivered) until the link is known here: after a restart, or after a
+   * creation the server did not finish. Unchanged while unreachable; a
+   * refusal ends the attempt as a creation's does.
+   */
+  async #resumeSession(a: Attempt): Promise<Attempt> {
+    if (a.session === undefined) return a;
+    const r = await this.#d.flows.resumePairingSession(this.#d.flow(), a.session);
+    if (r.kind === "created") {
+      this.#link = r.link;
+      return a;
+    }
+    if (r.kind === "unavailable" || r.kind === "conflict") return a;
+    return this.#abort(a, r.kind === "limit" ? "capacity" : "failed", undefined, describe(r));
+  }
+
+  /**
+   * "Add my other device…" (DeviceService.startSession) runs in this queue, so it never
+   * makes a session between `sessionsBefore` and J, with the attempt's J found again
+   * first: `work` gets the session to leave out (arbiter round 3, 1).
+   */
+  otherDevice<T>(work: (reserved: string | undefined) => Promise<T>): Promise<T> {
+    return this.#serial(async () => {
+      const stored = await this.attempt();
+      if (stored === undefined || !ACTIVE.has(stored.state)) return work(undefined);
+      return work((await this.#recoverSession(stored)).session);
+    });
   }
 
   /** The attempt with its J from the SDK's journal, if a session was made for it. */
@@ -320,6 +352,8 @@ export class BridgeConnect {
       view = await this.#d.finishApproval(approval, "LFCP Bridge");
     } else {
       const review = await this.#confirmedReview(ready);
+      // Not readable now: still committing, [Yes] kept; a later tick.
+      if (review === null) return ready;
       // The request said [Yes] to is gone before any consume: compare a code again.
       if (review === undefined) {
         const { confirmed: _, ...rest } = ready;
@@ -363,15 +397,18 @@ export class BridgeConnect {
   /**
    * The request the person said [Yes] to, by its key and code (review r1,
    * 1): the one in memory, or read again after a restart; never another
-   * request under J. Undefined when it is no longer there.
+   * request under J. Undefined when it is no longer there; null when the
+   * requests cannot be read now (arbiter round 3, 3: not a reason to drop [Yes]).
    */
-  async #confirmedReview(a: Attempt): Promise<PairingReview | undefined> {
+  async #confirmedReview(a: Attempt): Promise<PairingReview | undefined | null> {
     const c = a.confirmed;
     if (c === undefined) return undefined;
     const same = (r: PairingReview) =>
       r.requestKey === c.requestKey && r.fingerprint === c.fingerprint;
     if (this.#review !== null && same(this.#review)) return this.#review;
-    const r = (await this.#requests(a))?.find(same);
+    const all = await this.#requests(a);
+    if (all === null) return null;
+    const r = all.find(same);
     if (r !== undefined) this.#review = r;
     return r;
   }
@@ -384,10 +421,10 @@ export class BridgeConnect {
     });
     return ops.find(
       (op) =>
-        op.intent.session === a.session &&
         op.status !== "superseded" &&
         op.status !== "abandoned" &&
-        op.intent.requestKey === a.confirmed?.requestKey,
+        op.intent.requestKey === a.confirmed?.requestKey &&
+        ownApproval(a, op.intent),
     )?.id;
   }
 
@@ -415,17 +452,22 @@ export class BridgeConnect {
           ...(reject === undefined ? {} : { reject }),
         })
         .catch(() => ({ kind: "unavailable" }) as const);
-      if (r.kind === "consumed") {
-        const { aborting: _, reject: _r, ...rest } = next;
-        // This device's approval goes on through its phases; another managing device's
-        // carries A3 and A4 itself: here the attempt waits for the bridge in C.
-        return this.#save(
-          r.operation === undefined
-            ? { ...rest, state: "registering" }
-            : { ...rest, state: "committing", approval: r.operation },
+      // J consumed by this attempt's own approval (kind 1, scope exactly [C], its record in C):
+      // that approval goes on (A§4.4). Consumed by anything else (a personal device's approval
+      // through J, arbiter round 3, 1): J is spent, the attempt ends below and C is archived.
+      const own =
+        r.kind === "consumed" &&
+        r.operation !== undefined &&
+        ownApproval(
+          next,
+          (await new OperationJournal(this.#d.flow().storage).get(r.operation))?.intent,
         );
+      if (own && r.kind === "consumed" && r.operation !== undefined) {
+        const { aborting: _, reject: _r, ...rest } = next;
+        return this.#save({ ...rest, state: "committing", approval: r.operation });
       }
-      if (r.kind !== "cancelled" && r.kind !== "document-incomplete") return next;
+      if (r.kind !== "cancelled" && r.kind !== "document-incomplete" && r.kind !== "consumed")
+        return next;
     }
     if (!(await this.#archive(next))) return next;
     this.#link = null;
@@ -507,4 +549,20 @@ function describe(r: {
   readonly code?: string;
 }): string {
   return r.reason ?? r.code ?? r.kind;
+}
+
+/**
+ * Whether a journaled `pairing-approval` intent approves this attempt's bridge: under its J,
+ * of kind 1 with scope exactly [C], with its approval record in C (A3).
+ */
+function ownApproval(a: Attempt, intent: Readonly<Record<string, unknown>> | undefined): boolean {
+  if (intent === undefined || intent.session !== a.session) return false;
+  const payload = intent.payload as
+    | { readonly kind?: unknown; readonly scope?: unknown }
+    | undefined;
+  const record = intent.approvalRecord as { readonly resource?: unknown } | undefined;
+  const scope: readonly unknown[] = Array.isArray(payload?.scope)
+    ? (payload.scope as unknown[])
+    : [];
+  return payload?.kind === 1 && scope.length === 1 && scope[0] === a.c && record?.resource === a.c;
 }

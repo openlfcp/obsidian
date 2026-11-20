@@ -1745,20 +1745,22 @@ export class DeviceService {
     const flow = this.#flow();
     const stop = await this.#ensureIdentity(label);
     if (stop !== null) return stop;
-    // Never the J of a "Connect Apple Reminders" attempt: its link is for LFCP Bridge only.
-    const connecting = (await this.connector().attempt())?.session;
-    const open = (await this.#flows.openPairingSessions(flow)).find(
-      (s) => s.session !== connecting,
-    );
-    try {
-      return sessionView(
-        open === undefined
-          ? await this.#flows.createPairingSession(flow)
-          : await this.#flows.resumePairingSession(flow, open.session),
+    // Never the J of a "Connect Apple Reminders" attempt (its link is for LFCP Bridge only):
+    // in the attempt's queue, its J found again first, and no session made while it makes J.
+    return this.connector().otherDevice(async (connecting) => {
+      const open = (await this.#flows.openPairingSessions(flow)).find(
+        (s) => s.session !== connecting,
       );
-    } catch (e) {
-      return this.#thrown(e);
-    }
+      try {
+        return sessionView(
+          open === undefined
+            ? await this.#flows.createPairingSession(flow)
+            : await this.#flows.resumePairingSession(flow, open.session),
+        );
+      } catch (e) {
+        return this.#thrown(e);
+      }
+    });
   }
 
   /** §5.1: the device list, created on its first use; a stop when it cannot be. */
