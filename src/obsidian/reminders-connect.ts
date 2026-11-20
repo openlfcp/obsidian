@@ -9,6 +9,7 @@ import type { BridgeConnect } from "../core/identity/connect";
 import {
   ACTIVE,
   type Attempt,
+  COPY_FAILED,
   type ConnectView,
   connectView,
   LINK_COPIED,
@@ -120,7 +121,13 @@ export class RemindersConnect {
   async copyLink(): Promise<void> {
     const link = await this.#link();
     if (link === null) return;
-    await this.#host.copy(link);
+    try {
+      await this.#host.copy(link);
+    } catch {
+      // The clipboard refused (e.g. no permission): said, the link itself never shown.
+      new Notice(COPY_FAILED);
+      return;
+    }
     new Notice(LINK_COPIED);
   }
 
@@ -161,6 +168,21 @@ export class RemindersConnect {
     const c = this.#host.connector();
     const cb = parseCallback(params);
     if (c === null || cb === null) return;
+    if (cb.event === "app-ready") {
+      // A§4.1 "Отложенный handoff": the app's first start opens
+      // obsidian://openlfcp-bridge?event=app-ready, with no vault or attempt (no secrets).
+      // This vault's own attempt waiting for the app opens its link again; identifiers,
+      // when given, must be its own. Nothing else follows from it.
+      const a = await c.attempt();
+      this.#set(c, a);
+      if (
+        a?.state === "waiting-app" &&
+        (cb.attempt === undefined || cb.attempt === a.id) &&
+        (cb.vault === undefined || cb.vault === a.vault)
+      )
+        await this.openLink();
+      return;
+    }
     const r = await c.callback(cb);
     this.#set(c, await c.attempt());
     if (r.reopen) await this.openLink();

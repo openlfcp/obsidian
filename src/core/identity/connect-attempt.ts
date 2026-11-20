@@ -239,6 +239,10 @@ export const OFFLINE_LINK = "Can't reach the server right now — trying again."
 export const LINK_COPIED =
   "Shared Tasks: link copied. Send it to your Mac, then choose LFCP Bridge menu → Paste connection link.";
 
+/** [Copy link] failed: the clipboard refused it (the link is never shown). */
+export const COPY_FAILED =
+  "Shared Tasks: the link could not be copied. Allow Obsidian to use the clipboard, then try Copy link again.";
+
 /** The steps of the "another device" path (U П1, mockups/plugin.md §1). */
 export const OTHER_DEVICE_STEPS = [
   "1. Copy this link and send it to your Mac.",

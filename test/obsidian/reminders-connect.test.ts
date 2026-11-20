@@ -9,6 +9,7 @@ import type { BridgeConnect } from "../../src/core/identity/connect";
 import {
   type Attempt,
   type AttemptState,
+  COPY_FAILED,
   LINK_COPIED,
   OFFLINE_LINK,
   OTHER_DEVICE_STEPS,
@@ -52,10 +53,18 @@ function setup(stored?: Attempt) {
       current = attempt(yes ? "committing" : "rejected");
       return current;
     }),
-    callback: vi.fn(async (c: { event: string }) => ({ reopen: c.event === "app-ready" })),
+    // As BridgeConnect (d1): only this vault's attempt, by its identifiers.
+    callback: vi.fn(async (c: { event: string; attempt?: string; vault?: string }) => ({
+      reopen:
+        c.event === "app-ready" &&
+        current?.state === "waiting-app" &&
+        c.attempt === current.id &&
+        c.vault === current.vault,
+    })),
   };
   const opened: string[] = [];
   const copied: string[] = [];
+  let clipboardRefuses = false;
   const changed = vi.fn();
   const reminders = new RemindersConnect({
     connector: () => connector as unknown as BridgeConnect,
@@ -64,6 +73,7 @@ function setup(stored?: Attempt) {
       opened.push(url);
     },
     copy: async (text) => {
+      if (clipboardRefuses) throw new Error("NotAllowedError");
       copied.push(text);
     },
     changed,
@@ -79,6 +89,9 @@ function setup(stored?: Attempt) {
     },
     offline: (off: boolean) => {
       link = off ? null : LINK;
+    },
+    refuseClipboard: () => {
+      clipboardRefuses = true;
     },
   };
 }
@@ -142,6 +155,42 @@ describe("RemindersConnect", () => {
       await p.reminders.callback({ event, attempt: "a1", vault: "Vault" });
     // The only decisions are the person's: no [Yes], no [No] from a callback.
     expect(p.connector.confirm).not.toHaveBeenCalled();
+  });
+
+  it("A§4.1 first start after Download: app-ready without vault or attempt opens the waiting link again", async () => {
+    const p = setup();
+    await p.reminders.connect();
+    p.reminders.download();
+    expect(p.opened).toEqual([LINK, BRIDGE_DOWNLOAD_URL]);
+    // The app, installed and allowed, opens obsidian://openlfcp-bridge?event=app-ready.
+    await p.reminders.callback({ action: "openlfcp-bridge", event: "app-ready" });
+    expect(p.opened).toEqual([LINK, BRIDGE_DOWNLOAD_URL, LINK]);
+    // A hint only: no step of the attempt follows from it.
+    expect(p.connector.confirm).not.toHaveBeenCalled();
+    expect(p.connector.cancel).not.toHaveBeenCalled();
+  });
+
+  it("app-ready never opens another attempt's link, nor one not waiting for the app", async () => {
+    const p = setup(attempt("waiting-app"));
+    await p.reminders.tick();
+    await p.reminders.callback({ event: "app-ready", attempt: "another", vault: "Vault" });
+    await p.reminders.callback({ event: "app-ready", vault: "Other vault" });
+    expect(p.opened).toEqual([]);
+    p.set(attempt("committing"));
+    await p.reminders.callback({ event: "app-ready" });
+    p.set(undefined);
+    await p.reminders.callback({ event: "app-ready" });
+    expect(p.opened).toEqual([]);
+  });
+
+  it("a clipboard that refuses: a notice, no success and no rejection, the link not shown", async () => {
+    const p = setup(attempt("waiting-app"));
+    p.refuseClipboard();
+    const before = mock.notices.length;
+    await expect(p.reminders.copyLink()).resolves.toBeUndefined();
+    const said = mock.notices.slice(before);
+    expect(said).toEqual([COPY_FAILED]);
+    expect(said.join(" ")).not.toContain("lfcp-bridge://");
   });
 
   it("Copy link copies the link with a notice; Download opens the bridge's releases", async () => {
