@@ -1492,11 +1492,17 @@ export default class OpenLfcpPlugin extends Plugin {
     const step = () => {
       void this.reminders.tick().catch(() => undefined);
       // Section pairings under way (A§4.3, E-023): nothing is asked of the server without one.
-      if (this.runtime?.status.kind === "ready")
+      if (this.runtime?.status.kind === "ready") {
         void this.deviceService()
           ?.sectionPairings()
           .tick()
           .catch(() => undefined);
+        // A§5.3 (b), A§6.3: lifecycle of each bridge's C, and Disconnects under way (E-024).
+        void this.deviceService()
+          ?.bridgeRevocations()
+          .tick()
+          .catch(() => undefined);
+      }
     };
     step();
     if (this.#connectEvery !== null) window.clearInterval(this.#connectEvery);
