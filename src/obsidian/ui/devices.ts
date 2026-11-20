@@ -12,8 +12,15 @@
 // them again (the SDK's journal, §9).
 
 import type { MaskPreset, PairingLinkText, PairingReview } from "@openlfcp/client";
-import { fromHex, type ResourceId } from "@openlfcp/core";
+import { fromBase64url, fromHex, type ResourceId, toHex } from "@openlfcp/core";
 import { type App, Modal, Notice } from "obsidian";
+import {
+  type BridgeControl,
+  type BridgeGroup,
+  bridgeGroups,
+  bridgeLine,
+  pendingLine,
+} from "../../core/identity/bridge-devices";
 import {
   type DeviceRow,
   deviceLine,
@@ -487,12 +494,17 @@ export class DevicesModal extends Modal {
       Awaited<ReturnType<DeviceService["devices"]>>,
       readonly Unfinished[],
       Awaited<ReturnType<DeviceService["accessStates"]>>,
+      readonly BridgeControl[],
     ];
     try {
       read = await Promise.all([
         this.service.devices(),
         this.service.unfinished(),
         this.service.accessStates(),
+        // Bridges are an addition to the list: one not readable here hides only its grouping.
+        Promise.resolve()
+          .then(() => this.service.bridges())
+          .catch(() => []),
       ]);
     } catch (e) {
       el.empty();
@@ -501,14 +513,25 @@ export class DevicesModal extends Modal {
       });
       return;
     }
-    const [list, unfinished, access] = read;
+    const [list, unfinished, access, bridges] = read;
+    const names = await this.service.names().catch(() => null);
     el.empty();
     if (list.kind === "none") {
       el.createEl("p", { text: NO_DEVICES });
     } else {
       if (list.note !== null)
         el.createEl("p", { text: list.note, cls: "setting-item-description" });
-      for (const row of list.rows) this.#row(el, row, list.manages);
+      // U П5: a bridge's installations under its own line, by bridgeInstanceId.
+      const { groups, rest } = bridgeGroups(list.rows, bridges);
+      for (const row of rest) this.#row(el, row, list.manages);
+      for (const g of groups) {
+        el.createEl("h4", { text: bridgeLine(g, Date.now()) });
+        for (const row of [...g.base, ...g.sections]) this.#row(el, row, list.manages);
+        for (const p of g.pending) {
+          const hex = toHex(fromBase64url(p.binding));
+          this.#pending(el, p, names?.resource(hex) ?? p.binding, list.manages);
+        }
+      }
     }
     for (const u of unfinished) this.#unfinished(el, u);
     if (access.length > 0) {
@@ -572,6 +595,31 @@ export class DevicesModal extends Modal {
           () => void this.#render(),
         );
         returnsFocus(remove).open();
+      });
+  }
+
+  /** "Pending connection" [Cancel] (U П1, П5): until the section's installation is approved. */
+  #pending(
+    el: HTMLElement,
+    p: BridgeGroup["pending"][number],
+    section: string,
+    manages: boolean,
+  ): void {
+    const item = el.createDiv({ cls: "setting-item" });
+    item.createDiv({ cls: "setting-item-info", text: pendingLine(section) });
+    if (!manages) return;
+    item
+      .createDiv({ cls: "setting-item-control" })
+      .createEl("button", { text: "Cancel" })
+      .addEventListener("click", () => {
+        void this.service
+          .sectionPairings()
+          .cancelPending(fromHex(p.c) as ResourceId, p)
+          .then((done) => {
+            if (!done)
+              new Notice("Shared Tasks: the connection could not be cancelled now. Try again.");
+            return this.#render();
+          });
       });
   }
 

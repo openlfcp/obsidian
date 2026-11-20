@@ -1489,12 +1489,18 @@ export default class OpenLfcpPlugin extends Plugin {
 
   /** The attempt's first step at once when ready (after a restart too), then every few seconds. */
   #watchConnect(): void {
-    void this.reminders.tick().catch(() => undefined);
+    const step = () => {
+      void this.reminders.tick().catch(() => undefined);
+      // Section pairings under way (A§4.3, E-023): nothing is asked of the server without one.
+      if (this.runtime?.status.kind === "ready")
+        void this.deviceService()
+          ?.sectionPairings()
+          .tick()
+          .catch(() => undefined);
+    };
+    step();
     if (this.#connectEvery !== null) window.clearInterval(this.#connectEvery);
-    this.#connectEvery = window.setInterval(
-      () => void this.reminders.tick().catch(() => undefined),
-      CONNECT_TICK_MS,
-    );
+    this.#connectEvery = window.setInterval(step, CONNECT_TICK_MS);
   }
 
   /** The device flows (LFCP-04-413), or null while the runtime is not running. */

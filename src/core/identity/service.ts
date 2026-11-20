@@ -72,6 +72,7 @@ import {
   hasAbility,
   invitationPrincipal,
   parseInviteUri,
+  revocationOf,
   type Signer,
   validateControlChain,
 } from "@openlfcp/wire";
@@ -85,6 +86,7 @@ import {
   type InviteProfile,
 } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
+import type { BridgeControl } from "./bridge-devices";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
 import { BridgeConnect } from "./connect";
 import { type DeviceRow, deviceRows } from "./device-list";
@@ -119,6 +121,7 @@ import {
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
 import { UNIT_PROFILES } from "./profiles";
 import type { RosterAdd, RosterWriter } from "./roster";
+import { pendingConnections, SectionPairings } from "./section-pairing";
 
 /** The pairing request of this device until every section it brought is opened here (P2-5). */
 const PAIRING_KEY = "identity-pairing-request";
@@ -1747,20 +1750,24 @@ export class DeviceService {
     if (stop !== null) return stop;
     // Never the J of a "Connect Apple Reminders" attempt (its link is for LFCP Bridge only):
     // in the attempt's queue, its J found again first, and no session made while it makes J.
-    return this.connector().otherDevice(async (connecting) => {
-      const open = (await this.#flows.openPairingSessions(flow)).find(
-        (s) => s.session !== connecting,
-      );
-      try {
-        return sessionView(
-          open === undefined
-            ? await this.#flows.createPairingSession(flow)
-            : await this.#flows.resumePairingSession(flow, open.session),
+    return this.connector().otherDevice((connecting) =>
+      // Nor the J_X of a section's installation (A§4.3), found again first; a J_X not made
+      // yet sets aside what this makes (E-022d1).
+      this.sectionPairings().aside(async (sections) => {
+        const open = (await this.#flows.openPairingSessions(flow)).find(
+          (s) => s.session !== connecting && !sections.has(s.session),
         );
-      } catch (e) {
-        return this.#thrown(e);
-      }
-    });
+        try {
+          return sessionView(
+            open === undefined
+              ? await this.#flows.createPairingSession(flow)
+              : await this.#flows.resumePairingSession(flow, open.session),
+          );
+        } catch (e) {
+          return this.#thrown(e);
+        }
+      }),
+    );
   }
 
   /** §5.1: the device list, created on its first use; a stop when it cannot be. */
@@ -1801,6 +1808,58 @@ export class DeviceService {
       finishApproval: (operation, l) => this.finishApproval(operation, l),
     });
     return this.#connector;
+  }
+
+  /**
+   * The bridges of the person's roster for the device list (U П5, E-023): each
+   * control Resource C open here, with its pending section connections.
+   */
+  async bridges(): Promise<BridgeControl[]> {
+    const runtime = this.#runtime();
+    const I = await this.identity();
+    if (I === undefined) return [];
+    await this.#openControls(this.#flow()).catch(() => undefined);
+    const chain = await loadControlChain(this.#context().storage, I);
+    if (chain?.kind !== "linear") return [];
+    const root = chain.state.owner.principalId;
+    const revoked = (J: PrincipalId) => revocationOf(chain.state, root, J) !== undefined;
+    const out: BridgeControl[] = [];
+    for (const [c, name] of this.#controlNames) {
+      const port = runtime.controlPort?.(fromHex(c) as ResourceId);
+      if (port !== undefined)
+        out.push({ c, name, port, pending: pendingConnections(port, revoked) });
+    }
+    return out;
+  }
+
+  #sectionPairings: SectionPairings | null = null;
+
+  /** A section's installation of LFCP Bridge through its C (MVP 0.6 A§4.3, E-023). */
+  sectionPairings(app = "Shared Tasks"): SectionPairings {
+    this.#sectionPairings ??= new SectionPairings({
+      flows: this.#flows,
+      flow: () => this.#flow(),
+      localState: () => this.#runtime().localState,
+      control: (C) => this.#controlPortOf(C),
+      identity: async () => {
+        const I = await this.identity();
+        const chain = I === undefined ? undefined : await loadControlChain(this.#flow().storage, I);
+        if (chain?.kind !== "linear") return null;
+        const root = chain.state.owner.principalId;
+        return {
+          live: chain.state.liveBound.get(toHex(root)) ?? 0,
+          revoked: (J) => revocationOf(chain.state, root, J) !== undefined,
+        };
+      },
+      // No pairing session is made meanwhile: neither the base attempt's J nor a personal one.
+      exclusive: (work) => this.connector().otherDevice(() => work()),
+      reserved: async () => {
+        const a = await this.connector().attempt();
+        return a?.session === undefined ? [] : [a.session];
+      },
+      client: { app, protocol: 1 },
+    });
+    return this.#sectionPairings;
   }
 
   /**
