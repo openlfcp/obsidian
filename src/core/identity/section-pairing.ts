@@ -238,7 +238,7 @@ export class SectionPairings {
       const state = port?.state();
       const I = await this.#d.identity();
       if (port === undefined || state === undefined || I === null)
-        return { kind: "unavailable", reason: "the bridge's control Resource is not readable yet" };
+        return { kind: "unavailable", reason: "LFCP Bridge can't be reached from here yet" };
       // One open pair-section per bridge (A§3.2), also one another device of the person wrote.
       if (pendingConnections(port, I.revoked).length > 0) return { kind: "busy" };
       const sections = connectedSections(state);

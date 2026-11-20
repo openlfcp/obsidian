@@ -36,10 +36,8 @@ export interface BridgeGroup {
   readonly pending: readonly (PendingConnection & { readonly c: string })[];
 }
 
-const field = (r: unknown, k: string): string | undefined => {
-  const v = (r as Record<string, unknown> | undefined)?.[k];
-  return typeof v === "string" ? v : undefined;
-};
+/** A string field of a record the bridge wrote (display only), else undefined. */
+const text = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
 /**
  * The rows grouped by bridge, and the rows of no bridge (in their order).
@@ -57,9 +55,13 @@ export function bridgeGroups(
       | (ReturnType<ServiceControlPort["state"]> & { service?: unknown; status?: unknown })
       | undefined;
     if (state === undefined) continue;
-    const instance = field(state.service, "instance") ?? c.c;
-    const app = field(state.service, "app");
-    const heartbeatAt = field(state.status, "heartbeatAt");
+    const service = state.service as
+      | { readonly instance?: unknown; readonly app?: unknown }
+      | undefined;
+    const status = state.status as { readonly heartbeatAt?: unknown } | undefined;
+    const instance = text(service?.instance) ?? c.c;
+    const app = text(service?.app);
+    const heartbeatAt = text(status?.heartbeatAt);
     const base: DeviceRow[] = [];
     const sections: DeviceRow[] = [];
     for (const [ref, a] of Object.entries(state.approvals)) {
