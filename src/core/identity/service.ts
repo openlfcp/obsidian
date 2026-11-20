@@ -72,6 +72,7 @@ import {
   hasAbility,
   invitationPrincipal,
   parseInviteUri,
+  revocationOf,
   type Signer,
   validateControlChain,
 } from "@openlfcp/wire";
@@ -119,6 +120,7 @@ import {
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
 import { UNIT_PROFILES } from "./profiles";
 import type { RosterAdd, RosterWriter } from "./roster";
+import { SectionPairings } from "./section-pairing";
 
 /** The pairing request of this device until every section it brought is opened here (P2-5). */
 const PAIRING_KEY = "identity-pairing-request";
@@ -1748,8 +1750,10 @@ export class DeviceService {
     // Never the J of a "Connect Apple Reminders" attempt (its link is for LFCP Bridge only):
     // in the attempt's queue, its J found again first, and no session made while it makes J.
     return this.connector().otherDevice(async (connecting) => {
+      // Nor the J_X of a section's installation (A§4.3).
+      const sections = await this.sectionPairings().sessions();
       const open = (await this.#flows.openPairingSessions(flow)).find(
-        (s) => s.session !== connecting,
+        (s) => s.session !== connecting && !sections.has(s.session),
       );
       try {
         return sessionView(
@@ -1801,6 +1805,32 @@ export class DeviceService {
       finishApproval: (operation, l) => this.finishApproval(operation, l),
     });
     return this.#connector;
+  }
+
+  #sectionPairings: SectionPairings | null = null;
+
+  /** A section's installation of LFCP Bridge through its C (MVP 0.6 A§4.3, E-023). */
+  sectionPairings(app = "Shared Tasks"): SectionPairings {
+    this.#sectionPairings ??= new SectionPairings({
+      flows: this.#flows,
+      flow: () => this.#flow(),
+      localState: () => this.#runtime().localState,
+      control: (C) => this.#controlPortOf(C),
+      identity: async () => {
+        const I = await this.identity();
+        const chain = I === undefined ? undefined : await loadControlChain(this.#flow().storage, I);
+        if (chain?.kind !== "linear") return null;
+        const root = chain.state.owner.principalId;
+        return {
+          live: chain.state.liveBound.get(toHex(root)) ?? 0,
+          revoked: (J) => revocationOf(chain.state, root, J) !== undefined,
+        };
+      },
+      // No pairing session is made meanwhile: neither the base attempt's J nor a personal one.
+      exclusive: (work) => this.connector().otherDevice(() => work()),
+      client: { app, protocol: 1 },
+    });
+    return this.#sectionPairings;
   }
 
   /**

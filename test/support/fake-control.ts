@@ -1,0 +1,108 @@
+// A stand-in for a control Resource C (SERVICE-CONTROL-PROFILE-01) as one
+// device's ServiceControlPort sees it: the state readers see, who created
+// each entry, and the writes of root/personal applied at once. The bridge's
+// side (`pairing`, `events`, `service`) is set by the test, with the writer
+// class admission would have judged. Test only (E-023: the host's C is not
+// merged yet).
+
+import type {
+  ServiceControlCommitOutcome,
+  ServiceControlCreator,
+  ServiceControlPort,
+  ServiceControlWriterClass,
+} from "@openlfcp/client";
+import type { PrincipalId, ResourceId } from "@openlfcp/core";
+
+type Container = "approvals" | "pairing" | "requests" | "cancels";
+
+export interface FakeControlState {
+  approvals: Record<string, Record<string, unknown> & { revoked: boolean }>;
+  requests: Record<string, { op: string; binding?: string; args: Record<string, unknown> }>;
+  pairing: Record<string, { descriptor: string; principal: string; fp: string }>;
+  cancels: Record<string, { reason: string }>;
+  events: Record<string, { state: string }>;
+  bindings: Record<string, unknown>;
+  service?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+}
+
+export class FakeControl implements ServiceControlPort {
+  readonly data: FakeControlState = {
+    approvals: {},
+    requests: {},
+    pairing: {},
+    cancels: {},
+    events: {},
+    bindings: {},
+  };
+  readonly creators = new Map<string, ServiceControlCreator[]>();
+  /** Every committed batch, in order (with its operation). */
+  readonly commits: { operation: string; intents: readonly Record<string, unknown>[] }[] = [];
+  /** What commit answers: "acknowledged" by default; "queued"/"offline" leave C unchanged. */
+  answer: "acknowledged" | "queued" | "offline" = "acknowledged";
+  synchronised = true;
+
+  constructor(
+    readonly resource: ResourceId,
+    /** The device writing through this port, and its class (root/personal). */
+    readonly me: PrincipalId,
+    readonly myClass: ServiceControlWriterClass = "root",
+  ) {}
+
+  state() {
+    return this.synchronised ? (this.data as never) : undefined;
+  }
+
+  creatorsOf(container: Container, key: string): readonly ServiceControlCreator[] {
+    return this.creators.get(`${container}/${key}`) ?? [];
+  }
+
+  requestHistory() {
+    return Object.entries(this.data.requests).map(([rid, request]) => ({
+      rid,
+      request,
+      present: true,
+      creators: this.creatorsOf("requests", rid),
+    }));
+  }
+
+  async acknowledged(container: Container, key: string): Promise<boolean> {
+    return this.creatorsOf(container, key).length > 0;
+  }
+
+  /** Sets an entry as another writer (the bridge as `service`, or a forger). */
+  put(
+    container: Container | "events",
+    key: string,
+    value: never,
+    by: { signer: PrincipalId; writerClass: ServiceControlWriterClass },
+  ): void {
+    (this.data[container] as Record<string, unknown>)[key] = value;
+    if (container !== "events") this.creators.set(`${container}/${key}`, [by]);
+  }
+
+  async commit(
+    intents: readonly unknown[],
+    operation: string,
+  ): Promise<ServiceControlCommitOutcome> {
+    if (this.answer === "offline") throw new Error("C is not reachable");
+    const list = intents as readonly Record<string, unknown>[];
+    if (this.commits.some((c) => c.operation === operation)) return { kind: "acknowledged" };
+    if (this.answer === "queued") return { kind: "queued" };
+    this.commits.push({ operation, intents: list });
+    const by = { signer: this.me, writerClass: this.myClass };
+    for (const i of list) {
+      if (i.intent === "request.create") {
+        const rid = String(i.rid);
+        if (this.data.requests[rid] !== undefined) return { kind: "rejected", code: "ONCE" };
+        this.put("requests", rid, i.request as never, by);
+      } else if (i.intent === "cancel.create") {
+        this.put("cancels", String(i.rid), i.cancel as never, by);
+      } else if (i.intent === "approval.create") {
+        const a = i.approval as { principal: string };
+        this.put("approvals", a.principal, { ...a, revoked: false } as never, by);
+      }
+    }
+    return { kind: "acknowledged" };
+  }
+}

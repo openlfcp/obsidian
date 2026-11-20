@@ -8,6 +8,7 @@ import {
   acceptInvitationAsDevice,
   addToRoster,
   approvePairing,
+  autoApproveSection,
   cancelPairing,
   completePairing,
   connectionNetwork,
@@ -79,6 +80,8 @@ export interface IdentityFlows {
   readonly connectionNetwork: typeof connectionNetwork;
   /** A control Resource C of a service (SERVICE-CONTROL-PROFILE-01 §1, E-022d). */
   readonly createServiceControl: typeof createServiceControl;
+  /** A section installation's pre-authorised approval through C (A§4.3 step 3, E-023). */
+  readonly autoApproveSection: typeof autoApproveSection;
 }
 
 export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
@@ -114,4 +117,5 @@ export const SDK_IDENTITY_FLOWS: IdentityFlows = Object.freeze({
   loadIdentityDocument,
   connectionNetwork,
   createServiceControl,
+  autoApproveSection,
 });
