@@ -7,7 +7,12 @@
 
 import { loadControlChain, principalRefOf, requestPairing } from "@openlfcp/client";
 import { type PrincipalId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
-import { decodeControlRecord, parsePairingUri } from "@openlfcp/wire";
+import {
+  type ControlState,
+  decodeControlRecord,
+  parsePairingUri,
+  revocationOf,
+} from "@openlfcp/wire";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   BridgeRevocations,
@@ -44,16 +49,31 @@ function pairingsOf(a: Installation, control: FakeControl) {
     flow: () => flowOf(a),
     localState: () => a.runtime.localState,
     control: async () => control,
-    identity: async () => ({ live: 0, revoked: () => false }),
+    identity: async () => {
+      const I = await a.service.identity();
+      const chain =
+        I === undefined ? undefined : await loadControlChain(world.flowOf(a).storage, I);
+      if (chain?.kind !== "linear") return null;
+      const root = chain.state.owner.principalId;
+      return {
+        live: 0,
+        revoked: (J: PrincipalId) => revocationOf(chain.state, root, J) !== undefined,
+      };
+    },
     exclusive: (work) => a.service.connector().otherDevice(() => work()),
     reserved: async () => [],
     client: { app: "Shared Tasks 0.8.0", protocol: 1 },
   });
 }
 
-function revocationsOf(a: Installation, controls: readonly FakeControl[]) {
+function revocationsOf(
+  a: Installation,
+  controls: readonly FakeControl[],
+  flows: Pick<typeof SDK_IDENTITY_FLOWS, "revokeDevice"> = SDK_IDENTITY_FLOWS,
+  root?: (s: ControlState) => ControlState,
+) {
   return new BridgeRevocations({
-    flows: SDK_IDENTITY_FLOWS,
+    flows,
     flow: () => flowOf(a),
     localState: () => a.runtime.localState,
     controls: async () => controls,
@@ -62,7 +82,10 @@ function revocationsOf(a: Installation, controls: readonly FakeControl[]) {
       const chain =
         I === undefined ? undefined : await loadControlChain(world.flowOf(a).storage, I);
       if (chain?.kind !== "linear") return null;
-      return { root: chain.state.owner.principalId, state: chain.state };
+      return {
+        root: chain.state.owner.principalId,
+        state: root === undefined ? chain.state : root(chain.state),
+      };
     },
     client: { app: "Shared Tasks 0.8.0", protocol: 1 },
   });
@@ -84,6 +107,7 @@ async function setup() {
   world = new DeviceWorld();
   const a = await world.installation();
   const X = await a.section("Home");
+  const Y = await a.section("Work");
   const personal = await a.service.startSession("Mac");
   if (personal.kind !== "link" || personal.result.kind !== "created") throw new Error("no link");
   const b = await world.installation();
@@ -96,6 +120,7 @@ async function setup() {
     a,
     b,
     X,
+    Y,
     I,
     C,
     control,
@@ -305,4 +330,80 @@ it("Disconnect on a device that may not remove devices fails, never done without
   expect((await r.disconnect(toHex(w.C)))?.message).toBe(NOT_MANAGING);
   expect(revokedInI(w.I)).toEqual([]);
   expect(w.control.data.approvals[principalRefOf(idOf(bridge))]?.revoked).toBe(false);
+});
+
+// Review r1 of obsidian#124.
+
+it("r1-3: a section revocation not reached now keeps the base for later (the base last)", async () => {
+  const w = await setup();
+  const x = await connect(w, w.control);
+  const y = await connect(w, w.control, w.Y);
+  // y's installation stands as the bridge's base in this C (its checks of A§5.3 hold).
+  const base = w.control.data.approvals[y.ref];
+  if (base === undefined) throw new Error("no approval");
+  base.role = "base";
+  base.resource = toBase64url(w.C);
+  lifecycle(w.control, w.X, x.generation, "uninstall");
+  const asked: string[] = [];
+  const unreachable = {
+    revokeDevice: (async (o) => {
+      asked.push(toHex(o.device));
+      return { kind: "unavailable", reason: "offline" };
+    }) as typeof SDK_IDENTITY_FLOWS.revokeDevice,
+  };
+  await revocationsOf(w.a, [w.control], unreachable).tick();
+  expect(asked).toEqual([toHex(idOf(x.bridge))]);
+  // After a restart, reached again: the section first, then the base.
+  await revocationsOf(w.a, [w.control]).tick();
+  expect(revokedInI(w.I)).toEqual([toHex(idOf(x.bridge)), toHex(idOf(y.bridge))]);
+});
+
+it("r1-4: approval.revoke refused while C still shows it live is kept and said, never dropped", async () => {
+  const w = await setup();
+  const { bridge, ref } = await connect(w, w.control);
+  w.control.refuse = { intent: "approval.revoke", code: "NOT_PERMITTED" };
+  const r = revocationsOf(w.a, [w.control]);
+  await r.start(w.control);
+  const d = await r.anyway(w.control);
+  expect(d?.state).toBe("failed");
+  expect(d?.message).toMatch(/NOT_PERMITTED/);
+  expect(revokedInI(w.I)).toEqual([toHex(idOf(bridge))]);
+  expect(w.control.data.approvals[ref]?.revoked).toBe(false);
+  const journal = (await w.a.runtime.localState.get(REVOCATIONS_KEY)) as Record<
+    string,
+    { at: string; revoked?: boolean }
+  >;
+  expect(journal[toHex(idOf(bridge))]).toMatchObject({ revoked: true });
+});
+
+it("r1-5: C not reached while removing still offers Disconnect anyway after the wait", async () => {
+  const w = await setup();
+  await connect(w, w.control);
+  w.control.answer = "offline";
+  const r = revocationsOf(w.a, [w.control]);
+  expect((await r.start(w.control)).state).toBe("removing");
+  skew = DISCONNECT_WAIT_MS;
+  await r.tick();
+  expect((await r.disconnect(toHex(w.C)))?.state).toBe("silent");
+});
+
+it("r1-6: a kind-1 installation of another root, otherwise approved, is never revoked", async () => {
+  const w = await setup();
+  const { bridge, generation } = await connect(w, w.control);
+  const other = idOf(await world.installation());
+  // Only the root of D_X in I differs: the approval, digest, kind and scope are its own.
+  const foreignRoot = (s: ControlState): ControlState => {
+    const devices = new Map(s.devices);
+    const hex = toHex(idOf(bridge));
+    const d = devices.get(hex);
+    if (d === undefined) throw new Error("D_X not in I");
+    devices.set(hex, { ...d, root: other });
+    return { ...s, devices } as ControlState;
+  };
+  lifecycle(w.control, w.X, generation);
+  await revocationsOf(w.a, [w.control], SDK_IDENTITY_FLOWS, foreignRoot).tick();
+  expect(revokedInI(w.I)).toEqual([]);
+  // The same, with its own root: revoked (the fixture is otherwise lawful).
+  await revocationsOf(w.a, [w.control]).tick();
+  expect(revokedInI(w.I)).toEqual([toHex(idOf(bridge))]);
 });

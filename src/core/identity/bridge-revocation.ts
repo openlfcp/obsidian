@@ -157,10 +157,10 @@ export class BridgeRevocations {
 
   async #step(port: ServiceControlPort): Promise<void> {
     const c = toHex(port.resource);
-    for (const r of Object.values(await this.#all<Revocation>(REVOCATIONS_KEY)))
-      if (r.c === c && r.message === undefined) await this.#finish(port, r);
+    const journaled = await this.#finishJournal(port);
     // A§3.1: in a conflict, nothing written by a service is acted on.
-    if (!baseConflict(port)) await this.#revokeAll(port, { kind: "lifecycle" });
+    if (journaled === "done" && !baseConflict(port))
+      await this.#revokeAll(port, { kind: "lifecycle" });
     const d = await this.disconnect(c);
     if (d !== undefined) await this.#disconnectStep(port, d);
   }
@@ -249,11 +249,18 @@ export class BridgeRevocations {
   async #disconnectStep(port: ServiceControlPort, d: Disconnect): Promise<Disconnect> {
     let next = d;
     if (d.state === "removing") {
-      const out = await port.commit(
-        d.requests.map((r) => r.intent),
-        `disconnect:${d.c}:${d.startedAt}`,
-      );
-      if (out.kind === "rejected") next = { ...d, state: "silent", code: out.code };
+      // C not reached (the commit throws): the requests stay journaled as they are, and
+      // the deadline still offers "Disconnect anyway".
+      const out = await port
+        .commit(
+          d.requests.map((r) => r.intent),
+          `disconnect:${d.c}:${d.startedAt}`,
+        )
+        .catch(() => undefined);
+      const late = this.#d.flow().now() - d.startedAt >= DISCONNECT_WAIT_MS;
+      if (out === undefined) {
+        if (late) next = { ...d, state: "silent" };
+      } else if (out.kind === "rejected") next = { ...d, state: "silent", code: out.code };
       else {
         const events = ((
           port.state() as { events?: Record<string, { state?: unknown; code?: unknown }> }
@@ -265,8 +272,7 @@ export class BridgeRevocations {
         if (bad !== undefined)
           next = { ...d, state: "silent", code: String(bad.code ?? bad.state) };
         else if (ev.every((e) => e?.state === "applied")) next = { ...d, state: "revoking" };
-        else if (this.#d.flow().now() - d.startedAt >= DISCONNECT_WAIT_MS)
-          next = { ...d, state: "silent" };
+        else if (late) next = { ...d, state: "silent" };
       }
     }
     // Neither C nor I read here yet: the revocations wait, never "done" without them.
@@ -314,25 +320,54 @@ export class BridgeRevocations {
           .targets,
       );
     const order = [...targets].sort((a, b) => Number(isBase(state, a)) - Number(isBase(state, b)));
+    const journaled = await this.#finishJournal(port);
+    if (journaled !== "done") return typeof journaled === "string" ? null : journaled.message;
     const journal = await this.#all<Revocation>(REVOCATIONS_KEY);
     for (const P of order) {
-      const known = journal[toHex(P)];
-      if (known?.message !== undefined) return known.message;
-      const r: Revocation = known ?? {
+      if (journal[toHex(P)] !== undefined) continue;
+      const r: Revocation = {
         c: toHex(port.resource),
         ref: principalRefOf(P),
         operation: `revoke-device.${toHex(crypto.getRandomValues(new Uint8Array(8)))}`,
         at: iso(this.#d.flow().now()),
       };
-      if (known === undefined) await this.#put(REVOCATIONS_KEY, toHex(P), r);
-      const message = await this.#finish(port, r);
-      if (message !== null) return message;
+      await this.#put(REVOCATIONS_KEY, toHex(P), r);
+      const out = await this.#finish(port, r);
+      // Not finished now: nothing after it, the base least of all (A§5.3).
+      if (out !== "done") return typeof out === "string" ? null : out.message;
     }
     return null;
   }
 
-  /** Revoked in I, then `approvals/<ref>.revoked`; the server's refusal, else null (done or later). */
-  async #finish(port: ServiceControlPort, r: Revocation): Promise<string | null> {
+  /**
+   * The journaled revocations of C, sections before the base: none goes on past one
+   * not finished (A§5.3 "the base last", after a restart too).
+   */
+  async #finishJournal(
+    port: ServiceControlPort,
+  ): Promise<"done" | "pending" | { readonly message: string }> {
+    const c = toHex(port.resource);
+    const state = port.state();
+    const journaled = Object.values(await this.#all<Revocation>(REVOCATIONS_KEY))
+      .filter((r) => r.c === c)
+      .sort((a, b) => Number(isBaseRef(state, a.ref)) - Number(isBaseRef(state, b.ref)));
+    for (const r of journaled) {
+      if (r.message !== undefined) return { message: r.message };
+      const out = await this.#finish(port, r);
+      if (out !== "done") return out;
+    }
+    return "done";
+  }
+
+  /**
+   * Revoked in I, then `approvals/<ref>.revoked`: "done" once both are; "pending" when
+   * the server or C is not reached (the next tick repeats it); a refusal is kept with
+   * its intents and said.
+   */
+  async #finish(
+    port: ServiceControlPort,
+    r: Revocation,
+  ): Promise<"done" | "pending" | { readonly message: string }> {
     const P = principalOfRef(r.ref) as PrincipalId;
     let step = r;
     if (step.revoked !== true) {
@@ -342,23 +377,30 @@ export class BridgeRevocations {
         reason: 0n,
         operation: step.operation,
       });
-      if (out.kind === "unavailable") return null;
+      if (out.kind === "unavailable") return "pending";
       if (out.kind !== "revoked" && out.kind !== "superseded") {
         const message = `The bridge's installation could not be removed (${out.kind}).`;
         await this.#put(REVOCATIONS_KEY, toHex(P), { ...step, message });
-        return message;
+        return { message };
       }
       step = { ...step, revoked: true };
       await this.#put(REVOCATIONS_KEY, toHex(P), step);
     }
-    const out = await port.commit(
-      [{ intent: "approval.revoke", principal: step.ref, at: step.at }],
-      `${step.ref}:revoke`,
-    );
-    if (out.kind === "queued") return null;
-    // Acknowledged, or refused because it is revoked already: nothing more to do.
+    const out = await port
+      .commit(
+        [{ intent: "approval.revoke", principal: step.ref, at: step.at }],
+        `${step.ref}:revoke`,
+      )
+      .catch(() => undefined);
+    if (out === undefined || out.kind === "queued") return "pending";
+    // Done once acknowledged, or refused while C shows the approval revoked already.
+    if (out.kind === "rejected" && port.state()?.approvals[step.ref]?.revoked !== true) {
+      const message = `The record of the bridge's installation could not be marked removed (${out.code}).`;
+      await this.#put(REVOCATIONS_KEY, toHex(P), { ...step, message });
+      return { message };
+    }
     await this.#put<Revocation>(REVOCATIONS_KEY, toHex(P), undefined);
-    return null;
+    return "done";
   }
 }
 
@@ -375,4 +417,7 @@ const live = (state: ServiceControlStateView): string[] =>
 const iso = (ms: number) => `${new Date(ms).toISOString().slice(0, 19)}Z`;
 
 const isBase = (state: ServiceControlStateView, P: PrincipalId): boolean =>
-  state.approvals[principalRefOf(P)]?.role === "base";
+  isBaseRef(state, principalRefOf(P));
+
+const isBaseRef = (state: ServiceControlStateView | undefined, ref: string): boolean =>
+  state?.approvals[ref]?.role === "base";

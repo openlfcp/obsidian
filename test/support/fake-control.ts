@@ -46,6 +46,8 @@ export class FakeControl implements ServiceControlPort {
    */
   answer: "acknowledged" | "queued" | "offline" = "acknowledged";
   synchronised = true;
+  /** When set, a commit whose intents include this intent is refused with `code` and changes nothing. */
+  refuse: { readonly intent: string; readonly code: string } | undefined;
 
   constructor(
     readonly resource: ResourceId,
@@ -105,6 +107,9 @@ export class FakeControl implements ServiceControlPort {
     if (known !== undefined && known !== hash) throw new OperationIdReusedError(operation);
     if (this.answer === "offline") throw new Error("C is not reachable");
     if (known === undefined) this.receipts.set(operation, hash);
+    const refuse = this.refuse;
+    if (refuse !== undefined && list.some((i) => i.intent === refuse.intent))
+      return { kind: "rejected", code: refuse.code };
     if (this.answer === "queued") return { kind: "queued" };
     if (this.#applied.has(operation)) return { kind: "acknowledged" };
     this.#applied.add(operation);
