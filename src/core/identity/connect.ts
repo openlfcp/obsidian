@@ -190,13 +190,39 @@ export class BridgeConnect {
     return this.#serial(async () => {
       const stored = await this.attempt();
       if (stored === undefined || !ACTIVE.has(stored.state)) return work(undefined);
-      return work((await this.#recoverSession(stored)).session);
+      const a = await this.#recoverSession(stored);
+      if (a.session !== undefined || a.sessionsBefore === undefined) return work(a.session);
+      // No J yet (review r3): what this flow makes is journaled as not the attempt's.
+      const marked = await this.#save({ ...a, othersSince: this.#now() });
+      try {
+        return await work(undefined);
+      } finally {
+        await this.#settleOthers(marked);
+      }
+    });
+  }
+
+  /** The sessions made since `othersSince` recorded as personal (in `sessionsBefore`). */
+  async #settleOthers(a: Attempt): Promise<Attempt> {
+    const since = a.othersSince;
+    if (since === undefined) return a;
+    const open = await new OperationJournal(this.#d.flow().storage).list({
+      kind: "pairing-session",
+      status: "open",
+    });
+    const theirs = open.filter((op) => op.createdAt >= since).map((op) => op.id);
+    const { othersSince: _, ...rest } = a;
+    return this.#save({
+      ...rest,
+      sessionsBefore: [...new Set([...(a.sessionsBefore ?? []), ...theirs])],
     });
   }
 
   /** The attempt with its J from the SDK's journal, if a session was made for it. */
-  async #recoverSession(a: Attempt): Promise<Attempt> {
-    if (a.session !== undefined || a.sessionsBefore === undefined) return a;
+  async #recoverSession(stored: Attempt): Promise<Attempt> {
+    if (stored.session !== undefined || stored.sessionsBefore === undefined) return stored;
+    // A personal flow cut short by a crash: its sessions are set aside first.
+    const a = await this.#settleOthers(stored);
     const before = new Set(a.sessionsBefore);
     const mine = (await this.#d.flows.openPairingSessions(this.#d.flow())).find(
       (s) => !before.has(s.session),

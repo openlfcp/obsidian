@@ -5,12 +5,17 @@
 // journaled in the attempt is found again and revoked by a cancel; (4) a
 // cancel not finished blocks any approval.
 
-import { OperationJournal, type PairingReview, requestPairing } from "@openlfcp/client";
+import {
+  IdentityUnavailable,
+  OperationJournal,
+  type PairingReview,
+  requestPairing,
+} from "@openlfcp/client";
 import { type ResourceId, toHex } from "@openlfcp/core";
 import { InMemoryLfcpStorage } from "@openlfcp/storage";
 import { decodeControlRecord } from "@openlfcp/wire";
 import { expect, it, vi } from "vitest";
-import { BridgeConnect, type ConnectDeps } from "../../../src/core/identity/connect";
+import { ATTEMPT_KEY, BridgeConnect, type ConnectDeps } from "../../../src/core/identity/connect";
 import { type Attempt, connectView } from "../../../src/core/identity/connect-attempt";
 import { SDK_IDENTITY_FLOWS } from "../../../src/core/identity/flows";
 import { DeviceWorld } from "../../support/device-world";
@@ -387,4 +392,74 @@ it("round 3, 3: requests not readable keep [Yes]: still committing, no cancel; t
   p.pairingRequests.mockResolvedValue([FOREIGN, MAC]);
   expect((await p.connect.tick())?.state).toBe("registering");
   expect((p.approve.mock.calls[0] as unknown[])[0]).toBe(MAC);
+});
+
+// Review r3 (obsidian#121, on 833e98d): J not made at all (no crash), then Add my other device.
+
+/** A's attempt whose J could not be made (the network failed before the SDK journaled it). */
+async function withoutJ() {
+  const world = new DeviceWorld();
+  let offline = true;
+  const a = await world.installation({
+    createPairingSession: (o) =>
+      SDK_IDENTITY_FLOWS.createPairingSession(
+        offline
+          ? {
+              ...o,
+              network: {
+                connect: async () => {
+                  throw new IdentityUnavailable("offline");
+                },
+              },
+            }
+          : o,
+      ),
+  });
+  await a.section("Plans");
+  const connect = a.service.connector();
+  const attempt = await connect.start("Vault");
+  expect(attempt.state).toBe("waiting-app");
+  expect(attempt.session).toBeUndefined();
+  expect(await SDK_IDENTITY_FLOWS.openPairingSessions(world.flowOf(a))).toEqual([]);
+  offline = false;
+  return { world, a, connect };
+}
+
+it("review r3: a personal session made while the attempt has no J is never taken for J", async () => {
+  const { world, a, connect } = await withoutJ();
+  try {
+    const personal = await a.service.startSession("Desk");
+    if (personal.kind !== "link") throw new Error(JSON.stringify(personal));
+    // The tick makes the attempt's own J; the personal session is not it.
+    const t = await connect.tick();
+    expect(t?.session).toBeDefined();
+    expect(t?.session).not.toBe(personal.session);
+    expect(t?.othersSince).toBeUndefined();
+    // [Cancel] revokes J only: the personal link still works.
+    expect(await connect.cancel()).toBe(true);
+    const open = (await SDK_IDENTITY_FLOWS.openPairingSessions(world.flowOf(a))).map(
+      (s) => s.session,
+    );
+    expect(open).toEqual([personal.session]);
+  } finally {
+    await world.stop();
+  }
+});
+
+it("review r3: a personal flow cut short by a crash, its marker left, is still not taken for J", async () => {
+  const { world, a, connect } = await withoutJ();
+  try {
+    // A crash inside Add my other device: the marker stays, its session exists.
+    const stored = (await a.runtime.localState.get(ATTEMPT_KEY)) as Attempt;
+    const f = world.flowOf(a);
+    await a.runtime.localState.put(ATTEMPT_KEY, { ...stored, othersSince: f.now() });
+    const made = await SDK_IDENTITY_FLOWS.createPairingSession(f);
+    if (made.kind !== "created") throw new Error(JSON.stringify(made));
+    const t = await connect.tick();
+    expect(t?.session).toBeDefined();
+    expect(t?.session).not.toBe(made.session);
+    expect(t?.sessionsBefore).toContain(made.session);
+  } finally {
+    await world.stop();
+  }
 });

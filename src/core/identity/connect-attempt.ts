@@ -77,6 +77,12 @@ export interface Attempt {
    * crash between its creation and the journal.
    */
   readonly sessionsBefore?: readonly string[];
+  /**
+   * Set while "Add my other device…" runs and this attempt has no J yet (review r3): the
+   * sessions made since are personal, recorded in `sessionsBefore`, never taken for J,
+   * also after a crash that left this set.
+   */
+  readonly othersSince?: number;
   readonly message?: string;
 }
 
