@@ -152,7 +152,10 @@ export interface ConnectView {
   readonly actions: readonly ConnectAction[];
 }
 
-/** The texts of U П1 for a state; `offline` while the server cannot be reached after [Yes]. */
+/**
+ * The texts of U П1 for a state; `offline` while the server cannot be reached
+ * (after [Yes], or when the link for LFCP Bridge could not be made: retried).
+ */
 export function connectView(
   a: Pick<Attempt, "state" | "message" | "aborting"> | undefined,
   o: { readonly code?: string; readonly offline?: boolean } = {},
@@ -170,6 +173,7 @@ export function connectView(
         lines: [
           "Waiting for LFCP Bridge…",
           "If it isn't installed yet: download it, open it, and come back — we'll continue automatically.",
+          ...(o.offline === true ? [OFFLINE_LINK] : []),
         ],
         actions: ["download", "open-again", "cancel", "other-ways", "copy-link"],
       };
@@ -227,6 +231,17 @@ export function connectView(
       };
   }
 }
+
+/** The link for LFCP Bridge could not be made (the server is not reached): tried again. */
+export const OFFLINE_LINK = "Can't reach the server right now — trying again.";
+
+/** [Copy link] done: where the link goes (U П1, "another device"). */
+export const LINK_COPIED =
+  "Shared Tasks: link copied. Send it to your Mac, then choose LFCP Bridge menu → Paste connection link.";
+
+/** [Copy link] failed: the clipboard refused it (the link is never shown). */
+export const COPY_FAILED =
+  "Shared Tasks: the link could not be copied. Allow Obsidian to use the clipboard, then try Copy link again.";
 
 /** The steps of the "another device" path (U П1, mockups/plugin.md §1). */
 export const OTHER_DEVICE_STEPS = [

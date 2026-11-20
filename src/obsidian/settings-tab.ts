@@ -7,7 +7,15 @@
 // Resource). Neither the Principal nor its keys are shown (decision 6);
 // the public Principal ID is available to later UI through runtime.status.
 
-import { type App, PluginSettingTab, type Setting, type SettingDefinitionItem } from "obsidian";
+import {
+  type App,
+  Notice,
+  Platform,
+  PluginSettingTab,
+  type Setting,
+  type SettingDefinitionItem,
+} from "obsidian";
+import { type ConnectAction, OTHER_DEVICE_STEPS } from "../core/identity/connect-attempt";
 import { hiddenHints, SHOW_HINTS } from "../core/pane/hints";
 import { isRefPlacement, isSectionComments } from "../core/settings";
 import type OpenLfcpPlugin from "./plugin";
@@ -51,6 +59,27 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
         searchable: true,
         visible: () => status()?.kind === "ready",
         render: (setting) => this.#devices(setting),
+      },
+      {
+        name: "Apple Reminders",
+        searchable: true,
+        // U П6: on a phone, the status only, once there is one.
+        visible: () =>
+          status()?.kind === "ready" && (!Platform.isMobile || this.plugin.reminders.hasAttempt()),
+        render: (setting) => this.#reminders(setting),
+      },
+      {
+        name: "Connect from another computer",
+        desc: OTHER_DEVICE_STEPS.join(" "),
+        searchable: false,
+        visible: () =>
+          status()?.kind === "ready" &&
+          !Platform.isMobile &&
+          this.plugin.reminders.view().actions.includes("copy-link"),
+        render: (setting) =>
+          setting.addButton((button) =>
+            button.setButtonText("Copy link").onClick(() => void this.plugin.reminders.copyLink()),
+          ),
       },
       {
         name: "Storage may be cleared",
@@ -123,6 +152,53 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
   }
 
   /** LFCP-04-413: the person's devices (IDENTITY-PROFILE-01 §§5–8). */
+  /**
+   * "Connect Apple Reminders" (U П1, mockups/plugin.md §1): the attempt's
+   * text and the buttons of its state; none after [Yes] (A§4.4). The code
+   * to compare leads the text.
+   */
+  #reminders(setting: Setting): void {
+    const reminders = this.plugin.reminders;
+    const view = reminders.view();
+    setting.setDesc([...(view.code === undefined ? [] : [view.code]), ...view.lines].join(" "));
+    if (Platform.isMobile) return;
+    const labels: Partial<Record<ConnectAction, string>> = {
+      connect: reminders.hasAttempt() ? "Connect again" : "Connect Apple Reminders",
+      download: "Download for Mac",
+      "open-again": "Open LFCP Bridge again",
+      cancel: "Cancel",
+      no: "No",
+      yes: "Yes, it matches",
+      "open-devices": "Open Devices",
+      "show-it": "Show it",
+    };
+    const run: Partial<Record<ConnectAction, () => unknown>> = {
+      connect: () => reminders.connect(),
+      download: () => reminders.download(),
+      "open-again": () => reminders.openLink(),
+      cancel: () => reminders.cancel(),
+      no: () => reminders.confirm(false),
+      yes: () => reminders.confirm(true),
+      "open-devices": () => this.plugin.openDevices(),
+      "show-it": () => this.plugin.openDevices(),
+    };
+    // "other-ways" and "copy-link" are the next row ("Connect from another computer").
+    for (const action of view.actions) {
+      const label = labels[action];
+      const act = run[action];
+      if (label === undefined || act === undefined) continue;
+      setting.addButton((button) => {
+        button.setButtonText(label).onClick(() => {
+          // Shared Tasks may stop meanwhile (unload, a restart): said, never thrown away.
+          void Promise.resolve()
+            .then(act)
+            .catch(() => new Notice("Shared Tasks: that didn't work now. Try again in a moment."));
+        });
+        if (action === "yes" || action === "connect") button.setCta();
+      });
+    }
+  }
+
   #devices(setting: Setting): void {
     setting.addButton((button) =>
       button.setButtonText("Your devices…").onClick(() => this.plugin.openDevices()),
