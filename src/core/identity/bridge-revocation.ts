@@ -19,7 +19,7 @@ import {
   type ServiceControlPort,
   type ServiceControlStateView,
 } from "@openlfcp/client";
-import { type PrincipalId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
+import { fromHex, type PrincipalId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import type { ControlState } from "@openlfcp/wire";
 import type { IdentityFlows } from "./flows";
 import { uuid7 } from "./section-pairing";
@@ -102,6 +102,12 @@ export function baseApprovals(
     )
     .map(([ref]) => ref);
 }
+
+/** Whether C's own base approvals name `principal` (hex): where a conflict's base is removed. */
+export const holdsBase = (
+  port: Pick<ServiceControlPort, "resource" | "state" | "creatorsOf">,
+  principal: string,
+) => baseApprovals(port, port.resource).includes(principalRefOf(fromHex(principal) as PrincipalId));
 
 /**
  * A§3.1: two non-revoked base approvals — no one is `service` of this C (its

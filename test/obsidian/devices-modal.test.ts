@@ -459,6 +459,117 @@ describe("Your devices…", () => {
     m.close();
   });
 
+  it("r1-1: Disconnect of a bridge reconnected under another C acts on both C", async () => {
+    const C1 = new FakeControl(new Uint8Array(32).fill(8) as ResourceId, id(1));
+    const C2 = new FakeControl(new Uint8Array(32).fill(9) as ResourceId, id(1));
+    for (const [C, n] of [
+      [C1, 4],
+      [C2, 5],
+    ] as const) {
+      C.data.service = { instance: "bridge-a" };
+      C.put("approvals", principalRefOf(id(n)), { role: "section", revoked: false } as never, root);
+    }
+    const started: unknown[] = [];
+    const ports: Record<string, FakeControl> = { ["08".repeat(32)]: C1, ["09".repeat(32)]: C2 };
+    const m = new DevicesModal(
+      new App() as never,
+      service({
+        devices: async () => ({
+          kind: "list",
+          current: true,
+          manages: true,
+          note: null,
+          rows: [
+            row({ principal: "01", first: true, label: "Desk", preset: null, thisDevice: true }),
+            row({ principal: toHex(id(4)), label: "Home", kind: "service", preset: "service" }),
+            row({ principal: toHex(id(5)), label: "Work", kind: "service", preset: "service" }),
+          ],
+        }),
+        unfinished: async () => [],
+        accessStates: async () => [],
+        bridges: async () => [
+          { c: "08".repeat(32), name: "Reminders bridge", port: C1, pending: [] },
+          { c: "09".repeat(32), name: "Reminders bridge", port: C2, pending: [] },
+        ],
+        controlPort: async (c: string) => ports[c],
+        bridgeRevocations: () => ({
+          start: async (port: unknown) => started.push(port),
+          disconnect: async () => ({ state: "done" }),
+          tick: async () => undefined,
+        }),
+      }),
+      () => undefined,
+    );
+    m.open();
+    await settle();
+    const el = m.contentEl as unknown as FakeElement;
+    expect(el.findAll("button").filter((b) => b.text === "Disconnect…")).toHaveLength(1);
+    button(el, "Disconnect…").click();
+    await settle();
+    const d = modals[modals.length - 1]?.contentEl as unknown as FakeElement;
+    button(d, "Disconnect").click();
+    await settle();
+    expect(started).toEqual([C1, C2]);
+    modals[modals.length - 1]?.close();
+    m.close();
+  });
+
+  it("r1-1: a conflict's base is removed in the C that holds it, also when it is not the first", async () => {
+    const C1 = new FakeControl(new Uint8Array(32).fill(8) as ResourceId, id(1));
+    const Cid = new Uint8Array(32).fill(9) as ResourceId;
+    const C2 = new FakeControl(Cid, id(1));
+    for (const C of [C1, C2]) C.data.service = { instance: "bridge-a" };
+    for (const n of [4, 5])
+      C2.put(
+        "approvals",
+        principalRefOf(id(n)),
+        { role: "base", resource: toBase64url(Cid), revoked: false } as never,
+        root,
+      );
+    const revoked: unknown[] = [];
+    const ports: Record<string, FakeControl> = { ["08".repeat(32)]: C1, ["09".repeat(32)]: C2 };
+    const m = new DevicesModal(
+      new App() as never,
+      service({
+        devices: async () => ({
+          kind: "list",
+          current: true,
+          manages: true,
+          note: null,
+          rows: [
+            row({ principal: "01", first: true, label: "Desk", preset: null, thisDevice: true }),
+            row({ principal: toHex(id(4)), label: "Mac", kind: "service", preset: "service" }),
+            row({ principal: toHex(id(5)), label: "Mac 2", kind: "service", preset: "service" }),
+          ],
+        }),
+        unfinished: async () => [],
+        accessStates: async () => [],
+        bridges: async () => [
+          { c: "08".repeat(32), name: "Reminders bridge", port: C1, pending: [] },
+          { c: "09".repeat(32), name: "Reminders bridge", port: C2, pending: [] },
+        ],
+        controlPort: async (c: string) => ports[c],
+        bridgeRevocations: () => ({
+          revokeOne: async (port: unknown, P: PrincipalId) => (
+            revoked.push([port, toHex(P)]), null
+          ),
+        }),
+      }),
+      () => undefined,
+    );
+    m.open();
+    await settle();
+    const el = m.contentEl as unknown as FakeElement;
+    el.findAll("button")
+      .filter((b) => b.text === "Remove this connection…")[0]
+      ?.click();
+    await settle();
+    button(modals[modals.length - 1]?.contentEl as unknown as FakeElement, "Remove").click();
+    await settle();
+    expect(revoked).toEqual([[C2, toHex(id(4))]]);
+    m.close();
+  });
+
   it("two base approvals: the conflict is shown, each base may be removed by its record (A§3.1)", async () => {
     const Cid = new Uint8Array(32).fill(9) as ResourceId;
     const C = new FakeControl(Cid, id(1));

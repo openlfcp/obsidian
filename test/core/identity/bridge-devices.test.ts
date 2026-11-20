@@ -5,7 +5,13 @@
 import { principalRefOf } from "@openlfcp/client";
 import { type PrincipalId, type ResourceId, toHex } from "@openlfcp/core";
 import { expect, it } from "vitest";
-import { bridgeGroups, bridgeLine, pendingLine } from "../../../src/core/identity/bridge-devices";
+import {
+  bridgeControlsOf,
+  bridgeGroups,
+  bridgeLine,
+  groupDisconnect,
+  pendingLine,
+} from "../../../src/core/identity/bridge-devices";
 import type { DeviceRow } from "../../../src/core/identity/device-list";
 import { FakeControl } from "../../support/fake-control";
 
@@ -75,4 +81,22 @@ it("groups by bridgeInstanceId across control Resources; others stay as they are
     "Reminders bridge · MacBook Air — 2 sections · 0.6.0 · last heard 3 min ago",
   );
   expect(pendingLine("Home")).toBe("Pending connection for “Home”.");
+});
+
+it("r1-1: Disconnect of a bridge takes every C of it; its steps read as one", () => {
+  const a1 = control(1, "bridge-a", [[2, "base"]]);
+  const a2 = control(2, "bridge-a", [[5, "section"]]);
+  const b = control(3, "bridge-b", [[6, "base"]]);
+  expect(bridgeControlsOf([a1, a2, b], a2.c)).toEqual([a1.c, a2.c]);
+  expect(bridgeControlsOf([a1, a2, b], b.c)).toEqual([b.c]);
+  const d = (state: "removing" | "silent" | "revoking" | "done" | "failed") => ({
+    c: "c",
+    startedAt: 0,
+    requests: [],
+    state,
+  });
+  expect(groupDisconnect([d("done"), d("removing")])?.state).toBe("removing");
+  expect(groupDisconnect([d("done"), d("silent"), d("removing")])?.state).toBe("silent");
+  expect(groupDisconnect([d("done"), d("done")])?.state).toBe("done");
+  expect(groupDisconnect([d("done"), undefined])).toBeUndefined();
 });

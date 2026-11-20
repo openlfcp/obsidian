@@ -172,3 +172,24 @@ export function disconnectView(d: Disconnect | undefined): {
       };
   }
 }
+
+/**
+ * The control Resources (hex) of the bridge C belongs to (by `service.instance`, as
+ * bridgeGroups groups them): Disconnect is of the whole bridge (U П5), every C of it.
+ */
+export function bridgeControlsOf(controls: readonly BridgeControl[], c: string): string[] {
+  const instance = (b: BridgeControl) => {
+    const service = (b.port.state() as { service?: { instance?: unknown } } | undefined)?.service;
+    return text(service?.instance) ?? b.c;
+  };
+  const mine = controls.find((b) => b.c === c);
+  if (mine === undefined) return [c];
+  return controls.filter((b) => instance(b) === instance(mine)).map((b) => b.c);
+}
+
+/** The Disconnect of a bridge with several C, as one: what still needs the human comes first. */
+export function groupDisconnect(ds: readonly (Disconnect | undefined)[]): Disconnect | undefined {
+  const rank = (d: Disconnect | undefined): number =>
+    d === undefined ? 2 : { failed: 0, silent: 1, removing: 3, revoking: 4, done: 5 }[d.state];
+  return ds.reduce((a, b) => (rank(b) < rank(a) ? b : a), ds[0]);
+}

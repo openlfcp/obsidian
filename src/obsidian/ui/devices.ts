@@ -23,10 +23,12 @@ import {
   DISCONNECT_CONFIRM,
   type DisconnectAction,
   disconnectView,
+  groupDisconnect,
   OLDER_DEVICE,
   olderDevices,
   pendingLine,
 } from "../../core/identity/bridge-devices";
+import { holdsBase } from "../../core/identity/bridge-revocation";
 import {
   type DeviceRow,
   deviceLine,
@@ -543,12 +545,12 @@ export class DevicesModal extends Modal {
           const hex = toHex(fromBase64url(p.binding));
           this.#pending(el, p, names?.resource(hex) ?? p.binding, list.manages);
         }
-        const c = g.controls[g.controls.length - 1];
-        if (list.manages && c !== undefined)
+        // Every C of the bridge (a reconnect makes another): Disconnect is of all its sections.
+        if (list.manages)
           buttonRow(el)
             .createEl("button", { text: "Disconnect…", cls: "mod-warning" })
             .addEventListener("click", () => {
-              const d = new DisconnectBridgeModal(this.app, this.service, c, g.name, () =>
+              const d = new DisconnectBridgeModal(this.app, this.service, g.controls, g.name, () =>
                 this.#render(),
               );
               returnsFocus(d).open();
@@ -639,13 +641,13 @@ export class DevicesModal extends Modal {
       confirm: "Remove",
       run: async () => {
         let message: string | null = "This Mac's connections can't be read here now. Try again.";
+        const P = fromHex(row.principal) as PrincipalId;
+        // The C whose own base approval names it (each C of the group is looked at).
         for (const c of g.controls) {
           const port = await this.service.controlPort(c);
-          if (port === undefined) continue;
-          message = await this.service
-            .bridgeRevocations()
-            .revokeOne(port, fromHex(row.principal) as PrincipalId);
-          if (message === null) break;
+          if (port === undefined || !holdsBase(port, row.principal)) continue;
+          message = await this.service.bridgeRevocations().revokeOne(port, P);
+          break;
         }
         if (message !== null) new Notice(`Shared Tasks: ${message}`);
         await this.#render();
@@ -899,7 +901,8 @@ export class DisconnectBridgeModal extends Modal {
   constructor(
     app: App,
     private readonly service: DeviceService,
-    private readonly c: string,
+    /** Every C (hex) of the bridge. */
+    private readonly controls: readonly string[],
     private readonly name: string,
     private readonly done: () => unknown,
   ) {
@@ -926,21 +929,21 @@ export class DisconnectBridgeModal extends Modal {
     ) => Promise<unknown>,
   ): Promise<void> {
     this.#show(undefined);
-    const port = await this.service.controlPort(this.c);
-    if (port === undefined) {
+    const ports = await Promise.all(this.controls.map((c) => this.service.controlPort(c)));
+    if (ports.some((p) => p === undefined)) {
       this.#message("This Mac's connection can't be read here now. Try again later.");
       return;
     }
     const r = this.service.bridgeRevocations();
     // Not reached now (C, the server): the journaled step goes on at the plugin's tick.
-    await step(r, port).catch(() => undefined);
+    for (const port of ports) if (port !== undefined) await step(r, port).catch(() => undefined);
     await this.#refresh();
   }
 
   async #refresh(): Promise<void> {
     if (this.#closed) return;
     const r = this.service.bridgeRevocations();
-    const d = await r.disconnect(this.c);
+    const d = groupDisconnect(await Promise.all(this.controls.map((c) => r.disconnect(c))));
     this.#show(d);
     if (d === undefined || d.state === "removing" || d.state === "revoking")
       this.#timer = window.setTimeout(() => {
@@ -981,10 +984,9 @@ export class DisconnectBridgeModal extends Modal {
         if (action === "disconnect-anyway") void this.#run((r, port) => r.anyway(port));
         else if (action === "try-again") void this.#run((r, port) => r.start(port));
         else if (action === "cancel")
-          void this.service
-            .bridgeRevocations()
-            .forget(this.c)
-            .then(() => this.close());
+          void Promise.all(
+            this.controls.map((c) => this.service.bridgeRevocations().forget(c)),
+          ).then(() => this.close());
         else this.close();
       });
     }

@@ -46,6 +46,7 @@ import {
   safeEvent,
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
+import { bridgeControlsOf } from "../core/identity/bridge-devices";
 import {
   ALIASES_KEY,
   aliasesOf,
@@ -1583,9 +1584,12 @@ export default class OpenLfcpPlugin extends Plugin {
   async disconnectBridge(c: string): Promise<void> {
     const service = this.#readyDevices();
     if (service === null) return;
-    const bridge = (await service.bridges().catch(() => [])).find((b) => b.c === c);
-    const name = bridge?.name ?? "Reminders bridge";
-    returnsFocus(new DisconnectBridgeModal(this.app, service, c, name, () => undefined)).open();
+    const bridges = await service.bridges().catch(() => []);
+    const name = bridges.find((b) => b.c === c)?.name ?? "Reminders bridge";
+    // The whole bridge, every C of it (U П5); the settings follow its end ("Connect again").
+    const controls = bridgeControlsOf(bridges, c);
+    const done = () => void this.reminders.tick().catch(() => undefined);
+    returnsFocus(new DisconnectBridgeModal(this.app, service, controls, name, done)).open();
   }
 
   /** "Pair this device with a link…" (§5.3 steps 2–3, 8, 11). */
