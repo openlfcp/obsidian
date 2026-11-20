@@ -4,8 +4,8 @@
 // shows its preview first; the new device shows its fingerprint and the
 // sections it got.
 
-import { PairingLinkText, type PairingReview } from "@openlfcp/client";
-import type { PrincipalId } from "@openlfcp/core";
+import { PairingLinkText, type PairingReview, principalRefOf } from "@openlfcp/client";
+import { type PrincipalId, type ResourceId, toBase64url, toHex } from "@openlfcp/core";
 import { describe, expect, it, vi } from "vitest";
 import type { DeviceRow } from "../../src/core/identity/device-list";
 import type { DeviceService } from "../../src/core/identity/service";
@@ -13,6 +13,7 @@ import OpenLfcpPlugin from "../../src/main";
 import { AddDeviceModal, DevicesModal, PairThisDeviceModal } from "../../src/obsidian/ui/devices";
 import * as mock from "../mocks/obsidian";
 import { App, type FakeElement, modals } from "../mocks/obsidian";
+import { FakeControl } from "../support/fake-control";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const settle = async () => {
@@ -45,6 +46,8 @@ const review: PairingReview = {
 };
 
 const names = { resource: () => "Plans", device: () => "Laptop" };
+const id = (n: number) => new Uint8Array(32).fill(n) as PrincipalId;
+const root = { signer: id(1), writerClass: "root" as const };
 
 function service(o: Partial<Record<keyof DeviceService, unknown>>): DeviceService {
   return { names: async () => names, ...o } as unknown as DeviceService;
@@ -322,6 +325,77 @@ describe("Your devices…", () => {
     );
     expect(button(d, "Disconnect")).toBeDefined();
     dialog?.close();
+    m.close();
+  });
+
+  it("groups a bridge's installations under its line, with Pending connection [Cancel] (E-023, U П5)", async () => {
+    const C = new FakeControl(new Uint8Array(32).fill(9) as ResourceId, id(1));
+    C.data.service = { instance: "bridge-a", app: "0.6.0" };
+    const ref = (n: number) => principalRefOf(id(n));
+    C.put("approvals", ref(4), { role: "base", revoked: false } as never, root);
+    C.put("approvals", ref(5), { role: "section", revoked: false } as never, root);
+    const pending = {
+      rid: "r1",
+      binding: toBase64url(new Uint8Array(32).fill(7)),
+      pairingDevice: id(6),
+      c: "c",
+    };
+    const cancelled: unknown[] = [];
+    const m = new DevicesModal(
+      new App() as never,
+      service({
+        devices: async () => ({
+          kind: "list",
+          current: true,
+          manages: true,
+          note: null,
+          rows: [
+            row({ principal: "01", first: true, label: "Desk", preset: null, thisDevice: true }),
+            row({
+              principal: toHex(id(4)),
+              label: "MacBook Air",
+              kind: "service",
+              preset: "service",
+            }),
+            row({
+              principal: toHex(id(5)),
+              label: "MacBook Air · Home",
+              kind: "service",
+              preset: "service",
+            }),
+          ],
+        }),
+        unfinished: async () => [],
+        upkeep: async () => ({
+          reconciled: true,
+          rotations: [],
+          issues: [],
+          offline: false,
+          summary: "",
+        }),
+        accessStates: async () => [],
+        bridges: async () => [
+          {
+            c: "09".repeat(32),
+            name: "Reminders bridge · MacBook Air",
+            port: C,
+            pending: [pending],
+          },
+        ],
+        sectionPairings: () => ({
+          cancelPending: async (...a: unknown[]) => (cancelled.push(a), true),
+        }),
+      }),
+      () => undefined,
+    );
+    m.open();
+    await settle();
+    const el = m.contentEl as unknown as FakeElement;
+    expect(el.textContent).toContain("Reminders bridge · MacBook Air — 1 section · 0.6.0");
+    expect(el.textContent).toContain("Pending connection for “Plans”.");
+    button(el, "Cancel").click();
+    await settle();
+    expect(cancelled).toHaveLength(1);
     m.close();
   });
 

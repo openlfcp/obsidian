@@ -86,6 +86,7 @@ import {
   type InviteProfile,
 } from "../collab/service";
 import type { CollaborationContext, RegistryEntry } from "../lfcp/runtime";
+import type { BridgeControl } from "./bridge-devices";
 import { firstPairingWarning, type PairingWarning, pairingSections } from "./compat";
 import { BridgeConnect } from "./connect";
 import { type DeviceRow, deviceRows } from "./device-list";
@@ -120,7 +121,7 @@ import {
 import { DEVICE_LABELS_KEY, deviceLabelsOf, fingerprintOf, shortId } from "./people";
 import { UNIT_PROFILES } from "./profiles";
 import type { RosterAdd, RosterWriter } from "./roster";
-import { SectionPairings } from "./section-pairing";
+import { pendingConnections, SectionPairings } from "./section-pairing";
 
 /** The pairing request of this device until every section it brought is opened here (P2-5). */
 const PAIRING_KEY = "identity-pairing-request";
@@ -1805,6 +1806,28 @@ export class DeviceService {
       finishApproval: (operation, l) => this.finishApproval(operation, l),
     });
     return this.#connector;
+  }
+
+  /**
+   * The bridges of the person's roster for the device list (U П5, E-023): each
+   * control Resource C open here, with its pending section connections.
+   */
+  async bridges(): Promise<BridgeControl[]> {
+    const runtime = this.#runtime();
+    const I = await this.identity();
+    if (I === undefined) return [];
+    await this.#openControls(this.#flow()).catch(() => undefined);
+    const chain = await loadControlChain(this.#context().storage, I);
+    if (chain?.kind !== "linear") return [];
+    const root = chain.state.owner.principalId;
+    const revoked = (J: PrincipalId) => revocationOf(chain.state, root, J) !== undefined;
+    const out: BridgeControl[] = [];
+    for (const [c, name] of this.#controlNames) {
+      const port = runtime.controlPort?.(fromHex(c) as ResourceId);
+      if (port !== undefined)
+        out.push({ c, name, port, pending: pendingConnections(port, revoked) });
+    }
+    return out;
   }
 
   #sectionPairings: SectionPairings | null = null;
