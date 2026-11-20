@@ -46,6 +46,7 @@ import {
   safeEvent,
 } from "../core/diagnostics";
 import { collectDiagnostics } from "../core/diagnostics-collect";
+import { bridgeControlsOf } from "../core/identity/bridge-devices";
 import {
   ALIASES_KEY,
   aliasesOf,
@@ -79,7 +80,12 @@ import { sectionPresentationExtension, setShowMetadata } from "./section-present
 import { captureEditor, editorMode } from "./section-target";
 import { SectionsHost } from "./sections-host";
 import { OpenLfcpSettingTab } from "./settings-tab";
-import { AddDeviceModal, DevicesModal, PairThisDeviceModal } from "./ui/devices";
+import {
+  AddDeviceModal,
+  DevicesModal,
+  DisconnectBridgeModal,
+  PairThisDeviceModal,
+} from "./ui/devices";
 import { DiagnosticsModal } from "./ui/diagnostics";
 import { returnsFocus } from "./ui/focus-return";
 import {
@@ -1485,6 +1491,11 @@ export default class OpenLfcpPlugin extends Plugin {
     open: (url) => window.open(url),
     copy: (text) => navigator.clipboard.writeText(text),
     changed: () => this.#settingTab?.update(),
+    // E-024: the connected bridge disconnected here since (its Disconnect journaled as done).
+    disconnected: async (c) => {
+      const service = this.runtime?.status.kind === "ready" ? this.deviceService() : null;
+      return (await service?.bridgeRevocations().disconnect(c))?.state === "done";
+    },
   });
 
   /** The attempt's first step at once when ready (after a restart too), then every few seconds. */
@@ -1492,11 +1503,17 @@ export default class OpenLfcpPlugin extends Plugin {
     const step = () => {
       void this.reminders.tick().catch(() => undefined);
       // Section pairings under way (A§4.3, E-023): nothing is asked of the server without one.
-      if (this.runtime?.status.kind === "ready")
+      if (this.runtime?.status.kind === "ready") {
         void this.deviceService()
           ?.sectionPairings()
           .tick()
           .catch(() => undefined);
+        // A§5.3 (b), A§6.3: lifecycle of each bridge's C, and Disconnects under way (E-024).
+        void this.deviceService()
+          ?.bridgeRevocations()
+          .tick()
+          .catch(() => undefined);
+      }
     };
     step();
     if (this.#connectEvery !== null) window.clearInterval(this.#connectEvery);
@@ -1566,6 +1583,18 @@ export default class OpenLfcpPlugin extends Plugin {
     const service = this.#readyDevices();
     if (service === null) return;
     returnsFocus(new DevicesModal(this.app, service, () => void this.addDevice())).open();
+  }
+
+  /** [Disconnect…] of the bridge connected here (U П1, E-024). */
+  async disconnectBridge(c: string): Promise<void> {
+    const service = this.#readyDevices();
+    if (service === null) return;
+    const bridges = await service.bridges().catch(() => []);
+    const name = bridges.find((b) => b.c === c)?.name ?? "Reminders bridge";
+    // The whole bridge, every C of it (U П5); the settings follow its end ("Connect again").
+    const controls = bridgeControlsOf(bridges, c);
+    const done = () => void this.reminders.tick().catch(() => undefined);
+    returnsFocus(new DisconnectBridgeModal(this.app, service, controls, name, done)).open();
   }
 
   /** "Pair this device with a link…" (§5.3 steps 2–3, 8, 11). */

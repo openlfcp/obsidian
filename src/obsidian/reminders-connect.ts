@@ -35,6 +35,8 @@ export interface RemindersHost {
   copy(text: string): Promise<void>;
   /** The view changed: the settings section renders again. */
   changed(): void;
+  /** Whether the bridge of C (hex) was disconnected here since (E-024): the attempt no longer stands. */
+  disconnected?(c: string): Promise<boolean>;
 }
 
 export class RemindersConnect {
@@ -46,6 +48,8 @@ export class RemindersConnect {
   /** The link is still to be opened for LFCP Bridge (it could not be made yet). */
   #pendingOpen = false;
   #loaded = false;
+  /** The connected attempt's bridge was disconnected since: "Connect again" (E-024). */
+  #disconnected = false;
 
   constructor(host: RemindersHost) {
     this.#host = host;
@@ -53,6 +57,8 @@ export class RemindersConnect {
 
   /** The state, text and actions of the section (U П1). */
   view(): ConnectView & { readonly state: Attempt["state"] | undefined } {
+    if (this.#attempt?.state === "ready" && this.#disconnected)
+      return { ...connectView(undefined), state: undefined };
     return {
       ...connectView(this.#attempt, {
         ...(this.#code === undefined ? {} : { code: this.#code }),
@@ -62,12 +68,18 @@ export class RemindersConnect {
     };
   }
 
+  /** The control Resource C (hex) of the attempt, for [Disconnect…] once it is connected. */
+  control(): string | undefined {
+    return this.#attempt?.c;
+  }
+
   /** Whether an attempt was made here before ("Connect again" rather than "Connect"). */
   hasAttempt(): boolean {
     return this.#attempt !== undefined;
   }
 
   #set(c: BridgeConnect, a: Attempt | undefined): void {
+    if (a?.c !== this.#attempt?.c) this.#disconnected = false;
     this.#attempt = a;
     this.#code = c.code();
     this.#host.changed();
@@ -84,6 +96,13 @@ export class RemindersConnect {
     if (!this.#loaded) {
       this.#loaded = true;
       this.#set(c, await c.attempt());
+    }
+    if (this.#attempt?.state === "ready") {
+      const disconnected = (await this.#host.disconnected?.(this.#attempt.c)) === true;
+      if (disconnected !== this.#disconnected) {
+        this.#disconnected = disconnected;
+        this.#host.changed();
+      }
     }
     if (this.#attempt === undefined || !ACTIVE.has(this.#attempt.state)) return;
     try {

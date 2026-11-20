@@ -55,16 +55,16 @@ describe("device list", () => {
     expect(bridge && deviceLine(bridge)).toBe(`${fingerprintOf(P("BRIDGE"))} (Service)`);
   });
 
-  it("a service device (a bridge or bot) says what it is, and is disconnected rather than removed (P-050)", () => {
+  it("a service device (a bridge or bot) says what it is; one outside a bridge is removed like any device (P-050, E17)", () => {
     const rows = deviceRows(stateOfX(), P("BOB"), { [P("BRIDGE")]: "Mac bridge" }, BOB);
     const bridge = rows.find((r) => name.get(r.principal) === "BRIDGE");
     if (bridge === undefined) throw new Error("no bridge row");
     expect(deviceNote(bridge)).toMatch(/bridge or bot/);
     const words = removalWords(bridge);
     expect(words).toMatchObject({
-      button: "Disconnect…",
-      title: 'Disconnect "Mac bridge"',
-      confirm: "Disconnect",
+      button: "Remove device…",
+      title: 'Remove "Mac bridge"',
+      confirm: "Remove device",
     });
     expect(words.note).toMatch(/stops syncing/);
     expect(words.note).toMatch(/reminders .*stay/i);

@@ -171,6 +171,7 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       yes: "Yes, it matches",
       "open-devices": "Open Devices",
       "show-it": "Show it",
+      disconnect: "Disconnect…",
     };
     const run: Partial<Record<ConnectAction, () => unknown>> = {
       connect: () => reminders.connect(),
@@ -181,6 +182,10 @@ export class OpenLfcpSettingTab extends PluginSettingTab {
       yes: () => reminders.confirm(true),
       "open-devices": () => this.plugin.openDevices(),
       "show-it": () => this.plugin.openDevices(),
+      disconnect: () => {
+        const c = reminders.control();
+        return c === undefined ? undefined : this.plugin.disconnectBridge(c);
+      },
     };
     // "other-ways" and "copy-link" are the next row ("Connect from another computer").
     for (const action of view.actions) {

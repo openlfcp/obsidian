@@ -179,11 +179,13 @@ export function removalWords(row: DeviceRow): {
   readonly confirm: string;
   readonly note: string | null;
 } {
+  // A bridge of 0.6 is disconnected with its group (A§5.3); a service device here is
+  // an older one (0.5, E17), removed like any device.
   if (row.kind === "service")
     return {
-      button: "Disconnect…",
-      title: `Disconnect "${row.label}"`,
-      confirm: "Disconnect",
+      button: "Remove device…",
+      title: `Remove "${row.label}"`,
+      confirm: "Remove device",
       note: "It stops syncing these sections for good. What it already wrote stays: the reminders of a Reminders bridge (experimental) stay in Apple Reminders as yours. To connect it again, pair it as a new service.",
     };
   return {

@@ -25,6 +25,7 @@ export interface FakeControlState {
   bindings: Record<string, unknown>;
   service?: Record<string, unknown>;
   status?: Record<string, unknown>;
+  lifecycle?: Record<string, unknown>;
 }
 
 export class FakeControl implements ServiceControlPort {
@@ -45,6 +46,8 @@ export class FakeControl implements ServiceControlPort {
    */
   answer: "acknowledged" | "queued" | "offline" = "acknowledged";
   synchronised = true;
+  /** When set, a commit whose intents include this intent is refused with `code` and changes nothing. */
+  refuse: { readonly intent: string; readonly code: string } | undefined;
 
   constructor(
     readonly resource: ResourceId,
@@ -104,6 +107,9 @@ export class FakeControl implements ServiceControlPort {
     if (known !== undefined && known !== hash) throw new OperationIdReusedError(operation);
     if (this.answer === "offline") throw new Error("C is not reachable");
     if (known === undefined) this.receipts.set(operation, hash);
+    const refuse = this.refuse;
+    if (refuse !== undefined && list.some((i) => i.intent === refuse.intent))
+      return { kind: "rejected", code: refuse.code };
     if (this.answer === "queued") return { kind: "queued" };
     if (this.#applied.has(operation)) return { kind: "acknowledged" };
     this.#applied.add(operation);
@@ -116,6 +122,11 @@ export class FakeControl implements ServiceControlPort {
         this.put("requests", rid, i.request as never, by);
       } else if (i.intent === "cancel.create") {
         this.put("cancels", String(i.rid), i.cancel as never, by);
+      } else if (i.intent === "approval.revoke") {
+        const a = this.data.approvals[String(i.principal)];
+        if (a === undefined || a.revoked) return { kind: "rejected", code: "ONCE" };
+        a.revoked = true;
+        a.revokedAt = i.at;
       } else if (i.intent === "approval.create") {
         const a = i.approval as { principal: string };
         this.put("approvals", a.principal, { ...a, revoked: false } as never, by);
