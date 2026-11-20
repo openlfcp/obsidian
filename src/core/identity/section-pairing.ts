@@ -407,7 +407,10 @@ export class SectionPairings {
   /**
    * The periodic step (and on every push of I or C): the request written,
    * the bridge's records re-checked by the SDK (approve, wait, or cancel
-   * with mismatch / expired), an approval carried on, a cancel finished.
+   * with mismatch), an approval carried on, a cancel finished. The local
+   * deadline comes first, before the request's ACK is looked for again:
+   * past it nothing new is consumed, and #abort writes `cancels/<rid>`
+   * whether or not the request's ACK reached this device.
    */
   tick(): Promise<Readonly<Record<string, SectionPairing>>> {
     return this.#serial(async () => {
@@ -519,7 +522,12 @@ export class SectionPairings {
 
   /**
    * J_X revoked (reason 0, I rotated by the SDK), then `cancels[rid] = {reason:
-   * user|expired}`; journaled first so a restart finishes it. A consumed J_X carries on (A§4.4).
+   * user|expired}` whenever J_X exists: the request may be in C although its ACK
+   * never reached this device (a crash, a lost answer), and a cancel the host sees
+   * with or before its request is harmless (A§3.3). Done once C acknowledges or
+   * refuses it; otherwise `aborting` stays and the next tick writes it again under
+   * the same operation. Journaled first so a restart finishes it. A consumed J_X
+   * carries on (A§4.4).
    */
   async #abort(
     p: SectionPairing,
@@ -545,7 +553,7 @@ export class SectionPairings {
       }
       if (r.kind !== "cancelled" && r.kind !== "document-incomplete") return next;
     }
-    if (next.requested === true) {
+    if (next.requested === true || next.session !== undefined) {
       const port = await this.#d.control(fromHexC(next.c));
       const reason = to === "expired" ? "expired" : "user";
       const w = await port

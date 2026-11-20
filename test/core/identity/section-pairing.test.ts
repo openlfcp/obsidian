@@ -458,3 +458,40 @@ it("R2-3: Pending [Cancel] of another device's request is finished after a resta
   await pairingsOf(w.a, w.control).tick();
   expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "user" });
 });
+
+// Round 3 (arbiter of obsidian#123): request.create accepted in C, `requested` not journaled
+// (a crash or a lost ACK), the next start after the local deadline.
+
+async function lostAckPastDeadline(w: World, p: SectionPairing) {
+  const { requested: _, ...rest } = p;
+  await w.a.runtime.localState.put(SECTIONS_KEY, {
+    [p.c]: { ...rest, createdAt: p.createdAt - ATTEMPT_DEADLINE_MS - 1 },
+  });
+  expect(w.control.data.requests[p.rid]).toBeDefined();
+}
+
+it("R3-1: a request accepted in C whose ACK was lost is cancelled in C after the deadline", async () => {
+  const w = await setup();
+  const { p, link } = await started(w);
+  const bridge = await ask(w, link);
+  pairingRecord(w, p, await review(w, p), service(bridge));
+  await lostAckPastDeadline(w, p);
+  const restarted = pairingsOf(w.a, w.control);
+  expect((await restarted.tick())[p.c]?.state).toBe("expired");
+  expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "expired" });
+  expect(await openSessions(w.a)).not.toContain(p.session);
+  expect(granted(w.I, toHex(idOf(bridge)))).toBe(false);
+});
+
+it("R3-1: with C unreachable on the first tick, the cancel in C is finished once C is back", async () => {
+  const w = await setup();
+  const { p } = await started(w);
+  await lostAckPastDeadline(w, p);
+  w.control.answer = "offline";
+  const first = (await pairingsOf(w.a, w.control).tick())[p.c];
+  expect(first?.aborting).toBe("expired");
+  expect(w.control.data.cancels[p.rid]).toBeUndefined();
+  w.control.answer = "acknowledged";
+  expect((await pairingsOf(w.a, w.control).tick())[p.c]?.state).toBe("expired");
+  expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "expired" });
+});
