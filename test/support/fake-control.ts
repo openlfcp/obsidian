@@ -25,6 +25,7 @@ export interface FakeControlState {
   bindings: Record<string, unknown>;
   service?: Record<string, unknown>;
   status?: Record<string, unknown>;
+  lifecycle?: Record<string, unknown>;
 }
 
 export class FakeControl implements ServiceControlPort {
@@ -116,6 +117,11 @@ export class FakeControl implements ServiceControlPort {
         this.put("requests", rid, i.request as never, by);
       } else if (i.intent === "cancel.create") {
         this.put("cancels", String(i.rid), i.cancel as never, by);
+      } else if (i.intent === "approval.revoke") {
+        const a = this.data.approvals[String(i.principal)];
+        if (a === undefined || a.revoked) return { kind: "rejected", code: "ONCE" };
+        a.revoked = true;
+        a.revokedAt = i.at;
       } else if (i.intent === "approval.create") {
         const a = i.approval as { principal: string };
         this.put("approvals", a.principal, { ...a, revoked: false } as never, by);
