@@ -463,3 +463,34 @@ it("review r3: a personal flow cut short by a crash, its marker left, is still n
     await world.stop();
   }
 });
+
+// Arbiter round 5 (obsidian#121, on e82c5da): the marker does not lean on the clock.
+it("review r4 probe: a backward wall-clock correction does not expose personal P to cancel", async () => {
+  const { world, a, connect } = await withoutJ();
+  const realNow = Date.now.bind(Date);
+  let shifted = false;
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() - (shifted ? 60_000 : 0));
+  const state = a.runtime.localState;
+  const put = state.put.bind(state);
+  const writes = vi.spyOn(state, "put").mockImplementation(async (key, value) => {
+    await put(key, value);
+    if (key === ATTEMPT_KEY && (value as Attempt).othersSince !== undefined) shifted = true;
+  });
+  try {
+    const personal = await a.service.startSession("Desk");
+    if (personal.kind !== "link") throw new Error(JSON.stringify(personal));
+    const t = await connect.tick();
+    await connect.cancel();
+    const open = (await SDK_IDENTITY_FLOWS.openPairingSessions(world.flowOf(a))).map(
+      (s) => s.session,
+    );
+    expect({
+      stolen: t?.session === personal.session,
+      personalStillOpen: open.includes(personal.session),
+    }).toEqual({ stolen: false, personalStillOpen: true });
+  } finally {
+    writes.mockRestore();
+    clock.mockRestore();
+    await world.stop();
+  }
+});

@@ -202,15 +202,12 @@ export class BridgeConnect {
     });
   }
 
-  /** The sessions made since `othersSince` recorded as personal (in `sessionsBefore`). */
+  /** The sessions open when the personal flow ends recorded as personal (in `sessionsBefore`). */
   async #settleOthers(a: Attempt): Promise<Attempt> {
-    const since = a.othersSince;
-    if (since === undefined) return a;
-    const open = await new OperationJournal(this.#d.flow().storage).list({
-      kind: "pairing-session",
-      status: "open",
-    });
-    const theirs = open.filter((op) => op.createdAt >= since).map((op) => op.id);
+    if (a.othersSince === undefined) return a;
+    // The marker is set only with no open session outside sessionsBefore, and J is
+    // never made while it stands: every open session now is personal.
+    const theirs = (await this.#d.flows.openPairingSessions(this.#d.flow())).map((s) => s.session);
     const { othersSince: _, ...rest } = a;
     return this.#save({
       ...rest,
