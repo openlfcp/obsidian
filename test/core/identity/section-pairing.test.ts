@@ -350,3 +350,18 @@ it("Pending connection [Cancel] on another managing device: J_X revoked, cancels
   delete w.control.data.cancels[p.rid];
   expect(pendingConnections(w.control, await id())).toEqual([]);
 });
+
+it("a mismatch whose cancels write is not acknowledged yet is finished on a later tick", async () => {
+  const w = await setup();
+  const { p, link } = await started(w);
+  const bridge = await ask(w, link, [w.Y]);
+  pairingRecord(w, p, await review(w, p), service(bridge));
+  w.control.answer = "queued";
+  expect((await w.pairings.tick())[p.c]?.state).toBe("pairing");
+  expect(w.control.data.cancels[p.rid]).toBeUndefined();
+  // A restart, C reachable again: the SDK's journal finishes the same cancel.
+  w.control.answer = "acknowledged";
+  expect((await pairingsOf(w.a, w.control).tick())[p.c]?.state).toBe("mismatch");
+  expect(w.control.data.cancels[p.rid]).toMatchObject({ reason: "mismatch" });
+  expect(granted(w.I, toHex(idOf(bridge)))).toBe(false);
+});

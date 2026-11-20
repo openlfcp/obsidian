@@ -363,10 +363,11 @@ export class SectionPairings {
       case "cancelled": {
         // Finished once J_X is cancelled and `cancels[rid]` acknowledged (or another hand's);
         // until then the SDK's journal finishes the same cancel on the next call.
-        const done =
-          r.cancel?.kind === "cancelled" || r.cancel?.kind === "document-incomplete"
-            ? r.written === undefined || r.written.kind === "acknowledged"
-            : r.cancel === undefined;
+        const revoked =
+          r.cancel === undefined ||
+          r.cancel.kind === "cancelled" ||
+          r.cancel.kind === "document-incomplete";
+        const done = revoked && (r.written === undefined || r.written.kind === "acknowledged");
         return done ? this.#save({ ...p, state: r.reason, message: r.detail }) : p;
       }
     }
